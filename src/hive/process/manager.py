@@ -1,0 +1,161 @@
+"""Process manager — spawns, tracks, and kills Claude Code agent subprocesses."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from hive.bus.router import MessageRouter
+from hive.models.entity import Entity, EntityState
+from hive.process.claude_session import ClaudeSession
+from hive.process.worktree import WorktreeManager
+
+logger = logging.getLogger(__name__)
+
+
+class ProcessManager:
+    """Manages all Claude Code subprocesses for Hive entities."""
+
+    def __init__(
+        self,
+        router: MessageRouter,
+        worktree_mgr: WorktreeManager | None = None,
+        max_sessions: int = 3,
+    ) -> None:
+        self.router = router
+        self.worktree_mgr = worktree_mgr
+        self.max_sessions = max_sessions
+        self._entities: dict[str, Entity] = {}
+        self._sessions: dict[str, ClaudeSession] = {}
+
+    @property
+    def entities(self) -> dict[str, Entity]:
+        return dict(self._entities)
+
+    @property
+    def active_count(self) -> int:
+        return sum(1 for s in self._sessions.values() if s.is_alive)
+
+    async def spawn_entity(self, entity: Entity, cwd: Path | None = None) -> ClaudeSession:
+        """Spawn a Claude Code subprocess for an entity.
+
+        Loads personality, builds CLI args, creates session, and starts it.
+        """
+        if self.active_count >= self.max_sessions:
+            raise RuntimeError(
+                f"Max concurrent sessions ({self.max_sessions}) reached. Kill an entity first."
+            )
+
+        if entity.name in self._sessions and self._sessions[entity.name].is_alive:
+            raise RuntimeError(f"Entity {entity.name!r} is already running.")
+
+        # Load personality if available
+        entity.load_personality()
+
+        # Build CLI args
+        args = entity.build_cli_args()
+
+        # Transition state
+        entity.transition_to(EntityState.STARTING)
+
+        # Create and start session
+        session = ClaudeSession(args=args, cwd=cwd)
+        try:
+            await session.start()
+            entity.pid = session.pid
+            entity.transition_to(EntityState.RUNNING)
+        except Exception:
+            entity.transition_to(EntityState.ERROR)
+            raise
+
+        # Register in router for message delivery
+        self.router.register(entity.name)
+
+        # Track
+        self._entities[entity.name] = entity
+        self._sessions[entity.name] = session
+
+        logger.info(
+            "Spawned entity %s (role=%s, model=%s, pid=%s)",
+            entity.name,
+            entity.role,
+            entity.model,
+            entity.pid,
+        )
+        return session
+
+    async def send_to_entity(self, entity_name: str, prompt: str) -> str:
+        """Send a prompt to an entity and get the response.
+
+        For MVP, this is one-shot: spawns a new session each time.
+        The session processes the prompt and returns the result.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            raise KeyError(f"Entity {entity_name!r} not found.")
+
+        # For one-shot mode, we create a fresh session for each prompt
+        args = entity.build_cli_args()
+        session = ClaudeSession(args=args)
+        await session.start()
+
+        try:
+            response = await session.send_prompt(prompt)
+        finally:
+            await session.kill()
+
+        return response
+
+    async def kill_entity(self, name: str) -> None:
+        """Kill an entity's subprocess and clean up."""
+        session = self._sessions.get(name)
+        if session:
+            await session.kill()
+            del self._sessions[name]
+
+        entity = self._entities.get(name)
+        if entity:
+            if entity.state == EntityState.RUNNING:
+                entity.transition_to(EntityState.STOPPED)
+            del self._entities[name]
+
+        self.router.unregister(name)
+        logger.info("Killed entity: %s", name)
+
+    async def kill_all(self) -> None:
+        """Gracefully shutdown all entities."""
+        names = list(self._entities.keys())
+        for name in names:
+            await self.kill_entity(name)
+
+    def get_status(self) -> list[dict]:
+        """Return status of all tracked entities."""
+        statuses = []
+        for name, entity in self._entities.items():
+            session = self._sessions.get(name)
+            statuses.append(
+                {
+                    "name": name,
+                    "role": entity.role,
+                    "state": entity.state.value,
+                    "model": entity.model,
+                    "pid": entity.pid,
+                    "alive": session.is_alive if session else False,
+                    "uptime": entity.uptime_seconds,
+                }
+            )
+        return statuses
+
+    async def health_check(self) -> list[str]:
+        """Check which sessions are dead but entities think they're running.
+
+        Returns list of entity names that need attention.
+        """
+        unhealthy: list[str] = []
+        for name, entity in self._entities.items():
+            session = self._sessions.get(name)
+            if entity.state == EntityState.RUNNING and (session is None or not session.is_alive):
+                unhealthy.append(name)
+                entity.transition_to(EntityState.ERROR)
+                logger.warning("Entity %s died unexpectedly", name)
+        return unhealthy
