@@ -9,6 +9,7 @@ import signal
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
+from hive.bus.token_store import TokenStore
 from hive.config import (
     DEFAULT_MAESTRO,
     DEFAULT_MODEL,
@@ -41,11 +42,13 @@ async def main() -> None:
 
     router = MessageRouter(store)
     entity_store = EntityStore(store.pool)
+    token_store = TokenStore(store.pool)
 
     process_manager = ProcessManager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
         entity_store=entity_store,
+        token_store=token_store,
     )
 
     # Restore persisted entities (organizational structure, not running procs)
@@ -79,6 +82,7 @@ async def main() -> None:
             allowed_user_ids=TELEGRAM_ALLOWED_USER_IDS,
             process_manager=process_manager,
             default_maestro=DEFAULT_MAESTRO,
+            token_store=token_store,
         )
         await bridge.start()
         logger.info("Running with Telegram bridge")

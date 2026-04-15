@@ -31,6 +31,7 @@ class ClaudeSession:
         self.pid: int | None = None
         self.started_at: datetime | None = None
         self._session_id: str | None = None
+        self._last_usage: dict | None = None
 
     async def start(self) -> None:
         """Spawn the claude -p subprocess."""
@@ -86,6 +87,23 @@ class ClaudeSession:
                     elif event_type == "result":
                         self._session_id = event.get("session_id")
                         cost_usd = event.get("total_cost_usd")
+                        # Capture the usage sub-object for token tracking.
+                        # Field names match the Anthropic API response; we
+                        # keep only the numeric counts + id + cost, not the
+                        # nested cache_creation / iterations detail.
+                        raw_usage = event.get("usage", {}) or {}
+                        self._last_usage = {
+                            "session_id": self._session_id,
+                            "input_tokens": raw_usage.get("input_tokens", 0),
+                            "output_tokens": raw_usage.get("output_tokens", 0),
+                            "cache_creation_input_tokens": raw_usage.get(
+                                "cache_creation_input_tokens", 0
+                            ),
+                            "cache_read_input_tokens": raw_usage.get(
+                                "cache_read_input_tokens", 0
+                            ),
+                            "cost_usd": cost_usd,
+                        }
                         # Result also contains the full text as fallback
                         result_text = event.get("result", "")
                         if result_text and not text_parts:
@@ -119,6 +137,16 @@ class ClaudeSession:
     def session_id(self) -> str | None:
         """The session ID from the last response, for use with --resume."""
         return self._session_id
+
+    @property
+    def last_usage(self) -> dict | None:
+        """Usage dict from the most recent send_prompt call, if any.
+
+        Keys: session_id, input_tokens, output_tokens,
+        cache_creation_input_tokens, cache_read_input_tokens, cost_usd.
+        None if send_prompt hasn't completed yet or no result event was seen.
+        """
+        return self._last_usage
 
     @property
     def is_alive(self) -> bool:

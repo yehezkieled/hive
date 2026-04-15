@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
+from hive.bus.token_store import TokenStore
 from hive.models.entity import Entity, EntityState
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
@@ -23,11 +24,13 @@ class ProcessManager:
         worktree_mgr: WorktreeManager | None = None,
         max_sessions: int = 3,
         entity_store: EntityStore | None = None,
+        token_store: TokenStore | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
         self.max_sessions = max_sessions
         self.entity_store = entity_store
+        self.token_store = token_store
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
 
@@ -46,6 +49,27 @@ class ProcessManager:
             # Persistence failure should not take down the orchestrator —
             # log and continue. The in-memory roster is still correct.
             logger.exception("Failed to persist entity %s", entity.name)
+
+    async def _record_usage(self, entity: Entity, session: ClaudeSession) -> None:
+        """Record token usage from a completed session, if a store is configured.
+
+        Merges the entity's canonical ``model`` into the session's captured
+        usage dict before handing it to the store. Fire-and-continue: any
+        DB error is logged and swallowed, since token bookkeeping must not
+        take down the user-facing send path.
+        """
+        if self.token_store is None:
+            return
+        usage = session.last_usage
+        if usage is None:
+            return
+        try:
+            await self.token_store.record(
+                entity.name,
+                {**usage, "model": entity.model},
+            )
+        except Exception:
+            logger.exception("Failed to record token usage for %s", entity.name)
 
     @property
     def entities(self) -> dict[str, Entity]:
@@ -124,6 +148,7 @@ class ProcessManager:
 
         try:
             response = await session.send_prompt(prompt)
+            await self._record_usage(entity, session)
         finally:
             await session.kill()
 

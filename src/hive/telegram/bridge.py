@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from telegram import Update
@@ -11,6 +12,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 from hive.telegram.commands import parse_command
 
 if TYPE_CHECKING:
+    from hive.bus.token_store import TokenStore
     from hive.process.manager import ProcessManager
 
 logger = logging.getLogger(__name__)
@@ -29,11 +31,13 @@ class TelegramBridge:
         allowed_user_ids: list[int],
         process_manager: ProcessManager,
         default_maestro: str = "dev",
+        token_store: TokenStore | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
         self.process_manager = process_manager
         self.default_maestro = default_maestro
+        self.token_store = token_store
         self._app: Application | None = None
 
     async def start(self) -> None:
@@ -131,7 +135,38 @@ class TelegramBridge:
                 return "No target specified."
             return await self._send_to_entity(cmd.target, cmd.args)
 
+        if cmd.name == "cost":
+            return await self._format_cost(cmd.args)
+
         return f"Unknown command: /{cmd.name}"
+
+    async def _format_cost(self, args: str) -> str:
+        """Format a /cost report over an optional time window (default 24h)."""
+        if self.token_store is None:
+            return "Token tracking not configured."
+
+        window = _parse_window(args)
+        since = datetime.now(UTC) - window.delta
+        totals = await self.token_store.totals(since=since)
+
+        calls = int(totals.get("call_count", 0))
+        if calls == 0:
+            return f"No token usage in the last {window.label}."
+
+        in_tok = int(totals.get("input_tokens", 0))
+        out_tok = int(totals.get("output_tokens", 0))
+        cache_create = int(totals.get("cache_creation_input_tokens", 0))
+        cache_read = int(totals.get("cache_read_input_tokens", 0))
+        cost = float(totals.get("cost_usd", 0) or 0)
+
+        return (
+            f"Tokens (last {window.label}, {calls} call(s)):\n"
+            f"  input:  {in_tok:,}\n"
+            f"  output: {out_tok:,}\n"
+            f"  cache create: {cache_create:,}\n"
+            f"  cache read:   {cache_read:,}\n"
+            f"  ${cost:.4f} equivalent API cost (covered by Max subscription)"
+        )
 
     async def _send_to_entity(self, entity_name: str, message: str) -> str:
         """Send a message to an entity and return its response."""
@@ -175,3 +210,24 @@ def _chunk_text(text: str, max_len: int) -> list[str]:
         chunks.append(text[:max_len])
         text = text[max_len:]
     return chunks
+
+
+class _Window:
+    """Time window for /cost queries — a delta + a human label."""
+
+    __slots__ = ("delta", "label")
+
+    def __init__(self, delta: timedelta, label: str) -> None:
+        self.delta = delta
+        self.label = label
+
+
+def _parse_window(raw: str) -> _Window:
+    """Parse /cost argument into a time window. Defaults to 24h on unrecognised input."""
+    raw = (raw or "").strip().lower()
+    windows = {
+        "24h": _Window(timedelta(hours=24), "24h"),
+        "7d": _Window(timedelta(days=7), "7d"),
+        "30d": _Window(timedelta(days=30), "30d"),
+    }
+    return windows.get(raw, windows["24h"])

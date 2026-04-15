@@ -43,6 +43,53 @@ async def test_session_with_text_events() -> None:
     assert response == "Hello world!"
 
 
+async def test_session_captures_usage_from_result_event() -> None:
+    """last_usage should be populated from the result event's usage sub-object."""
+    result_event = {
+        "type": "result",
+        "result": "hi",
+        "session_id": "sess-42",
+        "total_cost_usd": 0.03958525,
+        "usage": {
+            "input_tokens": 9,
+            "output_tokens": 53,
+            "cache_creation_input_tokens": 31449,
+            "cache_read_input_tokens": 0,
+        },
+    }
+    script = f"echo '{json.dumps(result_event)}'"
+    session = ClaudeSession(args=["bash", "-c", script])
+    await session.start()
+    await session.send_prompt("")
+
+    assert session.last_usage is not None
+    assert session.last_usage["session_id"] == "sess-42"
+    assert session.last_usage["input_tokens"] == 9
+    assert session.last_usage["output_tokens"] == 53
+    assert session.last_usage["cache_creation_input_tokens"] == 31449
+    assert session.last_usage["cache_read_input_tokens"] == 0
+    assert session.last_usage["cost_usd"] == 0.03958525
+
+
+async def test_session_last_usage_none_before_call() -> None:
+    """last_usage stays None until a send_prompt yields a result event."""
+    session = ClaudeSession(args=["echo", ""])
+    assert session.last_usage is None
+
+
+async def test_session_usage_defaults_when_result_missing_usage() -> None:
+    """A result event without a usage sub-object should not crash."""
+    event = {"type": "result", "result": "ok", "session_id": "z"}
+    script = f"echo '{json.dumps(event)}'"
+    session = ClaudeSession(args=["bash", "-c", script])
+    await session.start()
+    await session.send_prompt("")
+
+    assert session.last_usage is not None
+    assert session.last_usage["input_tokens"] == 0
+    assert session.last_usage["output_tokens"] == 0
+
+
 async def test_kill_session() -> None:
     """Test killing a long-running session."""
     session = ClaudeSession(args=["sleep", "60"])
