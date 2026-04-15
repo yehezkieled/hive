@@ -154,9 +154,9 @@ class Entity:
             "-p",
             "--output-format",
             "stream-json",
+            "--verbose",
             "--model",
             self.model,
-            "--bare",
         ]
 
         if self.system_prompt:

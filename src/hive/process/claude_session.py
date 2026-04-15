@@ -74,22 +74,37 @@ class ClaudeSession:
                     continue
                 try:
                     event = json.loads(line)
-                    # stream-json emits various event types
-                    if event.get("type") == "assistant" and event.get("subtype") == "text":
-                        text_parts.append(event.get("content", ""))
-                    elif event.get("type") == "result":
-                        # Final result — extract session ID for --resume
+                    event_type = event.get("type")
+
+                    if event_type == "assistant":
+                        # With --verbose, assistant messages contain a nested message object
+                        msg = event.get("message", {})
+                        for block in msg.get("content", []):
+                            if block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
+
+                    elif event_type == "result":
                         self._session_id = event.get("session_id")
-                        if "cost_usd" in event:
-                            cost_usd = event["cost_usd"]
-                        # Result also contains the full text
+                        cost_usd = event.get("total_cost_usd")
+                        # Result also contains the full text as fallback
                         result_text = event.get("result", "")
                         if result_text and not text_parts:
                             text_parts.append(result_text)
+
                 except json.JSONDecodeError:
                     logger.debug("Non-JSON line from claude: %s", line[:100])
 
         await self.process.wait()
+
+        # Log stderr on failure for debugging
+        if self.process.returncode != 0:
+            stderr_output = await self.get_stderr()
+            if stderr_output:
+                logger.error(
+                    "Claude session PID %d stderr: %s",
+                    self.pid or 0,
+                    stderr_output.strip()[:500],
+                )
 
         response = "".join(text_parts)
         logger.info(

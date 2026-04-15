@@ -141,9 +141,9 @@ class TestEntityCLIArgs:
         assert "-p" in args
         assert "--output-format" in args
         assert "stream-json" in args
+        assert "--verbose" in args
         assert "--model" in args
         assert "sonnet" in args
-        assert "--bare" in args
 
     def test_args_with_system_prompt(self) -> None:
         e = Entity(name="test", role="worker", system_prompt="You are helpful.")
