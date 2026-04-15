@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.token_store import TokenStore
@@ -25,12 +26,14 @@ class ProcessManager:
         max_sessions: int = 3,
         entity_store: EntityStore | None = None,
         token_store: TokenStore | None = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
         self.max_sessions = max_sessions
         self.entity_store = entity_store
         self.token_store = token_store
+        self.audit_log = audit_log
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
 
@@ -49,6 +52,27 @@ class ProcessManager:
             # Persistence failure should not take down the orchestrator —
             # log and continue. The in-memory roster is still correct.
             logger.exception("Failed to persist entity %s", entity.name)
+
+    async def _audit(
+        self,
+        action: str,
+        target: str | None = None,
+        details: dict | None = None,
+        actor: str = "system",
+    ) -> None:
+        """Write one audit event, if an audit log is configured.
+
+        Kept separate from ``_persist`` because they track different things:
+        ``_persist`` is about the current DB roster row, ``_audit`` is about
+        the historical stream of events. The audit log itself handles
+        exceptions internally (fire-and-continue), so this helper is just a
+        None-guarded convenience wrapper.
+        """
+        if self.audit_log is None:
+            return
+        await self.audit_log.record(
+            actor=actor, action=action, target=target, details=details
+        )
 
     async def _record_usage(self, entity: Entity, session: ClaudeSession) -> None:
         """Record token usage from a completed session, if a store is configured.
@@ -108,9 +132,14 @@ class ProcessManager:
             await session.start()
             entity.pid = session.pid
             entity.transition_to(EntityState.RUNNING)
-        except Exception:
+        except Exception as exc:
             entity.transition_to(EntityState.ERROR)
             await self._persist(entity)
+            await self._audit(
+                "entity.error",
+                target=entity.name,
+                details={"phase": "spawn", "error": str(exc)},
+            )
             raise
 
         # Register in router for message delivery
@@ -121,6 +150,11 @@ class ProcessManager:
         self._sessions[entity.name] = session
 
         await self._persist(entity)
+        await self._audit(
+            "entity.spawn",
+            target=entity.name,
+            details={"role": entity.role, "model": entity.model, "pid": entity.pid},
+        )
 
         logger.info(
             "Spawned entity %s (role=%s, model=%s, pid=%s)",
@@ -169,6 +203,7 @@ class ProcessManager:
             del self._entities[name]
 
         self.router.unregister(name)
+        await self._audit("entity.kill", target=name)
         logger.info("Killed entity: %s", name)
 
     async def kill_all(self) -> None:
@@ -207,6 +242,11 @@ class ProcessManager:
                 unhealthy.append(name)
                 entity.transition_to(EntityState.ERROR)
                 await self._persist(entity)
+                await self._audit(
+                    "entity.error",
+                    target=name,
+                    details={"phase": "health"},
+                )
                 logger.warning("Entity %s died unexpectedly", name)
         return unhealthy
 

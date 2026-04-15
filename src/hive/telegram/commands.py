@@ -33,6 +33,7 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
         /task done 5     -> Command("task", "done", "5")
         /tasks           -> Command("tasks")
         /cost 7d         -> Command("cost", args="7d")
+        /audit entity    -> Command("audit", args="entity")
         plain text       -> Command("message", default_maestro, "plain text")
     """
     text = text.strip()

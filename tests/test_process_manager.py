@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 import pytest
 import pytest_asyncio
 
+from hive.bus.audit_log import AuditLog
 from hive.bus.router import MessageRouter
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
@@ -79,3 +80,43 @@ async def test_send_to_nonexistent_entity(manager: ProcessManager) -> None:
     """Sending to nonexistent entity should raise KeyError."""
     with pytest.raises(KeyError):
         await manager.send_to_entity("nonexistent", "hello")
+
+
+async def test_kill_entity_writes_audit_event(
+    router: MessageRouter, audit_log: AuditLog
+) -> None:
+    """kill_entity should emit one ``entity.kill`` audit event."""
+    mgr = ProcessManager(router=router, audit_log=audit_log)
+    entity = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev"] = entity
+    mgr.router.register("dev")
+
+    await mgr.kill_entity("dev")
+
+    events = await audit_log.recent(action_prefix="entity.")
+    assert len(events) == 1
+    assert events[0]["action"] == "entity.kill"
+    assert events[0]["target"] == "dev"
+    assert events[0]["actor"] == "system"
+
+
+async def test_health_check_writes_error_audit_event(
+    router: MessageRouter, audit_log: AuditLog
+) -> None:
+    """health_check should emit ``entity.error`` for each unexpectedly-dead entity."""
+    mgr = ProcessManager(router=router, audit_log=audit_log)
+    # Force a running entity with no session — health_check will flag it.
+    entity = Maestro(name="dev", model="sonnet")
+    entity.transition_to(EntityState.STARTING)
+    entity.transition_to(EntityState.RUNNING)
+    mgr._entities["dev"] = entity
+    mgr.router.register("dev")
+
+    unhealthy = await mgr.health_check()
+    assert unhealthy == ["dev"]
+
+    events = await audit_log.recent(action_prefix="entity.")
+    assert len(events) == 1
+    assert events[0]["action"] == "entity.error"
+    assert events[0]["target"] == "dev"
+    assert events[0]["details"] == {"phase": "health"}

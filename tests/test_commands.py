@@ -158,3 +158,16 @@ def test_cost_with_window() -> None:
     cmd = parse_command("/cost 7d")
     assert cmd.name == "cost"
     assert cmd.args == "7d"
+
+
+def test_audit_bare() -> None:
+    cmd = parse_command("/audit")
+    assert cmd.name == "audit"
+    assert cmd.target is None
+    assert cmd.args == ""
+
+
+def test_audit_with_prefix() -> None:
+    cmd = parse_command("/audit entity")
+    assert cmd.name == "audit"
+    assert cmd.args == "entity"

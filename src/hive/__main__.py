@@ -6,6 +6,7 @@ import asyncio
 import logging
 import signal
 
+from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
@@ -45,12 +46,14 @@ async def main() -> None:
     entity_store = EntityStore(store.pool)
     token_store = TokenStore(store.pool)
     task_store = TaskStore(store.pool)
+    audit_log = AuditLog(store.pool)
 
     process_manager = ProcessManager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
         entity_store=entity_store,
         token_store=token_store,
+        audit_log=audit_log,
     )
 
     # Restore persisted entities (organizational structure, not running procs)
@@ -86,6 +89,7 @@ async def main() -> None:
             default_maestro=DEFAULT_MAESTRO,
             token_store=token_store,
             task_store=task_store,
+            audit_log=audit_log,
         )
         await bridge.start()
         logger.info("Running with Telegram bridge")

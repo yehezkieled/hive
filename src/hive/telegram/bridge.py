@@ -13,6 +13,7 @@ from hive.models.task import TaskStatus
 from hive.telegram.commands import parse_command
 
 if TYPE_CHECKING:
+    from hive.bus.audit_log import AuditLog
     from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
     from hive.models.task import Task
@@ -36,6 +37,7 @@ class TelegramBridge:
         default_maestro: str = "dev",
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -43,6 +45,7 @@ class TelegramBridge:
         self.default_maestro = default_maestro
         self.token_store = token_store
         self.task_store = task_store
+        self.audit_log = audit_log
         self._app: Application | None = None
 
     async def start(self) -> None:
@@ -84,7 +87,17 @@ class TelegramBridge:
         cmd = parse_command(text, default_maestro=self.default_maestro)
 
         # Handle command
-        response = await self._execute_command(cmd)
+        actor = f"user:{user_id}"
+        response = await self._execute_command(cmd, actor=actor)
+
+        # Audit every command — over-logging is cheaper to filter later.
+        if self.audit_log is not None and cmd.name != "empty":
+            await self.audit_log.record(
+                actor=actor,
+                action=f"command.{cmd.name}",
+                target=cmd.target,
+                details={"args": (cmd.args or "")[:200]},
+            )
 
         # Send response back
         if response:
@@ -92,7 +105,7 @@ class TelegramBridge:
             for chunk in _chunk_text(response, 4096):
                 await update.message.reply_text(chunk)
 
-    async def _execute_command(self, cmd) -> str:
+    async def _execute_command(self, cmd, actor: str = "system") -> str:
         """Execute a parsed command and return the response text."""
         if cmd.name == "empty":
             return ""
@@ -144,10 +157,13 @@ class TelegramBridge:
             return await self._format_cost(cmd.args)
 
         if cmd.name == "task":
-            return await self._execute_task(cmd.target, cmd.args)
+            return await self._execute_task(cmd.target, cmd.args, actor=actor)
 
         if cmd.name == "tasks":
             return await self._format_tasks_list()
+
+        if cmd.name == "audit":
+            return await self._format_audit(cmd.args)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -179,7 +195,12 @@ class TelegramBridge:
             f"  ${cost:.4f} equivalent API cost (covered by Max subscription)"
         )
 
-    async def _execute_task(self, subcommand: str | None, args: str) -> str:
+    async def _execute_task(
+        self,
+        subcommand: str | None,
+        args: str,
+        actor: str = "system",
+    ) -> str:
         """Dispatch a /task subcommand (add | done | cancel)."""
         if self.task_store is None:
             return "Task tracking not configured."
@@ -193,7 +214,14 @@ class TelegramBridge:
             title = _strip_quotes(args).strip()
             if not title:
                 return 'Usage: /task add "title"'
-            task = await self.task_store.create(title=title, created_by="user")
+            task = await self.task_store.create(title=title, created_by=actor)
+            if self.audit_log is not None:
+                await self.audit_log.record(
+                    actor=actor,
+                    action="task.create",
+                    target=str(task.id),
+                    details={"title": task.title},
+                )
             return f"Task #{task.id} added: {task.title}"
 
         if sub in ("done", "cancel"):
@@ -205,9 +233,31 @@ class TelegramBridge:
                 return f"Task #{task_id} not found."
             new_status = TaskStatus.COMPLETED if sub == "done" else TaskStatus.CANCELLED
             await self.task_store.update_status(task_id, new_status)
+            if self.audit_log is not None:
+                await self.audit_log.record(
+                    actor=actor,
+                    action="task.update_status",
+                    target=str(task_id),
+                    details={"status": new_status.value},
+                )
             return f"Task #{task_id} {new_status.value}."
 
         return f"Unknown task subcommand: {subcommand}"
+
+    async def _format_audit(self, args: str) -> str:
+        """Format a /audit report — the last N events, optionally prefix-filtered."""
+        if self.audit_log is None:
+            return "Audit log not configured."
+
+        prefix, limit = _parse_audit_args(args)
+        events = await self.audit_log.recent(limit=limit, action_prefix=prefix)
+        if not events:
+            scope = f"{prefix}*" if prefix else "all"
+            return f"No audit events ({scope}, limit {limit})."
+
+        lines = [_format_audit_row(event) for event in events]
+        header = f"Audit (last {len(events)}):"
+        return header + "\n" + "\n".join(lines)
 
     async def _format_tasks_list(self) -> str:
         """Format the open (pending + in-progress) tasks for /tasks."""
@@ -311,3 +361,27 @@ def _parse_task_id(raw: str) -> int | None:
 def _format_task_row(task: Task) -> str:
     """Render a single task as a one-liner for /tasks output."""
     return f"- #{task.id} [{task.status.value}] p{task.priority} {task.title}"
+
+
+def _parse_audit_args(raw: str) -> tuple[str | None, int]:
+    """Parse /audit args into (prefix, limit).
+
+    Accepts: bare, a category prefix (e.g. ``entity``, ``command``, ``task``),
+    or nothing. Limit defaults to 20.
+    """
+    raw = (raw or "").strip().lower()
+    if not raw:
+        return None, 20
+    known_prefixes = {"entity", "command", "task"}
+    if raw in known_prefixes:
+        return f"{raw}.", 20
+    return None, 20
+
+
+def _format_audit_row(event: dict) -> str:
+    """Render one audit event as a one-liner for /audit output."""
+    ts = event["timestamp"]
+    actor = event["actor"]
+    action = event["action"]
+    target = event["target"] or "-"
+    return f"{ts:%H:%M:%S} {actor} {action} {target}"
