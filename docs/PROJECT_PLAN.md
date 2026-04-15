@@ -164,6 +164,13 @@ You are Dev, a software engineering maestro...
 
 ## Sprint 2 — PostgreSQL (Task Queue, State, Logs, Tokens)
 
+> **Split 2026-04-15**: The original locked spec bundled the PG port, task queue,
+> token tracking, audit log, `/cost`, and `/tasks` into one sprint. Per the
+> iterative-planning preference, it was split into **Sprint 2a** (PG port +
+> entity persistence — the risky infra foundation) and **Sprint 2b** (tasks,
+> tokens, audit log, `/cost` + `/tasks` — four additive features on top of a
+> stable DB layer). 2a is complete; 2b is detail-planned after 2a lands.
+
 **Goal**: Replace SQLite with PostgreSQL for production-grade coordination.
 
 **Builds on**: Sprint 1 (`MessageStore` interface, `Entity` state tracking)
@@ -205,6 +212,142 @@ sudo apt install postgresql postgresql-client
 - All Sprint 1 features work identically with PostgreSQL backend
 - `/cost` command shows token usage
 - `/tasks` command shows task queue
+
+---
+
+## Sprint 2a — PG Port + Entity Persistence (2026-04-15, DONE)
+
+**Goal**: Replace SQLite with PostgreSQL and make entities survive orchestrator
+restart. The foundation 2b builds on.
+
+**Why this split**: the PG port is the risky/boring bit (new infra, new driver,
+new test setup). Entity persistence was grouped in because a backend swap has
+no user-visible benefit on its own — entities still vanish on Ctrl+C. Getting
+2a green means "hive survives restart", which is a real checkpoint.
+
+**Environment note**: PostgreSQL is NOT installed on the VPS. Docker IS (n8n
+runs in it), so we run PG in a container rather than `apt install postgresql`.
+
+### Phases (all complete)
+
+**Phase A — Pre-sprint cleanup.** Committed WIP `--verbose` / stream-json
+parsing fix (`entity.py` + `claude_session.py`), dropped `--bare` expectation
+in `test_entity.py::TestEntityCLIArgs::test_basic_args`, untracked `.env` via
+`git rm --cached` + `.gitignore`, seeded `.env.example`, backed up
+`data/hive.db` → `data/hive.db.sqlite-bak`.
+
+**Phase B — Postgres infrastructure.** `docker-compose.yml` at repo root:
+`postgres:16-alpine`, `127.0.0.1:5433:5432` (host-side 5433 avoids conflict
+with any future system PG; 127.0.0.1 binding keeps it off the internet),
+named volume `hive_pgdata`, `pg_isready` healthcheck. Replaced `aiosqlite`
+with `asyncpg>=0.29` in `pyproject.toml`; added `testcontainers[postgres]>=4.0`
+as a dev dep. `config.py` now builds `POSTGRES_DSN` from `POSTGRES_HOST/PORT/
+DB/USER/PASSWORD` env vars (defaults `127.0.0.1:5433/hive` as user `hive`).
+
+**Phase C — Migration runner.** Raw-SQL migrations over Alembic (Alembic is
+overkill for one env, five tables). `src/hive/bus/migrations/runner.py` —
+~60-line loader: creates `schema_migrations(version INT PK, applied_at
+TIMESTAMPTZ)`, globs `NNN_*.sql`, runs unseen ones in a transaction per file,
+records the version. Idempotent on every startup. `001_messages.sql`:
+`BIGSERIAL` PK, `TIMESTAMPTZ` timestamp (replacing the SQLite float epoch),
+`JSONB` metadata (replacing the TEXT-encoded JSON), indexes on
+`(recipient, status)`, `conversation_id`, and `timestamp DESC`.
+
+**Phase D — Port `MessageStore` to asyncpg.** Hard-replace, no abstraction
+layer (we're not shipping two backends). Same public interface as before, so
+`router.py` didn't notice. `asyncpg.create_pool(dsn, min_size=2, max_size=10,
+init=_init_connection)`. `_init_connection` registers a JSONB codec
+(`encoder=json.dumps, decoder=json.loads, schema="pg_catalog"`) so Python
+dicts auto-encode — asyncpg doesn't do this by default. Placeholders `?` →
+`$1/$2/…`, `cursor.lastrowid` → `INSERT … RETURNING id` via `fetchval`,
+`since: float | None` → `since: datetime | None`, `metadata: str | None` →
+`metadata: dict | None`. `connect()` runs the migrations at the end. Rows
+come back as `asyncpg.Record`; we materialize as `[dict(row) for row in rows]`
+to keep the existing callers happy.
+
+**Phase E — Test infrastructure.** Session-scoped PG container in
+`conftest.py` (`PostgresContainer("postgres:16-alpine")`) — per-test spin-up
+is ~2s × N tests, unusable. testcontainers returns a SQLAlchemy-style URL
+(`postgresql+psycopg2://…`); stripped to `postgresql://…` for asyncpg.
+Function-scoped `store` fixture `TRUNCATE`s `messages` and `entities` between
+tests (fast, keeps pool warm, resets `BIGSERIAL`). Removed the per-file
+SQLite fixtures in `test_store.py`, `test_router.py`, `test_process_manager.py`
+— everything pulls from conftest now. Test suite: 74 passing (64 original +
+10 new entity_store) in ~14s.
+
+**Phase F — Entity persistence.** `002_entities.sql`:
+```sql
+CREATE TABLE entities (
+    name TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    state TEXT NOT NULL,
+    model TEXT NOT NULL,
+    personality_path TEXT,
+    pid INTEGER,
+    started_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_entities_role ON entities (role);
+CREATE INDEX idx_entities_state ON entities (state);
+```
+`src/hive/bus/entity_store.py` — new `EntityStore(pool)` with `upsert` /
+`load` / `all` / `delete`. Kept separate from `MessageStore` so each class
+stays focused. `upsert` uses `INSERT … ON CONFLICT (name) DO UPDATE`.
+`_row_to_entity` forces restored entities to `EntityState.IDLE` — the state
+machine doesn't allow `STOPPED → STARTING`, but `IDLE → STARTING` is the
+canonical spawn path, so IDLE is the right restoration state. The live state
+at shutdown is meaningless after a restart anyway (the subprocess died with
+the parent).
+
+`ProcessManager` gained an optional `entity_store` constructor arg and a
+`_persist(entity)` helper that calls `upsert` if the store is set. DB writes
+are at the manager level, NOT inside `Entity.transition_to()` — that's a sync
+dataclass method, and keeping the DB call out of it keeps the Entity itself
+testable without a DB. `_persist` is called after STARTING, after RUNNING,
+after ERROR (in `spawn_entity` and `health_check`), and after STOPPED (in
+`kill_entity`). A new `restore(entity)` method adds the entity to `_entities`
+and registers it with the router without spawning a subprocess.
+
+`__main__.py` wiring: after `store.connect()`, build `EntityStore(store.pool)`,
+pass it to `ProcessManager`, loop `for e in await entity_store.all():
+process_manager.restore(e)`, then only register the default maestro if it
+wasn't already restored from a previous session (first-run safe).
+
+### Critical files
+
+**Edited**: `pyproject.toml`, `.gitignore`, `src/hive/config.py`,
+`src/hive/bus/store.py`, `src/hive/bus/router.py`, `src/hive/process/manager.py`,
+`src/hive/__main__.py`, `src/hive/models/entity.py`,
+`src/hive/process/claude_session.py`, `tests/test_entity.py`,
+`tests/test_store.py`, `tests/test_router.py`, `tests/test_process_manager.py`,
+`tests/conftest.py`, `docs/PROJECT_PLAN.md`.
+
+**Created**: `docker-compose.yml`, `.env.example`,
+`src/hive/bus/migrations/__init__.py`, `src/hive/bus/migrations/runner.py`,
+`src/hive/bus/migrations/001_messages.sql`,
+`src/hive/bus/migrations/002_entities.sql`, `src/hive/bus/entity_store.py`,
+`tests/test_entity_store.py`.
+
+### Deliberately out of scope for 2a
+
+- No task queue, `/tasks` command, `tasks` table (→ 2b)
+- No token tracking, `/cost` command, `token_usage` table (→ 2b)
+- No audit log, `audit_log` table (→ 2b)
+- No SQLite → PG data migration (starting fresh; `hive.db.sqlite-bak` insurance)
+- No re-spawning of running processes on restart (only structural state)
+- No Alembic (raw SQL until the second environment exists)
+- No store interface/protocol (one backend)
+
+### Verification
+
+1. Working tree clean, `.env` untracked, `pytest -v` green.
+2. `docker compose up -d postgres` → `docker compose ps` shows healthy.
+3. `python -m hive` → migrations run on startup (`001_messages`, `002_entities`
+   logged).
+4. Full suite: 74 tests passing in ~14s against the testcontainer.
+5. Telegram round-trip persists to `messages` with proper `TIMESTAMPTZ`.
+6. Restart survives: `Ctrl+C` → `python -m hive` again → `/maestros` lists the
+   previously-registered maestros without re-registration → respawn works.
 
 ---
 
