@@ -351,6 +351,178 @@ wasn't already restored from a previous session (first-run safe).
 
 ---
 
+## Sprint 2b — Tokens, Tasks, Audit Log (2026-04-15, DONE)
+
+**Goal**: Three additive features on top of the stable 2a foundation — token
+tracking with `/cost`, a minimal persistent task queue with `/task`/`/tasks`,
+and an audit log with `/audit`. Each is independent, shares the same
+migration → store → wire → command → tests pattern, and lands in its own
+commit so a future bisect stays clean.
+
+**Why this order**: tokens first because they touch the fewest files and
+validate the end-to-end pattern; tasks next to add a new table + new
+commands; audit last because it's cross-cutting and needs 2b's other hook
+points to be stable. Each phase was manually verified against a live hive
+restart before committing.
+
+### Phases (all complete)
+
+**Phase A — Pre-sprint cleanup.** `git status` clean except a not-yet-
+committed `docs/DEPLOYMENT.md` from the 2a runbook session — folded into
+the Phase E docs commit rather than landing as a standalone pre-sprint
+commit. `docker compose ps` confirmed `hive-postgres` healthy. Baseline:
+`pytest -v` 74 green, `ruff check` clean.
+
+**Phase B — Token tracking.** Captured a real `claude -p --verbose
+--output-format stream-json` `result` event first to pin the field names
+before writing the migration. Anthropic's API names
+(`input_tokens`, `output_tokens`, `cache_creation_input_tokens`,
+`cache_read_input_tokens`) go into the column names verbatim so the
+session-parsing code can pass the usage dict through without renaming.
+`003_token_usage.sql`: `BIGSERIAL` PK, `NUMERIC(14, 8)` cost (widened
+from the initial `(10, 6)` sketch after `test_record_stores_all_fields`
+caught the truncation of `0.03958525` to `0.039585`), indexes on
+`(entity_name, recorded_at DESC)` and `(recorded_at DESC)`.
+`src/hive/bus/token_store.py`: `TokenStore` with `record` / `totals` /
+`recent` mirroring the `EntityStore` shape (takes `pool`, not a DSN).
+`TypedDict UsageEvent` for the usage-dict shape. `ClaudeSession` extended
+to capture the `usage` sub-object + `total_cost_usd` from the result
+event onto `self._last_usage`, exposed via a `last_usage` property.
+`ProcessManager` gained an optional `token_store` arg and a
+`_record_usage(entity, session)` fire-and-continue hook called in
+`send_to_entity` after `send_prompt` returns — fold the entity's
+canonical `model` into the usage dict at the record site.
+`telegram/bridge.py`: new `/cost [24h|7d|30d]` command formats totals
+with a labeled `$X.XXXX equivalent API cost (covered by Max subscription)`
+line, because `total_cost_usd` is the API-equivalent, not money actually
+spent. `_parse_window` defaults to 24h on unrecognised input.
+9 `TokenStore` tests + 3 `ClaudeSession` usage-capture tests.
+
+**Phase C — Task queue.** Minimal CRUD, no worker consumption yet —
+workers don't exist in 2b so there's nothing to claim from the queue.
+`004_tasks.sql`: `BIGSERIAL` PK, text `status` with pending-default,
+integer `priority` (0 urgent → 4 backlog), nullable `assigned_to`,
+namespaced `created_by` (`user:<tg>` | `system` | `entity:<name>`),
+indexes on `(status, priority, created_at)` and a partial index on
+`assigned_to WHERE assigned_to IS NOT NULL`. No FK to `entities(name)`
+— cascade semantics aren't obvious and tasks should outlive entity
+deletes. `src/hive/models/task.py`: `Task` dataclass + `TaskStatus`
+enum. No state machine: `status` is a plain enum field (unlike
+`Entity`, tasks don't have explicit valid-transition rules worth
+policing at the dataclass level). `src/hive/bus/task_store.py`:
+`TaskStore` with `create` / `get` / `list` (status filter + priority
+sort) / `update_status` (sets `completed_at` when moving to
+`COMPLETED`, leaves it null for `CANCELLED`). `# TODO(sprint-3)`
+marker at the seam where `claim_next()` with `SELECT … FOR UPDATE SKIP
+LOCKED` will land once workers exist. Parser: added `"task"` to
+`targeted_commands` so the subcommand lands in `Command.target`
+(`/task add "foo"` → `target="add"`, `args='"foo"'`). Bridge dispatch:
+`_execute_task` handles add/done/cancel with a tiny `_strip_quotes`
+helper for the title and `_parse_task_id` for the id; `_format_tasks_list`
+shows pending + in-progress tasks one-per-line. `TaskStore` wires into
+`TelegramBridge` directly (not `ProcessManager`) — tasks are purely
+user-facing in 2b, so growing the manager surface for them would be
+wrong. 12 `TaskStore` tests + 7 new parser cases.
+
+**Phase D — Audit log.** One journal, one insert per event. Over-logging
+is cheaper to filter later than under-logging is to reconstruct, so even
+read-only `/status` and `/maestros` get logged. `005_audit_log.sql`:
+`BIGSERIAL` PK, text `actor`/`action`/`target`, `JSONB` details,
+`TIMESTAMPTZ` timestamp, indexes on `timestamp DESC`,
+`(actor, timestamp DESC)`, and `action`. `action` is namespaced
+(`command.<name>`, `entity.<state>`, `task.<op>`) so per-category
+readouts are a single `LIKE 'entity.%'` filter. `src/hive/bus/audit_log.py`:
+`AuditLog` with `record` (fire-and-continue — DB errors logged and
+swallowed so audit failure never takes down the caller's work) and
+`recent` (optional `action_prefix` arg). `details` round-trips as a
+dict via `json.dumps` on write and a `json.loads` decode on read (the
+`_row_to_dict` helper handles the JSONB-as-str case). `ProcessManager`
+gained a separate `_audit` helper parallel to `_persist` — the two
+track different things (DB roster row vs. event stream), so fusing
+them into one hook would have conflated concerns. Emits `entity.spawn`
+on successful spawn, `entity.error` on spawn failure (with `phase:
+"spawn"`) or health-check-dead (with `phase: "health"`), and
+`entity.kill` on `kill_entity`. `restore()` is deliberately NOT audited
+— structural re-registration is not a real state transition.
+`telegram/bridge.py`: new `audit_log` arg, `actor = f"user:{tg_id}"`
+captured once in `_handle_message` and threaded into `_execute_command`.
+Every non-empty command writes `command.<name>` once after dispatch.
+Inside `_execute_task`, task-level events (`task.create`,
+`task.update_status`) are emitted separately so a `LIKE 'task.%'`
+filter returns all task changes regardless of how they were initiated
+— future non-bridge sources get the same treatment for free. New
+`/audit [entity|command|task]` command formats the last N events with
+an optional category prefix; bare `/audit` shows everything. 8
+`AuditLog` CRUD + prefix-filter + JSONB round-trip tests (including a
+`_BrokenPool` test confirming the fire-and-continue contract holds),
+2 parser cases for `/audit`, 2 `ProcessManager` tests for the
+`entity.kill` / `entity.error` hooks.
+
+**Phase E — Docs + verification.** Sprint 2b section appended here;
+`docs/DEPLOYMENT.md` updated with the three new tables + `/cost` /
+`/tasks` / `/audit` commands (also picks up the pre-existing
+not-yet-committed deployment runbook from the 2a session so 2b lands
+one clean docs commit instead of two).
+
+### Deliberately out of scope for 2b
+
+- No worker consumption of tasks — `claim_next()` with `SELECT … FOR
+  UPDATE SKIP LOCKED` stays commented until Sprint 3 when workers exist.
+- No real-API cost routing or per-provider breakdown — `/cost` shows
+  Anthropic API-equivalent numbers only, labeled as covered by Max.
+- No vault audit — vault is payment-critical and needs stricter
+  guarantees than a best-effort journal; deferred to Sprint 6.
+- No SQLite → PG migration of historical token/task/audit data — no
+  such data exists.
+- No `/audit` pagination or advanced filtering beyond a single
+  category prefix — enough to explore from Telegram; `psql` is the
+  real query surface.
+
+### Critical files
+
+**Created (all phases)**: `src/hive/bus/migrations/003_token_usage.sql`,
+`src/hive/bus/migrations/004_tasks.sql`,
+`src/hive/bus/migrations/005_audit_log.sql`, `src/hive/bus/token_store.py`,
+`src/hive/bus/task_store.py`, `src/hive/bus/audit_log.py`,
+`src/hive/models/task.py`, `tests/test_token_store.py`,
+`tests/test_task_store.py`, `tests/test_audit_log.py`.
+
+**Edited**: `src/hive/process/claude_session.py` (capture `last_usage`),
+`src/hive/process/manager.py` (`token_store` + `audit_log` args,
+`_record_usage` + `_audit` helpers, entity.\* audit emissions),
+`src/hive/telegram/commands.py` (`"task"` in `targeted_commands`,
+docstring), `src/hive/telegram/bridge.py` (new `token_store` /
+`task_store` / `audit_log` args, `/cost` / `/task` / `/tasks` /
+`/audit` branches, actor plumbing), `src/hive/__main__.py` (construct
+and wire the three new stores), `tests/conftest.py` (three new
+fixtures + three new `TRUNCATE` lines), `tests/test_claude_session.py`
+(usage-capture assertions), `tests/test_commands.py` (parser cases
+for 2b commands), `tests/test_process_manager.py` (audit-hook
+coverage), this file, `docs/DEPLOYMENT.md`.
+
+### Verification
+
+1. `pytest -v` → 117 passing (up from 74 after 2a).
+2. `ruff check src/ tests/` clean.
+3. `docker compose ps` → `hive-postgres` healthy.
+4. Restart hive. Log shows:
+   - `Running migration 003_token_usage.sql`
+   - `Running migration 004_tasks.sql`
+   - `Running migration 005_audit_log.sql`
+   - `Restored persisted entity: dev`
+5. `psql hive -c "SELECT version, filename FROM schema_migrations
+   ORDER BY version"` → 5 rows, through `005_audit_log.sql`.
+6. End-to-end from Telegram:
+   - `/task add "test task"` → confirmation + task id
+   - `/tasks` → shows the task
+   - plain `hi` → dev responds → `/cost` shows non-zero tokens
+   - `/audit` → shows the preceding commands, newest first
+7. `psql hive -c "SELECT action, count(*) FROM audit_log GROUP BY action"`
+   → sensible distribution (`command.task`, `command.message`,
+   `command.cost`, `entity.spawn`, etc.).
+
+---
+
 ## Sprint 3 — Multi-Team, Agent Lifecycle, Modes, Priorities
 
 **Goal**: A maestro can manage multiple teams, each with a lead + workers. Full lifecycle with mode/loop switching and priority system.
