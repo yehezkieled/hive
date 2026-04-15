@@ -110,3 +110,51 @@ def test_multiline_message() -> None:
     assert cmd.target == "dev"
     assert "line1" in cmd.args
     assert "line3" in cmd.args
+
+
+def test_task_add_quoted_title() -> None:
+    cmd = parse_command('/task add "fix the thing"')
+    assert cmd.name == "task"
+    assert cmd.target == "add"
+    assert cmd.args == '"fix the thing"'
+
+
+def test_task_add_unquoted_title() -> None:
+    cmd = parse_command("/task add write the docs")
+    assert cmd.name == "task"
+    assert cmd.target == "add"
+    assert cmd.args == "write the docs"
+
+
+def test_task_done_by_id() -> None:
+    cmd = parse_command("/task done 5")
+    assert cmd.name == "task"
+    assert cmd.target == "done"
+    assert cmd.args == "5"
+
+
+def test_task_cancel_by_id() -> None:
+    cmd = parse_command("/task cancel 7")
+    assert cmd.name == "task"
+    assert cmd.target == "cancel"
+    assert cmd.args == "7"
+
+
+def test_tasks_list_command() -> None:
+    cmd = parse_command("/tasks")
+    assert cmd.name == "tasks"
+    assert cmd.target is None
+    assert cmd.args == ""
+
+
+def test_cost_bare() -> None:
+    cmd = parse_command("/cost")
+    assert cmd.name == "cost"
+    assert cmd.target is None
+    assert cmd.args == ""
+
+
+def test_cost_with_window() -> None:
+    cmd = parse_command("/cost 7d")
+    assert cmd.name == "cost"
+    assert cmd.args == "7d"

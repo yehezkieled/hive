@@ -29,6 +29,10 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
         /kill dev        -> Command("kill", "dev")
         /compact dev     -> Command("compact", "dev")
         /reset dev       -> Command("reset", "dev")
+        /task add "foo"  -> Command("task", "add", '"foo"')
+        /task done 5     -> Command("task", "done", "5")
+        /tasks           -> Command("tasks")
+        /cost 7d         -> Command("cost", args="7d")
         plain text       -> Command("message", default_maestro, "plain text")
     """
     text = text.strip()
@@ -55,8 +59,10 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
     if a_match:
         return Command(name="agent", target=a_match.group(1), args=a_match.group(2).strip())
 
-    # Commands with a target argument: /kill dev, /compact dev, /reset dev
-    targeted_commands = {"kill", "compact", "reset", "mode", "loop", "priority"}
+    # Commands with a target argument: /kill dev, /compact dev, /reset dev.
+    # /task uses the target slot for its subcommand (add|done|cancel), with
+    # the rest of the line becoming the args (title or id).
+    targeted_commands = {"kill", "compact", "reset", "mode", "loop", "priority", "task"}
     cmd_match = re.match(r"^/(\w+)\s+(.*)", text, re.DOTALL)
     if cmd_match:
         cmd_name = cmd_match.group(1).lower()

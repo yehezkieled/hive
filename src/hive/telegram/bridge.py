@@ -9,10 +9,13 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
+from hive.models.task import TaskStatus
 from hive.telegram.commands import parse_command
 
 if TYPE_CHECKING:
+    from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
+    from hive.models.task import Task
     from hive.process.manager import ProcessManager
 
 logger = logging.getLogger(__name__)
@@ -32,12 +35,14 @@ class TelegramBridge:
         process_manager: ProcessManager,
         default_maestro: str = "dev",
         token_store: TokenStore | None = None,
+        task_store: TaskStore | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
         self.process_manager = process_manager
         self.default_maestro = default_maestro
         self.token_store = token_store
+        self.task_store = task_store
         self._app: Application | None = None
 
     async def start(self) -> None:
@@ -138,6 +143,12 @@ class TelegramBridge:
         if cmd.name == "cost":
             return await self._format_cost(cmd.args)
 
+        if cmd.name == "task":
+            return await self._execute_task(cmd.target, cmd.args)
+
+        if cmd.name == "tasks":
+            return await self._format_tasks_list()
+
         return f"Unknown command: /{cmd.name}"
 
     async def _format_cost(self, args: str) -> str:
@@ -167,6 +178,50 @@ class TelegramBridge:
             f"  cache read:   {cache_read:,}\n"
             f"  ${cost:.4f} equivalent API cost (covered by Max subscription)"
         )
+
+    async def _execute_task(self, subcommand: str | None, args: str) -> str:
+        """Dispatch a /task subcommand (add | done | cancel)."""
+        if self.task_store is None:
+            return "Task tracking not configured."
+
+        if not subcommand:
+            return "Usage: /task add <title> | /task done <id> | /task cancel <id>"
+
+        sub = subcommand.lower()
+
+        if sub == "add":
+            title = _strip_quotes(args).strip()
+            if not title:
+                return 'Usage: /task add "title"'
+            task = await self.task_store.create(title=title, created_by="user")
+            return f"Task #{task.id} added: {task.title}"
+
+        if sub in ("done", "cancel"):
+            task_id = _parse_task_id(args)
+            if task_id is None:
+                return f"Usage: /task {sub} <id>"
+            existing = await self.task_store.get(task_id)
+            if existing is None:
+                return f"Task #{task_id} not found."
+            new_status = TaskStatus.COMPLETED if sub == "done" else TaskStatus.CANCELLED
+            await self.task_store.update_status(task_id, new_status)
+            return f"Task #{task_id} {new_status.value}."
+
+        return f"Unknown task subcommand: {subcommand}"
+
+    async def _format_tasks_list(self) -> str:
+        """Format the open (pending + in-progress) tasks for /tasks."""
+        if self.task_store is None:
+            return "Task tracking not configured."
+
+        pending = await self.task_store.list(status=TaskStatus.PENDING)
+        in_progress = await self.task_store.list(status=TaskStatus.IN_PROGRESS)
+        open_tasks: list[Task] = pending + in_progress
+        if not open_tasks:
+            return "No open tasks."
+
+        lines = [_format_task_row(t) for t in open_tasks]
+        return "Open tasks:\n" + "\n".join(lines)
 
     async def _send_to_entity(self, entity_name: str, message: str) -> str:
         """Send a message to an entity and return its response."""
@@ -231,3 +286,28 @@ def _parse_window(raw: str) -> _Window:
         "30d": _Window(timedelta(days=30), "30d"),
     }
     return windows.get(raw, windows["24h"])
+
+
+def _strip_quotes(text: str) -> str:
+    """Strip a single matching pair of leading/trailing quotes (if any)."""
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ('"', "'"):
+        return text[1:-1]
+    return text
+
+
+def _parse_task_id(raw: str) -> int | None:
+    """Extract the first integer token from a /task done|cancel args string."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    first = raw.split()[0]
+    try:
+        return int(first)
+    except ValueError:
+        return None
+
+
+def _format_task_row(task: Task) -> str:
+    """Render a single task as a one-liner for /tasks output."""
+    return f"- #{task.id} [{task.status.value}] p{task.priority} {task.title}"

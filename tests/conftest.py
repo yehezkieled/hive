@@ -12,6 +12,7 @@ from testcontainers.postgres import PostgresContainer
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
+from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 
 
@@ -78,6 +79,7 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE messages RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE entities RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE token_usage RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE tasks RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
@@ -100,3 +102,9 @@ async def entity_store(store: MessageStore) -> AsyncIterator[EntityStore]:
 async def token_store(store: MessageStore) -> AsyncIterator[TokenStore]:
     """Function-scoped TokenStore sharing the test pool."""
     yield TokenStore(store.pool)
+
+
+@pytest_asyncio.fixture
+async def task_store(store: MessageStore) -> AsyncIterator[TaskStore]:
+    """Function-scoped TaskStore sharing the test pool."""
+    yield TaskStore(store.pool)

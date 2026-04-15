@@ -9,6 +9,7 @@ import signal
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
+from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.config import (
     DEFAULT_MAESTRO,
@@ -43,6 +44,7 @@ async def main() -> None:
     router = MessageRouter(store)
     entity_store = EntityStore(store.pool)
     token_store = TokenStore(store.pool)
+    task_store = TaskStore(store.pool)
 
     process_manager = ProcessManager(
         router=router,
@@ -83,6 +85,7 @@ async def main() -> None:
             process_manager=process_manager,
             default_maestro=DEFAULT_MAESTRO,
             token_store=token_store,
+            task_store=task_store,
         )
         await bridge.start()
         logger.info("Running with Telegram bridge")
