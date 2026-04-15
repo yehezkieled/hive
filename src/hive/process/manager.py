@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.models.entity import Entity, EntityState
 from hive.process.claude_session import ClaudeSession
@@ -21,12 +22,30 @@ class ProcessManager:
         router: MessageRouter,
         worktree_mgr: WorktreeManager | None = None,
         max_sessions: int = 3,
+        entity_store: EntityStore | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
         self.max_sessions = max_sessions
+        self.entity_store = entity_store
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
+
+    async def _persist(self, entity: Entity) -> None:
+        """Persist an entity's current state to the entity store, if configured.
+
+        Called after every state transition the manager drives. Kept at the
+        manager level (not inside Entity.transition_to) so the Entity
+        dataclass stays sync and DB-free for tests.
+        """
+        if self.entity_store is None:
+            return
+        try:
+            await self.entity_store.upsert(entity)
+        except Exception:
+            # Persistence failure should not take down the orchestrator —
+            # log and continue. The in-memory roster is still correct.
+            logger.exception("Failed to persist entity %s", entity.name)
 
     @property
     def entities(self) -> dict[str, Entity]:
@@ -57,6 +76,7 @@ class ProcessManager:
 
         # Transition state
         entity.transition_to(EntityState.STARTING)
+        await self._persist(entity)
 
         # Create and start session
         session = ClaudeSession(args=args, cwd=cwd)
@@ -66,6 +86,7 @@ class ProcessManager:
             entity.transition_to(EntityState.RUNNING)
         except Exception:
             entity.transition_to(EntityState.ERROR)
+            await self._persist(entity)
             raise
 
         # Register in router for message delivery
@@ -74,6 +95,8 @@ class ProcessManager:
         # Track
         self._entities[entity.name] = entity
         self._sessions[entity.name] = session
+
+        await self._persist(entity)
 
         logger.info(
             "Spawned entity %s (role=%s, model=%s, pid=%s)",
@@ -117,6 +140,7 @@ class ProcessManager:
         if entity:
             if entity.state == EntityState.RUNNING:
                 entity.transition_to(EntityState.STOPPED)
+                await self._persist(entity)
             del self._entities[name]
 
         self.router.unregister(name)
@@ -157,5 +181,24 @@ class ProcessManager:
             if entity.state == EntityState.RUNNING and (session is None or not session.is_alive):
                 unhealthy.append(name)
                 entity.transition_to(EntityState.ERROR)
+                await self._persist(entity)
                 logger.warning("Entity %s died unexpectedly", name)
         return unhealthy
+
+    def restore(self, entity: Entity) -> None:
+        """Re-register a persisted entity on orchestrator startup.
+
+        Structural restoration only — no subprocess is spawned. The entity
+        comes back in IDLE state (forced by EntityStore on load) so the next
+        spawn goes through the normal IDLE -> STARTING -> RUNNING path. We
+        can't reattach to the old PID because the subprocess died with the
+        previous orchestrator.
+        """
+        self._entities[entity.name] = entity
+        self.router.register(entity.name)
+        logger.info(
+            "Restored entity %s (role=%s, model=%s)",
+            entity.name,
+            entity.role,
+            entity.model,
+        )

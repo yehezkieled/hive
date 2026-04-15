@@ -1,24 +1,24 @@
 """Tests for process manager (with mocked subprocesses)."""
 
+from collections.abc import AsyncIterator
+
 import pytest
+import pytest_asyncio
 
 from hive.bus.router import MessageRouter
-from hive.bus.store import MessageStore
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.process.manager import ProcessManager
 
 
-@pytest.fixture
-async def manager(tmp_path):
-    """Create a process manager with a temporary store."""
-    store = MessageStore(tmp_path / "test.db")
-    await store.connect()
-    router = MessageRouter(store)
+@pytest_asyncio.fixture
+async def manager(router: MessageRouter) -> AsyncIterator[ProcessManager]:
+    """Create a process manager over the shared test router."""
     mgr = ProcessManager(router=router, max_sessions=2)
-    yield mgr
-    await mgr.kill_all()
-    await store.close()
+    try:
+        yield mgr
+    finally:
+        await mgr.kill_all()
 
 
 async def test_spawn_and_kill_entity(manager: ProcessManager) -> None:

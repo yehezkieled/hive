@@ -1,17 +1,6 @@
-"""Tests for SQLite message store."""
-
-import pytest
+"""Tests for the asyncpg message store."""
 
 from hive.bus.store import MessageStore
-
-
-@pytest.fixture
-async def store(tmp_path):
-    """Create a temporary message store."""
-    s = MessageStore(tmp_path / "test.db")
-    await s.connect()
-    yield s
-    await s.close()
 
 
 async def test_log_and_retrieve_message(store: MessageStore) -> None:
@@ -80,10 +69,14 @@ async def test_count_messages(store: MessageStore) -> None:
 
 
 async def test_filter_by_since(store: MessageStore) -> None:
-    import time
+    import asyncio
+    from datetime import UTC, datetime
 
     await store.log_message("user", "maestro:dev", "old")
-    cutoff = time.time()
+    # small gap so TIMESTAMPTZ resolution doesn't collapse the two rows
+    await asyncio.sleep(0.01)
+    cutoff = datetime.now(UTC)
+    await asyncio.sleep(0.01)
     await store.log_message("user", "maestro:dev", "new")
 
     messages = await store.get_messages("maestro:dev", since=cutoff)

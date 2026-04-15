@@ -6,14 +6,15 @@ import asyncio
 import logging
 import signal
 
+from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.config import (
-    DB_PATH,
     DEFAULT_MAESTRO,
     DEFAULT_MODEL,
     MAX_CONCURRENT_SESSIONS,
     PERSONALITIES_DIR,
+    POSTGRES_DSN,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
 )
@@ -35,27 +36,37 @@ async def main() -> None:
     logger.info("Starting Hive orchestrator...")
 
     # Initialize components
-    store = MessageStore(DB_PATH)
+    store = MessageStore(POSTGRES_DSN)
     await store.connect()
 
     router = MessageRouter(store)
+    entity_store = EntityStore(store.pool)
 
     process_manager = ProcessManager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
+        entity_store=entity_store,
     )
 
-    # Register default maestro
-    personality_path = PERSONALITIES_DIR / f"maestro-{DEFAULT_MAESTRO}.md"
-    maestro = Maestro(
-        name=DEFAULT_MAESTRO,
-        model=DEFAULT_MODEL,
-        personality_path=personality_path if personality_path.exists() else None,
-    )
-    # Don't spawn yet — spawn on first message (lazy)
-    process_manager._entities[DEFAULT_MAESTRO] = maestro
-    router.register(DEFAULT_MAESTRO)
-    logger.info("Registered default maestro: %s", DEFAULT_MAESTRO)
+    # Restore persisted entities (organizational structure, not running procs)
+    for persisted in await entity_store.all():
+        process_manager.restore(persisted)
+        logger.info("Restored persisted entity: %s", persisted.name)
+
+    # Ensure default maestro exists — register fresh on first run, skip if
+    # already restored from a previous session.
+    if DEFAULT_MAESTRO not in process_manager.entities:
+        personality_path = PERSONALITIES_DIR / f"maestro-{DEFAULT_MAESTRO}.md"
+        maestro = Maestro(
+            name=DEFAULT_MAESTRO,
+            model=DEFAULT_MODEL,
+            personality_path=personality_path if personality_path.exists() else None,
+        )
+        # Don't spawn yet — spawn on first message (lazy)
+        process_manager._entities[DEFAULT_MAESTRO] = maestro
+        router.register(DEFAULT_MAESTRO)
+        await entity_store.upsert(maestro)
+        logger.info("Registered default maestro: %s", DEFAULT_MAESTRO)
 
     # Determine mode: Telegram or local CLI
     use_telegram = bool(TELEGRAM_BOT_TOKEN)

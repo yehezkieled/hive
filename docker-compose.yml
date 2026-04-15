@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hive-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hive}
+      POSTGRES_DB: ${POSTGRES_DB:-hive}
+    ports:
+      # 127.0.0.1 keeps the DB off the public internet; 5433 avoids clashing
+      # with any future host-side PostgreSQL install
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - hive_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hive} -d ${POSTGRES_DB:-hive}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  hive_pgdata:
+    name: hive_pgdata

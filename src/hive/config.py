@@ -20,8 +20,16 @@ WORKTREES_DIR = PROJECT_ROOT / "worktrees"
 DATA_DIR.mkdir(exist_ok=True)
 WORKTREES_DIR.mkdir(exist_ok=True)
 
-# Database
-DB_PATH = DATA_DIR / "hive.db"
+# Database — PostgreSQL via asyncpg
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "127.0.0.1")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5433"))
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "hive")
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "hive")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "hive")
+POSTGRES_DSN = (
+    f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
+    f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+)
 
 # Telegram
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")

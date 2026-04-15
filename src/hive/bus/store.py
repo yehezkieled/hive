@@ -1,60 +1,59 @@
-"""SQLite message store for persistent message logging and querying."""
+"""PostgreSQL message store for persistent message logging and querying.
+
+Uses asyncpg with a connection pool. Schema is managed via versioned SQL
+migrations in ``hive.bus.migrations``.
+"""
 
 from __future__ import annotations
 
-import time
+import json
 import uuid
-from pathlib import Path
+from datetime import datetime
+from typing import Any
 
-import aiosqlite
+import asyncpg
+
+from hive.bus.migrations import run_migrations
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Register a codec so JSONB columns accept/return Python dicts."""
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
 
 
 class MessageStore:
-    """SQLite-backed message store with WAL mode for concurrent access."""
+    """asyncpg-backed message store. Preserves the Sprint 1 public interface."""
 
-    def __init__(self, db_path: Path | str) -> None:
-        self.db_path = str(db_path)
-        self._db: aiosqlite.Connection | None = None
+    def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+        self._pool: asyncpg.Pool | None = None
 
     async def connect(self) -> None:
-        """Open the database connection and create tables if needed."""
-        self._db = await aiosqlite.connect(self.db_path)
-        self._db.row_factory = aiosqlite.Row
-        await self._db.execute("PRAGMA journal_mode=WAL")
-        await self._db.execute("PRAGMA foreign_keys=ON")
-        await self._db.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender TEXT NOT NULL,
-                recipient TEXT NOT NULL,
-                content TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                conversation_id TEXT,
-                metadata TEXT
-            )
-        """)
-        await self._db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_messages_recipient
-            ON messages(recipient, status)
-        """)
-        await self._db.execute("""
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation
-            ON messages(conversation_id)
-        """)
-        await self._db.commit()
+        """Open the connection pool and run any pending migrations."""
+        self._pool = await asyncpg.create_pool(
+            self.dsn,
+            min_size=2,
+            max_size=10,
+            init=_init_connection,
+        )
+        await run_migrations(self._pool)
 
     async def close(self) -> None:
-        """Close the database connection."""
-        if self._db:
-            await self._db.close()
-            self._db = None
+        """Close the connection pool."""
+        if self._pool is not None:
+            await self._pool.close()
+            self._pool = None
 
     @property
-    def db(self) -> aiosqlite.Connection:
-        if self._db is None:
+    def pool(self) -> asyncpg.Pool:
+        if self._pool is None:
             raise RuntimeError("MessageStore not connected. Call connect() first.")
-        return self._db
+        return self._pool
 
     async def log_message(
         self,
@@ -62,81 +61,80 @@ class MessageStore:
         recipient: str,
         content: str,
         conversation_id: str | None = None,
-        metadata: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> int:
         """Insert a message and return its ID."""
         if conversation_id is None:
             conversation_id = uuid.uuid4().hex[:12]
 
-        cursor = await self.db.execute(
+        row = await self.pool.fetchrow(
             """
-            INSERT INTO messages (sender, recipient, content, timestamp, conversation_id, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (sender, recipient, content, conversation_id, metadata)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id
             """,
-            (sender, recipient, content, time.time(), conversation_id, metadata),
+            sender,
+            recipient,
+            content,
+            conversation_id,
+            metadata,
         )
-        await self.db.commit()
-        return cursor.lastrowid  # type: ignore[return-value]
+        return row["id"]
 
     async def get_messages(
         self,
         recipient: str,
-        since: float | None = None,
+        since: datetime | None = None,
         status: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Query messages for a recipient."""
-        query = "SELECT * FROM messages WHERE recipient = ?"
-        params: list = [recipient]
+        query = "SELECT * FROM messages WHERE recipient = $1"
+        params: list[Any] = [recipient]
 
         if since is not None:
-            query += " AND timestamp > ?"
             params.append(since)
+            query += f" AND timestamp > ${len(params)}"
 
         if status is not None:
-            query += " AND status = ?"
             params.append(status)
+            query += f" AND status = ${len(params)}"
 
-        query += " ORDER BY timestamp ASC LIMIT ?"
         params.append(limit)
+        query += f" ORDER BY timestamp ASC LIMIT ${len(params)}"
 
-        cursor = await self.db.execute(query, params)
-        rows = await cursor.fetchall()
+        rows = await self.pool.fetch(query, *params)
         return [dict(row) for row in rows]
 
     async def get_conversation(self, conversation_id: str) -> list[dict]:
         """Get all messages in a conversation thread."""
-        cursor = await self.db.execute(
-            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC",
-            (conversation_id,),
+        rows = await self.pool.fetch(
+            "SELECT * FROM messages WHERE conversation_id = $1 ORDER BY timestamp ASC",
+            conversation_id,
         )
-        rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
     async def get_recent(self, limit: int = 20) -> list[dict]:
         """Get the most recent messages across all conversations."""
-        cursor = await self.db.execute(
-            "SELECT * FROM messages ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
+        rows = await self.pool.fetch(
+            "SELECT * FROM messages ORDER BY timestamp DESC LIMIT $1",
+            limit,
         )
-        rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
     async def update_status(self, message_id: int, status: str) -> None:
         """Update the status of a message."""
-        await self.db.execute(
-            "UPDATE messages SET status = ? WHERE id = ?",
-            (status, message_id),
+        await self.pool.execute(
+            "UPDATE messages SET status = $1 WHERE id = $2",
+            status,
+            message_id,
         )
-        await self.db.commit()
 
     async def count_messages(self, recipient: str | None = None) -> int:
         """Count messages, optionally filtered by recipient."""
         if recipient:
-            cursor = await self.db.execute(
-                "SELECT COUNT(*) FROM messages WHERE recipient = ?", (recipient,)
+            return await self.pool.fetchval(
+                "SELECT COUNT(*) FROM messages WHERE recipient = $1",
+                recipient,
             )
-        else:
-            cursor = await self.db.execute("SELECT COUNT(*) FROM messages")
-        row = await cursor.fetchone()
-        return row[0]  # type: ignore[index]
+        return await self.pool.fetchval("SELECT COUNT(*) FROM messages")

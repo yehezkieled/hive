@@ -1,19 +1,6 @@
 """Tests for message router."""
 
-import pytest
-
 from hive.bus.router import MessageRouter
-from hive.bus.store import MessageStore
-
-
-@pytest.fixture
-async def router(tmp_path):
-    """Create a router with a temporary store."""
-    store = MessageStore(tmp_path / "test.db")
-    await store.connect()
-    r = MessageRouter(store)
-    yield r
-    await store.close()
 
 
 async def test_register_and_route(router: MessageRouter) -> None:

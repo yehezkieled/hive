@@ -1,13 +1,22 @@
 """Shared test fixtures for Hive."""
 
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
+from testcontainers.postgres import PostgresContainer
+
+from hive.bus.entity_store import EntityStore
+from hive.bus.router import MessageRouter
+from hive.bus.store import MessageStore
 
 
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
-    """Temporary directory for test data (SQLite, logs, etc.)."""
+    """Temporary directory for test data (logs, etc.)."""
     return tmp_path
 
 
@@ -35,3 +44,51 @@ and coordinate technical work.
 """
     )
     return d
+
+
+# -----------------------------------------------------------------------------
+# PostgreSQL fixtures — one container for the whole test session, tables
+# truncated between tests to keep each test isolated without paying the
+# container-startup cost per test.
+# -----------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def pg_dsn() -> Iterator[str]:
+    """Session-scoped PostgreSQL container. Yields an asyncpg-compatible DSN."""
+    with PostgresContainer("postgres:16-alpine") as container:
+        # testcontainers returns a SQLAlchemy-style URL (postgresql+psycopg2://...);
+        # strip the driver part to get a plain DSN asyncpg accepts.
+        raw = container.get_connection_url()
+        dsn = raw.replace("postgresql+psycopg2://", "postgresql://")
+        yield dsn
+
+
+@pytest_asyncio.fixture
+async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
+    """Function-scoped MessageStore bound to the session PG container.
+
+    Truncates the messages and entities tables before each test so every
+    test starts with a clean slate while still reusing the warm pool.
+    """
+    s = MessageStore(pg_dsn)
+    await s.connect()
+    async with s.pool.acquire() as conn:
+        await conn.execute("TRUNCATE TABLE messages RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE entities RESTART IDENTITY CASCADE")
+    try:
+        yield s
+    finally:
+        await s.close()
+
+
+@pytest_asyncio.fixture
+async def router(store: MessageStore) -> AsyncIterator[MessageRouter]:
+    """Function-scoped MessageRouter around the test store."""
+    yield MessageRouter(store)
+
+
+@pytest_asyncio.fixture
+async def entity_store(store: MessageStore) -> AsyncIterator[EntityStore]:
+    """Function-scoped EntityStore sharing the test pool."""
+    yield EntityStore(store.pool)
