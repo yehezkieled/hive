@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from hive.bus.audit_log import AuditLog
     from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
+    from hive.bus.vault_store import VaultStore
     from hive.models.task import Task
     from hive.process.manager import ProcessManager
 
@@ -41,6 +42,7 @@ class TelegramBridge:
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,
+        vault_store: VaultStore | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -49,6 +51,7 @@ class TelegramBridge:
         self.token_store = token_store
         self.task_store = task_store
         self.audit_log = audit_log
+        self.vault_store = vault_store
         self._app: Application | None = None
 
     async def start(self) -> None:
@@ -214,6 +217,9 @@ class TelegramBridge:
 
         if cmd.name == "model":
             return await self._execute_model(cmd.target, cmd.args)
+
+        if cmd.name == "vault":
+            return await self._execute_vault(cmd.target, cmd.args)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -586,6 +592,58 @@ class TelegramBridge:
         entity.model = model_name
         await self.process_manager._persist(entity)
         return f"Model for {target} set to {model_name!r}."
+
+    async def _execute_vault(self, subcommand: str | None, args: str) -> str:
+        """Handle /vault approve|deny|status|log."""
+        if self.vault_store is None:
+            return "Vault store not configured."
+
+        if not subcommand:
+            return "Usage: /vault approve|deny|status|log"
+
+        sub = subcommand.lower()
+
+        if sub == "approve":
+            action_id = _parse_task_id(args)
+            if action_id is None:
+                return "Usage: /vault approve <id>"
+            result = await self.vault_store.approve(action_id)
+            if result is None:
+                return f"Action #{action_id} not found or already resolved."
+            return f"Action #{action_id} approved."
+
+        if sub == "deny":
+            action_id = _parse_task_id(args)
+            if action_id is None:
+                return "Usage: /vault deny <id>"
+            result = await self.vault_store.deny(action_id)
+            if result is None:
+                return f"Action #{action_id} not found or already resolved."
+            return f"Action #{action_id} denied."
+
+        if sub == "status":
+            vault_name = args.strip() or "vault"
+            pending = await self.vault_store.pending(vault_name)
+            if not pending:
+                return "No pending vault actions."
+            lines = [
+                f"- #{a['id']} [{a['requester']}] {a['description']}"
+                for a in pending
+            ]
+            return f"Pending actions ({len(pending)}):\n" + "\n".join(lines)
+
+        if sub == "log":
+            vault_name = args.strip() or "vault"
+            log = await self.vault_store.log(vault_name)
+            if not log:
+                return "No vault actions recorded."
+            lines = [
+                f"- #{a['id']} {a['status']} {a['description'][:50]}"
+                for a in log
+            ]
+            return f"Vault log ({len(log)}):\n" + "\n".join(lines)
+
+        return f"Unknown vault subcommand: {subcommand}"
 
     async def _execute_compact(self, entity_name: str | None) -> str:
         """Handle /compact <entity> — summarize context, reset session with summary."""

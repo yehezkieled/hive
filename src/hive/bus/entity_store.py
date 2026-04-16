@@ -15,6 +15,7 @@ import asyncpg
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 from hive.models.worker import WorkerAgent
 
 
@@ -148,6 +149,8 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
     role = row["role"]
     if role == "maestro":
         return Maestro(**common)
+    if role == "vault":
+        return Vault(**common)
     if role == "lead":
         return TeamLead(
             **common,

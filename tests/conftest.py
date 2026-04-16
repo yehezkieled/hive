@@ -15,6 +15,7 @@ from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
+from hive.bus.vault_store import VaultStore
 
 
 @pytest.fixture
@@ -82,6 +83,7 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE token_usage RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE tasks RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE audit_log RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE vault_actions RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
@@ -116,3 +118,9 @@ async def task_store(store: MessageStore) -> AsyncIterator[TaskStore]:
 async def audit_log(store: MessageStore) -> AsyncIterator[AuditLog]:
     """Function-scoped AuditLog sharing the test pool."""
     yield AuditLog(store.pool)
+
+
+@pytest_asyncio.fixture
+async def vault_store(store: MessageStore) -> AsyncIterator[VaultStore]:
+    """Function-scoped VaultStore sharing the test pool."""
+    yield VaultStore(store.pool)
