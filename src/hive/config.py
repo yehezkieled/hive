@@ -47,3 +47,6 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 
 # Default maestro
 DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "dev")
+
+# Web dashboard (0 = disabled)
+WEB_PORT = int(os.environ.get("HIVE_WEB_PORT", "0"))

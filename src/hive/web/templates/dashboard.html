@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hive Dashboard</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 1rem; }
+        h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #f59e0b; }
+        h2 { font-size: 1.1rem; margin-bottom: 0.5rem; color: #94a3b8; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .card { background: #1e293b; border-radius: 8px; padding: 1rem; border: 1px solid #334155; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #334155; }
+        th { color: #94a3b8; font-weight: 600; }
+        .state-running { color: #22c55e; }
+        .state-idle { color: #94a3b8; }
+        .cost-val { font-size: 1.5rem; font-weight: bold; color: #f59e0b; }
+        .empty { color: #64748b; font-style: italic; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <h1>Hive Dashboard</h1>
+    <div class="grid">
+        <div class="card">
+            <h2>Entities</h2>
+            <div id="status" hx-get="/api/status" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <p class="empty">Loading...</p>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Organization</h2>
+            <div id="org" hx-get="/api/org" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <p class="empty">Loading...</p>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Tasks</h2>
+            <div id="tasks" hx-get="/api/tasks" hx-trigger="load, every 10s" hx-swap="innerHTML">
+                <p class="empty">Loading...</p>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Cost</h2>
+            <div id="cost" hx-get="/api/cost" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                <p class="empty">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Render JSON responses into HTML tables/elements
+        document.body.addEventListener('htmx:beforeSwap', function(evt) {
+            const target = evt.detail.target;
+            try {
+                const data = JSON.parse(evt.detail.xhr.responseText);
+                if (target.id === 'status') {
+                    evt.detail.serverResponse = renderStatus(data);
+                } else if (target.id === 'org') {
+                    evt.detail.serverResponse = renderOrg(data);
+                } else if (target.id === 'tasks') {
+                    evt.detail.serverResponse = renderTasks(data);
+                } else if (target.id === 'cost') {
+                    evt.detail.serverResponse = renderCost(data);
+                }
+            } catch(e) {}
+        });
+
+        function renderStatus(data) {
+            if (!data.length) return '<p class="empty">No entities running.</p>';
+            let rows = data.map(e =>
+                `<tr>
+                    <td>${e.name}</td>
+                    <td>${e.role}</td>
+                    <td class="state-${e.state.toLowerCase()}">${e.state}</td>
+                    <td>${e.model}</td>
+                    <td>${e.pid || '-'}</td>
+                </tr>`
+            ).join('');
+            return `<table><tr><th>Name</th><th>Role</th><th>State</th><th>Model</th><th>PID</th></tr>${rows}</table>`;
+        }
+
+        function renderOrg(data) {
+            if (!data.maestros || !data.maestros.length) return '<p class="empty">No maestros.</p>';
+            return data.maestros.map(m => {
+                let html = `<strong>${m.name}</strong> [${m.state}]`;
+                for (const [teamName, team] of Object.entries(m.teams || {})) {
+                    html += `<div style="margin-left:1rem">${teamName}`;
+                    if (team.lead) html += ` (lead: ${team.lead})`;
+                    (team.workers || []).forEach(w => {
+                        html += `<div style="margin-left:1rem">${w.name} [${w.state}]</div>`;
+                    });
+                    html += '</div>';
+                }
+                return `<div style="margin-bottom:0.5rem">${html}</div>`;
+            }).join('');
+        }
+
+        function renderTasks(data) {
+            if (!data.length) return '<p class="empty">No open tasks.</p>';
+            let rows = data.map(t =>
+                `<tr><td>#${t.id}</td><td>P${t.priority}</td><td>${t.status}</td><td>${t.title}</td></tr>`
+            ).join('');
+            return `<table><tr><th>ID</th><th>Pri</th><th>Status</th><th>Title</th></tr>${rows}</table>`;
+        }
+
+        function renderCost(data) {
+            if (!data.call_count) return '<p class="empty">No usage data.</p>';
+            return `<div class="cost-val">$${(data.cost_usd || 0).toFixed(4)}</div>
+                    <p>${data.call_count} calls, ${(data.input_tokens||0).toLocaleString()} in / ${(data.output_tokens||0).toLocaleString()} out</p>`;
+        }
+    </script>
+</body>
+</html>
