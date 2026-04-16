@@ -15,10 +15,12 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 PERSONALITIES_DIR = PROJECT_ROOT / "personalities"
 WORKTREES_DIR = PROJECT_ROOT / "worktrees"
+BLUEPRINTS_DIR = DATA_DIR / "blueprints"
 
 # Ensure runtime directories exist
 DATA_DIR.mkdir(exist_ok=True)
 WORKTREES_DIR.mkdir(exist_ok=True)
+BLUEPRINTS_DIR.mkdir(exist_ok=True)
 
 # Database — PostgreSQL via asyncpg
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "127.0.0.1")

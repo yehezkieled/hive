@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
+from hive.knowledge.blueprints import BlueprintStore
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
@@ -52,6 +53,7 @@ class TelegramBridge:
         self.task_store = task_store
         self.audit_log = audit_log
         self.vault_store = vault_store
+        self.blueprint_store: BlueprintStore | None = None
         self._app: Application | None = None
 
     async def start(self) -> None:
@@ -220,6 +222,9 @@ class TelegramBridge:
 
         if cmd.name == "vault":
             return await self._execute_vault(cmd.target, cmd.args)
+
+        if cmd.name == "blueprint":
+            return self._execute_blueprint(cmd.target, cmd.args)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -644,6 +649,42 @@ class TelegramBridge:
             return f"Vault log ({len(log)}):\n" + "\n".join(lines)
 
         return f"Unknown vault subcommand: {subcommand}"
+
+    def _execute_blueprint(self, subcommand: str | None, args: str) -> str:
+        """Handle /blueprint save|search|list."""
+        if self.blueprint_store is None:
+            return "Blueprint store not configured."
+
+        if not subcommand:
+            return "Usage: /blueprint save|search|list"
+
+        sub = subcommand.lower()
+
+        if sub == "save":
+            title = _strip_quotes(args).strip()
+            if not title:
+                return 'Usage: /blueprint save "title"'
+            path = self.blueprint_store.save(title, "", [])
+            return f"Blueprint saved: {path.name}"
+
+        if sub == "search":
+            query = args.strip()
+            if not query:
+                return "Usage: /blueprint search <query>"
+            results = self.blueprint_store.search(query)
+            if not results:
+                return f"No blueprints matching {query!r}."
+            lines = [f"- {r['title']}" for r in results]
+            return f"Blueprints ({len(results)}):\n" + "\n".join(lines)
+
+        if sub == "list":
+            items = self.blueprint_store.list_all()
+            if not items:
+                return "No blueprints saved."
+            lines = [f"- {bp['title']}" for bp in items]
+            return f"Blueprints ({len(items)}):\n" + "\n".join(lines)
+
+        return f"Unknown blueprint subcommand: {subcommand}"
 
     async def _execute_compact(self, entity_name: str | None) -> str:
         """Handle /compact <entity> — summarize context, reset session with summary."""
