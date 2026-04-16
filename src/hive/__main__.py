@@ -12,7 +12,9 @@ from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
+from hive.bus.vault_store import VaultStore
 from hive.config import (
+    BLUEPRINTS_DIR,
     DEFAULT_MAESTRO,
     DEFAULT_MODEL,
     MAX_CONCURRENT_SESSIONS,
@@ -20,8 +22,9 @@ from hive.config import (
     POSTGRES_DSN,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
+    WEB_PORT,
 )
-from hive.models.maestro import Maestro
+from hive.knowledge.blueprints import BlueprintStore
 from hive.process.manager import ProcessManager
 
 logger = logging.getLogger("hive")
@@ -47,6 +50,8 @@ async def main() -> None:
     token_store = TokenStore(store.pool)
     task_store = TaskStore(store.pool)
     audit_log = AuditLog(store.pool)
+    vault_store = VaultStore(store.pool)
+    blueprint_store = BlueprintStore(BLUEPRINTS_DIR)
 
     process_manager = ProcessManager(
         router=router,
@@ -68,15 +73,11 @@ async def main() -> None:
     # already restored from a previous session.
     if DEFAULT_MAESTRO not in process_manager.entities:
         personality_path = PERSONALITIES_DIR / f"maestro-{DEFAULT_MAESTRO}.md"
-        maestro = Maestro(
-            name=DEFAULT_MAESTRO,
+        await process_manager.register_maestro(
+            DEFAULT_MAESTRO,
             model=DEFAULT_MODEL,
             personality_path=personality_path if personality_path.exists() else None,
         )
-        # Don't spawn yet — spawn on first message (lazy)
-        process_manager._entities[DEFAULT_MAESTRO] = maestro
-        router.register(DEFAULT_MAESTRO)
-        await entity_store.upsert(maestro)
         logger.info("Registered default maestro: %s", DEFAULT_MAESTRO)
 
     # Determine mode: Telegram or local CLI
@@ -93,9 +94,28 @@ async def main() -> None:
             token_store=token_store,
             task_store=task_store,
             audit_log=audit_log,
+            vault_store=vault_store,
         )
+        bridge.blueprint_store = blueprint_store
         await bridge.start()
         logger.info("Running with Telegram bridge")
+
+        # Start web dashboard if configured
+        if WEB_PORT > 0:
+            import uvicorn
+
+            from hive.web.app import create_app
+
+            web_app = create_app(
+                process_manager=process_manager,
+                token_store=token_store,
+                task_store=task_store,
+                audit_log=audit_log,
+            )
+            config = uvicorn.Config(web_app, host="0.0.0.0", port=WEB_PORT, log_level="info")
+            server = uvicorn.Server(config)
+            asyncio.create_task(server.serve())
+            logger.info("Web dashboard started on port %d", WEB_PORT)
 
         # Keep running until interrupted
         stop_event = asyncio.Event()

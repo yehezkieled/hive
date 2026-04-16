@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 
 import asyncpg
 
@@ -42,12 +41,12 @@ class AuditLog:
             await self.pool.execute(
                 """
                 INSERT INTO audit_log (actor, action, target, details)
-                VALUES ($1, $2, $3, $4::jsonb)
+                VALUES ($1, $2, $3, $4)
                 """,
                 actor,
                 action,
                 target,
-                json.dumps(details) if details is not None else None,
+                details,
             )
         except Exception:
             logger.exception(
@@ -99,10 +98,3 @@ def _row_to_dict(row: asyncpg.Record) -> dict:
     }
 
 
-def _format_event_row(event: dict) -> str:
-    """Render one audit event as a one-liner."""
-    ts: datetime = event["timestamp"]
-    actor = event["actor"]
-    action = event["action"]
-    target = event["target"] or "-"
-    return f"{ts:%H:%M:%S} {actor} {action} {target}"

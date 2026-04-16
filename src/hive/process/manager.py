@@ -423,8 +423,14 @@ class ProcessManager:
 
             if entity.state == EntityState.RUNNING:
                 entity.transition_to(EntityState.STOPPED)
-                await self._persist(entity)
             del self._entities[name]
+
+        # Remove from DB so dead entities don't reappear on restart
+        if self.entity_store is not None:
+            try:
+                await self.entity_store.delete(name)
+            except Exception:
+                logger.exception("Failed to delete entity %s from DB", name)
 
         self.router.unregister(name)
         await self._audit("entity.kill", target=name)
