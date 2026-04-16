@@ -114,3 +114,48 @@ async def test_update_status_in_progress(task_store: TaskStore) -> None:
     assert refreshed is not None
     assert refreshed.status is TaskStatus.IN_PROGRESS
     assert refreshed.completed_at is None
+
+
+# -- claim_next (Sprint 3a Phase 4) --
+
+
+async def test_claim_next_returns_highest_priority(task_store: TaskStore) -> None:
+    """claim_next should return the highest-priority pending task."""
+    await task_store.create(title="backlog", priority=4, created_by="user")
+    await task_store.create(title="urgent", priority=0, created_by="user")
+    await task_store.create(title="normal", priority=2, created_by="user")
+
+    claimed = await task_store.claim_next("worker-1")
+    assert claimed is not None
+    assert claimed.title == "urgent"
+    assert claimed.status is TaskStatus.IN_PROGRESS
+    assert claimed.assigned_to == "worker-1"
+
+
+async def test_claim_next_empty_queue(task_store: TaskStore) -> None:
+    """claim_next should return None when no pending tasks exist."""
+    assert await task_store.claim_next("worker-1") is None
+
+
+async def test_claim_next_skips_non_pending(task_store: TaskStore) -> None:
+    """claim_next should only claim PENDING tasks."""
+    t = await task_store.create(title="done", created_by="user")
+    await task_store.update_status(t.id, TaskStatus.COMPLETED)
+
+    assert await task_store.claim_next("worker-1") is None
+
+
+async def test_claim_next_sequential_gets_different_tasks(
+    task_store: TaskStore,
+) -> None:
+    """Two sequential claim_next calls should return different tasks."""
+    await task_store.create(title="t1", priority=1, created_by="user")
+    await task_store.create(title="t2", priority=1, created_by="user")
+
+    first = await task_store.claim_next("worker-1")
+    second = await task_store.claim_next("worker-2")
+
+    assert first is not None
+    assert second is not None
+    assert first.id != second.id
+    assert {first.title, second.title} == {"t1", "t2"}

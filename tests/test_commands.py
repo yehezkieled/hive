@@ -171,3 +171,67 @@ def test_audit_with_prefix() -> None:
     cmd = parse_command("/audit entity")
     assert cmd.name == "audit"
     assert cmd.args == "entity"
+
+
+# -- Sprint 3a Phase 5: team/worker commands --
+
+
+def test_team_create() -> None:
+    cmd = parse_command("/team create backend")
+    assert cmd.name == "team"
+    assert cmd.target == "create"
+    assert cmd.args == "backend"
+
+
+def test_team_list_subcommand() -> None:
+    cmd = parse_command("/team list")
+    assert cmd.name == "team"
+    assert cmd.target == "list"
+
+
+def test_team_kill() -> None:
+    cmd = parse_command("/team kill backend")
+    assert cmd.name == "team"
+    assert cmd.target == "kill"
+    assert cmd.args == "backend"
+
+
+def test_teams_simple() -> None:
+    cmd = parse_command("/teams")
+    assert cmd.name == "teams"
+    assert cmd.target is None
+
+
+def test_worker_spawn() -> None:
+    cmd = parse_command("/worker spawn backend w1")
+    assert cmd.name == "worker"
+    assert cmd.target == "spawn"
+    assert cmd.args == "backend w1"
+
+
+def test_worker_spawn_no_name() -> None:
+    cmd = parse_command("/worker spawn backend")
+    assert cmd.name == "worker"
+    assert cmd.target == "spawn"
+    assert cmd.args == "backend"
+
+
+def test_worker_kill() -> None:
+    cmd = parse_command("/worker kill dev.backend.w1")
+    assert cmd.name == "worker"
+    assert cmd.target == "kill"
+    assert cmd.args == "dev.backend.w1"
+
+
+def test_swarm_command() -> None:
+    cmd = parse_command("/swarm backend write all unit tests")
+    assert cmd.name == "swarm"
+    assert cmd.target == "backend"
+    assert cmd.args == "write all unit tests"
+
+
+def test_priority_command() -> None:
+    cmd = parse_command('/priority P0 "fix prod bug"')
+    assert cmd.name == "priority"
+    assert cmd.target == "P0"
+    assert cmd.args == '"fix prod bug"'

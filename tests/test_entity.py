@@ -192,13 +192,26 @@ class TestEntityUptime:
         assert uptime >= 0
 
 
+class TestEntitySessionId:
+    """Test session_id field for --resume support."""
+
+    def test_session_id_defaults_to_none(self) -> None:
+        e = Entity(name="test", role="worker")
+        assert e.session_id is None
+
+    def test_session_id_can_be_set(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.session_id = "abc-123"
+        assert e.session_id == "abc-123"
+
+
 class TestSubclasses:
     """Test Maestro and WorkerAgent subclasses."""
 
     def test_maestro_default_role(self) -> None:
         m = Maestro(name="dev")
         assert m.role == "maestro"
-        assert m.teams == []
+        assert m.teams == {}
 
     def test_worker_with_worktree(self) -> None:
         w = WorkerAgent(name="coder", worktree_path=Path("/tmp/wt"))

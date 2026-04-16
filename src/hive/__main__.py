@@ -61,6 +61,9 @@ async def main() -> None:
         process_manager.restore(persisted)
         logger.info("Restored persisted entity: %s", persisted.name)
 
+    # Rebuild team hierarchy from restored entities
+    process_manager.rebuild_hierarchy()
+
     # Ensure default maestro exists — register fresh on first run, skip if
     # already restored from a previous session.
     if DEFAULT_MAESTRO not in process_manager.entities:

@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
+from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
+from hive.models.worker import WorkerAgent
 from hive.telegram.commands import parse_command
 
 if TYPE_CHECKING:
@@ -128,7 +130,7 @@ class TelegramBridge:
             return "Maestros:\n" + "\n".join(lines)
 
         if cmd.name == "org":
-            return self._format_status()
+            return self._format_org()
 
         if cmd.name == "comms":
             recent = await self.process_manager.router.store.get_recent(limit=10)
@@ -164,6 +166,23 @@ class TelegramBridge:
 
         if cmd.name == "audit":
             return await self._format_audit(cmd.args)
+
+        if cmd.name == "team":
+            # /team create|list|kill vs /t:dev.backend <msg>
+            if cmd.target and "." in (cmd.target or ""):
+                # /t:dev.backend <msg> — route message to the lead entity
+                return await self._send_to_entity(cmd.target, cmd.args)
+            return await self._execute_team(cmd.target, cmd.args)
+
+        if cmd.name == "teams":
+            return self._format_teams()
+
+        if cmd.name == "worker":
+            return await self._execute_worker(cmd.target, cmd.args)
+
+        if cmd.name == "agent":
+            # /a:dev.backend.w1 <msg> — message a worker directly
+            return await self._send_to_entity(cmd.target or "", cmd.args)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -289,6 +308,112 @@ class TelegramBridge:
         except Exception as e:
             logger.exception("Error sending to %s", entity_name)
             return f"Error: {e}"
+
+    async def _execute_team(self, subcommand: str | None, args: str) -> str:
+        """Dispatch a /team subcommand (create | list | kill)."""
+        if not subcommand:
+            return "Usage: /team create <name> | /team list | /team kill <name>"
+
+        sub = subcommand.lower()
+
+        if sub == "create":
+            name = args.strip()
+            if not name:
+                return "Usage: /team create <name>"
+            try:
+                lead = await self.process_manager.create_team(
+                    self.default_maestro, name
+                )
+                return f"Team {name!r} created. Lead: {lead.name}"
+            except (KeyError, TypeError, ValueError) as e:
+                return f"Error: {e}"
+
+        if sub == "list":
+            return self._format_teams()
+
+        if sub == "kill":
+            name = args.strip()
+            if not name:
+                return "Usage: /team kill <name>"
+            await self.process_manager.kill_team(self.default_maestro, name)
+            return f"Team {name!r} killed."
+
+        return f"Unknown team subcommand: {subcommand}"
+
+    async def _execute_worker(self, subcommand: str | None, args: str) -> str:
+        """Dispatch a /worker subcommand (spawn | kill)."""
+        if not subcommand:
+            return "Usage: /worker spawn <team> [name] | /worker kill <name>"
+
+        sub = subcommand.lower()
+
+        if sub == "spawn":
+            parts = args.strip().split(None, 1)
+            if not parts:
+                return "Usage: /worker spawn <team> [name]"
+            team_name = parts[0]
+            worker_name = parts[1] if len(parts) > 1 else None
+            lead_name = f"{self.default_maestro}.{team_name}"
+            try:
+                worker = await self.process_manager.spawn_worker(
+                    lead_name, worker_name
+                )
+                return f"Worker {worker.name} spawned."
+            except (KeyError, TypeError) as e:
+                return f"Error: {e}"
+
+        if sub == "kill":
+            name = args.strip()
+            if not name:
+                return "Usage: /worker kill <name>"
+            await self.process_manager.kill_entity(name)
+            return f"Worker {name} killed."
+
+        return f"Unknown worker subcommand: {subcommand}"
+
+    def _format_teams(self) -> str:
+        """Format all teams across all maestros for /teams output."""
+        entities = self.process_manager.entities
+        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
+        if not maestros:
+            return "No maestros registered."
+
+        lines = []
+        for m in maestros:
+            if not m.teams:
+                lines.append(f"{m.name}: no teams")
+                continue
+            for team_name, team in m.teams.items():
+                worker_count = len(team.workers)
+                lead_status = "active" if team.lead and team.lead in entities else "none"
+                lines.append(
+                    f"{m.name}.{team_name}: lead={lead_status}, workers={worker_count}"
+                )
+        return "Teams:\n" + "\n".join(lines) if lines else "No teams."
+
+    def _format_org(self) -> str:
+        """Format a tree view of the organization for /org."""
+        entities = self.process_manager.entities
+        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
+        if not maestros:
+            return "No entities running."
+
+        lines = []
+        for m in sorted(maestros, key=lambda x: x.name):
+            lines.append(f"{m.name} [maestro] {m.state.value}")
+            for team_name, team in m.teams.items():
+                lines.append(f"  {team_name} [team]")
+                if team.lead and team.lead in entities:
+                    lead = entities[team.lead]
+                    lines.append(f"    {team.lead} [lead] {lead.state.value}")
+                for wn in team.workers:
+                    if wn in entities:
+                        w = entities[wn]
+                        task_info = ""
+                        if isinstance(w, WorkerAgent) and w.task_id:
+                            task_info = f" (task #{w.task_id})"
+                        lines.append(f"    {wn} [worker] {w.state.value}{task_info}")
+        return "\n".join(lines) if lines else "No entities running."
 
     def _format_status(self) -> str:
         """Format entity status for display."""

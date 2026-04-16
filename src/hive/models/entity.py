@@ -122,6 +122,7 @@ class Entity:
     pid: int | None = None
     started_at: datetime | None = None
     system_prompt: str = ""
+    session_id: str | None = None
 
     def transition_to(self, new_state: EntityState) -> None:
         """Transition to a new state, raising InvalidStateTransitionError if not allowed."""

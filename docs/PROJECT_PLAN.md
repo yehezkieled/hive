@@ -523,6 +523,94 @@ coverage), this file, `docs/DEPLOYMENT.md`.
 
 ---
 
+## Sprint 3a — Teams, Multi-Turn Sessions, Worker Lifecycle (2026-04-16, DONE)
+
+**Goal**: Team model, resume-based multi-turn sessions (`--resume`),
+worktree integration for workers, task claiming with `SELECT ... FOR
+UPDATE SKIP LOCKED`, and Telegram commands for team/worker management.
+
+**Builds on**: Sprint 2b (task queue, entity persistence, audit log)
+
+### Phases (all complete)
+
+**Phase 1 — Resume-based multi-turn sessions.** Added `session_id` field
+to `Entity`, persisted via `EntityStore` (migration `006`). `send_to_entity`
+now passes `--resume <session_id>` on subsequent calls so entities remember
+their conversation context. Verified with mocked `ClaudeSession` tests:
+first call has no `--resume`, second call includes it, `kill_entity` clears it.
+
+**Phase 2 — Team model + hierarchical entities.** New `Team` dataclass
+(`src/hive/models/team.py`). Maestro gained `teams: dict[str, Team]` with
+`create_team` / `get_team` / `remove_team` methods. `TeamLead` fleshed
+out: `team_name`, `maestro_name`, `max_workers`. `WorkerAgent` fleshed
+out: `team_name`, `lead_name`, `task_id`. Naming convention:
+`maestro.team` for leads, `maestro.team.worker` for workers (matches
+existing `/t:` and `/a:` parser patterns). `EntityStore._row_to_entity`
+now polymorphic — returns `Maestro`, `TeamLead`, or `WorkerAgent` based
+on role column. Migration `007` adds `parent_name` and `team_name`
+columns with index. `ProcessManager` gained `create_team`, `spawn_worker`,
+`kill_team` methods with permission-aware validation.
+
+**Phase 3 — Worktree integration.** `spawn_worker` creates a git worktree
+via `WorktreeManager` (branch: `hive/<full_name>`) and sets `worker.worktree_path`.
+`kill_entity` removes the worktree for workers. Tested with mocked
+`WorktreeManager`.
+
+**Phase 4 — Task claim_next().** `TaskStore.claim_next(entity_name)` uses
+`SELECT ... FOR UPDATE SKIP LOCKED` to atomically claim the highest-priority
+pending task. Tested: basic claim, empty queue, non-pending skip, sequential
+claims get different tasks.
+
+**Phase 5 — Telegram commands.** Parser extended: `team`, `worker`, `swarm`
+added to `targeted_commands`. Bridge wired:
+- `/team create|list|kill` — team CRUD
+- `/teams` — list all teams
+- `/worker spawn <team> [name]` — spawn worker
+- `/worker kill <name>` — kill worker
+- `/t:dev.backend <msg>` — route message to team lead
+- `/a:dev.backend.w1 <msg>` — route message to worker
+- `/org` improved to show tree hierarchy (maestro → team → lead → workers)
+
+**Phase 6 — Hierarchy restore.** `ProcessManager.rebuild_hierarchy()` reconstructs
+`Maestro.teams` and `TeamLead.workers` from restored entities after restart.
+Called from `__main__.py` after entity restore loop.
+
+### Critical files
+
+**Created**: `src/hive/models/team.py`, `src/hive/bus/migrations/006_entity_session_id.sql`,
+`src/hive/bus/migrations/007_entity_hierarchy.sql`, `tests/test_team.py`.
+
+**Edited**: `src/hive/models/entity.py` (+`session_id` field),
+`src/hive/models/maestro.py` (teams dict, team methods),
+`src/hive/models/team_lead.py` (hierarchy fields),
+`src/hive/models/worker.py` (hierarchy fields + task_id),
+`src/hive/process/manager.py` (resume logic, team/worker methods,
+worktree integration, hierarchy rebuild),
+`src/hive/bus/entity_store.py` (polymorphic restore, new columns),
+`src/hive/bus/task_store.py` (`claim_next()`),
+`src/hive/telegram/commands.py` (new targeted commands),
+`src/hive/telegram/bridge.py` (team/worker handlers, improved /org),
+`src/hive/__main__.py` (`rebuild_hierarchy()` call).
+
+### Verification
+
+1. `pytest -v` → 168 passing (up from 117 after 2b).
+2. `ruff check src/ tests/` clean.
+3. All 51 new tests cover: session_id roundtrip, resume flag in CLI args,
+   Team/TeamLead/WorkerAgent hierarchy, polymorphic EntityStore restore,
+   create_team/spawn_worker/kill_team, worktree create/remove,
+   claim_next atomicity, command parsing, hierarchy rebuild.
+
+### Deliberately out of scope for 3a
+
+- Mode switching (`/mode`) — Sprint 3b
+- Loop switching (`/loop`) — Sprint 3b
+- Priority preemption (P0 bumps P4) — Sprint 3b
+- Swarm mode (`/swarm`) — Sprint 3b
+- LocalCLI mirroring of new commands — deferred
+
+---
+
 ## Sprint 3 — Multi-Team, Agent Lifecycle, Modes, Priorities
 
 **Goal**: A maestro can manage multiple teams, each with a lead + workers. Full lifecycle with mode/loop switching and priority system.

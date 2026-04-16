@@ -10,6 +10,9 @@ from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.bus.token_store import TokenStore
 from hive.models.entity import Entity, EntityState
+from hive.models.maestro import Maestro
+from hive.models.team_lead import TeamLead
+from hive.models.worker import WorkerAgent
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
 
@@ -168,25 +171,156 @@ class ProcessManager:
     async def send_to_entity(self, entity_name: str, prompt: str) -> str:
         """Send a prompt to an entity and get the response.
 
-        For MVP, this is one-shot: spawns a new session each time.
-        The session processes the prompt and returns the result.
+        Each call spawns a fresh subprocess. If the entity has a stored
+        session_id from a previous call, ``--resume`` is passed so the
+        Claude CLI resumes the prior conversation context.
         """
         entity = self._entities.get(entity_name)
         if entity is None:
             raise KeyError(f"Entity {entity_name!r} not found.")
 
-        # For one-shot mode, we create a fresh session for each prompt
         args = entity.build_cli_args()
+        if entity.session_id:
+            args.extend(["--resume", entity.session_id])
+
         session = ClaudeSession(args=args)
         await session.start()
 
         try:
             response = await session.send_prompt(prompt)
             await self._record_usage(entity, session)
+
+            # Store session_id for resume on next call
+            if session.session_id:
+                entity.session_id = session.session_id
+                await self._persist(entity)
         finally:
             await session.kill()
 
         return response
+
+    async def create_team(
+        self, maestro_name: str, team_name: str, model: str = "sonnet"
+    ) -> TeamLead:
+        """Create a new team under a maestro.
+
+        Registers a TeamLead entity named ``maestro.team``. The lead is
+        not spawned as a subprocess — it stays IDLE until someone sends
+        it a message via send_to_entity.
+        """
+        entity = self._entities.get(maestro_name)
+        if entity is None:
+            raise KeyError(f"Maestro {maestro_name!r} not found.")
+        if not isinstance(entity, Maestro):
+            raise TypeError(f"Entity {maestro_name!r} is not a maestro.")
+
+        # Delegate to Maestro.create_team (raises ValueError on duplicate)
+        team = entity.create_team(team_name)
+
+        lead_name = f"{maestro_name}.{team_name}"
+        lead = TeamLead(
+            name=lead_name,
+            team_name=team_name,
+            maestro_name=maestro_name,
+            model=model,
+        )
+        team.lead = lead_name
+
+        self._entities[lead_name] = lead
+        self.router.register(lead_name)
+        await self._persist(lead)
+        await self._audit(
+            "entity.create_team",
+            target=lead_name,
+            details={"maestro": maestro_name, "team": team_name},
+        )
+        logger.info("Created team %s under maestro %s", team_name, maestro_name)
+        return lead
+
+    async def spawn_worker(
+        self,
+        lead_name: str,
+        worker_name: str | None = None,
+        task_id: int | None = None,
+    ) -> WorkerAgent:
+        """Spawn a worker under a team lead.
+
+        If worker_name is None, auto-generates ``w1``, ``w2``, etc.
+        The worker is registered but not spawned as a subprocess — it
+        stays IDLE until work is assigned via send_to_entity.
+        """
+        lead = self._entities.get(lead_name)
+        if lead is None:
+            raise KeyError(f"Lead {lead_name!r} not found.")
+        if not isinstance(lead, TeamLead):
+            raise TypeError(f"Entity {lead_name!r} is not a team lead.")
+
+        if worker_name is None:
+            # Auto-name: find the next available w<N>
+            existing_nums = []
+            for wname in lead.workers:
+                suffix = wname.rsplit(".", 1)[-1]
+                if suffix.startswith("w") and suffix[1:].isdigit():
+                    existing_nums.append(int(suffix[1:]))
+            n = max(existing_nums, default=0) + 1
+            worker_name = f"w{n}"
+
+        full_name = f"{lead_name}.{worker_name}"
+
+        # Create worktree for isolated work if a WorktreeManager is configured
+        worktree_path = None
+        if self.worktree_mgr:
+            worktree_path = await self.worktree_mgr.create(
+                full_name, branch=f"hive/{full_name}"
+            )
+
+        worker = WorkerAgent(
+            name=full_name,
+            team_name=lead.team_name,
+            lead_name=lead_name,
+            model=lead.model,
+            task_id=task_id,
+            worktree_path=worktree_path,
+        )
+
+        lead.workers.append(full_name)
+
+        # Update the team's worker list in the parent maestro
+        maestro = self._entities.get(lead.maestro_name)
+        if isinstance(maestro, Maestro):
+            team = maestro.get_team(lead.team_name)
+            if team:
+                team.workers.append(full_name)
+
+        self._entities[full_name] = worker
+        self.router.register(full_name)
+        await self._persist(worker)
+        await self._audit(
+            "entity.spawn_worker",
+            target=full_name,
+            details={"lead": lead_name, "team": lead.team_name, "task_id": task_id},
+        )
+        logger.info("Spawned worker %s under lead %s", full_name, lead_name)
+        return worker
+
+    async def kill_team(self, maestro_name: str, team_name: str) -> None:
+        """Kill a team — removes the lead and all its workers."""
+        maestro = self._entities.get(maestro_name)
+        if not isinstance(maestro, Maestro):
+            return
+
+        team = maestro.get_team(team_name)
+        if team is None:
+            return
+
+        # Kill workers first, then the lead
+        for worker_name in list(team.workers):
+            await self.kill_entity(worker_name)
+        if team.lead:
+            await self.kill_entity(team.lead)
+
+        maestro.remove_team(team_name)
+        logger.info("Killed team %s under maestro %s", team_name, maestro_name)
 
     async def kill_entity(self, name: str) -> None:
         """Kill an entity's subprocess and clean up."""
@@ -197,6 +331,33 @@ class ProcessManager:
 
         entity = self._entities.get(name)
         if entity:
+            # Clean up worktree for workers
+            if (
+                isinstance(entity, WorkerAgent)
+                and entity.worktree_path
+                and self.worktree_mgr
+            ):
+                try:
+                    await self.worktree_mgr.remove(name)
+                except Exception:
+                    logger.exception("Failed to remove worktree for %s", name)
+
+            # Remove worker from parent lead's and team's worker lists
+            if isinstance(entity, WorkerAgent) and entity.lead_name:
+                lead = self._entities.get(entity.lead_name)
+                if isinstance(lead, TeamLead) and name in lead.workers:
+                    lead.workers.remove(name)
+                # Also remove from the Team object on the maestro
+                maestro_name = lead.maestro_name if isinstance(lead, TeamLead) else ""
+                maestro = self._entities.get(maestro_name)
+                if isinstance(maestro, Maestro):
+                    team = maestro.get_team(entity.team_name)
+                    if team and name in team.workers:
+                        team.workers.remove(name)
+
+            # Clear session_id so a stale --resume isn't persisted to DB
+            entity.session_id = None
+
             if entity.state == EntityState.RUNNING:
                 entity.transition_to(EntityState.STOPPED)
                 await self._persist(entity)
@@ -267,3 +428,42 @@ class ProcessManager:
             entity.role,
             entity.model,
         )
+
+    def rebuild_hierarchy(self) -> None:
+        """Reconstruct Maestro.teams from restored TeamLead/Worker entities.
+
+        Called once after all entities are restored from the DB. Iterates
+        restored entities and links TeamLeads to their parent Maestro's
+        teams dict, and Workers to their TeamLead's workers list.
+        """
+        from hive.models.team import Team
+
+        # First pass: create teams from TeamLeads
+        for entity in self._entities.values():
+            if isinstance(entity, TeamLead) and entity.maestro_name:
+                maestro = self._entities.get(entity.maestro_name)
+                if isinstance(maestro, Maestro) and entity.team_name not in maestro.teams:
+                    team = Team(
+                        name=entity.team_name,
+                        maestro=maestro.name,
+                        lead=entity.name,
+                    )
+                    maestro.teams[entity.team_name] = team
+
+        # Second pass: attach Workers to their leads and teams
+        for entity in self._entities.values():
+            if isinstance(entity, WorkerAgent) and entity.lead_name:
+                lead = self._entities.get(entity.lead_name)
+                if isinstance(lead, TeamLead) and entity.name not in lead.workers:
+                    lead.workers.append(entity.name)
+
+                # Also add to the team's worker list
+                if entity.lead_name:
+                    maestro_name = entity.lead_name.split(".")[0] if "." in entity.lead_name else ""
+                    maestro = self._entities.get(maestro_name)
+                    if isinstance(maestro, Maestro):
+                        team = maestro.get_team(entity.team_name)
+                        if team and entity.name not in team.workers:
+                            team.workers.append(entity.name)
+
+        logger.info("Rebuilt hierarchy for %d entities", len(self._entities))

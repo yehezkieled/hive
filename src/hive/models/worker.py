@@ -10,10 +10,17 @@ from hive.models.entity import Entity
 
 @dataclass
 class WorkerAgent(Entity):
-    """A worker agent that executes specific tasks in an isolated worktree."""
+    """A worker agent that executes specific tasks in an isolated worktree.
+
+    Named ``maestro.team.worker`` (e.g., "dev.backend.w1"). Tracks its
+    parent lead and the task it's currently working on.
+    """
 
     role: str = "worker"
+    team_name: str = ""
+    lead_name: str = ""
     worktree_path: Path | None = None
+    task_id: int | None = None
 
     def build_cli_args(self) -> list[str]:
         """Workers get worktree-specific arguments."""

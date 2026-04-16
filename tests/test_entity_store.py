@@ -4,6 +4,9 @@ from pathlib import Path
 
 from hive.bus.entity_store import EntityStore
 from hive.models.entity import Entity, EntityState
+from hive.models.maestro import Maestro
+from hive.models.team_lead import TeamLead
+from hive.models.worker import WorkerAgent
 
 
 async def test_upsert_and_load(entity_store: EntityStore) -> None:
@@ -106,3 +109,98 @@ async def test_null_personality_path(entity_store: EntityStore) -> None:
     loaded = await entity_store.load("dev")
     assert loaded is not None
     assert loaded.personality_path is None
+
+
+async def test_session_id_roundtrip(entity_store: EntityStore) -> None:
+    """session_id should survive upsert -> load."""
+    entity = Entity(name="dev", role="maestro", model="sonnet")
+    entity.session_id = "sess-abc-123"
+    await entity_store.upsert(entity)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.session_id == "sess-abc-123"
+
+
+async def test_session_id_null_roundtrip(entity_store: EntityStore) -> None:
+    """Entities without a session_id should load back with None."""
+    entity = Entity(name="dev", role="maestro", model="sonnet")
+    await entity_store.upsert(entity)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.session_id is None
+
+
+async def test_session_id_update(entity_store: EntityStore) -> None:
+    """Upsert should update session_id when it changes."""
+    entity = Entity(name="dev", role="maestro", model="sonnet")
+    entity.session_id = "sess-1"
+    await entity_store.upsert(entity)
+
+    entity.session_id = "sess-2"
+    await entity_store.upsert(entity)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.session_id == "sess-2"
+
+
+# -- Polymorphic restoration (Sprint 3a Phase 2) --
+
+
+async def test_load_maestro_returns_maestro_instance(entity_store: EntityStore) -> None:
+    """Loading an entity with role='maestro' should return a Maestro."""
+    await entity_store.upsert(Maestro(name="dev", model="sonnet"))
+    loaded = await entity_store.load("dev")
+    assert isinstance(loaded, Maestro)
+
+
+async def test_load_lead_returns_team_lead_instance(entity_store: EntityStore) -> None:
+    """Loading an entity with role='lead' should return a TeamLead."""
+    lead = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+    )
+    await entity_store.upsert(lead)
+    loaded = await entity_store.load("dev.backend")
+    assert isinstance(loaded, TeamLead)
+    assert loaded.team_name == "backend"
+    assert loaded.maestro_name == "dev"
+
+
+async def test_load_worker_returns_worker_instance(entity_store: EntityStore) -> None:
+    """Loading an entity with role='worker' should return a WorkerAgent."""
+    worker = WorkerAgent(
+        name="dev.backend.w1",
+        team_name="backend",
+        lead_name="dev.backend",
+    )
+    await entity_store.upsert(worker)
+    loaded = await entity_store.load("dev.backend.w1")
+    assert isinstance(loaded, WorkerAgent)
+    assert loaded.team_name == "backend"
+    assert loaded.lead_name == "dev.backend"
+
+
+async def test_hierarchy_columns_roundtrip(entity_store: EntityStore) -> None:
+    """parent_name and team_name should survive upsert -> load."""
+    lead = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+    )
+    await entity_store.upsert(lead)
+
+    worker = WorkerAgent(
+        name="dev.backend.w1",
+        team_name="backend",
+        lead_name="dev.backend",
+    )
+    await entity_store.upsert(worker)
+
+    entities = await entity_store.all()
+    assert len(entities) == 2
+    names = {e.name for e in entities}
+    assert names == {"dev.backend", "dev.backend.w1"}

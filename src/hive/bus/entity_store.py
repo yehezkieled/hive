@@ -13,6 +13,9 @@ from pathlib import Path
 import asyncpg
 
 from hive.models.entity import Entity, EntityState
+from hive.models.maestro import Maestro
+from hive.models.team_lead import TeamLead
+from hive.models.worker import WorkerAgent
 
 
 class EntityStore:
@@ -23,12 +26,17 @@ class EntityStore:
 
     async def upsert(self, entity: Entity) -> None:
         """Insert or update an entity row by name."""
+        # Extract hierarchy fields from subclass-specific attributes
+        parent_name = _get_parent_name(entity)
+        team_name = _get_team_name(entity)
+
         await self.pool.execute(
             """
             INSERT INTO entities
-                (name, role, state, model, personality_path, pid, started_at, updated_at)
+                (name, role, state, model, personality_path, pid, started_at,
+                 session_id, parent_name, team_name, updated_at)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, NOW())
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -36,6 +44,9 @@ class EntityStore:
                 personality_path = EXCLUDED.personality_path,
                 pid = EXCLUDED.pid,
                 started_at = EXCLUDED.started_at,
+                session_id = EXCLUDED.session_id,
+                parent_name = EXCLUDED.parent_name,
+                team_name = EXCLUDED.team_name,
                 updated_at = NOW()
             """,
             entity.name,
@@ -45,6 +56,9 @@ class EntityStore:
             str(entity.personality_path) if entity.personality_path else None,
             entity.pid,
             entity.started_at,
+            entity.session_id,
+            parent_name,
+            team_name,
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -65,20 +79,56 @@ class EntityStore:
         await self.pool.execute("DELETE FROM entities WHERE name = $1", name)
 
 
+def _get_parent_name(entity: Entity) -> str | None:
+    """Extract the parent_name for DB storage based on entity type."""
+    if isinstance(entity, TeamLead):
+        return entity.maestro_name or None
+    if isinstance(entity, WorkerAgent):
+        return entity.lead_name or None
+    return None
+
+
+def _get_team_name(entity: Entity) -> str | None:
+    """Extract the team_name for DB storage based on entity type."""
+    if isinstance(entity, (TeamLead, WorkerAgent)):
+        return entity.team_name or None
+    return None
+
+
 def _row_to_entity(row: asyncpg.Record) -> Entity:
-    """Convert a row from the entities table back into an Entity dataclass.
+    """Convert a row from the entities table back into the correct subclass.
 
     Restored entities always come back in IDLE state — the live state at the
     time of the last upsert is not useful after an orchestrator restart,
-    because the subprocess died with the parent.
+    because the subprocess died with the parent. The session_id IS preserved
+    so the entity can --resume its prior conversation on the next call.
     """
     personality_path = Path(row["personality_path"]) if row["personality_path"] else None
-    return Entity(
+    # Common kwargs shared by all entity types
+    common = dict(
         name=row["name"],
-        role=row["role"],
         personality_path=personality_path,
         model=row["model"],
         state=EntityState.IDLE,
         pid=None,
         started_at=None,
+        session_id=row["session_id"],
     )
+
+    role = row["role"]
+    if role == "maestro":
+        return Maestro(**common)
+    if role == "lead":
+        return TeamLead(
+            **common,
+            team_name=row["team_name"] or "",
+            maestro_name=row["parent_name"] or "",
+        )
+    if role == "worker":
+        return WorkerAgent(
+            **common,
+            team_name=row["team_name"] or "",
+            lead_name=row["parent_name"] or "",
+        )
+    # Fallback for unknown roles
+    return Entity(**common, role=role)
