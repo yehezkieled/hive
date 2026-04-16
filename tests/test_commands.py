@@ -235,3 +235,40 @@ def test_priority_command() -> None:
     assert cmd.name == "priority"
     assert cmd.target == "P0"
     assert cmd.args == '"fix prod bug"'
+
+
+# -- Sprint 4: multi-maestro, personalities, broadcast --
+
+
+def test_new_maestro_command() -> None:
+    cmd = parse_command("/new maestro ops")
+    assert cmd.name == "new"
+    assert cmd.target == "maestro"
+    assert cmd.args == "ops"
+
+
+def test_new_maestro_with_model() -> None:
+    cmd = parse_command("/new maestro ops sonnet")
+    assert cmd.name == "new"
+    assert cmd.target == "maestro"
+    assert cmd.args == "ops sonnet"
+
+
+def test_personality_reload_command() -> None:
+    cmd = parse_command("/personality reload dev")
+    assert cmd.name == "personality"
+    assert cmd.target == "reload"
+    assert cmd.args == "dev"
+
+
+def test_broadcast_command() -> None:
+    cmd = parse_command("/broadcast standup time")
+    assert cmd.name == "broadcast"
+    assert cmd.args == "standup time"
+
+
+def test_model_command() -> None:
+    cmd = parse_command("/model haiku dev.backend.w1")
+    assert cmd.name == "model"
+    assert cmd.target == "haiku"
+    assert cmd.args == "dev.backend.w1"

@@ -65,7 +65,7 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
     # the rest of the line becoming the args (title or id).
     targeted_commands = {
         "kill", "compact", "reset", "mode", "loop", "priority", "task",
-        "team", "worker", "swarm",
+        "team", "worker", "swarm", "new", "personality", "model",
     }
     cmd_match = re.match(r"^/(\w+)\s+(.*)", text, re.DOTALL)
     if cmd_match:

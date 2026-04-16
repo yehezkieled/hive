@@ -130,6 +130,39 @@ class ProcessManager:
         await self.kill_entity(worst_name)
         return worst_name
 
+    async def register_maestro(
+        self,
+        name: str,
+        model: str = "sonnet",
+        personality_path: Path | None = None,
+    ) -> Maestro:
+        """Create and register a new maestro entity.
+
+        Does not spawn a subprocess — the maestro stays IDLE until it
+        receives its first message via send_to_entity.
+        """
+        if name in self._entities:
+            raise ValueError(f"Entity {name!r} already exists.")
+
+        maestro = Maestro(
+            name=name,
+            model=model,
+            personality_path=personality_path,
+        )
+        if personality_path and personality_path.exists():
+            maestro.load_personality()
+
+        self._entities[name] = maestro
+        self.router.register(name)
+        await self._persist(maestro)
+        await self._audit(
+            "entity.register",
+            target=name,
+            details={"role": "maestro", "model": model},
+        )
+        logger.info("Registered maestro: %s (model=%s)", name, model)
+        return maestro
+
     async def spawn_entity(self, entity: Entity, cwd: Path | None = None) -> ClaudeSession:
         """Spawn a Claude Code subprocess for an entity.
 

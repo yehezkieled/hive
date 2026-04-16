@@ -203,6 +203,18 @@ class TelegramBridge:
         if cmd.name == "reset":
             return await self._execute_reset(cmd.target)
 
+        if cmd.name == "new":
+            return await self._execute_new(cmd.target, cmd.args)
+
+        if cmd.name == "personality":
+            return await self._execute_personality(cmd.target, cmd.args)
+
+        if cmd.name == "broadcast":
+            return await self._execute_broadcast(cmd.args)
+
+        if cmd.name == "model":
+            return await self._execute_model(cmd.target, cmd.args)
+
         return f"Unknown command: /{cmd.name}"
 
     async def _format_cost(self, args: str) -> str:
@@ -492,6 +504,88 @@ class TelegramBridge:
                 results.append(f"{worker_name}: Error — {e}")
 
         return f"Swarm ({len(results)} workers):\n" + "\n".join(results)
+
+    async def _execute_new(self, entity_type: str | None, args: str) -> str:
+        """Handle /new maestro <name> [model]."""
+        if not entity_type or entity_type.lower() != "maestro":
+            return "Usage: /new maestro <name> [model]"
+
+        parts = args.strip().split(None, 1)
+        if not parts:
+            return "Usage: /new maestro <name> [model]"
+
+        name = parts[0]
+        model = parts[1] if len(parts) > 1 else "sonnet"
+
+        try:
+            maestro = await self.process_manager.register_maestro(
+                name, model=model
+            )
+            return f"Maestro {maestro.name!r} registered (model={model})."
+        except (ValueError, RuntimeError) as e:
+            return f"Error: {e}"
+
+    async def _execute_personality(
+        self, subcommand: str | None, args: str
+    ) -> str:
+        """Handle /personality reload <entity>."""
+        if not subcommand or subcommand.lower() != "reload":
+            return "Usage: /personality reload <entity>"
+
+        entity_name = args.strip() or self.default_maestro
+        entity = self.process_manager.entities.get(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+
+        config = entity.load_personality()
+        if config is None:
+            return f"No personality file for {entity_name!r}."
+
+        await self.process_manager._persist(entity)
+        return f"Reloaded personality for {entity_name}."
+
+    async def _execute_broadcast(self, message: str) -> str:
+        """Handle /broadcast <message> — send to all entities."""
+        if not message.strip():
+            return "Usage: /broadcast <message>"
+
+        entities = self.process_manager.entities
+        if not entities:
+            return "No entities to broadcast to."
+
+        results = []
+        for name in entities:
+            try:
+                response = await self.process_manager.send_to_entity(
+                    name, message
+                )
+                results.append(f"{name}: {response[:80]}")
+            except Exception as e:
+                results.append(f"{name}: Error — {e}")
+
+        return (
+            f"Broadcast to {len(results)} entities:\n"
+            + "\n".join(results)
+        )
+
+    async def _execute_model(
+        self, model_name: str | None, entity_name: str
+    ) -> str:
+        """Handle /model <opus|sonnet|haiku> [entity]."""
+        valid_models = {"opus", "sonnet", "haiku"}
+        if not model_name or model_name not in valid_models:
+            return (
+                f"Usage: /model <{'|'.join(sorted(valid_models))}> [entity]"
+            )
+
+        target = entity_name.strip() if entity_name else self.default_maestro
+        entity = self.process_manager.entities.get(target)
+        if entity is None:
+            return f"Entity {target!r} not found."
+
+        entity.model = model_name
+        await self.process_manager._persist(entity)
+        return f"Model for {target} set to {model_name!r}."
 
     async def _execute_compact(self, entity_name: str | None) -> str:
         """Handle /compact <entity> — summarize context, reset session with summary."""

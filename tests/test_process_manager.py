@@ -565,3 +565,32 @@ class TestPreemption:
         result = await mgr._preempt_for_priority(0)
         assert result is None
         await mgr.kill_all()
+
+
+class TestRegisterMaestro:
+    """Test register_maestro method for /new maestro."""
+
+    async def test_register_maestro(self, manager: ProcessManager) -> None:
+        """register_maestro should create and register a new maestro."""
+        maestro = await manager.register_maestro("ops", model="sonnet")
+        assert isinstance(maestro, Maestro)
+        assert maestro.name == "ops"
+        assert "ops" in manager.entities
+
+    async def test_register_duplicate_maestro_raises(
+        self, manager: ProcessManager
+    ) -> None:
+        """register_maestro should raise if name already exists."""
+        await manager.register_maestro("ops")
+        with pytest.raises(ValueError, match="already exists"):
+            await manager.register_maestro("ops")
+
+    async def test_register_maestro_with_personality(
+        self, manager: ProcessManager, personalities_dir: Path
+    ) -> None:
+        """register_maestro should load personality if file exists."""
+        personality_path = personalities_dir / "maestro-dev.md"
+        maestro = await manager.register_maestro(
+            "dev", personality_path=personality_path
+        )
+        assert maestro.system_prompt != ""
