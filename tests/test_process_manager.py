@@ -478,3 +478,90 @@ class TestHierarchyRestore:
     ) -> None:
         """rebuild_hierarchy on empty manager should not raise."""
         manager.rebuild_hierarchy()  # should not raise
+
+
+class TestMaxWorkersEnforcement:
+    """Test that spawn_worker respects lead.max_workers."""
+
+    async def test_spawn_worker_respects_max_workers(
+        self, manager: ProcessManager
+    ) -> None:
+        """spawn_worker should raise when lead already has max_workers workers."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        lead = await manager.create_team("dev", "backend")
+        lead.max_workers = 1
+
+        await manager.spawn_worker("dev.backend", "w1")
+        with pytest.raises(RuntimeError, match="max"):
+            await manager.spawn_worker("dev.backend", "w2")
+
+    async def test_spawn_worker_under_limit_succeeds(
+        self, manager: ProcessManager
+    ) -> None:
+        """spawn_worker should succeed when under max_workers."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        lead = await manager.create_team("dev", "backend")
+        lead.max_workers = 3
+
+        w1 = await manager.spawn_worker("dev.backend", "w1")
+        w2 = await manager.spawn_worker("dev.backend", "w2")
+        assert w1.name == "dev.backend.w1"
+        assert w2.name == "dev.backend.w2"
+
+
+class TestPreemption:
+    """Test priority-based preemption logic."""
+
+    async def test_preempt_returns_none_when_under_capacity(
+        self, manager: ProcessManager
+    ) -> None:
+        """No preemption needed when under max_sessions."""
+        result = await manager._preempt_for_priority(0)
+        assert result is None
+
+    async def test_preempt_kills_lowest_priority_entity(
+        self, router: MessageRouter
+    ) -> None:
+        """When at capacity, preemption should kill the lowest-priority entity."""
+        mgr = ProcessManager(router=router, max_sessions=1)
+
+        # Manually register a "running" entity with low priority
+        entity = Maestro(name="low", model="sonnet")
+        entity.current_priority = 4
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        mgr._entities["low"] = entity
+        mgr.router.register("low")
+        # Fake a session so active_count == 1
+        mock_session = AsyncMock()
+        mock_session.is_alive = True
+        mock_session.kill = AsyncMock()
+        mgr._sessions["low"] = mock_session
+
+        result = await mgr._preempt_for_priority(0)
+        assert result == "low"
+        assert "low" not in mgr.entities
+
+    async def test_preempt_returns_none_when_all_higher_priority(
+        self, router: MessageRouter
+    ) -> None:
+        """Cannot preempt when all running entities are same or higher priority."""
+        mgr = ProcessManager(router=router, max_sessions=1)
+
+        entity = Maestro(name="high", model="sonnet")
+        entity.current_priority = 0
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        mgr._entities["high"] = entity
+        mgr.router.register("high")
+        mock_session = AsyncMock()
+        mock_session.is_alive = True
+        mgr._sessions["high"] = mock_session
+
+        result = await mgr._preempt_for_priority(0)
+        assert result is None
+        await mgr.kill_all()

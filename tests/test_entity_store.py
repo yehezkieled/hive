@@ -204,3 +204,33 @@ async def test_hierarchy_columns_roundtrip(entity_store: EntityStore) -> None:
     assert len(entities) == 2
     names = {e.name for e in entities}
     assert names == {"dev.backend", "dev.backend.w1"}
+
+
+async def test_permission_mode_roundtrip(entity_store: EntityStore) -> None:
+    """permission_mode should survive upsert -> load."""
+    e = Entity(name="test", role="worker", permission_mode="plan")
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("test")
+    assert loaded is not None
+    assert loaded.permission_mode == "plan"
+
+
+async def test_loop_mode_roundtrip(entity_store: EntityStore) -> None:
+    """loop_mode should survive upsert -> load."""
+    e = Entity(name="test", role="worker", loop_mode="yolo")
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("test")
+    assert loaded is not None
+    assert loaded.loop_mode == "yolo"
+
+
+async def test_current_priority_roundtrip(entity_store: EntityStore) -> None:
+    """current_priority should survive upsert -> load."""
+    e = Entity(name="test", role="worker", current_priority=0)
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("test")
+    assert loaded is not None
+    assert loaded.current_priority == 0

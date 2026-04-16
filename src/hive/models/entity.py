@@ -108,6 +108,13 @@ def parse_personality(path: Path) -> PersonalityConfig:
     )
 
 
+PERMISSION_MODES: dict[str, str] = {
+    "plan": "plan",
+    "edit": "default",
+    "auto": "bypassPermissions",
+}
+
+
 @dataclass
 class Entity:
     """Base class for all Hive entities (maestro, lead, worker)."""
@@ -123,6 +130,9 @@ class Entity:
     started_at: datetime | None = None
     system_prompt: str = ""
     session_id: str | None = None
+    permission_mode: str = "default"
+    loop_mode: str = "ralph"
+    current_priority: int = 3
 
     def transition_to(self, new_state: EntityState) -> None:
         """Transition to a new state, raising InvalidStateTransitionError if not allowed."""
@@ -135,6 +145,26 @@ class Entity:
             self.started_at = datetime.now(UTC)
         elif new_state in (EntityState.COMPLETED, EntityState.ERROR, EntityState.STOPPED):
             self.pid = None
+
+    def set_permission_mode(self, mode_name: str) -> None:
+        """Set permission_mode from a user-facing name (plan/edit/auto)."""
+        cli_value = PERMISSION_MODES.get(mode_name)
+        if cli_value is None:
+            raise ValueError(
+                f"Unknown permission mode {mode_name!r}. "
+                f"Valid: {', '.join(PERMISSION_MODES)}"
+            )
+        self.permission_mode = cli_value
+
+    def set_loop_mode(self, mode: str) -> None:
+        """Set loop_mode, validating against known loop prompts."""
+        from hive.process.loops import LOOP_PROMPTS
+
+        if mode not in LOOP_PROMPTS:
+            raise ValueError(
+                f"Unknown loop mode {mode!r}. Valid: {', '.join(LOOP_PROMPTS)}"
+            )
+        self.loop_mode = mode
 
     def load_personality(self) -> PersonalityConfig | None:
         """Load and apply personality config from the markdown file."""
@@ -168,6 +198,15 @@ class Entity:
 
         if self.disallowed_tools:
             args.extend(["--disallowedTools", *self.disallowed_tools])
+
+        if self.permission_mode != "default":
+            args.extend(["--permission-mode", self.permission_mode])
+
+        from hive.process.loops import LOOP_PROMPTS
+
+        loop_text = LOOP_PROMPTS.get(self.loop_mode)
+        if loop_text:
+            args.extend(["--append-system-prompt", loop_text])
 
         return args
 

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
+from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.models.worker import WorkerAgent
@@ -183,6 +184,24 @@ class TelegramBridge:
         if cmd.name == "agent":
             # /a:dev.backend.w1 <msg> — message a worker directly
             return await self._send_to_entity(cmd.target or "", cmd.args)
+
+        if cmd.name == "mode":
+            return await self._execute_mode(cmd.target, cmd.args)
+
+        if cmd.name == "loop":
+            return await self._execute_loop(cmd.target, cmd.args)
+
+        if cmd.name == "priority":
+            return await self._execute_priority(cmd.target, cmd.args, actor=actor)
+
+        if cmd.name == "swarm":
+            return await self._execute_swarm(cmd.target, cmd.args)
+
+        if cmd.name == "compact":
+            return await self._execute_compact(cmd.target)
+
+        if cmd.name == "reset":
+            return await self._execute_reset(cmd.target)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -370,6 +389,170 @@ class TelegramBridge:
             return f"Worker {name} killed."
 
         return f"Unknown worker subcommand: {subcommand}"
+
+    async def _execute_mode(self, mode_name: str | None, entity_name: str) -> str:
+        """Handle /mode <plan|edit|auto> [entity]."""
+        if not mode_name:
+            return "Usage: /mode <plan|edit|auto> [entity]"
+
+        target = entity_name.strip() if entity_name else self.default_maestro
+        entity = self.process_manager.entities.get(target)
+        if entity is None:
+            return f"Entity {target!r} not found."
+
+        try:
+            entity.set_permission_mode(mode_name)
+        except ValueError as e:
+            return str(e)
+
+        await self.process_manager._persist(entity)
+        return (
+            f"Mode for {target} set to {mode_name!r} "
+            f"(CLI: --permission-mode {entity.permission_mode})"
+        )
+
+    async def _execute_loop(self, loop_name: str | None, entity_name: str) -> str:
+        """Handle /loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]."""
+        if not loop_name:
+            return "Usage: /loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]"
+
+        target = entity_name.strip() if entity_name else self.default_maestro
+        entity = self.process_manager.entities.get(target)
+        if entity is None:
+            return f"Entity {target!r} not found."
+
+        try:
+            entity.set_loop_mode(loop_name)
+        except ValueError as e:
+            return str(e)
+
+        await self.process_manager._persist(entity)
+        return f"Loop for {target} set to {loop_name!r}."
+
+    async def _execute_priority(
+        self, priority_str: str | None, args: str, actor: str = "system"
+    ) -> str:
+        """Handle /priority P0 'fix prod bug' — create a high-priority task."""
+        if self.task_store is None:
+            return "Task tracking not configured."
+
+        if not priority_str:
+            return "Usage: /priority <P0-P4> <task title>"
+
+        # Parse priority level: "P0" -> 0, "P1" -> 1, etc.
+        cleaned = priority_str.upper().lstrip("P")
+        try:
+            priority = int(cleaned)
+        except ValueError:
+            return f"Invalid priority: {priority_str!r}. Use P0-P4."
+        if priority < 0 or priority > 4:
+            return f"Priority must be P0-P4, got P{priority}."
+
+        title = _strip_quotes(args).strip()
+        if not title:
+            return 'Usage: /priority P0 "task title"'
+
+        task = await self.task_store.create(
+            title=title, created_by=actor, priority=priority
+        )
+        if self.audit_log is not None:
+            await self.audit_log.record(
+                actor=actor,
+                action="task.create",
+                target=str(task.id),
+                details={"title": title, "priority": priority},
+            )
+        return f"Task #{task.id} added at P{priority}: {title}"
+
+    async def _execute_swarm(self, team_name: str | None, goal: str) -> str:
+        """Handle /swarm <team> <goal> — send goal to all workers in a team."""
+        if not team_name:
+            return "Usage: /swarm <team> <goal>"
+        if not goal:
+            return "Usage: /swarm <team> <goal>"
+
+        # Find the team
+        maestro = self.process_manager.entities.get(self.default_maestro)
+        if not isinstance(maestro, Maestro):
+            return "Default maestro not found."
+
+        team = maestro.get_team(team_name)
+        if team is None:
+            return f"Team {team_name!r} not found."
+
+        if not team.workers:
+            return f"Team {team_name!r} has no workers."
+
+        results = []
+        for worker_name in team.workers:
+            try:
+                response = await self.process_manager.send_to_entity(worker_name, goal)
+                results.append(f"{worker_name}: {response[:100]}")
+            except Exception as e:
+                results.append(f"{worker_name}: Error — {e}")
+
+        return f"Swarm ({len(results)} workers):\n" + "\n".join(results)
+
+    async def _execute_compact(self, entity_name: str | None) -> str:
+        """Handle /compact <entity> — summarize context, reset session with summary."""
+        if not entity_name:
+            return "Usage: /compact <entity>"
+
+        entity = self.process_manager.entities.get(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+
+        if not entity.session_id:
+            return f"Entity {entity_name!r} has no active session to compact."
+
+        try:
+            summary = await self.process_manager.send_to_entity(
+                entity_name,
+                "Summarize your entire conversation context in 3 concise bullet points. "
+                "Include key decisions, current state, and next steps.",
+            )
+        except Exception as e:
+            return f"Error getting summary: {e}"
+
+        # Kill the entity (clears session_id)
+        await self.process_manager.kill_entity(entity_name)
+
+        # Re-register the entity so it can receive messages again
+        self.process_manager._entities[entity_name] = entity
+        self.process_manager.router.register(entity_name)
+        entity.session_id = None
+        entity.state = EntityState.IDLE
+
+        # Seed the new session with the summary
+        try:
+            await self.process_manager.send_to_entity(
+                entity_name,
+                f"Here is your prior context (compacted):\n{summary}\n\nContinue from here.",
+            )
+        except Exception as e:
+            return f"Compacted but failed to seed new session: {e}"
+
+        return f"Compacted {entity_name}. Summary:\n{summary}"
+
+    async def _execute_reset(self, entity_name: str | None) -> str:
+        """Handle /reset <entity> — kill entity, clear session, ready for fresh start."""
+        if not entity_name:
+            return "Usage: /reset <entity>"
+
+        entity = self.process_manager.entities.get(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+
+        await self.process_manager.kill_entity(entity_name)
+
+        # Re-register so it can receive messages again (fresh session)
+        self.process_manager._entities[entity_name] = entity
+        self.process_manager.router.register(entity_name)
+        entity.session_id = None
+        entity.state = EntityState.IDLE
+        await self.process_manager._persist(entity)
+
+        return f"Reset {entity_name}. Session cleared, ready for fresh start."
 
     def _format_teams(self) -> str:
         """Format all teams across all maestros for /teams output."""

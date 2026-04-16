@@ -34,9 +34,12 @@ class EntityStore:
             """
             INSERT INTO entities
                 (name, role, state, model, personality_path, pid, started_at,
-                 session_id, parent_name, team_name, updated_at)
+                 session_id, parent_name, team_name,
+                 permission_mode, loop_mode, current_priority,
+                 worktree_path, task_id, updated_at)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                 $11, $12, $13, $14, $15, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -47,6 +50,11 @@ class EntityStore:
                 session_id = EXCLUDED.session_id,
                 parent_name = EXCLUDED.parent_name,
                 team_name = EXCLUDED.team_name,
+                permission_mode = EXCLUDED.permission_mode,
+                loop_mode = EXCLUDED.loop_mode,
+                current_priority = EXCLUDED.current_priority,
+                worktree_path = EXCLUDED.worktree_path,
+                task_id = EXCLUDED.task_id,
                 updated_at = NOW()
             """,
             entity.name,
@@ -59,6 +67,11 @@ class EntityStore:
             entity.session_id,
             parent_name,
             team_name,
+            entity.permission_mode,
+            entity.loop_mode,
+            entity.current_priority,
+            _get_worktree_path(entity),
+            _get_task_id(entity),
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -95,6 +108,20 @@ def _get_team_name(entity: Entity) -> str | None:
     return None
 
 
+def _get_worktree_path(entity: Entity) -> str | None:
+    """Extract the worktree_path for DB storage (workers only)."""
+    if isinstance(entity, WorkerAgent) and entity.worktree_path:
+        return str(entity.worktree_path)
+    return None
+
+
+def _get_task_id(entity: Entity) -> int | None:
+    """Extract the task_id for DB storage (workers only)."""
+    if isinstance(entity, WorkerAgent):
+        return entity.task_id
+    return None
+
+
 def _row_to_entity(row: asyncpg.Record) -> Entity:
     """Convert a row from the entities table back into the correct subclass.
 
@@ -113,6 +140,9 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         pid=None,
         started_at=None,
         session_id=row["session_id"],
+        permission_mode=row["permission_mode"] or "default",
+        loop_mode=row["loop_mode"] or "ralph",
+        current_priority=row["current_priority"] if row["current_priority"] is not None else 3,
     )
 
     role = row["role"]
@@ -125,10 +155,13 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
             maestro_name=row["parent_name"] or "",
         )
     if role == "worker":
+        worktree_path = Path(row["worktree_path"]) if row["worktree_path"] else None
         return WorkerAgent(
             **common,
             team_name=row["team_name"] or "",
             lead_name=row["parent_name"] or "",
+            worktree_path=worktree_path,
+            task_id=row["task_id"],
         )
     # Fallback for unknown roles
     return Entity(**common, role=role)

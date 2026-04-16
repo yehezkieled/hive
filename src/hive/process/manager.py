@@ -106,6 +106,30 @@ class ProcessManager:
     def active_count(self) -> int:
         return sum(1 for s in self._sessions.values() if s.is_alive)
 
+    async def _preempt_for_priority(self, priority: int) -> str | None:
+        """Try to free a session slot by killing the lowest-priority running entity.
+
+        Returns the name of the killed entity, or None if no preemption is
+        possible (either under capacity or all running entities are at equal
+        or higher priority).
+        """
+        if self.active_count < self.max_sessions:
+            return None
+
+        # Find the running entity with the worst (highest number) priority
+        worst_name: str | None = None
+        worst_priority = -1
+        for name, entity in self._entities.items():
+            if entity.state == EntityState.RUNNING and entity.current_priority > worst_priority:
+                worst_priority = entity.current_priority
+                worst_name = name
+
+        if worst_name is None or worst_priority <= priority:
+            return None
+
+        await self.kill_entity(worst_name)
+        return worst_name
+
     async def spawn_entity(self, entity: Entity, cwd: Path | None = None) -> ClaudeSession:
         """Spawn a Claude Code subprocess for an entity.
 
@@ -254,6 +278,12 @@ class ProcessManager:
             raise KeyError(f"Lead {lead_name!r} not found.")
         if not isinstance(lead, TeamLead):
             raise TypeError(f"Entity {lead_name!r} is not a team lead.")
+
+        if len(lead.workers) >= lead.max_workers:
+            raise RuntimeError(
+                f"Lead {lead_name!r} already has "
+                f"{len(lead.workers)}/{lead.max_workers} workers (max)."
+            )
 
         if worker_name is None:
             # Auto-name: find the next available w<N>

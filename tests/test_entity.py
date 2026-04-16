@@ -205,6 +205,86 @@ class TestEntitySessionId:
         assert e.session_id == "abc-123"
 
 
+class TestPermissionMode:
+    """Test permission_mode field and --permission-mode CLI arg."""
+
+    def test_permission_mode_defaults_to_default(self) -> None:
+        e = Entity(name="test", role="worker")
+        assert e.permission_mode == "default"
+
+    def test_set_permission_mode_plan(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.set_permission_mode("plan")
+        assert e.permission_mode == "plan"
+
+    def test_set_permission_mode_auto(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.set_permission_mode("auto")
+        assert e.permission_mode == "bypassPermissions"
+
+    def test_set_permission_mode_edit(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.set_permission_mode("edit")
+        assert e.permission_mode == "default"
+
+    def test_set_permission_mode_invalid_raises(self) -> None:
+        e = Entity(name="test", role="worker")
+        with pytest.raises(ValueError, match="Unknown permission mode"):
+            e.set_permission_mode("turbo")
+
+    def test_build_cli_args_includes_permission_mode(self) -> None:
+        e = Entity(name="test", role="worker", permission_mode="plan")
+        args = e.build_cli_args()
+        assert "--permission-mode" in args
+        idx = args.index("--permission-mode")
+        assert args[idx + 1] == "plan"
+
+    def test_build_cli_args_omits_default_permission_mode(self) -> None:
+        e = Entity(name="test", role="worker")
+        args = e.build_cli_args()
+        assert "--permission-mode" not in args
+
+
+class TestLoopMode:
+    """Test loop_mode field and --append-system-prompt CLI arg."""
+
+    def test_loop_mode_defaults_to_ralph(self) -> None:
+        e = Entity(name="test", role="worker")
+        assert e.loop_mode == "ralph"
+
+    def test_set_loop_mode_valid(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.set_loop_mode("yolo")
+        assert e.loop_mode == "yolo"
+
+    def test_set_loop_mode_invalid_raises(self) -> None:
+        e = Entity(name="test", role="worker")
+        with pytest.raises(ValueError, match="Unknown loop mode"):
+            e.set_loop_mode("chaos")
+
+    def test_build_cli_args_includes_append_system_prompt(self) -> None:
+        e = Entity(name="test", role="worker", loop_mode="yolo")
+        args = e.build_cli_args()
+        assert "--append-system-prompt" in args
+        idx = args.index("--append-system-prompt")
+        assert "Execute immediately" in args[idx + 1]
+
+    def test_build_cli_args_includes_ralph_by_default(self) -> None:
+        e = Entity(name="test", role="worker")
+        args = e.build_cli_args()
+        assert "--append-system-prompt" in args
+        idx = args.index("--append-system-prompt")
+        assert "RALPH" in args[idx + 1]
+
+
+class TestCurrentPriority:
+    """Test current_priority field."""
+
+    def test_current_priority_defaults_to_3(self) -> None:
+        e = Entity(name="test", role="worker")
+        assert e.current_priority == 3
+
+
 class TestSubclasses:
     """Test Maestro and WorkerAgent subclasses."""
 
