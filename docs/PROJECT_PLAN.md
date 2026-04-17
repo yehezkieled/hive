@@ -1109,6 +1109,98 @@ These components were built in earlier sprints but had no callers until now:
 
 ---
 
+## Sprint 10 — Auto-Management (2026-04-17, DONE)
+
+**Goal**: Make Hive self-managing with three features: auto-compact context,
+auto-kill idle entities, and scheduled daily summaries.
+
+**Builds on**: All prior sprints (token tracking, entity lifecycle, Telegram bridge)
+
+### Why now
+
+Until Sprint 10, every entity required manual management — context grew until
+the user ran `/compact`, idle agents lingered forever, and there was no daily
+activity report. These features eliminate babysitting so the user can focus on
+directing work, not managing infrastructure.
+
+### Phases (all complete)
+
+**Phase 1 — Config.** Seven new env vars in `config.py`:
+`HIVE_AUTO_COMPACT_ENABLED`, `HIVE_AUTO_COMPACT_THRESHOLD` (default 50000 tokens),
+`HIVE_AUTO_KILL_IDLE_ENABLED`, `HIVE_IDLE_TIMEOUT_MINUTES` (default 30),
+`HIVE_DAILY_SUMMARY_ENABLED`, `HIVE_DAILY_SUMMARY_HOUR` (default 23 UTC = 9am AEST),
+`HIVE_SUMMARY_CHAT_ID`. All features enabled by default; summary requires
+chat ID. `.env.example` updated.
+
+**Phase 2 — Data model.** `last_activity_at: datetime | None` field on Entity.
+Migration `010_last_activity_at.sql` adds the column. `EntityStore.upsert()`
+and `_row_to_entity()` updated to persist/restore it.
+
+**Phase 3 — Compact refactor.** Extracted compact logic from
+`TelegramBridge._execute_compact()` into `ProcessManager.compact_entity()`.
+The method: sends "summarize" prompt → kills entity → re-registers in IDLE →
+seeds new session with summary → persists + audits. Bridge becomes a thin
+wrapper. Also added notification callback infrastructure:
+`set_notification_callback()`, `_notify()`, and a `_compacting: set[str]`
+recursion guard.
+
+**Phase 4 — Auto-compact.** After `_record_usage()` in `send_to_entity()`,
+checks `session.last_usage["input_tokens"]` against `AUTO_COMPACT_THRESHOLD`.
+If exceeded and not already compacting, calls `compact_entity()` and sends a
+Telegram notification. Recursion guard prevents infinite loops (the compact
+summarize call itself won't trigger another compact).
+
+**Phase 5 — Auto-kill idle.** `send_to_entity()` now sets
+`entity.last_activity_at = datetime.now(UTC)` on every call.
+`kill_idle_entities(timeout_minutes, exempt_names)` loops all entities and
+kills those past the cutoff. Default maestro is exempt. Background task
+`idle_checker()` runs every 5 minutes via `asyncio.wait_for(stop_event.wait(),
+timeout=300)` — exits promptly on shutdown.
+
+**Phase 6 — Daily summary.** `TelegramBridge.format_daily_summary()` queries
+all stores (entity statuses, completed tasks, token totals, error audit events)
+for the last 24h and returns a Markdown summary. Background task
+`daily_summary_scheduler()` checks hourly and sends at the configured UTC hour
+via `_send_notification()`.
+
+**Phase 7 — Integration.** Background tasks wired in `__main__.py` with
+proper cleanup on shutdown (`task.cancel()` for each). Both tasks gated on
+their respective `_ENABLED` env vars.
+
+### Architecture decisions
+
+- **Notification callback, not direct bridge dependency**: ProcessManager
+  accepts a `Callable[[str], Awaitable[None]]` callback. TelegramBridge
+  registers one in `start()`. This keeps the dependency one-way (bridge →
+  manager) and avoids circular imports.
+
+- **`asyncio.wait_for` over `asyncio.sleep`**: Background tasks use
+  `await asyncio.wait_for(stop_event.wait(), timeout=N)` instead of
+  `asyncio.sleep(N)`. This means they exit immediately on shutdown signals
+  rather than blocking for up to N seconds.
+
+- **Recursion guard for auto-compact**: The `_compacting: set[str]` prevents
+  infinite loops where the compact's "summarize" call exceeds the threshold
+  and triggers another compact.
+
+### Critical files
+
+**Created**: `src/hive/bus/migrations/010_last_activity_at.sql`,
+`tests/test_auto_management.py`.
+
+**Edited**: `src/hive/config.py`, `src/hive/models/entity.py`,
+`src/hive/bus/entity_store.py`, `src/hive/process/manager.py`,
+`src/hive/telegram/bridge.py`, `src/hive/__main__.py`, `.env.example`,
+`tests/test_entity_store.py`, `tests/test_process_manager.py`.
+
+### Verification
+
+1. `ruff check src/ tests/` → clean.
+2. `ruff format --check src/ tests/` → clean.
+3. `pytest -v` → 275 passing (was 256; +19 new tests).
+
+---
+
 ## Sprint 3 — Multi-Team, Agent Lifecycle, Modes, Priorities
 
 **Goal**: A maestro can manage multiple teams, each with a lead + workers. Full lifecycle with mode/loop switching and priority system.

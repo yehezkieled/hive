@@ -68,7 +68,64 @@ class TelegramBridge:
         await self._app.initialize()
         await self._app.start()
         await self._app.updater.start_polling(drop_pending_updates=True)  # type: ignore[union-attr]
+
+        # Register notification callback so ProcessManager can send proactive alerts
+        self.process_manager.set_notification_callback(self._send_notification)
         logger.info("Telegram bridge started, polling for updates")
+
+    async def _send_notification(self, message: str) -> None:
+        """Send a proactive notification to the configured chat."""
+        from hive.config import SUMMARY_CHAT_ID
+
+        if not SUMMARY_CHAT_ID or self._app is None:
+            logger.warning("Cannot send notification: no SUMMARY_CHAT_ID or app not started")
+            return
+        try:
+            await self._app.bot.send_message(chat_id=int(SUMMARY_CHAT_ID), text=message)
+        except Exception:
+            logger.exception("Failed to send notification")
+
+    async def format_daily_summary(self) -> str:
+        """Build a Markdown daily summary covering the last 24 hours."""
+        now = datetime.now(UTC)
+        since = now - timedelta(hours=24)
+        lines = ["Daily Hive Summary", ""]
+
+        # Active entities
+        statuses = self.process_manager.get_status()
+        lines.append(f"Entities: {len(statuses)} registered")
+        for s in statuses:
+            lines.append(f"  {s['name']} [{s['role']}] {s['state']}")
+
+        # Tasks completed in last 24h
+        if self.task_store:
+            completed = await self.task_store.list(status=TaskStatus.COMPLETED)
+            recent_completed = [t for t in completed if t.completed_at and t.completed_at >= since]
+            lines.append(f"\nTasks completed (24h): {len(recent_completed)}")
+            for t in recent_completed[:10]:
+                lines.append(f"  #{t.id} {t.title}")
+
+        # Token usage / cost
+        if self.token_store:
+            totals = await self.token_store.totals(since=since)
+            calls = int(totals.get("call_count", 0))
+            cost = float(totals.get("cost_usd", 0) or 0)
+            in_tok = int(totals.get("input_tokens", 0))
+            out_tok = int(totals.get("output_tokens", 0))
+            lines.append(f"\nToken usage (24h): {calls} calls")
+            lines.append(f"  input: {in_tok:,}  output: {out_tok:,}")
+            lines.append(f"  cost: ${cost:.4f} (API equivalent)")
+
+        # Errors in last 24h
+        if self.audit_log:
+            errors = await self.audit_log.recent(limit=50, action_prefix="entity.error")
+            recent_errors = [e for e in errors if e["timestamp"] >= since]
+            if recent_errors:
+                lines.append(f"\nErrors (24h): {len(recent_errors)}")
+                for err in recent_errors[:5]:
+                    lines.append(f"  {err['target']} at {err['timestamp']:%H:%M}")
+
+        return "\n".join(lines)
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
@@ -668,45 +725,18 @@ class TelegramBridge:
         return f"Unknown blueprint subcommand: {subcommand}"
 
     async def _execute_compact(self, entity_name: str | None) -> str:
-        """Handle /compact <entity> — summarize context, reset session with summary."""
+        """Handle /compact <entity> — delegate to ProcessManager.compact_entity()."""
         if not entity_name:
             return "Usage: /compact <entity>"
-
-        entity = self.process_manager.entities.get(entity_name)
-        if entity is None:
+        try:
+            summary = await self.process_manager.compact_entity(entity_name)
+            return f"Compacted {entity_name}. Summary:\n{summary}"
+        except KeyError:
             return f"Entity {entity_name!r} not found."
-
-        if not entity.session_id:
-            return f"Entity {entity_name!r} has no active session to compact."
-
-        try:
-            summary = await self.process_manager.send_to_entity(
-                entity_name,
-                "Summarize your entire conversation context in 3 concise bullet points. "
-                "Include key decisions, current state, and next steps.",
-            )
+        except ValueError as e:
+            return str(e)
         except Exception as e:
-            return f"Error getting summary: {e}"
-
-        # Kill the entity (clears session_id)
-        await self.process_manager.kill_entity(entity_name)
-
-        # Re-register the entity so it can receive messages again
-        self.process_manager._entities[entity_name] = entity
-        self.process_manager.router.register(entity_name)
-        entity.session_id = None
-        entity.state = EntityState.IDLE
-
-        # Seed the new session with the summary
-        try:
-            await self.process_manager.send_to_entity(
-                entity_name,
-                f"Here is your prior context (compacted):\n{summary}\n\nContinue from here.",
-            )
-        except Exception as e:
-            return f"Compacted but failed to seed new session: {e}"
-
-        return f"Compacted {entity_name}. Summary:\n{summary}"
+            return f"Error compacting {entity_name}: {e}"
 
     async def _execute_reset(self, entity_name: str | None) -> str:
         """Handle /reset <entity> — kill entity, clear session, ready for fresh start."""

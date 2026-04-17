@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from datetime import UTC, datetime
 
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
@@ -14,12 +15,17 @@ from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.config import (
+    AUTO_KILL_IDLE_ENABLED,
     BLUEPRINTS_DIR,
+    DAILY_SUMMARY_ENABLED,
+    DAILY_SUMMARY_HOUR,
     DEFAULT_MAESTRO,
     DEFAULT_MODEL,
+    IDLE_TIMEOUT_MINUTES,
     MAX_CONCURRENT_SESSIONS,
     PERSONALITIES_DIR,
     POSTGRES_DSN,
+    SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
     WEB_PORT,
@@ -28,6 +34,53 @@ from hive.knowledge.blueprints import BlueprintStore
 from hive.process.manager import ProcessManager
 
 logger = logging.getLogger("hive")
+
+
+async def idle_checker(
+    process_manager: ProcessManager,
+    default_maestro: str,
+    stop_event: asyncio.Event,
+) -> None:
+    """Background task: kill entities idle beyond the configured timeout."""
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=300)
+            break  # stop_event was set
+        except TimeoutError:
+            pass  # 5 minutes elapsed, do the check
+        try:
+            killed = await process_manager.kill_idle_entities(
+                IDLE_TIMEOUT_MINUTES,
+                exempt_names={default_maestro},
+            )
+            if killed:
+                logger.info("Auto-killed idle entities: %s", killed)
+        except Exception:
+            logger.exception("Error in idle checker")
+
+
+async def daily_summary_scheduler(
+    bridge: object,  # TelegramBridge, but avoid circular import at module level
+    summary_hour: int,
+    stop_event: asyncio.Event,
+) -> None:
+    """Background task: send daily summary at the configured UTC hour."""
+    last_sent_date = None
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=3600)
+            break  # stop_event was set
+        except TimeoutError:
+            pass  # 1 hour elapsed, check if it's summary time
+        now = datetime.now(UTC)
+        if now.hour == summary_hour and now.date() != last_sent_date:
+            try:
+                summary = await bridge.format_daily_summary()  # type: ignore[attr-defined]
+                await bridge._send_notification(summary)  # type: ignore[attr-defined]
+                last_sent_date = now.date()
+                logger.info("Daily summary sent")
+            except Exception:
+                logger.exception("Error sending daily summary")
 
 
 async def main() -> None:
@@ -127,10 +180,25 @@ async def main() -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, _signal_handler)
 
+        # Start background auto-management tasks
+        background_tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
+        if AUTO_KILL_IDLE_ENABLED:
+            background_tasks.append(
+                asyncio.create_task(idle_checker(process_manager, DEFAULT_MAESTRO, stop_event))
+            )
+            logger.info("Idle checker started (timeout=%dm)", IDLE_TIMEOUT_MINUTES)
+        if DAILY_SUMMARY_ENABLED and SUMMARY_CHAT_ID:
+            background_tasks.append(
+                asyncio.create_task(daily_summary_scheduler(bridge, DAILY_SUMMARY_HOUR, stop_event))
+            )
+            logger.info("Daily summary scheduled at %02d:00 UTC", DAILY_SUMMARY_HOUR)
+
         await stop_event.wait()
 
         # Cleanup
         logger.info("Shutting down...")
+        for task in background_tasks:
+            task.cancel()
         await bridge.stop()
     else:
         from hive.cli.local import LocalCLI

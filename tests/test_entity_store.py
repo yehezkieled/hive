@@ -1,5 +1,6 @@
 """Tests for the asyncpg-backed EntityStore."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from hive.bus.entity_store import EntityStore
@@ -234,3 +235,29 @@ async def test_current_priority_roundtrip(entity_store: EntityStore) -> None:
     loaded = await entity_store.load("test")
     assert loaded is not None
     assert loaded.current_priority == 0
+
+
+# -- last_activity_at (Sprint 10) --
+
+
+async def test_last_activity_at_roundtrip(entity_store: EntityStore) -> None:
+    """last_activity_at should survive upsert -> load."""
+    ts = datetime.now(UTC)
+    e = Entity(name="test", role="worker", last_activity_at=ts)
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("test")
+    assert loaded is not None
+    assert loaded.last_activity_at is not None
+    # Allow small rounding difference from DB
+    assert abs((loaded.last_activity_at - ts).total_seconds()) < 1
+
+
+async def test_last_activity_at_null_roundtrip(entity_store: EntityStore) -> None:
+    """Entities without last_activity_at should load back with None."""
+    e = Entity(name="test", role="worker")
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("test")
+    assert loaded is not None
+    assert loaded.last_activity_at is None

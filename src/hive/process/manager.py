@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from hive.bus.actions import parse_actions
@@ -11,6 +13,7 @@ from hive.bus.entity_store import EntityStore
 from hive.bus.permissions import can_message
 from hive.bus.router import MessageRouter
 from hive.bus.token_store import TokenStore
+from hive.config import AUTO_COMPACT_ENABLED, AUTO_COMPACT_THRESHOLD
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
@@ -42,6 +45,8 @@ class ProcessManager:
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
         self._last_routed_actions: list[str] = []
+        self._notification_callback: Callable[[str], Awaitable[None]] | None = None
+        self._compacting: set[str] = set()
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -241,6 +246,9 @@ class ProcessManager:
         if entity is None:
             raise KeyError(f"Entity {entity_name!r} not found.")
 
+        # Track activity for idle-kill detection
+        entity.last_activity_at = datetime.now(UTC)
+
         # --- Phase 2: drain pending inter-agent messages ---
         pending: list[str] = []
         while self.router.has_pending(entity_name):
@@ -261,6 +269,36 @@ class ProcessManager:
         try:
             response = await session.send_prompt(prompt)
             await self._record_usage(entity, session)
+
+            # Auto-compact if context is too large
+            if (
+                AUTO_COMPACT_ENABLED
+                and entity_name not in self._compacting
+                and session.last_usage
+                and session.last_usage.get("input_tokens", 0) > AUTO_COMPACT_THRESHOLD
+            ):
+                input_tokens = session.last_usage["input_tokens"]
+                logger.info(
+                    "Auto-compacting %s (input_tokens=%d > threshold=%d)",
+                    entity_name,
+                    input_tokens,
+                    AUTO_COMPACT_THRESHOLD,
+                )
+                self._compacting.add(entity_name)
+                try:
+                    await self.compact_entity(entity_name)
+                    await self._notify(
+                        f"Auto-compacted {entity_name} (context: {input_tokens:,} tokens)"
+                    )
+                    await self._audit(
+                        "entity.auto_compact",
+                        target=entity_name,
+                        details={"input_tokens": input_tokens},
+                    )
+                except Exception:
+                    logger.exception("Auto-compact failed for %s", entity_name)
+                finally:
+                    self._compacting.discard(entity_name)
 
             # Store session_id for resume on next call
             if session.session_id:
@@ -509,6 +547,99 @@ class ProcessManager:
                 )
                 logger.warning("Entity %s died unexpectedly", name)
         return unhealthy
+
+    def set_notification_callback(self, callback: Callable[[str], Awaitable[None]]) -> None:
+        """Register a callback for proactive notifications (e.g. Telegram alerts)."""
+        self._notification_callback = callback
+
+    async def _notify(self, message: str) -> None:
+        """Send a proactive notification if a callback is registered."""
+        if self._notification_callback is None:
+            return
+        try:
+            await self._notification_callback(message)
+        except Exception:
+            logger.exception("Notification callback failed")
+
+    async def compact_entity(self, entity_name: str) -> str:
+        """Compact an entity's context: summarize, kill, re-register, seed.
+
+        Returns the summary text on success.
+        Raises KeyError if entity not found, ValueError if no active session.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            raise KeyError(f"Entity {entity_name!r} not found.")
+        if not entity.session_id:
+            raise ValueError(f"Entity {entity_name!r} has no active session to compact.")
+
+        # Step 1: Ask entity to summarize its context
+        summary = await self.send_to_entity(
+            entity_name,
+            "Summarize your entire conversation context in 3 concise bullet points. "
+            "Include key decisions, current state, and next steps.",
+        )
+
+        # Step 2: Kill entity (clears session_id, removes from registry)
+        await self.kill_entity(entity_name)
+
+        # Step 3: Re-register entity in IDLE state
+        self._entities[entity_name] = entity
+        self.router.register(entity_name)
+        entity.session_id = None
+        entity.state = EntityState.IDLE
+
+        # Step 4: Seed new session with summary
+        await self.send_to_entity(
+            entity_name,
+            f"Here is your prior context (compacted):\n{summary}\n\nContinue from here.",
+        )
+
+        await self._persist(entity)
+        await self._audit(
+            "entity.compact",
+            target=entity_name,
+            details={"summary_len": len(summary)},
+        )
+        logger.info("Compacted entity %s (summary: %d chars)", entity_name, len(summary))
+        return summary
+
+    async def kill_idle_entities(
+        self,
+        timeout_minutes: int,
+        exempt_names: set[str] | None = None,
+    ) -> list[str]:
+        """Kill entities that have been idle longer than timeout_minutes.
+
+        Returns list of killed entity names.
+        Entities in exempt_names are never killed.
+        """
+        exempt = exempt_names or set()
+        cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
+        killed: list[str] = []
+
+        for name, entity in list(self._entities.items()):
+            if name in exempt:
+                continue
+            if entity.last_activity_at is None:
+                continue
+            if entity.last_activity_at < cutoff:
+                idle_minutes = int(
+                    (datetime.now(UTC) - entity.last_activity_at).total_seconds() / 60
+                )
+                try:
+                    await self.kill_entity(name)
+                    await self._audit(
+                        "entity.auto_kill_idle",
+                        target=name,
+                        details={"idle_minutes": idle_minutes},
+                    )
+                    await self._notify(f"Auto-killed idle entity {name} (inactive {idle_minutes}m)")
+                    killed.append(name)
+                except Exception:
+                    logger.exception("Failed to auto-kill idle entity %s", name)
+
+        return killed
 
     def restore(self, entity: Entity) -> None:
         """Re-register a persisted entity on orchestrator startup.

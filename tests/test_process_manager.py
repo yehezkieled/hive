@@ -1,6 +1,7 @@
 """Tests for process manager (with mocked subprocesses)."""
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -838,3 +839,227 @@ class TestActionRouting:
         assert events[0]["actor"] == "dev"
 
         await mgr.kill_all()
+
+
+# -- Sprint 10: compact_entity tests --
+
+
+class TestCompactEntity:
+    """Test the compact_entity method extracted from bridge."""
+
+    async def test_compact_missing_entity_raises(self, manager: ProcessManager) -> None:
+        with pytest.raises(KeyError):
+            await manager.compact_entity("nobody")
+
+    async def test_compact_no_session_raises(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        with pytest.raises(ValueError, match="no active session"):
+            await manager.compact_entity("dev")
+
+    async def test_compact_returns_summary(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        maestro.session_id = "sess-old"
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        call_count = 0
+
+        def make_session(args, **kw):
+            nonlocal call_count
+            call_count += 1
+            instance = AsyncMock()
+            instance.start = AsyncMock()
+            instance.kill = AsyncMock()
+            instance.last_usage = None
+            if call_count == 1:
+                instance.send_prompt = AsyncMock(return_value="- Key point A\n- Point B")
+                instance.session_id = "sess-summary"
+            else:
+                instance.send_prompt = AsyncMock(return_value="Resumed OK")
+                instance.session_id = "sess-new"
+            return instance
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = make_session
+            summary = await manager.compact_entity("dev")
+
+        assert "Key point A" in summary
+        assert "dev" in manager.entities
+
+
+class TestAutoCompact:
+    """Test auto-compact triggered by high token count in send_to_entity."""
+
+    async def test_auto_compact_triggers_above_threshold(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        maestro.session_id = "sess-existing"
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        call_count = 0
+
+        def make_session(args, **kw):
+            nonlocal call_count
+            call_count += 1
+            instance = AsyncMock()
+            instance.start = AsyncMock()
+            instance.kill = AsyncMock()
+            if call_count == 1:
+                # Main send — high token count triggers compact
+                instance.send_prompt = AsyncMock(return_value="response")
+                instance.session_id = "sess-1"
+                instance.last_usage = {"input_tokens": 60000, "output_tokens": 100}
+            else:
+                # Compact summarize + seed calls
+                instance.send_prompt = AsyncMock(return_value="summary")
+                instance.session_id = f"sess-{call_count}"
+                instance.last_usage = None
+            return instance
+
+        with (
+            patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls,
+            patch("hive.process.manager.AUTO_COMPACT_ENABLED", True),
+            patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
+        ):
+            mock_cls.side_effect = make_session
+            await manager.send_to_entity("dev", "hello")
+
+        # Compact creates 2 additional sessions (summarize + seed)
+        assert call_count == 3
+
+    async def test_auto_compact_skips_when_disabled(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        maestro.session_id = "sess-existing"
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value="response")
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = {"input_tokens": 60000, "output_tokens": 100}
+
+        with (
+            patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls,
+            patch("hive.process.manager.AUTO_COMPACT_ENABLED", False),
+            patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
+        ):
+            mock_cls.return_value = instance
+            await manager.send_to_entity("dev", "hello")
+
+        # Only 1 call — no compact triggered
+        mock_cls.assert_called_once()
+
+    async def test_auto_compact_skips_below_threshold(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        maestro.session_id = "sess-existing"
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value="response")
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = {"input_tokens": 30000, "output_tokens": 100}
+
+        with (
+            patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls,
+            patch("hive.process.manager.AUTO_COMPACT_ENABLED", True),
+            patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
+        ):
+            mock_cls.return_value = instance
+            await manager.send_to_entity("dev", "hello")
+
+        mock_cls.assert_called_once()
+
+
+class TestSendToEntityActivityTracking:
+    """Test that send_to_entity updates last_activity_at."""
+
+    async def test_send_updates_last_activity_at(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        assert maestro.last_activity_at is None
+
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value="response")
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = None
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.return_value = instance
+            await manager.send_to_entity("dev", "hello")
+
+        assert maestro.last_activity_at is not None
+        assert (datetime.now(UTC) - maestro.last_activity_at).total_seconds() < 5
+
+
+class TestIdleKill:
+    """Test kill_idle_entities."""
+
+    async def test_kills_idle_entity(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        lead = Entity(name="dev.backend", role="lead")
+        lead.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["dev.backend"] = lead
+        manager.router.register("dev.backend")
+
+        killed = await manager.kill_idle_entities(30, exempt_names={"dev"})
+        assert "dev.backend" in killed
+        assert "dev" in manager.entities
+
+    async def test_exempt_entity_not_killed(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        maestro.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        killed = await manager.kill_idle_entities(30, exempt_names={"dev"})
+        assert killed == []
+        assert "dev" in manager.entities
+
+    async def test_recently_active_not_killed(self, manager: ProcessManager) -> None:
+        entity = Entity(name="worker", role="worker")
+        entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=5)
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        killed = await manager.kill_idle_entities(30)
+        assert killed == []
+
+    async def test_no_activity_not_killed(self, manager: ProcessManager) -> None:
+        entity = Entity(name="worker", role="worker")
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        killed = await manager.kill_idle_entities(30)
+        assert killed == []
+
+    async def test_notification_on_idle_kill(self, manager: ProcessManager) -> None:
+        notifications: list[str] = []
+
+        async def capture(msg: str) -> None:
+            notifications.append(msg)
+
+        manager.set_notification_callback(capture)
+
+        entity = Entity(name="worker", role="worker")
+        entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        await manager.kill_idle_entities(30)
+        assert len(notifications) == 1
+        assert "worker" in notifications[0]
+        assert "inactive" in notifications[0]

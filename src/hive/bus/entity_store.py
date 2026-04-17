@@ -37,10 +37,10 @@ class EntityStore:
                 (name, role, state, model, personality_path, pid, started_at,
                  session_id, parent_name, team_name,
                  permission_mode, loop_mode, current_priority,
-                 worktree_path, task_id, updated_at)
+                 worktree_path, task_id, last_activity_at, updated_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, NOW())
+                 $11, $12, $13, $14, $15, $16, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -56,6 +56,7 @@ class EntityStore:
                 current_priority = EXCLUDED.current_priority,
                 worktree_path = EXCLUDED.worktree_path,
                 task_id = EXCLUDED.task_id,
+                last_activity_at = EXCLUDED.last_activity_at,
                 updated_at = NOW()
             """,
             entity.name,
@@ -73,6 +74,7 @@ class EntityStore:
             entity.current_priority,
             _get_worktree_path(entity),
             _get_task_id(entity),
+            entity.last_activity_at,
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -144,6 +146,7 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         permission_mode=row["permission_mode"] or "default",
         loop_mode=row["loop_mode"] or "ralph",
         current_priority=row["current_priority"] if row["current_priority"] is not None else 3,
+        last_activity_at=row["last_activity_at"],
     )
 
     role = row["role"]

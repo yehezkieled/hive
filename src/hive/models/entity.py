@@ -133,6 +133,7 @@ class Entity:
     permission_mode: str = "default"
     loop_mode: str = "ralph"
     current_priority: int = 3
+    last_activity_at: datetime | None = None
 
     def transition_to(self, new_state: EntityState) -> None:
         """Transition to a new state, raising InvalidStateTransitionError if not allowed."""

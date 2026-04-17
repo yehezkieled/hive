@@ -50,3 +50,12 @@ DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "dev")
 
 # Web dashboard (0 = disabled)
 WEB_PORT = int(os.environ.get("HIVE_WEB_PORT", "0"))
+
+# Auto-management (Sprint 10)
+AUTO_COMPACT_ENABLED = os.environ.get("HIVE_AUTO_COMPACT_ENABLED", "true").lower() == "true"
+AUTO_COMPACT_THRESHOLD = int(os.environ.get("HIVE_AUTO_COMPACT_THRESHOLD", "50000"))
+AUTO_KILL_IDLE_ENABLED = os.environ.get("HIVE_AUTO_KILL_IDLE_ENABLED", "true").lower() == "true"
+IDLE_TIMEOUT_MINUTES = int(os.environ.get("HIVE_IDLE_TIMEOUT_MINUTES", "30"))
+DAILY_SUMMARY_ENABLED = os.environ.get("HIVE_DAILY_SUMMARY_ENABLED", "true").lower() == "true"
+DAILY_SUMMARY_HOUR = int(os.environ.get("HIVE_DAILY_SUMMARY_HOUR", "23"))  # UTC
+SUMMARY_CHAT_ID = os.environ.get("HIVE_SUMMARY_CHAT_ID", "")
