@@ -21,5 +21,5 @@ class TestVaultEntity:
         args = v.build_cli_args()
         assert "--disallowedTools" in args
         idx = args.index("--disallowedTools")
-        tool_args = args[idx + 1:]
+        tool_args = args[idx + 1 :]
         assert "Bash" in tool_args

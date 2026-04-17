@@ -363,9 +363,7 @@ class TelegramBridge:
             if not name:
                 return "Usage: /team create <name>"
             try:
-                lead = await self.process_manager.create_team(
-                    self.default_maestro, name
-                )
+                lead = await self.process_manager.create_team(self.default_maestro, name)
                 return f"Team {name!r} created. Lead: {lead.name}"
             except (KeyError, TypeError, ValueError) as e:
                 return f"Error: {e}"
@@ -397,9 +395,7 @@ class TelegramBridge:
             worker_name = parts[1] if len(parts) > 1 else None
             lead_name = f"{self.default_maestro}.{team_name}"
             try:
-                worker = await self.process_manager.spawn_worker(
-                    lead_name, worker_name
-                )
+                worker = await self.process_manager.spawn_worker(lead_name, worker_name)
                 return f"Worker {worker.name} spawned."
             except (KeyError, TypeError) as e:
                 return f"Error: {e}"
@@ -475,9 +471,7 @@ class TelegramBridge:
         if not title:
             return 'Usage: /priority P0 "task title"'
 
-        task = await self.task_store.create(
-            title=title, created_by=actor, priority=priority
-        )
+        task = await self.task_store.create(title=title, created_by=actor, priority=priority)
         if self.audit_log is not None:
             await self.audit_log.record(
                 actor=actor,
@@ -529,16 +523,12 @@ class TelegramBridge:
         model = parts[1] if len(parts) > 1 else "sonnet"
 
         try:
-            maestro = await self.process_manager.register_maestro(
-                name, model=model
-            )
+            maestro = await self.process_manager.register_maestro(name, model=model)
             return f"Maestro {maestro.name!r} registered (model={model})."
         except (ValueError, RuntimeError) as e:
             return f"Error: {e}"
 
-    async def _execute_personality(
-        self, subcommand: str | None, args: str
-    ) -> str:
+    async def _execute_personality(self, subcommand: str | None, args: str) -> str:
         """Handle /personality reload <entity>."""
         if not subcommand or subcommand.lower() != "reload":
             return "Usage: /personality reload <entity>"
@@ -567,27 +557,18 @@ class TelegramBridge:
         results = []
         for name in entities:
             try:
-                response = await self.process_manager.send_to_entity(
-                    name, message
-                )
+                response = await self.process_manager.send_to_entity(name, message)
                 results.append(f"{name}: {response[:80]}")
             except Exception as e:
                 results.append(f"{name}: Error — {e}")
 
-        return (
-            f"Broadcast to {len(results)} entities:\n"
-            + "\n".join(results)
-        )
+        return f"Broadcast to {len(results)} entities:\n" + "\n".join(results)
 
-    async def _execute_model(
-        self, model_name: str | None, entity_name: str
-    ) -> str:
+    async def _execute_model(self, model_name: str | None, entity_name: str) -> str:
         """Handle /model <opus|sonnet|haiku> [entity]."""
         valid_models = {"opus", "sonnet", "haiku"}
         if not model_name or model_name not in valid_models:
-            return (
-                f"Usage: /model <{'|'.join(sorted(valid_models))}> [entity]"
-            )
+            return f"Usage: /model <{'|'.join(sorted(valid_models))}> [entity]"
 
         target = entity_name.strip() if entity_name else self.default_maestro
         entity = self.process_manager.entities.get(target)
@@ -631,10 +612,7 @@ class TelegramBridge:
             pending = await self.vault_store.pending(vault_name)
             if not pending:
                 return "No pending vault actions."
-            lines = [
-                f"- #{a['id']} [{a['requester']}] {a['description']}"
-                for a in pending
-            ]
+            lines = [f"- #{a['id']} [{a['requester']}] {a['description']}" for a in pending]
             return f"Pending actions ({len(pending)}):\n" + "\n".join(lines)
 
         if sub == "log":
@@ -642,10 +620,7 @@ class TelegramBridge:
             log = await self.vault_store.log(vault_name)
             if not log:
                 return "No vault actions recorded."
-            lines = [
-                f"- #{a['id']} {a['status']} {a['description'][:50]}"
-                for a in log
-            ]
+            lines = [f"- #{a['id']} {a['status']} {a['description'][:50]}" for a in log]
             return f"Vault log ({len(log)}):\n" + "\n".join(lines)
 
         return f"Unknown vault subcommand: {subcommand}"
@@ -762,9 +737,7 @@ class TelegramBridge:
             for team_name, team in m.teams.items():
                 worker_count = len(team.workers)
                 lead_status = "active" if team.lead and team.lead in entities else "none"
-                lines.append(
-                    f"{m.name}.{team_name}: lead={lead_status}, workers={worker_count}"
-                )
+                lines.append(f"{m.name}.{team_name}: lead={lead_status}, workers={worker_count}")
         return "Teams:\n" + "\n".join(lines) if lines else "No teams."
 
     def _format_org(self) -> str:

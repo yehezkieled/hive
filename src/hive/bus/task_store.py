@@ -116,9 +116,7 @@ class TaskStore:
                 )
 
         # Re-fetch to get the updated row
-        updated = await self.pool.fetchrow(
-            "SELECT * FROM tasks WHERE id = $1", row["id"]
-        )
+        updated = await self.pool.fetchrow("SELECT * FROM tasks WHERE id = $1", row["id"])
         return _row_to_task(updated)
 
 

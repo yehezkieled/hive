@@ -13,7 +13,6 @@ LOOP_PROMPTS: dict[str, str] = {
         "Act on it, Observe the result, repeat."
     ),
     "build-test-refine": (
-        "Follow Build-Test-Refine: Build the feature, Test it, "
-        "Refine based on results."
+        "Follow Build-Test-Refine: Build the feature, Test it, Refine based on results."
     ),
 }

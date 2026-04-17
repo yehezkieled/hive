@@ -58,11 +58,13 @@ def create_app(
                 for wn in team.workers:
                     if wn in entities:
                         w = entities[wn]
-                        workers.append({
-                            "name": wn,
-                            "state": w.state.value,
-                            "model": w.model,
-                        })
+                        workers.append(
+                            {
+                                "name": wn,
+                                "state": w.state.value,
+                                "model": w.model,
+                            }
+                        )
                 maestro_data["teams"][team_name] = {
                     "lead": team.lead,
                     "workers": workers,

@@ -49,9 +49,7 @@ class AuditLog:
                 details,
             )
         except Exception:
-            logger.exception(
-                "Failed to write audit event (actor=%s action=%s)", actor, action
-            )
+            logger.exception("Failed to write audit event (actor=%s action=%s)", actor, action)
 
     async def recent(
         self,
@@ -96,5 +94,3 @@ def _row_to_dict(row: asyncpg.Record) -> dict:
         "details": details,
         "timestamp": row["timestamp"],
     }
-
-

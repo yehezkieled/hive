@@ -88,9 +88,7 @@ async def test_send_to_nonexistent_entity(manager: ProcessManager) -> None:
         await manager.send_to_entity("nonexistent", "hello")
 
 
-async def test_kill_entity_writes_audit_event(
-    router: MessageRouter, audit_log: AuditLog
-) -> None:
+async def test_kill_entity_writes_audit_event(router: MessageRouter, audit_log: AuditLog) -> None:
     """kill_entity should emit one ``entity.kill`` audit event."""
     mgr = ProcessManager(router=router, audit_log=audit_log)
     entity = Maestro(name="dev", model="sonnet")
@@ -131,9 +129,7 @@ async def test_health_check_writes_error_audit_event(
 class TestResumeSession:
     """Test that send_to_entity passes --resume on subsequent calls."""
 
-    async def test_first_send_has_no_resume_flag(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_first_send_has_no_resume_flag(self, manager: ProcessManager) -> None:
         """First message to an entity should NOT include --resume."""
         entity = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = entity
@@ -144,9 +140,7 @@ class TestResumeSession:
         async def fake_send(prompt: str) -> str:
             return "hello"
 
-        with patch(
-            "hive.process.manager.ClaudeSession", autospec=True
-        ) as mock_session_cls:
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_session_cls:
             instance = mock_session_cls.return_value
             instance.start = AsyncMock()
             instance.send_prompt = AsyncMock(return_value="hello")
@@ -164,9 +158,7 @@ class TestResumeSession:
 
         assert "--resume" not in captured_args
 
-    async def test_second_send_includes_resume_flag(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_second_send_includes_resume_flag(self, manager: ProcessManager) -> None:
         """After first send stores session_id, second send should include --resume."""
         entity = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = entity
@@ -174,9 +166,7 @@ class TestResumeSession:
 
         all_args: list[list[str]] = []
 
-        with patch(
-            "hive.process.manager.ClaudeSession", autospec=True
-        ) as mock_session_cls:
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_session_cls:
             instance = mock_session_cls.return_value
             instance.start = AsyncMock()
             instance.send_prompt = AsyncMock(return_value="response")
@@ -200,9 +190,7 @@ class TestResumeSession:
         resume_idx = all_args[1].index("--resume")
         assert all_args[1][resume_idx + 1] == "sess-abc"
 
-    async def test_kill_entity_clears_session_id(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_kill_entity_clears_session_id(self, manager: ProcessManager) -> None:
         """kill_entity should clear the stored session_id."""
         entity = Maestro(name="dev", model="sonnet")
         entity.session_id = "sess-old"
@@ -221,16 +209,12 @@ class TestResumeSession:
         entity_store: EntityStore,
     ) -> None:
         """send_to_entity should persist the session_id to the entity store."""
-        mgr = ProcessManager(
-            router=router, entity_store=entity_store, max_sessions=2
-        )
+        mgr = ProcessManager(router=router, entity_store=entity_store, max_sessions=2)
         entity = Maestro(name="dev", model="sonnet")
         mgr._entities["dev"] = entity
         mgr.router.register("dev")
 
-        with patch(
-            "hive.process.manager.ClaudeSession", autospec=True
-        ) as mock_session_cls:
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_session_cls:
             instance = mock_session_cls.return_value
             instance.start = AsyncMock()
             instance.send_prompt = AsyncMock(return_value="response")
@@ -270,25 +254,19 @@ class TestTeamManagement:
         assert "dev.backend" in manager.entities
         assert "backend" in maestro.teams
 
-    async def test_create_team_missing_maestro_raises(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_create_team_missing_maestro_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if maestro doesn't exist."""
         with pytest.raises(KeyError, match="not found"):
             await manager.create_team("nope", "backend")
 
-    async def test_create_team_non_maestro_raises(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_create_team_non_maestro_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if target entity is not a maestro."""
         worker = WorkerAgent(name="w1")
         manager._entities["w1"] = worker
         with pytest.raises(TypeError, match="not a maestro"):
             await manager.create_team("w1", "backend")
 
-    async def test_create_duplicate_team_raises(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_create_duplicate_team_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if team already exists."""
         maestro = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
@@ -322,9 +300,7 @@ class TestTeamManagement:
         worker = await manager.spawn_worker("dev.backend")
         assert worker.name.startswith("dev.backend.w")
 
-    async def test_spawn_worker_missing_lead_raises(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_spawn_worker_missing_lead_raises(self, manager: ProcessManager) -> None:
         """spawn_worker should raise if lead doesn't exist."""
         with pytest.raises(KeyError, match="not found"):
             await manager.spawn_worker("nope", "w1")
@@ -390,9 +366,7 @@ class TestWorktreeIntegration:
 
         await mgr.kill_all()
 
-    async def test_spawn_worker_without_worktree_mgr(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_spawn_worker_without_worktree_mgr(self, manager: ProcessManager) -> None:
         """spawn_worker should work fine without a WorktreeManager (no worktree)."""
         maestro = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
@@ -473,9 +447,7 @@ class TestHierarchyRestore:
 
         await mgr.kill_all()
 
-    async def test_rebuild_hierarchy_empty(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_rebuild_hierarchy_empty(self, manager: ProcessManager) -> None:
         """rebuild_hierarchy on empty manager should not raise."""
         manager.rebuild_hierarchy()  # should not raise
 
@@ -483,9 +455,7 @@ class TestHierarchyRestore:
 class TestMaxWorkersEnforcement:
     """Test that spawn_worker respects lead.max_workers."""
 
-    async def test_spawn_worker_respects_max_workers(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_spawn_worker_respects_max_workers(self, manager: ProcessManager) -> None:
         """spawn_worker should raise when lead already has max_workers workers."""
         maestro = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
@@ -497,9 +467,7 @@ class TestMaxWorkersEnforcement:
         with pytest.raises(RuntimeError, match="max"):
             await manager.spawn_worker("dev.backend", "w2")
 
-    async def test_spawn_worker_under_limit_succeeds(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_spawn_worker_under_limit_succeeds(self, manager: ProcessManager) -> None:
         """spawn_worker should succeed when under max_workers."""
         maestro = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
@@ -516,16 +484,12 @@ class TestMaxWorkersEnforcement:
 class TestPreemption:
     """Test priority-based preemption logic."""
 
-    async def test_preempt_returns_none_when_under_capacity(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_preempt_returns_none_when_under_capacity(self, manager: ProcessManager) -> None:
         """No preemption needed when under max_sessions."""
         result = await manager._preempt_for_priority(0)
         assert result is None
 
-    async def test_preempt_kills_lowest_priority_entity(
-        self, router: MessageRouter
-    ) -> None:
+    async def test_preempt_kills_lowest_priority_entity(self, router: MessageRouter) -> None:
         """When at capacity, preemption should kill the lowest-priority entity."""
         mgr = ProcessManager(router=router, max_sessions=1)
 
@@ -577,9 +541,7 @@ class TestRegisterMaestro:
         assert maestro.name == "ops"
         assert "ops" in manager.entities
 
-    async def test_register_duplicate_maestro_raises(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_register_duplicate_maestro_raises(self, manager: ProcessManager) -> None:
         """register_maestro should raise if name already exists."""
         await manager.register_maestro("ops")
         with pytest.raises(ValueError, match="already exists"):
@@ -590,7 +552,5 @@ class TestRegisterMaestro:
     ) -> None:
         """register_maestro should load personality if file exists."""
         personality_path = personalities_dir / "maestro-dev.md"
-        maestro = await manager.register_maestro(
-            "dev", personality_path=personality_path
-        )
+        maestro = await manager.register_maestro("dev", personality_path=personality_path)
         assert maestro.system_prompt != ""

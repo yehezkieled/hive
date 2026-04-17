@@ -73,9 +73,7 @@ class ProcessManager:
         """
         if self.audit_log is None:
             return
-        await self.audit_log.record(
-            actor=actor, action=action, target=target, details=details
-        )
+        await self.audit_log.record(actor=actor, action=action, target=target, details=details)
 
     async def _record_usage(self, entity: Entity, session: ClaudeSession) -> None:
         """Record token usage from a completed session, if a store is configured.
@@ -333,9 +331,7 @@ class ProcessManager:
         # Create worktree for isolated work if a WorktreeManager is configured
         worktree_path = None
         if self.worktree_mgr:
-            worktree_path = await self.worktree_mgr.create(
-                full_name, branch=f"hive/{full_name}"
-            )
+            worktree_path = await self.worktree_mgr.create(full_name, branch=f"hive/{full_name}")
 
         worker = WorkerAgent(
             name=full_name,
@@ -395,11 +391,7 @@ class ProcessManager:
         entity = self._entities.get(name)
         if entity:
             # Clean up worktree for workers
-            if (
-                isinstance(entity, WorkerAgent)
-                and entity.worktree_path
-                and self.worktree_mgr
-            ):
+            if isinstance(entity, WorkerAgent) and entity.worktree_path and self.worktree_mgr:
                 try:
                     await self.worktree_mgr.remove(name)
                 except Exception:

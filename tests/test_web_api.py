@@ -33,12 +33,14 @@ def _make_app() -> TestClient:
     }
 
     token_store = MagicMock()
-    token_store.totals = AsyncMock(return_value={
-        "call_count": 10,
-        "input_tokens": 5000,
-        "output_tokens": 2000,
-        "cost_usd": 0.05,
-    })
+    token_store.totals = AsyncMock(
+        return_value={
+            "call_count": 10,
+            "input_tokens": 5000,
+            "output_tokens": 2000,
+            "cost_usd": 0.05,
+        }
+    )
 
     task_store = MagicMock()
     task_store.list = AsyncMock(return_value=[])

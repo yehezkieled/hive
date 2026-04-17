@@ -64,9 +64,21 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
     # /task uses the target slot for its subcommand (add|done|cancel), with
     # the rest of the line becoming the args (title or id).
     targeted_commands = {
-        "kill", "compact", "reset", "mode", "loop", "priority", "task",
-        "team", "worker", "swarm", "new", "personality", "model",
-        "vault", "blueprint",
+        "kill",
+        "compact",
+        "reset",
+        "mode",
+        "loop",
+        "priority",
+        "task",
+        "team",
+        "worker",
+        "swarm",
+        "new",
+        "personality",
+        "model",
+        "vault",
+        "blueprint",
     }
     cmd_match = re.match(r"^/(\w+)\s+(.*)", text, re.DOTALL)
     if cmd_match:

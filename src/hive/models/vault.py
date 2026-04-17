@@ -16,6 +16,4 @@ class Vault(Entity):
     """
 
     role: str = "vault"
-    disallowed_tools: list[str] = field(
-        default_factory=lambda: ["Bash", "Write", "Edit"]
-    )
+    disallowed_tools: list[str] = field(default_factory=lambda: ["Bash", "Write", "Edit"])

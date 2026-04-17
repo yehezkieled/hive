@@ -99,9 +99,7 @@ class ClaudeSession:
                             "cache_creation_input_tokens": raw_usage.get(
                                 "cache_creation_input_tokens", 0
                             ),
-                            "cache_read_input_tokens": raw_usage.get(
-                                "cache_read_input_tokens", 0
-                            ),
+                            "cache_read_input_tokens": raw_usage.get("cache_read_input_tokens", 0),
                             "cost_usd": cost_usd,
                         }
                         # Result also contains the full text as fallback

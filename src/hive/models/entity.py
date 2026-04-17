@@ -151,8 +151,7 @@ class Entity:
         cli_value = PERMISSION_MODES.get(mode_name)
         if cli_value is None:
             raise ValueError(
-                f"Unknown permission mode {mode_name!r}. "
-                f"Valid: {', '.join(PERMISSION_MODES)}"
+                f"Unknown permission mode {mode_name!r}. Valid: {', '.join(PERMISSION_MODES)}"
             )
         self.permission_mode = cli_value
 
@@ -161,9 +160,7 @@ class Entity:
         from hive.process.loops import LOOP_PROMPTS
 
         if mode not in LOOP_PROMPTS:
-            raise ValueError(
-                f"Unknown loop mode {mode!r}. Valid: {', '.join(LOOP_PROMPTS)}"
-            )
+            raise ValueError(f"Unknown loop mode {mode!r}. Valid: {', '.join(LOOP_PROMPTS)}")
         self.loop_mode = mode
 
     def load_personality(self) -> PersonalityConfig | None:

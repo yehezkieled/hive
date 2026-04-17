@@ -42,13 +42,7 @@ class BlueprintStore:
         tags_yaml = "\n".join(f"- {tag}" for tag in tags) if tags else "[]"
         now = datetime.now(UTC).isoformat()
 
-        frontmatter = (
-            f"---\n"
-            f"title: {title}\n"
-            f"tags:\n{tags_yaml}\n"
-            f"created_at: {now}\n"
-            f"---\n"
-        )
+        frontmatter = f"---\ntitle: {title}\ntags:\n{tags_yaml}\ncreated_at: {now}\n---\n"
         path.write_text(frontmatter + content)
         return path
 
@@ -104,7 +98,7 @@ def _parse_frontmatter(text: str, path: Path) -> dict:
         return {"title": path.stem, "tags": [], "body": text, "path": str(path)}
 
     front = text[4:end]
-    body = text[end + 5:]  # skip the closing ---\n
+    body = text[end + 5 :]  # skip the closing ---\n
 
     title = path.stem
     tags: list[str] = []
