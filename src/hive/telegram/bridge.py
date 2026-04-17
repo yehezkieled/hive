@@ -344,6 +344,12 @@ class TelegramBridge:
             # Log the exchange
             await self.process_manager.router.route("user", entity_name, message)
             await self.process_manager.router.route(entity_name, "user", response)
+
+            # Append summary of autonomous messages sent by the entity
+            routed = self.process_manager._last_routed_actions
+            if routed:
+                response += f"\n\n--- Sent message to: {', '.join(routed)}"
+
             return response or "(no response)"
         except KeyError:
             return f"Entity {entity_name!r} not found. Use /maestros to see available entities."

@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from hive.bus.actions import parse_actions
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
+from hive.bus.permissions import can_message
 from hive.bus.router import MessageRouter
 from hive.bus.token_store import TokenStore
 from hive.models.entity import Entity, EntityState
@@ -39,6 +41,7 @@ class ProcessManager:
         self.audit_log = audit_log
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
+        self._last_routed_actions: list[str] = []
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -229,10 +232,24 @@ class ProcessManager:
         Each call spawns a fresh subprocess. If the entity has a stored
         session_id from a previous call, ``--resume`` is passed so the
         Claude CLI resumes the prior conversation context.
+
+        Pending inter-agent messages are prepended to the prompt.
+        After the response, any ``<hive_actions>`` block is parsed and
+        routed to the appropriate recipients.
         """
         entity = self._entities.get(entity_name)
         if entity is None:
             raise KeyError(f"Entity {entity_name!r} not found.")
+
+        # --- Phase 2: drain pending inter-agent messages ---
+        pending: list[str] = []
+        while self.router.has_pending(entity_name):
+            msg = await self.router.get_next(entity_name, timeout=0.1)
+            if msg:
+                pending.append(f"[Message from {msg.sender}]: {msg.content}")
+        if pending:
+            inbox = "\n".join(pending)
+            prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
 
         args = entity.build_cli_args()
         if entity.session_id:
@@ -252,7 +269,28 @@ class ProcessManager:
         finally:
             await session.kill()
 
-        return response
+        # --- Phase 3: parse and route actions from response ---
+        clean_text, actions = parse_actions(response)
+        self._last_routed_actions = []
+        for action in actions:
+            if action.type == "message":
+                recipient = self._entities.get(action.to)
+                if not recipient:
+                    logger.warning("Unknown recipient: %s", action.to)
+                    continue
+                if not can_message(entity.role, entity.name, recipient.role, recipient.name):
+                    logger.warning("Permission denied: %s -> %s", entity.name, action.to)
+                    continue
+                await self.router.route(entity_name, action.to, action.text)
+                self._last_routed_actions.append(action.to)
+                await self._audit(
+                    "message.autonomous",
+                    target=action.to,
+                    details={"sender": entity_name, "text": action.text[:200]},
+                    actor=entity_name,
+                )
+
+        return clean_text
 
     async def create_team(
         self, maestro_name: str, team_name: str, model: str = "sonnet"

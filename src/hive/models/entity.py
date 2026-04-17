@@ -199,11 +199,15 @@ class Entity:
         if self.permission_mode != "default":
             args.extend(["--permission-mode", self.permission_mode])
 
-        from hive.process.loops import LOOP_PROMPTS
+        from hive.process.loops import LOOP_PROMPTS, MESSAGING_PROMPT
 
         loop_text = LOOP_PROMPTS.get(self.loop_mode)
         if loop_text:
             args.extend(["--append-system-prompt", loop_text])
+
+        # Maestros and leads can send inter-agent messages
+        if self.role in ("maestro", "lead"):
+            args.extend(["--append-system-prompt", MESSAGING_PROMPT])
 
         return args
 

@@ -611,6 +611,504 @@ worktree integration, hierarchy rebuild),
 
 ---
 
+## Sprint 3b — Modes, Loops, Priority, Swarm, Session Utilities (2026-04-16, DONE)
+
+**Goal**: Permission mode switching, workflow loop switching, priority system
+(P0-P4) with preemption, swarm mode, and session utilities (/compact, /reset).
+
+**Builds on**: Sprint 3a (teams, multi-turn sessions, worker lifecycle)
+
+### Phases (all complete)
+
+**Phase 1 — Permission mode switching.** Added `set_permission_mode()` on
+Entity with `PERMISSION_MODES` dict mapping user-facing names to CLI flags:
+`plan` → `--permission-mode plan`, `edit` → `--permission-mode default`,
+`auto` → `--permission-mode bypassPermissions`. Persisted via `permission_mode`
+column in entities table (migration `008_entity_modes.sql`).
+
+**Phase 2 — Loop switching.** New `src/hive/process/loops.py` with
+`LOOP_PROMPTS` dict defining four execution modes: `ralph` (Read, Ask, List,
+Plan, Halt), `yolo` (execute immediately), `plan-act-observe` (Plan → Act →
+Observe cycle), `build-test-refine` (Build → Test → Refine cycle).
+`set_loop_mode()` on Entity validates and stores the selection. Loop prompt
+injected via `--append-system-prompt` in `build_cli_args()`. Persisted via
+`loop_mode` column (migration 008).
+
+**Phase 3 — Priority system.** `current_priority` field (int, 0-4) on Entity.
+`/priority P0 "title"` creates a task with the given priority.
+`_preempt_for_priority()` in ProcessManager checks if a higher-priority entity
+needs a slot and can pause lower-priority ones. Migration 008 adds
+`current_priority`, `worktree_path`, and `task_id` columns.
+
+**Phase 4 — Telegram commands.** `/mode`, `/loop`, `/priority`, `/swarm`,
+`/compact`, `/reset` added to bridge dispatch. `/swarm <team> <goal>` sends
+goal to all workers in a team. `/compact <entity>` summarizes context then
+resets session with the summary. `/reset <entity>` kills and re-registers
+with cleared session_id.
+
+### Critical files
+
+**Created**: `src/hive/process/loops.py`, `src/hive/bus/migrations/008_entity_modes.sql`,
+`tests/test_loops.py`.
+
+**Edited**: `src/hive/models/entity.py` (permission_mode, loop_mode, current_priority
+fields, set_permission_mode, set_loop_mode, build_cli_args updated),
+`src/hive/process/manager.py` (_preempt_for_priority), `src/hive/telegram/bridge.py`
+(6 new command handlers), `src/hive/telegram/commands.py` (new targeted_commands),
+`src/hive/bus/entity_store.py` (new columns).
+
+### Verification
+
+1. `pytest -v` → 191 passing (up from 168 after 3a).
+2. `ruff check src/ tests/` clean.
+
+---
+
+## Sprint 4+5 — Multi-Maestro, Permissions, Personality, Model Switching (2026-04-16, DONE)
+
+**Goal**: Multiple maestros, inter-agent permission hierarchy, personality
+hot-reload, broadcast messaging, and per-entity model switching.
+
+**Builds on**: Sprint 3b (mode/loop switching, priority system)
+
+### Phases (all complete)
+
+**Phase 1 — Multi-maestro.** `register_maestro()` method on ProcessManager.
+`/new maestro <name> [model]` command creates additional maestros (default
+model: sonnet). Each maestro is independent with its own org.
+
+**Phase 2 — Permission hierarchy.** New `src/hive/bus/permissions.py` with
+`can_message(sender_role, sender_name, recipient_role, recipient_name) -> bool`.
+Uses dotted naming convention: `dev.backend.w1` belongs to lead `dev.backend`,
+which belongs to maestro `dev`. Maestro → any entity in own org (shared name
+prefix). Lead → own workers + parent maestro. Worker → own lead only.
+Cross-org messaging denied.
+
+**Phase 3 — Personality reload.** `/personality reload <entity>` re-reads the
+.md personality file from disk and applies changes without restart.
+
+**Phase 4 — Broadcast.** `/broadcast <message>` sends to all registered
+entities via `router.broadcast()`.
+
+**Phase 5 — Model switching.** `/model <opus|sonnet|haiku> [entity]` changes
+entity's model at runtime. Validated against allowed set. Persisted to DB.
+
+### Critical files
+
+**Created**: `src/hive/bus/permissions.py`, `tests/test_permissions.py`.
+
+**Edited**: `src/hive/process/manager.py` (register_maestro),
+`src/hive/telegram/bridge.py` (_execute_new, _execute_personality,
+_execute_broadcast, _execute_model), `src/hive/telegram/commands.py`
+(new, personality, broadcast, model in targeted_commands).
+
+### Verification
+
+1. `pytest -v` → 207 passing (up from 191 after 3b).
+2. `ruff check src/ tests/` clean.
+
+---
+
+## Sprint 6 — Vault Entity with Security-Gated Approval Flow (2026-04-16, DONE)
+
+**Goal**: Isolated, security-critical entity for financial operations.
+Every action requires explicit user approval via Telegram.
+
+**Builds on**: Sprint 4+5 (multi-maestro, personality system)
+
+### Phases (all complete)
+
+**Phase 1 — Vault model.** New `src/hive/models/vault.py`. `Vault(Entity)`
+subclass with `role="vault"` and `disallowed_tools = ["Bash", "Write", "Edit"]`
+hard-locked. Cannot run filesystem or shell operations. Cannot be killed by
+non-user actors.
+
+**Phase 2 — Vault store.** New `src/hive/bus/vault_store.py` with `VaultStore`
+class: `create_action(vault_name, description, requester)`,
+`approve(action_id)`, `deny(action_id)`, `pending(vault_name)`,
+`log(vault_name, limit)`. Migration `009_vault_actions.sql` creates
+`vault_actions` table (id, vault_name, description, requester, status
+pending/approved/denied, created_at, resolved_at).
+
+**Phase 3 — Telegram commands.** `/vault approve <id>`, `/vault deny <id>`,
+`/vault status [name]`, `/vault log [name]`. Approval flow: entity creates
+pending action → user approves/denies from Telegram.
+
+### Critical files
+
+**Created**: `src/hive/models/vault.py`, `src/hive/bus/vault_store.py`,
+`src/hive/bus/migrations/009_vault_actions.sql`, `tests/test_vault.py`,
+`tests/test_vault_store.py`.
+
+**Edited**: `src/hive/telegram/bridge.py` (_execute_vault handler),
+`src/hive/telegram/commands.py` (vault in targeted_commands),
+`src/hive/__main__.py` (VaultStore wiring), `tests/conftest.py`
+(vault_store fixture + TRUNCATE).
+
+### Verification
+
+1. `pytest -v` → 216 passing (up from 207 after 4+5).
+2. `ruff check src/ tests/` clean.
+
+---
+
+## Sprint 7 — File-Based Blueprint Storage and Search (2026-04-16, DONE)
+
+**Goal**: Agents can save and search project blueprints — structured
+knowledge documents with YAML frontmatter and markdown body.
+
+**Builds on**: Sprint 2 (PostgreSQL), accumulated project data
+
+### Phases (all complete)
+
+**Phase 1 — BlueprintStore.** New `src/hive/knowledge/blueprints.py`.
+`BlueprintStore(directory: Path)` with `save(title, content, tags) -> Path`,
+`load(path) -> dict`, `list_all() -> list[dict]`,
+`search(query, limit) -> list[dict]`. Blueprints stored as YAML-frontmatter
+markdown files (title, tags, created_at in frontmatter; content in body).
+Search is case-insensitive text matching on title + body. No embeddings or
+vector search — file-based simplicity for Sprint 7.
+
+**Phase 2 — Telegram commands.** `/blueprint save "title"` creates a new
+blueprint. `/blueprint search <query>` does case-insensitive text search.
+`/blueprint list` shows all blueprints with metadata.
+
+### Critical files
+
+**Created**: `src/hive/knowledge/__init__.py`, `src/hive/knowledge/blueprints.py`,
+`tests/test_blueprints.py`.
+
+**Edited**: `src/hive/config.py` (BLUEPRINTS_DIR), `src/hive/telegram/bridge.py`
+(BlueprintStore import, _execute_blueprint), `src/hive/telegram/commands.py`
+(blueprint in targeted_commands), `src/hive/__main__.py` (BlueprintStore wiring).
+
+### Verification
+
+1. `pytest -v` → 225 passing (up from 216 after Sprint 6).
+2. `ruff check src/ tests/` clean.
+
+---
+
+## Sprint 8 — FastAPI Web Dashboard with htmx (2026-04-16, DONE)
+
+**Goal**: Read-only web dashboard showing entity status, org tree, tasks,
+cost, and audit log — polling-based via htmx.
+
+**Builds on**: Everything (exposes all stores via JSON API)
+
+### Phases (all complete)
+
+**Phase 1 — FastAPI application.** New `src/hive/web/app.py` with
+`create_app(process_manager, token_store, task_store, audit_log) -> FastAPI`
+factory. Dependencies added: `fastapi`, `uvicorn`, `jinja2`.
+
+**Phase 2 — JSON API endpoints.** Five GET endpoints:
+`/api/status` (entity statuses), `/api/org` (org tree as JSON),
+`/api/tasks` (open tasks), `/api/cost?window=24h|7d|30d` (token usage),
+`/api/audit?limit=20` (recent audit events).
+
+**Phase 3 — HTML dashboard.** htmx-powered template at
+`src/hive/web/templates/dashboard.html`. Dark theme (slate/amber palette).
+Auto-refresh: status every 5s, org every 5s, tasks every 10s, cost every 30s.
+CSS Grid layout (2-col desktop, 1-col mobile).
+
+**Phase 4 — Integration.** `__main__.py` conditionally starts uvicorn
+alongside Telegram bridge when `WEB_PORT > 0` (env var, default 0 = disabled).
+
+### Critical files
+
+**Created**: `src/hive/web/__init__.py`, `src/hive/web/app.py`,
+`src/hive/web/templates/dashboard.html`, `tests/test_web_api.py`.
+
+**Edited**: `pyproject.toml` (fastapi, uvicorn, jinja2, httpx deps),
+`src/hive/config.py` (WEB_PORT), `src/hive/__main__.py` (uvicorn startup).
+
+### Verification
+
+1. `pytest -v` → 233 passing (up from 225 after Sprint 7).
+2. `ruff check src/ tests/` clean.
+
+---
+
+## Bug Fix — 5 Critical Bugs from Code Review (2026-04-16, DONE)
+
+**Issues fixed**:
+
+1. **Missing VaultStore/BlueprintStore wiring** — `__main__.py` was not
+   passing `vault_store` or `blueprint_store` to `TelegramBridge`, so
+   `/vault` and `/blueprint` commands crashed at runtime.
+
+2. **Phantom entities on restart** — `kill_entity()` was not deleting the
+   entity from the database, so killed entities reappeared after restart.
+   Fixed by adding `await self.entity_store.delete(name)` to `kill_entity()`.
+
+3. **JSONB double-encoding** — `AuditLog.record()` was calling `json.dumps()`
+   on the details dict before passing to asyncpg, but the pool's JSONB codec
+   already handles serialization. Result: double-encoded strings in the DB.
+   Removed the manual `json.dumps()`.
+
+4. **Direct entity registry access** — Code in `__main__.py` was writing
+   directly to `process_manager._entities` dict, bypassing validation and
+   persistence. Replaced with `register_maestro()` API.
+
+5. **Dead code cleanup** — Removed unused `_format_event_row()` function
+   from `audit_log.py`.
+
+### Critical files
+
+**Edited**: `src/hive/__main__.py`, `src/hive/process/manager.py`,
+`src/hive/bus/audit_log.py`, `src/hive/telegram/bridge.py`.
+
+### Verification
+
+1. `pytest -v` → 233 passing (unchanged count; fixes, no new tests).
+2. `ruff check src/ tests/` clean.
+
+---
+
+## GitHub Push + systemd Deployment (2026-04-17, DONE)
+
+Between the bug fix commit and Sprint 9, the codebase was pushed to GitHub
+for the first time and a systemd user service was set up for VPS persistence.
+
+### What was done
+
+1. **GitHub repository created** — `yehezkieled/hive` (private). All commits
+   from Sprint 0 through the bug fix (`633f03e`) pushed to `origin/main`.
+
+2. **CI workflow** — `.github/workflows/ci.yml` was already in the repo from
+   Sprint 0. Runs on push/PR to `main`:
+   - `ruff check src/ tests/` — lint
+   - `ruff format --check src/ tests/` — formatting
+   - `pytest -m "not integration" --cov=src/hive` — unit tests (no PG container)
+
+3. **CI failure and fix** — First push triggered CI; `ruff format --check`
+   failed on 15 files with formatting diffs. Fixed by running
+   `ruff format src/ tests/`, committed as `34bbf98` ("Fix ruff formatting
+   to pass CI"). Second CI run passed: lint ✓, tests ✓ (233 passing, 47s).
+
+4. **systemd user service** — Created
+   `~/.config/systemd/user/hive.service` for the VPS (DigitalOcean droplet,
+   Tailscale network). Key configuration:
+   - `Type=simple`, `Restart=on-failure`, `RestartSec=5`
+   - `EnvironmentFile=/home/hezki/projects/hive/.env`
+   - `ExecStart=.venv/bin/python -m hive`
+   - `ExecStartPre=/bin/sleep 10` (wait for network/Tailscale on boot)
+   - `KillSignal=SIGTERM`, `TimeoutStopSec=30`
+   - Enabled with `loginctl enable-linger hezki` for boot persistence
+
+### Commit
+
+| Hash | Message |
+|------|---------|
+| `34bbf98` | Fix ruff formatting to pass CI |
+
+### Verification
+
+1. `gh run watch 24575078822 --exit-status` → CI green (lint + 233 tests in 47s).
+2. `systemctl --user status hive` → service loaded and enabled.
+
+---
+
+## Sprint 9 — Inter-Agent Autonomous Messaging (2026-04-17, DONE)
+
+**Goal**: Entities can send messages to other entities autonomously. When a
+maestro or lead responds, it can include a `<hive_actions>` block with message
+actions. The orchestrator extracts these, validates permissions, routes them,
+and returns clean text to the user.
+
+### Why this matters
+
+Before Sprint 9, all communication flowed through the user via Telegram —
+entities couldn't coordinate with each other. Now a maestro can delegate to
+its leads, and leads can report back, without the user manually relaying
+messages. This is the first step toward autonomous multi-agent workflows.
+
+### Design decisions
+
+- **XML tags, not tool_use**: Entities are `claude -p` subprocesses — we don't
+  control tool definitions. XML tags in text output are the simplest reliable
+  protocol. They're unambiguous, don't collide with prose, and easy to
+  regex-extract.
+
+- **Pull-based, not push**: Entities don't run in the background. They only
+  act when prompted. Their responses can have *side effects* (queuing messages),
+  but those messages are only delivered when the recipient is next prompted.
+  This prevents infinite message loops.
+
+- **Workers excluded from messaging prompt**: Only maestros and leads get the
+  `MESSAGING_PROMPT` system prompt injection. Workers can only message their
+  own lead, and that's better handled by the lead prompting them directly.
+
+### Build phases
+
+**Phase 1 — Action parser** (`src/hive/bus/actions.py`, new file)
+
+Created the `Action` dataclass and `parse_actions()` function:
+
+```python
+@dataclass
+class Action:
+    type: str   # "message" for Sprint 9
+    to: str     # recipient entity name
+    text: str   # message content
+
+def parse_actions(response: str) -> tuple[str, list[Action]]:
+    """Extract <hive_actions> block, return (clean_text, actions)."""
+```
+
+- Regex `<hive_actions>\s*(.*?)\s*</hive_actions>` extracts the block
+- Parses JSON array inside, creates `Action` objects
+- Validates required fields `{type, to, text}` — skips incomplete entries
+- Only recognizes `type: "message"` — unknown types are skipped with a warning
+- Malformed JSON → warning + empty list (never crashes)
+- Strips the `<hive_actions>` block from the returned clean text
+
+Tests (`tests/test_actions.py`, 10 tests):
+- `test_no_actions_returns_original_text`
+- `test_single_message_action`
+- `test_multiple_actions`
+- `test_clean_text_strips_block`
+- `test_clean_text_preserves_surrounding`
+- `test_malformed_json_returns_empty_list`
+- `test_missing_required_fields_skips_action`
+- `test_unknown_action_type_skipped`
+- `test_non_array_json_returns_empty`
+- `test_mixed_valid_and_invalid_actions`
+
+**Phase 2 — Pending message injection** (`src/hive/process/manager.py`)
+
+Edited `send_to_entity()` to drain pending inter-agent messages before
+sending the prompt. Uses the previously-unused `router.has_pending()` and
+`router.get_next()` methods (built in Sprint 3a but never wired):
+
+```python
+# Before session.send_prompt(prompt):
+pending = []
+while self.router.has_pending(entity_name):
+    msg = await self.router.get_next(entity_name, timeout=0.1)
+    if msg:
+        pending.append(f"[Message from {msg.sender}]: {msg.content}")
+if pending:
+    inbox = "\n".join(pending)
+    prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
+```
+
+Tests (3 in `TestPendingMessageInjection`):
+- `test_pending_messages_prepended` — messages from queue appear in prompt
+- `test_no_pending_prompt_unchanged` — no messages → prompt passed through
+- `test_multiple_pending_all_included` — multiple messages all appear
+
+**Phase 3 — Response action routing** (`src/hive/process/manager.py`)
+
+After getting the response, `send_to_entity()` now parses actions, validates
+permissions using `can_message()` (built in Sprint 4+5 but never wired),
+routes messages via `router.route()`, and logs audit events:
+
+```python
+# After response = await session.send_prompt(prompt):
+clean_text, actions = parse_actions(response)
+self._last_routed_actions = []
+for action in actions:
+    if action.type == "message":
+        recipient = self._entities.get(action.to)
+        if not recipient:       # unknown entity → skip
+            continue
+        if not can_message(...): # permission check → skip
+            continue
+        await self.router.route(entity_name, action.to, action.text)
+        self._last_routed_actions.append(action.to)
+        await self._audit("message.autonomous", ...)
+return clean_text  # stripped of <hive_actions> block
+```
+
+New imports added: `parse_actions` from `hive.bus.actions`,
+`can_message` from `hive.bus.permissions`.
+
+New attribute: `self._last_routed_actions: list[str]` — tracks recipients
+of successfully routed messages for the Telegram bridge summary.
+
+Tests (7 in `TestActionRouting`):
+- `test_message_routed_to_recipient` — message lands in recipient's queue
+- `test_permission_denied_blocks_routing` — worker → other team's lead blocked
+- `test_unknown_recipient_handled` — non-existent entity skipped
+- `test_clean_text_returned` — `<hive_actions>` stripped from response
+- `test_routed_actions_tracked` — `_last_routed_actions` populated
+- `test_no_actions_no_side_effects` — plain response has no routing
+- `test_action_routing_writes_audit_event` — `message.autonomous` audit event
+
+**Phase 4 — System prompt injection** (`src/hive/process/loops.py`,
+`src/hive/models/entity.py`)
+
+Added `MESSAGING_PROMPT` constant to `loops.py` — instructs entities on the
+`<hive_actions>` protocol format and when to use it.
+
+In `entity.py`, `build_cli_args()` now conditionally appends the messaging
+prompt for maestro and lead roles:
+
+```python
+if self.role in ("maestro", "lead"):
+    args.extend(["--append-system-prompt", MESSAGING_PROMPT])
+```
+
+Tests (3 in `TestMessagingPromptInjection`):
+- `test_maestro_includes_messaging_prompt` — maestro gets 2 `--append-system-prompt` args
+- `test_lead_includes_messaging_prompt` — lead gets messaging prompt
+- `test_worker_excludes_messaging_prompt` — worker gets only loop prompt
+
+**Phase 5 — Telegram bridge summary** (`src/hive/telegram/bridge.py`)
+
+After `send_to_entity()` returns, the bridge checks
+`process_manager._last_routed_actions` and appends a summary line:
+
+```
+--- Sent message to: dev.backend, dev.frontend
+```
+
+This gives the user visibility into autonomous message routing without
+cluttering the entity's actual response.
+
+### Infrastructure reused (previously unused)
+
+These components were built in earlier sprints but had no callers until now:
+
+| Component | File | Sprint built | What it does |
+|-----------|------|-------------|--------------|
+| `router.get_next()` | `bus/router.py:76-86` | 3a | Blocking consume from entity queue |
+| `router.has_pending()` | `bus/router.py:88-92` | 3a | Check if queue has messages |
+| `can_message()` | `bus/permissions.py:13-41` | 4+5 | Permission hierarchy validation |
+
+### Files created/edited
+
+| File | Action | Lines changed |
+|------|--------|---------------|
+| `src/hive/bus/actions.py` | **Created** | +75 |
+| `src/hive/process/manager.py` | Edited | +40 |
+| `src/hive/process/loops.py` | Edited | +11 |
+| `src/hive/models/entity.py` | Edited | +6 |
+| `src/hive/telegram/bridge.py` | Edited | +6 |
+| `tests/test_actions.py` | **Created** | +114 |
+| `tests/test_process_manager.py` | Edited | +284 |
+| `tests/test_entity.py` | Edited | +30 |
+
+### Deliberately out of scope
+
+- Background polling / autonomous entity loops (entities still only act when prompted)
+- Spawn/kill actions (only `message` type in Sprint 9)
+- Cross-org messaging (blocked by existing `can_message()` permissions)
+- Queue size limits or TTL (low volume, user-triggered)
+- Code-fence false positives (`<hive_actions>` inside a code block would still
+  be extracted — mitigated by the system prompt instructing entities to place
+  it at the end)
+
+### Verification
+
+1. `ruff check src/ tests/` → clean.
+2. `ruff format --check src/ tests/` → clean.
+3. `pytest -v` → 256 passing (was 233; +23 new tests).
+
+---
+
 ## Sprint 3 — Multi-Team, Agent Lifecycle, Modes, Priorities
 
 **Goal**: A maestro can manage multiple teams, each with a lead + workers. Full lifecycle with mode/loop switching and priority system.

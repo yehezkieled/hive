@@ -11,6 +11,7 @@ from hive.models.entity import (
     parse_personality,
 )
 from hive.models.maestro import Maestro
+from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
 
 
@@ -283,6 +284,35 @@ class TestCurrentPriority:
     def test_current_priority_defaults_to_3(self) -> None:
         e = Entity(name="test", role="worker")
         assert e.current_priority == 3
+
+
+class TestMessagingPromptInjection:
+    """Test that MESSAGING_PROMPT is injected for maestro/lead but not workers."""
+
+    def test_maestro_includes_messaging_prompt(self) -> None:
+        m = Maestro(name="dev")
+        args = m.build_cli_args()
+        # Should have two --append-system-prompt entries: loop + messaging
+        indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert len(indices) == 2
+        messaging_args = [args[i + 1] for i in indices]
+        assert any("hive_actions" in a for a in messaging_args)
+
+    def test_lead_includes_messaging_prompt(self) -> None:
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        args = lead.build_cli_args()
+        indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert len(indices) == 2
+        messaging_args = [args[i + 1] for i in indices]
+        assert any("hive_actions" in a for a in messaging_args)
+
+    def test_worker_excludes_messaging_prompt(self) -> None:
+        w = WorkerAgent(name="dev.backend.w1")
+        args = w.build_cli_args()
+        # Should have only one --append-system-prompt (loop prompt)
+        indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert len(indices) == 1
+        assert "hive_actions" not in args[indices[0] + 1]
 
 
 class TestSubclasses:

@@ -554,3 +554,287 @@ class TestRegisterMaestro:
         personality_path = personalities_dir / "maestro-dev.md"
         maestro = await manager.register_maestro("dev", personality_path=personality_path)
         assert maestro.system_prompt != ""
+
+
+class TestPendingMessageInjection:
+    """Test that pending inter-agent messages are prepended to prompts."""
+
+    def _mock_session(self, response: str = "response") -> AsyncMock:
+        """Create a mock ClaudeSession that returns the given response."""
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value=response)
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = None
+        return instance
+
+    async def test_pending_messages_prepended(self, manager: ProcessManager) -> None:
+        """Pending messages should be prepended to the prompt."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        # Queue a message for the maestro
+        await manager.router.route("dev.backend", "dev", "Migration done")
+
+        captured_prompts: list[str] = []
+        instance = self._mock_session()
+
+        async def capture_prompt(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            return "thanks"
+
+        instance.send_prompt = AsyncMock(side_effect=capture_prompt)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev", "How's the project?")
+
+        assert len(captured_prompts) == 1
+        assert "[Message from dev.backend]" in captured_prompts[0]
+        assert "Migration done" in captured_prompts[0]
+        assert "How's the project?" in captured_prompts[0]
+
+    async def test_no_pending_prompt_unchanged(self, manager: ProcessManager) -> None:
+        """Without pending messages, the prompt should be passed through unchanged."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        captured_prompts: list[str] = []
+        instance = self._mock_session()
+
+        async def capture_prompt(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            return "ok"
+
+        instance.send_prompt = AsyncMock(side_effect=capture_prompt)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev", "Hello")
+
+        assert captured_prompts[0] == "Hello"
+
+    async def test_multiple_pending_all_included(self, manager: ProcessManager) -> None:
+        """Multiple pending messages should all appear in the prompt."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        await manager.router.route("dev.backend", "dev", "DB migrated")
+        await manager.router.route("dev.frontend", "dev", "UI updated")
+
+        captured_prompts: list[str] = []
+        instance = self._mock_session()
+
+        async def capture_prompt(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            return "got it"
+
+        instance.send_prompt = AsyncMock(side_effect=capture_prompt)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev", "Status?")
+
+        assert "[Message from dev.backend]" in captured_prompts[0]
+        assert "DB migrated" in captured_prompts[0]
+        assert "[Message from dev.frontend]" in captured_prompts[0]
+        assert "UI updated" in captured_prompts[0]
+
+
+class TestActionRouting:
+    """Test that <hive_actions> in entity responses are parsed and routed."""
+
+    def _mock_session(self, response: str) -> AsyncMock:
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value=response)
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = None
+        return instance
+
+    async def test_message_routed_to_recipient(self, manager: ProcessManager) -> None:
+        """A valid message action should be routed to the recipient's queue."""
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead
+        manager.router.register("dev")
+        manager.router.register("dev.backend")
+
+        response_text = (
+            "Analysis complete.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.backend", "text": "Start migration"}]\n'
+            "</hive_actions>"
+        )
+        instance = self._mock_session(response_text)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            result = await manager.send_to_entity("dev", "Review the project")
+
+        # Clean text returned (no hive_actions block)
+        assert "<hive_actions>" not in result
+        assert "Analysis complete." in result
+
+        # Message should be in dev.backend's queue
+        assert manager.router.has_pending("dev.backend")
+        msg = await manager.router.get_next("dev.backend", timeout=0.1)
+        assert msg is not None
+        assert msg.sender == "dev"
+        assert msg.content == "Start migration"
+
+    async def test_permission_denied_blocks_routing(self, manager: ProcessManager) -> None:
+        """Worker trying to message another team's lead should be blocked."""
+        maestro = Maestro(name="dev", model="sonnet")
+        lead_a = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        lead_b = TeamLead(name="dev.frontend", team_name="frontend", maestro_name="dev")
+        worker = WorkerAgent(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead_a
+        manager._entities["dev.frontend"] = lead_b
+        manager._entities["dev.backend.w1"] = worker
+        for name in ("dev", "dev.backend", "dev.frontend", "dev.backend.w1"):
+            manager.router.register(name)
+
+        # Worker tries to message dev.frontend (not its lead) — should be denied
+        response_text = (
+            "Done.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.frontend", "text": "Hey"}]\n'
+            "</hive_actions>"
+        )
+        instance = self._mock_session(response_text)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev.backend.w1", "Do work")
+
+        assert not manager.router.has_pending("dev.frontend")
+
+    async def test_unknown_recipient_handled(self, manager: ProcessManager) -> None:
+        """Action targeting a non-existent entity should be skipped."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        response_text = (
+            "Done.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.nonexistent", "text": "hello"}]\n'
+            "</hive_actions>"
+        )
+        instance = self._mock_session(response_text)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            result = await manager.send_to_entity("dev", "Go")
+
+        assert "Done." in result
+        assert manager._last_routed_actions == []
+
+    async def test_clean_text_returned(self, manager: ProcessManager) -> None:
+        """Response should have <hive_actions> block stripped."""
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead
+        manager.router.register("dev")
+        manager.router.register("dev.backend")
+
+        response_text = (
+            "Here's my analysis.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.backend", "text": "go"}]\n'
+            "</hive_actions>"
+        )
+        instance = self._mock_session(response_text)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            result = await manager.send_to_entity("dev", "Analyze")
+
+        assert result == "Here's my analysis."
+        assert "<hive_actions>" not in result
+
+    async def test_routed_actions_tracked(self, manager: ProcessManager) -> None:
+        """_last_routed_actions should list recipients of successful routes."""
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead
+        manager.router.register("dev")
+        manager.router.register("dev.backend")
+
+        response_text = (
+            "Done.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.backend", "text": "go"}]\n'
+            "</hive_actions>"
+        )
+        instance = self._mock_session(response_text)
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev", "Go")
+
+        assert manager._last_routed_actions == ["dev.backend"]
+
+    async def test_no_actions_no_side_effects(self, manager: ProcessManager) -> None:
+        """Response without actions should not route anything."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        instance = self._mock_session("Just a plain response.")
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            result = await manager.send_to_entity("dev", "Hello")
+
+        assert result == "Just a plain response."
+        assert manager._last_routed_actions == []
+
+    async def test_action_routing_writes_audit_event(
+        self,
+        router: MessageRouter,
+        audit_log: AuditLog,
+    ) -> None:
+        """Routed messages should emit a message.autonomous audit event."""
+        mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        mgr._entities["dev"] = maestro
+        mgr._entities["dev.backend"] = lead
+        mgr.router.register("dev")
+        mgr.router.register("dev.backend")
+
+        response_text = (
+            "Done.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.backend", "text": "migrate"}]\n'
+            "</hive_actions>"
+        )
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value=response_text)
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = None
+
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await mgr.send_to_entity("dev", "Go")
+
+        events = await audit_log.recent(action_prefix="message.")
+        assert len(events) == 1
+        assert events[0]["action"] == "message.autonomous"
+        assert events[0]["target"] == "dev.backend"
+        assert events[0]["actor"] == "dev"
+
+        await mgr.kill_all()
