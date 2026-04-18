@@ -3,6 +3,11 @@
 Entities can include a <hive_actions> block in their text response
 containing a JSON array of actions. The orchestrator extracts these,
 validates permissions, and routes messages accordingly.
+
+Supported action types:
+- ``message``: send text to another entity. Fields: ``to``, ``text``.
+- ``request_mode_change``: ask for an elevated permission mode. Fields:
+  ``requested_mode`` (yolo|yotree), ``reason`` (optional).
 """
 
 from __future__ import annotations
@@ -19,16 +24,24 @@ _ACTIONS_PATTERN = re.compile(
     re.DOTALL,
 )
 
-REQUIRED_FIELDS = {"type", "to", "text"}
+_MESSAGE_REQUIRED = {"to", "text"}
+_MODE_REQUEST_REQUIRED = {"requested_mode"}
 
 
 @dataclass
 class Action:
-    """A structured action extracted from an entity response."""
+    """A structured action extracted from an entity response.
+
+    Only the fields relevant to ``type`` are populated. ``to``/``text``
+    are set for ``message`` actions; ``requested_mode``/``reason`` for
+    ``request_mode_change``.
+    """
 
     type: str
-    to: str
-    text: str
+    to: str | None = None
+    text: str | None = None
+    requested_mode: str | None = None
+    reason: str | None = None
 
 
 def parse_actions(response: str) -> tuple[str, list[Action]]:
@@ -61,15 +74,33 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
 
     actions: list[Action] = []
     for item in data:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or "type" not in item:
+            logger.warning("Action missing type field: %s", item)
             continue
-        missing = REQUIRED_FIELDS - item.keys()
-        if missing:
-            logger.warning("Action missing required fields %s: %s", missing, item)
+        atype = item["type"]
+
+        if atype == "message":
+            missing = _MESSAGE_REQUIRED - item.keys()
+            if missing:
+                logger.warning("message action missing fields %s: %s", missing, item)
+                continue
+            actions.append(Action(type=atype, to=item["to"], text=item["text"]))
             continue
-        if item["type"] != "message":
-            logger.warning("Unknown action type %r, skipping", item["type"])
+
+        if atype == "request_mode_change":
+            missing = _MODE_REQUEST_REQUIRED - item.keys()
+            if missing:
+                logger.warning("request_mode_change missing fields %s: %s", missing, item)
+                continue
+            actions.append(
+                Action(
+                    type=atype,
+                    requested_mode=item["requested_mode"],
+                    reason=item.get("reason"),
+                )
+            )
             continue
-        actions.append(Action(type=item["type"], to=item["to"], text=item["text"]))
+
+        logger.warning("Unknown action type %r, skipping", atype)
 
     return clean_text, actions

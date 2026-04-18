@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
+from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
@@ -105,6 +106,7 @@ async def main() -> None:
     audit_log = AuditLog(store.pool)
     vault_store = VaultStore(store.pool)
     blueprint_store = BlueprintStore(store.pool)
+    mode_request_store = ModeRequestStore(store.pool)
 
     process_manager = ProcessManager(
         router=router,
@@ -113,6 +115,7 @@ async def main() -> None:
         token_store=token_store,
         audit_log=audit_log,
         blueprint_store=blueprint_store,
+        mode_request_store=mode_request_store,
     )
 
     # Restore persisted entities (organizational structure, not running procs)
@@ -149,6 +152,7 @@ async def main() -> None:
             task_store=task_store,
             audit_log=audit_log,
             vault_store=vault_store,
+            mode_request_store=mode_request_store,
         )
         bridge.blueprint_store = blueprint_store
         await bridge.start()

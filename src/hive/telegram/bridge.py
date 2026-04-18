@@ -19,6 +19,7 @@ from hive.telegram.help_text import format_all, format_one
 
 if TYPE_CHECKING:
     from hive.bus.audit_log import AuditLog
+    from hive.bus.mode_request_store import ModeRequestStore
     from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
     from hive.bus.vault_store import VaultStore
@@ -60,6 +61,8 @@ BRIDGE_COMMANDS: frozenset[str] = frozenset(
         "vault",
         "blueprint",
         "help",
+        "approve",
+        "deny",
     }
 )
 
@@ -81,6 +84,7 @@ class TelegramBridge:
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,
         vault_store: VaultStore | None = None,
+        mode_request_store: ModeRequestStore | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -90,6 +94,7 @@ class TelegramBridge:
         self.task_store = task_store
         self.audit_log = audit_log
         self.vault_store = vault_store
+        self.mode_request_store = mode_request_store
         self.blueprint_store: BlueprintStore | None = None
         self._app: Application | None = None
 
@@ -323,6 +328,12 @@ class TelegramBridge:
         if cmd.name == "help":
             return self._execute_help(cmd.target)
 
+        if cmd.name == "approve":
+            return await self._execute_approve(cmd.target, cmd.args)
+
+        if cmd.name == "deny":
+            return await self._execute_deny(cmd.target, cmd.args)
+
         return f"Unknown command: /{cmd.name}"
 
     def _execute_help(self, name: str | None) -> str:
@@ -330,6 +341,64 @@ class TelegramBridge:
         if name:
             return format_one(name)
         return format_all()
+
+    async def _execute_approve(self, subcommand: str | None, args: str) -> str:
+        """Handle /approve mode <id> — approve a pending mode-elevation request.
+
+        With no subcommand, lists pending requests addressed to the user.
+        """
+        if self.mode_request_store is None:
+            return "Mode-request store not configured."
+
+        if not subcommand:
+            pending = await self.mode_request_store.list_pending("user")
+            if not pending:
+                return "No pending mode requests."
+            lines = ["Pending mode requests:"]
+            for r in pending:
+                reason = r.get("reason") or "(no reason)"
+                lines.append(f"  #{r['id']} {r['requester']} -> {r['requested_mode']} ({reason})")
+            return "\n".join(lines)
+
+        sub = subcommand.lower()
+        if sub != "mode":
+            return "Usage: /approve mode <id>"
+        req_id = _parse_task_id(args)
+        if req_id is None:
+            return "Usage: /approve mode <id>"
+        row = await self.process_manager.approve_mode_request(req_id)
+        if row is None:
+            return f"Request #{req_id} not found or already resolved."
+        return (
+            f"Approved #{row['id']}: {row['requester']} -> {row['requested_mode']}. "
+            f"Entity will use the elevated mode on its next spawn."
+        )
+
+    async def _execute_deny(self, subcommand: str | None, args: str) -> str:
+        """Handle /deny mode <id> [reason] — deny a pending mode request."""
+        if self.mode_request_store is None:
+            return "Mode-request store not configured."
+
+        if not subcommand:
+            return "Usage: /deny mode <id> [reason]"
+
+        sub = subcommand.lower()
+        if sub != "mode":
+            return "Usage: /deny mode <id> [reason]"
+
+        parts = args.strip().split(None, 1)
+        if not parts:
+            return "Usage: /deny mode <id> [reason]"
+        try:
+            req_id = int(parts[0])
+        except ValueError:
+            return "Usage: /deny mode <id> [reason]"
+        reason = parts[1].strip() if len(parts) > 1 else None
+
+        row = await self.process_manager.deny_mode_request(req_id, reason=reason)
+        if row is None:
+            return f"Request #{req_id} not found or already resolved."
+        return f"Denied #{row['id']}: {row['requester']} -> {row['requested_mode']}."
 
     async def _format_cost(self, args: str) -> str:
         """Format a /cost report over an optional time window (default 24h)."""
@@ -519,9 +588,16 @@ class TelegramBridge:
         return f"Unknown worker subcommand: {subcommand}"
 
     async def _execute_mode(self, mode_name: str | None, entity_name: str) -> str:
-        """Handle /mode <plan|edit|auto> [entity]."""
+        """Handle /mode <plan|edit|auto|yolo|yotree> [entity].
+
+        The user has root authority, so /mode from Telegram is always
+        applied directly — no approval round-trip. Agents that want to
+        elevate themselves must emit a <hive_actions> request_mode_change
+        block, which routes through ProcessManager.request_mode_change
+        and surfaces as an approval row.
+        """
         if not mode_name:
-            return "Usage: /mode <plan|edit|auto> [entity]"
+            return "Usage: /mode <plan|edit|auto|yolo|yotree> [entity]"
 
         target = entity_name.strip() if entity_name else self.default_maestro
         entity = self.process_manager.entities.get(target)
@@ -534,6 +610,8 @@ class TelegramBridge:
             return str(e)
 
         await self.process_manager._persist(entity)
+        if entity.permission_mode in {"yolo", "yotree"}:
+            return f"Mode for {target} set to {mode_name!r} (CLI: --dangerously-skip-permissions)"
         return (
             f"Mode for {target} set to {mode_name!r} "
             f"(CLI: --permission-mode {entity.permission_mode})"

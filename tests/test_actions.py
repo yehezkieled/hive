@@ -105,3 +105,58 @@ class TestParseActions:
         _, actions = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].to == "dev.backend"
+
+
+class TestRequestModeChangeAction:
+    """Test parsing request_mode_change actions."""
+
+    def test_request_mode_change_with_reason(self) -> None:
+        text = (
+            "Need elevation.\n\n"
+            "<hive_actions>\n"
+            "["
+            '{"type": "request_mode_change", '
+            '"requested_mode": "yotree", '
+            '"reason": "refactor session manager"}'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].type == "request_mode_change"
+        assert actions[0].requested_mode == "yotree"
+        assert actions[0].reason == "refactor session manager"
+
+    def test_request_mode_change_without_reason(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            '[{"type": "request_mode_change", "requested_mode": "yolo"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].requested_mode == "yolo"
+        assert actions[0].reason is None
+
+    def test_request_mode_change_missing_mode_skipped(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            '[{"type": "request_mode_change", "reason": "because"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert actions == []
+
+    def test_mixed_message_and_mode_request(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            "[\n"
+            '  {"type": "message", "to": "dev", "text": "status"},\n'
+            '  {"type": "request_mode_change", "requested_mode": "yotree"}\n'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 2
+        assert actions[0].type == "message"
+        assert actions[1].type == "request_mode_change"

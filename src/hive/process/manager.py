@@ -10,6 +10,7 @@ from pathlib import Path
 from hive.bus.actions import parse_actions
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
+from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.permissions import can_message
 from hive.bus.router import MessageRouter
 from hive.bus.token_store import TokenStore
@@ -20,7 +21,7 @@ from hive.config import (
     AUTO_RETRIEVE_TOP_K,
 )
 from hive.knowledge.blueprints import BlueprintStore
-from hive.models.entity import Entity, EntityState
+from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
@@ -42,6 +43,7 @@ class ProcessManager:
         token_store: TokenStore | None = None,
         audit_log: AuditLog | None = None,
         blueprint_store: BlueprintStore | None = None,
+        mode_request_store: ModeRequestStore | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
@@ -50,9 +52,11 @@ class ProcessManager:
         self.token_store = token_store
         self.audit_log = audit_log
         self.blueprint_store = blueprint_store
+        self.mode_request_store = mode_request_store
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
         self._last_routed_actions: list[str] = []
+        self._last_mode_requests: list[int] = []
         self._notification_callback: Callable[[str], Awaitable[None]] | None = None
         self._compacting: set[str] = set()
 
@@ -344,23 +348,36 @@ class ProcessManager:
         # --- Phase 3: parse and route actions from response ---
         clean_text, actions = parse_actions(response)
         self._last_routed_actions = []
+        self._last_mode_requests = []
         for action in actions:
             if action.type == "message":
-                recipient = self._entities.get(action.to)
+                recipient = self._entities.get(action.to) if action.to else None
                 if not recipient:
                     logger.warning("Unknown recipient: %s", action.to)
                     continue
                 if not can_message(entity.role, entity.name, recipient.role, recipient.name):
                     logger.warning("Permission denied: %s -> %s", entity.name, action.to)
                     continue
-                await self.router.route(entity_name, action.to, action.text)
+                await self.router.route(entity_name, action.to, action.text or "")
                 self._last_routed_actions.append(action.to)
                 await self._audit(
                     "message.autonomous",
                     target=action.to,
-                    details={"sender": entity_name, "text": action.text[:200]},
+                    details={"sender": entity_name, "text": (action.text or "")[:200]},
                     actor=entity_name,
                 )
+            elif action.type == "request_mode_change":
+                if not action.requested_mode:
+                    continue
+                try:
+                    req_id = await self.request_mode_change(
+                        entity_name,
+                        action.requested_mode,
+                        reason=action.reason,
+                    )
+                    self._last_mode_requests.append(req_id)
+                except (KeyError, ValueError) as exc:
+                    logger.warning("request_mode_change from %s failed: %s", entity_name, exc)
 
         return clean_text
 
@@ -543,6 +560,128 @@ class ProcessManager:
         names = list(self._entities.keys())
         for name in names:
             await self.kill_entity(name)
+
+    # -----------------------------------------------------------------
+    # Mode-change approval flow (Sprint 12 Phase 2C)
+    # -----------------------------------------------------------------
+
+    def _approver_for(self, entity: Entity) -> str:
+        """Return the approver name for a mode-elevation request.
+
+        Maestros escalate to the user; leads escalate to their parent
+        maestro; workers escalate to their parent lead.
+        """
+        if entity.role == "maestro":
+            return "user"
+        if entity.role == "lead" and isinstance(entity, TeamLead):
+            return entity.maestro_name
+        if entity.role == "worker" and isinstance(entity, WorkerAgent):
+            return entity.lead_name
+        raise ValueError(
+            f"Cannot determine approver for entity {entity.name!r} (role={entity.role!r})"
+        )
+
+    async def request_mode_change(
+        self,
+        requester: str,
+        requested_mode: str,
+        reason: str | None = None,
+    ) -> int:
+        """Record a pending mode-elevation request.
+
+        Raises KeyError if the requester is not registered, or ValueError
+        if the requested mode is not an approval-gated one or the store
+        has not been configured.
+        """
+        if self.mode_request_store is None:
+            raise ValueError("mode_request_store not configured")
+        if requested_mode not in DANGEROUS_MODES:
+            raise ValueError(
+                f"Mode {requested_mode!r} does not require approval. "
+                f"Valid: {', '.join(sorted(DANGEROUS_MODES))}"
+            )
+        entity = self._entities.get(requester)
+        if entity is None:
+            raise KeyError(f"Unknown requester {requester!r}")
+
+        approver = self._approver_for(entity)
+        row = await self.mode_request_store.create(
+            requester=requester,
+            requested_mode=requested_mode,
+            approver=approver,
+            reason=reason,
+        )
+        await self._audit(
+            "mode.request",
+            target=requester,
+            details={
+                "id": row["id"],
+                "requested_mode": requested_mode,
+                "approver": approver,
+                "reason": reason,
+            },
+        )
+        if approver == "user":
+            reason_text = reason or "(no reason given)"
+            await self._notify(
+                f"[mode request #{row['id']}] {requester} -> {requested_mode}. "
+                f"Reason: {reason_text}\n"
+                f"Approve: /approve mode {row['id']}   "
+                f"Deny: /deny mode {row['id']} <reason>"
+            )
+        return row["id"]
+
+    async def approve_mode_request(self, request_id: int) -> dict | None:
+        """Approve a pending mode request and update the requester's mode.
+
+        For ``yotree``, caller is responsible for ensuring a worktree is
+        attached before the next spawn — workers already have one; leads
+        and maestros need one provisioned by the caller or by a future
+        spawn helper.
+        """
+        if self.mode_request_store is None:
+            return None
+        row = await self.mode_request_store.approve(request_id)
+        if row is None:
+            return None
+
+        entity = self._entities.get(row["requester"])
+        if entity is not None:
+            entity.permission_mode = row["requested_mode"]
+            await self._persist(entity)
+        await self._audit(
+            "mode.approve",
+            target=row["requester"],
+            details={"id": request_id, "mode": row["requested_mode"]},
+        )
+        return row
+
+    async def deny_mode_request(self, request_id: int, reason: str | None = None) -> dict | None:
+        """Deny a pending mode request. Entity's current mode is unchanged."""
+        if self.mode_request_store is None:
+            return None
+        row = await self.mode_request_store.deny(request_id, reason=reason)
+        if row is None:
+            return None
+        await self._audit(
+            "mode.deny",
+            target=row["requester"],
+            details={"id": request_id, "reason": reason},
+        )
+        return row
+
+    async def expire_old_mode_requests(self, cutoff: datetime) -> list[dict]:
+        """Expire pending mode requests older than cutoff. Returns expired rows."""
+        if self.mode_request_store is None:
+            return []
+        rows = await self.mode_request_store.expire_older_than(cutoff)
+        for row in rows:
+            await self._audit(
+                "mode.expire",
+                target=row["requester"],
+                details={"id": row["id"], "mode": row["requested_mode"]},
+            )
+        return rows
 
     def get_status(self) -> list[dict]:
         """Return status of all tracked entities."""

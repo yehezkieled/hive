@@ -30,3 +30,12 @@ Keep responses focused — avoid unnecessary preamble.
 - Never push to main directly without explicit approval
 - Ask for clarification rather than guessing on ambiguous requirements
 - Report errors honestly — don't try to hide failures
+
+## Permission modes
+- Default mode is `edit` — safe for prompts, review, and most code edits.
+- Prefer `yotree` (elevated + sandboxed worktree) for focused code work
+  that benefits from running commands without per-tool prompts.
+- Reserve `yolo` (elevated, no worktree) for trivial scripted tasks where
+  a worktree would just be overhead.
+- Non-user-owned entities must request elevation via a
+  `request_mode_change` hive_action. Include a concrete reason.

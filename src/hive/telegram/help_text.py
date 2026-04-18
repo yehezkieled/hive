@@ -224,6 +224,21 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/vault log",
         ),
     ),
+    "approve": HelpEntry(
+        category="Security",
+        usage="/approve [mode <id>]",
+        description=(
+            "Approve a pending mode-elevation request (yolo/yotree). "
+            "With no id, lists pending requests addressed to you."
+        ),
+        examples=("/approve", "/approve mode 7"),
+    ),
+    "deny": HelpEntry(
+        category="Security",
+        usage="/deny mode <id> [reason]",
+        description="Deny a pending mode-elevation request.",
+        examples=('/deny mode 7 "stick to edit for docs"',),
+    ),
     # Knowledge
     "blueprint": HelpEntry(
         category="Knowledge",
