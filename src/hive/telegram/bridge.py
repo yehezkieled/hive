@@ -15,6 +15,7 @@ from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.models.worker import WorkerAgent
 from hive.telegram.commands import parse_command
+from hive.telegram.help_text import format_all, format_one
 
 if TYPE_CHECKING:
     from hive.bus.audit_log import AuditLog
@@ -25,6 +26,42 @@ if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
 
 logger = logging.getLogger(__name__)
+
+
+# Every command that `_execute_command` dispatches. Source of truth for the
+# /help drift test. Keep this in sync with the if-chain below.
+BRIDGE_COMMANDS: frozenset[str] = frozenset(
+    {
+        "status",
+        "health",
+        "maestros",
+        "org",
+        "comms",
+        "kill",
+        "message",
+        "cost",
+        "task",
+        "tasks",
+        "audit",
+        "team",
+        "teams",
+        "worker",
+        "agent",
+        "mode",
+        "loop",
+        "priority",
+        "swarm",
+        "compact",
+        "reset",
+        "new",
+        "personality",
+        "broadcast",
+        "model",
+        "vault",
+        "blueprint",
+        "help",
+    }
+)
 
 
 class TelegramBridge:
@@ -283,7 +320,16 @@ class TelegramBridge:
         if cmd.name == "blueprint":
             return await self._execute_blueprint(cmd.target, cmd.args)
 
+        if cmd.name == "help":
+            return self._execute_help(cmd.target)
+
         return f"Unknown command: /{cmd.name}"
+
+    def _execute_help(self, name: str | None) -> str:
+        """Format a /help response — grouped listing or per-command detail."""
+        if name:
+            return format_one(name)
+        return format_all()
 
     async def _format_cost(self, args: str) -> str:
         """Format a /cost report over an optional time window (default 24h)."""

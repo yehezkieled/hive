@@ -236,6 +236,8 @@ short-circuits when `dev` is already restored).
 
 **Blueprints:** `/blueprint save|search|list` — save a new blueprint, semantic search over past blueprints, list all
 
+**Help:** `/help` lists all commands grouped by category; `/help <command>` shows detailed usage for one command.
+
 When `AUTO_RETRIEVE_ENABLED=true` (default), the top-K semantically-similar
 blueprints are also prepended as context to every prompt sent to any entity
 (maestro, team lead, or worker) — no role gating.

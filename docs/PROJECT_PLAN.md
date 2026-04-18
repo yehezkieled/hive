@@ -1562,6 +1562,49 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 12 — Self-Dev Readiness Bundle (in progress)
+
+**Goal**: Make Hive capable of developing Hive with minimal human babysitting —
+/help inventory, yolo/yotree modes with approval gates, Telegram-driven git
+flow, and auto-retry on task failures.
+
+**Builds on**: Sprint 10 (notification callback, audit namespaces), Sprint 9
+(`<hive_actions>` inter-agent protocol), Sprint 2b (approval pattern from
+VaultStore).
+
+### Phase 1 — `/help` command (2026-04-18, DONE)
+
+**Files**
+- `src/hive/telegram/help_text.py` (new) — `HelpEntry` dataclass, `HELP_TEXT`
+  dict covering all 28 commands grouped into 9 categories (Status,
+  Organization, Messaging, Tasks, Session, Resources, Security, Knowledge,
+  Admin). `format_all()` renders the grouped listing; `format_one(name)`
+  renders per-command detail with usage, description, and examples.
+- `src/hive/telegram/commands.py` — added `"help"` to `targeted_commands` so
+  `/help <cmd>` parses the target correctly.
+- `src/hive/telegram/bridge.py` — new module-level `BRIDGE_COMMANDS` frozenset
+  (source of truth for the drift test), new `_execute_help(name)` handler,
+  dispatch line added.
+- `tests/test_help.py` (new) — 14 tests including two drift guards
+  (`test_every_bridge_command_has_help_entry` and
+  `test_every_help_entry_is_a_real_command`) that ensure HELP_TEXT and
+  BRIDGE_COMMANDS stay in sync as new commands are added.
+- `docs/DEPLOYMENT.md` — added `/help` to the Telegram commands section.
+
+**Verification**
+- `pytest` — 289 tests passing (up from 275).
+- `ruff check src/hive/telegram/` clean.
+- Smoke test via `format_all()` confirms all 28 commands render; output is
+  ~2200 chars (well under Telegram's 4096-char limit).
+
+### Phase 2 — Yolo/yotree modes + hierarchical approval (planned)
+
+### Phase 3 — Git workflow commands (planned)
+
+### Phase 4 — Auto-recovery on task failures (planned)
+
+---
+
 ## Sprint 8+ — Web App, Web CLI, Dashboard
 
 **Goal**: Full web interface beyond Telegram.
