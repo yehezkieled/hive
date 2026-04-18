@@ -71,3 +71,7 @@ EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1536"))
 # Auto-retrieval: inject top-K blueprints into every entity prompt.
 AUTO_RETRIEVE_ENABLED = os.environ.get("AUTO_RETRIEVE_ENABLED", "true").lower() == "true"
 AUTO_RETRIEVE_TOP_K = int(os.environ.get("AUTO_RETRIEVE_TOP_K", "3"))
+
+# Git workflow (Sprint 12 Phase 3). /merge is off by default — set the env
+# var to "1" to allow the Telegram bridge to execute `gh pr merge --squash`.
+ALLOW_AUTO_MERGE = os.environ.get("HIVE_ALLOW_AUTO_MERGE", "0") == "1"

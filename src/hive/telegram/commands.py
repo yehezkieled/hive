@@ -82,6 +82,9 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
         "help",
         "approve",
         "deny",
+        "commit",
+        "pr",
+        "merge",
     }
     cmd_match = re.match(r"^/(\w+)\s+(.*)", text, re.DOTALL)
     if cmd_match:

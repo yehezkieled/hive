@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
+from hive.config import ALLOW_AUTO_MERGE
 from hive.knowledge.blueprints import BlueprintStore
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.models.worker import WorkerAgent
+from hive.process import git_ops
 from hive.telegram.commands import parse_command
 from hive.telegram.help_text import format_all, format_one
 
@@ -63,6 +65,9 @@ BRIDGE_COMMANDS: frozenset[str] = frozenset(
         "help",
         "approve",
         "deny",
+        "commit",
+        "pr",
+        "merge",
     }
 )
 
@@ -333,6 +338,15 @@ class TelegramBridge:
 
         if cmd.name == "deny":
             return await self._execute_deny(cmd.target, cmd.args)
+
+        if cmd.name == "commit":
+            return await self._execute_commit(cmd.target, cmd.args)
+
+        if cmd.name == "pr":
+            return await self._execute_pr(cmd.target, cmd.args)
+
+        if cmd.name == "merge":
+            return await self._execute_merge(cmd.target)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -889,6 +903,105 @@ class TelegramBridge:
         await self.process_manager._persist(entity)
 
         return f"Reset {entity_name}. Session cleared, ready for fresh start."
+
+    def _worktree_for(self, entity_name: str):  # type: ignore[no-untyped-def]
+        """Return (entity, worktree_path) or None if the entity has no worktree.
+
+        Kept private and untyped to avoid a public dependency on WorkerAgent
+        — /commit and /pr only need the path, not the class.
+        """
+        entity = self.process_manager.entities.get(entity_name)
+        if entity is None:
+            return None, None
+        worktree = getattr(entity, "worktree_path", None)
+        return entity, worktree
+
+    async def _execute_commit(self, entity_name: str | None, args: str) -> str:
+        """Handle /commit <entity> "<message>" — stage+commit in the entity's worktree."""
+        if not entity_name:
+            return 'Usage: /commit <entity> "<message>"'
+        entity, worktree = self._worktree_for(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+        if worktree is None:
+            return f"Entity {entity_name!r} has no worktree attached."
+        message = _strip_quotes(args).strip()
+        if not message:
+            return 'Usage: /commit <entity> "<message>"'
+
+        ok, summary = await git_ops.commit(worktree, message)
+        if not ok:
+            return summary
+        if self.audit_log is not None:
+            await self.audit_log.record(
+                actor="user",
+                action="git.commit",
+                target=entity_name,
+                details={"message": message[:200]},
+            )
+        return f"Committed in {entity_name}:\n{summary}"
+
+    async def _execute_pr(self, entity_name: str | None, args: str) -> str:
+        """Handle /pr <entity> ["<title>"] — push branch and open a PR via gh."""
+        if not entity_name:
+            return 'Usage: /pr <entity> ["<title>"]'
+        entity, worktree = self._worktree_for(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+        if worktree is None:
+            return f"Entity {entity_name!r} has no worktree attached."
+
+        branch = await git_ops.current_branch(worktree)
+        if not branch:
+            return "Cannot determine current branch (detached HEAD?)."
+
+        ok, push_out = await git_ops.push(worktree, branch)
+        if not ok:
+            return push_out
+
+        title = _strip_quotes(args).strip() or None
+        ok, pr_out = await git_ops.gh_pr_create(worktree, title)
+        if not ok:
+            return pr_out
+        if self.audit_log is not None:
+            await self.audit_log.record(
+                actor="user",
+                action="git.pr_create",
+                target=entity_name,
+                details={"branch": branch, "title": title},
+            )
+        return f"PR opened from {entity_name} (branch {branch}):\n{pr_out}"
+
+    async def _execute_merge(self, entity_name: str | None) -> str:
+        """Handle /merge <entity> — squash-merge the PR for the entity's branch.
+
+        Off by default; requires ``HIVE_ALLOW_AUTO_MERGE=1``. The user
+        running the Telegram command is the approval authority.
+        """
+        if not ALLOW_AUTO_MERGE:
+            return (
+                "merge is disabled. Set HIVE_ALLOW_AUTO_MERGE=1 in the "
+                "environment and restart Hive to enable /merge."
+            )
+        if not entity_name:
+            return "Usage: /merge <entity>"
+        entity, worktree = self._worktree_for(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+        if worktree is None:
+            return f"Entity {entity_name!r} has no worktree attached."
+
+        ok, output = await git_ops.gh_pr_merge(worktree)
+        if not ok:
+            return output
+        if self.audit_log is not None:
+            await self.audit_log.record(
+                actor="user",
+                action="git.pr_merge",
+                target=entity_name,
+                details={},
+            )
+        return f"Merged PR for {entity_name}:\n{output}"
 
     def _format_teams(self) -> str:
         """Format all teams across all maestros for /teams output."""

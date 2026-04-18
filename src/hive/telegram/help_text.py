@@ -30,6 +30,7 @@ CATEGORIES = (
     "Resources",
     "Security",
     "Knowledge",
+    "Git",
     "Admin",
 )
 
@@ -252,6 +253,31 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/blueprint search rollout",
             "/blueprint list",
         ),
+    ),
+    # Git
+    "commit": HelpEntry(
+        category="Git",
+        usage='/commit <entity> "<message>"',
+        description="Stage all changes in an entity's worktree and commit with the given message.",
+        examples=('/commit dev.backend.w1 "add retry logic"',),
+    ),
+    "pr": HelpEntry(
+        category="Git",
+        usage='/pr <entity> ["<title>"]',
+        description=(
+            "Push the entity's branch to origin and open a pull request with `gh pr create`. "
+            "Title defaults to the last commit's subject."
+        ),
+        examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
+    ),
+    "merge": HelpEntry(
+        category="Git",
+        usage="/merge <entity>",
+        description=(
+            "Squash-merge the PR for the entity's branch. Disabled unless "
+            "HIVE_ALLOW_AUTO_MERGE=1 is set in the environment."
+        ),
+        examples=("/merge dev.backend.w1",),
     ),
     # Admin
     "personality": HelpEntry(
