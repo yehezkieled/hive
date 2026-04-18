@@ -16,6 +16,7 @@ from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
+from hive.knowledge.blueprints import BlueprintStore
 
 
 @pytest.fixture
@@ -128,7 +129,6 @@ async def vault_store(store: MessageStore) -> AsyncIterator[VaultStore]:
 
 
 @pytest_asyncio.fixture
-async def blueprint_store(store: MessageStore) -> AsyncIterator["BlueprintStore"]:
+async def blueprint_store(store: MessageStore) -> AsyncIterator[BlueprintStore]:
     """Function-scoped BlueprintStore sharing the test pool."""
-    from hive.knowledge.blueprints import BlueprintStore
     yield BlueprintStore(store.pool)

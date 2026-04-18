@@ -280,11 +280,7 @@ class ProcessManager:
             prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
 
         # --- Sprint 11: auto-retrieve top-K blueprints as context ---
-        if (
-            AUTO_RETRIEVE_ENABLED
-            and self.blueprint_store is not None
-            and prompt.strip()
-        ):
+        if AUTO_RETRIEVE_ENABLED and self.blueprint_store is not None and prompt.strip():
             try:
                 hits = await self.blueprint_store.search(prompt, limit=AUTO_RETRIEVE_TOP_K)
             except Exception:

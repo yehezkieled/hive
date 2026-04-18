@@ -14,6 +14,7 @@ async def test_auto_retrieve_prepends_blueprints_to_prompt(
     blueprint_store: BlueprintStore, router: MessageRouter, monkeypatch
 ):
     """send_to_entity should prepend top-K blueprints as context."""
+
     # Fake the embedder so we don't hit OpenAI.
     async def fake_embed(texts):
         return [[0.5] + [0.0] * 1535 for _ in texts]
@@ -34,9 +35,7 @@ async def test_auto_retrieve_prepends_blueprints_to_prompt(
         captured["prompt"] = prompt
         return "ok"
 
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.send_prompt", fake_send
-    )
+    monkeypatch.setattr("hive.process.claude_session.ClaudeSession.send_prompt", fake_send)
     monkeypatch.setattr(
         "hive.process.claude_session.ClaudeSession.start",
         AsyncMock(return_value=None),
@@ -72,9 +71,7 @@ async def test_auto_retrieve_disabled_by_config(
         captured["prompt"] = prompt
         return "ok"
 
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.send_prompt", fake_send
-    )
+    monkeypatch.setattr("hive.process.claude_session.ClaudeSession.send_prompt", fake_send)
     monkeypatch.setattr(
         "hive.process.claude_session.ClaudeSession.start",
         AsyncMock(return_value=None),

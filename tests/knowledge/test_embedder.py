@@ -21,6 +21,7 @@ def mock_openai(monkeypatch):
     mock_client.embeddings.create = AsyncMock(return_value=mock_response)
 
     import hive.knowledge.embedder as emb
+
     monkeypatch.setattr(emb, "_client", mock_client)
     return mock_client
 
