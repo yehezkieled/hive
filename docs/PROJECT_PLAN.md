@@ -1301,8 +1301,8 @@ passes it to both `ProcessManager` and the Telegram bridge.
 **Created**: `src/hive/bus/migrations/011_blueprints_pgvector.sql`,
 `src/hive/knowledge/embedder.py`, `scripts/migrate_markdown_blueprints.py`,
 `tests/knowledge/__init__.py`, `tests/knowledge/test_embedder.py`,
-`tests/knowledge/test_blueprints_pgvector.py`, `tests/process/test_auto_retrieve.py`,
-`tests/process/__init__.py` (if missing).
+`tests/knowledge/test_blueprints_pgvector.py`,
+`tests/process/test_auto_retrieve.py`.
 
 **Edited**: `src/hive/knowledge/blueprints.py` (full rewrite), `src/hive/config.py`,
 `src/hive/process/manager.py`, `src/hive/telegram/bridge.py`,
@@ -1314,11 +1314,11 @@ file-based API).
 
 ### Verification
 
-1. `.venv/bin/ruff check src/ tests/` → clean.
-2. `.venv/bin/ruff format --check src/ tests/` → clean.
-3. `.venv/bin/pytest -v` → 275 passing (same count as Sprint 10: −9 obsolete
-   file-based blueprint tests + 4 pgvector tests + 3 embedder tests + 2
-   auto-retrieve tests = net 0).
+1. `ruff check src/ tests/` → clean.
+2. `ruff format --check src/ tests/` → clean.
+3. `pytest -v` → 275 passing (same count as Sprint 10: −9 obsolete file-based
+   blueprint tests + 4 pgvector tests + 3 embedder tests + 2 auto-retrieve
+   tests = net 0).
 
 ---
 
@@ -1493,6 +1493,12 @@ file-based API).
 ---
 
 ## Sprint 7 — Knowledge System (Semantic Caching, pgvector, Search)
+
+> **Status note**: Partially superseded by the actual Sprint 7 (file-based
+> blueprints, 2026-04-16, DONE) and Sprint 11 (semantic blueprints via
+> pgvector, 2026-04-18, DONE). The blueprint+pgvector pieces are shipped;
+> semantic query caching and a generic `/knowledge` search are still
+> unbuilt.
 
 **Goal**: Agents learn from past work. Semantic search over project blueprints.
 

@@ -435,7 +435,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_DAILY_SUMMARY_HOUR` | `23` | UTC hour for daily summary (23 = 9am AEST) |
 | `HIVE_SUMMARY_CHAT_ID` | *(none)* | Telegram chat ID for proactive notifications |
 | `OPENAI_API_KEY` | *(none)* | OpenAI API key — required for blueprint embeddings + semantic search + auto-retrieve |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model name (1536-dim) |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model name |
 | `EMBEDDING_DIM` | `1536` | Embedding vector dimension (must match model) |
 | `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
 | `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
