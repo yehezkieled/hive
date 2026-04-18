@@ -1201,6 +1201,127 @@ their respective `_ENABLED` env vars.
 
 ---
 
+## Sprint 11 — Semantic Blueprints (2026-04-18, DONE)
+
+**Goal**: Replace file-based blueprint text search with PostgreSQL + pgvector +
+OpenAI embeddings, and auto-retrieve top-K relevant blueprints into every agent
+prompt.
+
+**Builds on**: Sprint 7 (file-based blueprints), Sprint 10 (config patterns,
+auto-management background tasks)
+
+### Why now
+
+The file-based text search missed conceptually-related results — `/blueprint
+search "auth"` wouldn't find a blueprint titled "JWT refresh logic" or "OAuth
+redirect fix." Semantic similarity over embeddings makes institutional knowledge
+retrievable by meaning, not keyword. Auto-retrieval means agents draw on past
+work without the user having to quote blueprint IDs.
+
+### Phases (all complete)
+
+**Phase 1 — Image + deps.** Switched `docker-compose.yml` and testcontainer
+image from `postgres:16-alpine` to `pgvector/pgvector:pg16` (drop-in
+replacement that bundles the `vector` extension). Added `openai>=1.30` and
+`pgvector>=0.3` runtime deps in `pyproject.toml`. The `pgvector` Python package
+provides an asyncpg codec so `list[float]` ↔ `vector` conversion is automatic.
+
+**Phase 2 — Migration 011.** `011_blueprints_pgvector.sql` enables `CREATE
+EXTENSION vector`, creates the `blueprints` table with columns `id`, `title`,
+`body`, `tags` (text[]), `embedding vector(1536)`, `created_at`. Adds HNSW
+index on `embedding vector_cosine_ops` (cosine distance, pgvector's `<=>`
+operator) plus a `created_at DESC` btree index for `list_all`.
+
+**Phase 3 — Config.** Five new env vars in `config.py`: `OPENAI_API_KEY`
+(required for blueprint features to work; Hive boots without it but `/blueprint`
+commands and auto-retrieve become no-ops), `EMBEDDING_MODEL` (default
+`text-embedding-3-small`), `EMBEDDING_DIM` (default 1536),
+`AUTO_RETRIEVE_ENABLED` (default true), `AUTO_RETRIEVE_TOP_K` (default 3).
+
+**Phase 4 — Embedder.** `src/hive/knowledge/embedder.py` — thin async wrapper
+around `AsyncOpenAI.embeddings.create`. Lazy singleton client (`_get_client()`),
+`embed_texts(list[str]) -> list[list[float]]`. Short-circuits on empty input.
+
+**Phase 5 — Async BlueprintStore rewrite.** Replaced the file-based
+`BlueprintStore` (Sprint 7) with an asyncpg-backed class. Three methods:
+`save(title, body, tags) -> int` (embeds body, inserts row), `search(query,
+limit) -> list[dict]` (embeds query, SELECT ordered by `embedding <=> $1` with
+`id ASC` tiebreaker for deterministic ordering under duplicate distances),
+`list_all() -> list[dict]` (newest first, no embeddings). Each call uses
+`pgvector.asyncpg.register_vector(conn)` to register the connection-scoped
+codec.
+
+**Phase 6 — Telegram bridge async.** `_execute_blueprint` converted from sync
+to async; caller at command dispatch switched to `await`. Uses existing
+`_strip_quotes()` helper to handle titles with quotes safely.
+
+**Phase 7 — Auto-retrieval hook.** `ProcessManager.__init__` gained
+`blueprint_store` kwarg. In `send_to_entity`, after pending-message injection
+and before CLI args build, an auto-retrieve step: if `AUTO_RETRIEVE_ENABLED` and
+a store is configured, embed the prompt, fetch top-K blueprints, prepend them
+under a "Relevant past blueprints" header separated by `---`. Exceptions are
+logged but don't block the prompt.
+
+**Phase 8 — Migration script.** `scripts/migrate_markdown_blueprints.py` —
+one-off importer. Reads `*.md` files under `BLUEPRINTS_DIR`, parses YAML
+frontmatter (`title`, `tags`), idempotent via existing-title check.
+
+**Phase 9 — Wiring.** `__main__.py` constructs `BlueprintStore(store.pool)` and
+passes it to both `ProcessManager` and the Telegram bridge.
+
+### Architecture decisions
+
+- **Single-provider commit (OpenAI `text-embedding-3-small`, 1536 dims, no
+  abstraction layer).** Vectors from different providers live in incompatible
+  spaces — not mechanically convertible. A swap would mean dropping the column
+  and re-embedding every row from the canonical `body` text. Dual-indexing
+  doubles cost for A/B gains we don't need. OpenAI's key also unlocks
+  GPT/vision/Whisper for future side projects. Abstraction can be retrofitted
+  later if a swap is ever wanted.
+
+- **Cosine distance via `<=>` with HNSW index.** HNSW (Hierarchical Navigable
+  Small World) is pgvector's fastest approximate-NN index type; cosine is the
+  industry default for semantic text similarity.
+
+- **Body column as source of truth; embedding is derived.** If we ever swap
+  providers, we regenerate embeddings from `body`. The embedding is never the
+  canonical representation.
+
+- **Per-connection codec registration.** `register_vector` is connection-scoped
+  — asyncpg pool connections are reused but codecs aren't inherited, so each
+  `pool.acquire()` re-registers. Cheap and safe.
+
+- **Graceful degradation without `OPENAI_API_KEY`.** Hive boots fine without the
+  key, but `/blueprint save|search` and auto-retrieve silently become no-ops. No
+  hard startup failure — deliberately low-friction for operators who don't need
+  blueprints yet.
+
+### Critical files
+
+**Created**: `src/hive/bus/migrations/011_blueprints_pgvector.sql`,
+`src/hive/knowledge/embedder.py`, `scripts/migrate_markdown_blueprints.py`,
+`tests/knowledge/__init__.py`, `tests/knowledge/test_embedder.py`,
+`tests/knowledge/test_blueprints_pgvector.py`, `tests/process/test_auto_retrieve.py`,
+`tests/process/__init__.py` (if missing).
+
+**Edited**: `src/hive/knowledge/blueprints.py` (full rewrite), `src/hive/config.py`,
+`src/hive/process/manager.py`, `src/hive/telegram/bridge.py`,
+`src/hive/__main__.py`, `pyproject.toml`, `docker-compose.yml`,
+`tests/conftest.py`.
+
+**Deleted**: `tests/test_blueprints.py` (9 obsolete tests against old
+file-based API).
+
+### Verification
+
+1. `.venv/bin/ruff check src/ tests/` → clean.
+2. `.venv/bin/ruff format --check src/ tests/` → clean.
+3. `.venv/bin/pytest -v` → 275 passing (same count as Sprint 10: −9 obsolete
+   file-based blueprint tests + 4 pgvector tests + 3 embedder tests + 2
+   auto-retrieve tests = net 0).
+
+---
+
 ## Sprint 3 — Multi-Team, Agent Lifecycle, Modes, Priorities
 
 **Goal**: A maestro can manage multiple teams, each with a lead + workers. Full lifecycle with mode/loop switching and priority system.

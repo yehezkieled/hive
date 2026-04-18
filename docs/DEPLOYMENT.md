@@ -19,7 +19,7 @@ sudo apt install python3.12-venv python3-pip gh
 ```
 
 Docker + Docker Compose plugin must already be installed (we use
-`postgres:16-alpine` in a container — see Section 3 for why). On this VPS
+`pgvector/pgvector:pg16` in a container — see Section 3 for why). On this VPS
 they're already present because n8n runs in Docker.
 
 ### Python tooling
@@ -84,7 +84,7 @@ POSTGRES_PASSWORD=hive
 ## 3. Start PostgreSQL
 
 Hive uses PostgreSQL via `asyncpg`. The repo ships a `docker-compose.yml`
-that runs `postgres:16-alpine` on `127.0.0.1:5433` with a named volume
+that runs `pgvector/pgvector:pg16` on `127.0.0.1:5433` with a named volume
 `hive_pgdata`:
 
 ```bash
@@ -139,6 +139,7 @@ Running migration 007_entity_hierarchy.sql
 Running migration 008_entity_modes.sql
 Running migration 009_vault_actions.sql
 Running migration 010_last_activity_at.sql
+Running migration 011_blueprints_pgvector.sql
 Registered entity: dev
 Registered default maestro: dev
 Telegram bridge started, polling for updates
@@ -233,7 +234,7 @@ short-circuits when `dev` is already restored).
 
 **Vault:** `/vault approve|deny|status|log <id>`
 
-**Blueprints:** `/blueprint save|search|list`
+**Blueprints:** `/blueprint save|search|list` — save a new blueprint, semantic search over past blueprints, list all
 
 ---
 
@@ -318,8 +319,9 @@ from the live docker-compose one — they don't touch the dev DB:
 .venv/bin/python -m pytest tests/ -v
 ```
 
-Initial run pulls the `postgres:16-alpine` image (~80 MB). Subsequent runs
-reuse the cached image; a full suite takes ~14s.
+Initial run pulls the `pgvector/pgvector:pg16` image (~200 MB — the pgvector
+image is larger because it bundles the extension). Subsequent runs reuse the
+cached image; a full suite takes ~14s.
 
 Style:
 
@@ -432,6 +434,11 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_DAILY_SUMMARY_ENABLED` | `true` | Send daily Telegram summary |
 | `HIVE_DAILY_SUMMARY_HOUR` | `23` | UTC hour for daily summary (23 = 9am AEST) |
 | `HIVE_SUMMARY_CHAT_ID` | *(none)* | Telegram chat ID for proactive notifications |
+| `OPENAI_API_KEY` | *(none)* | OpenAI API key — required for blueprint embeddings + semantic search + auto-retrieve |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model name (1536-dim) |
+| `EMBEDDING_DIM` | `1536` | Embedding vector dimension (must match model) |
+| `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
+| `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.
@@ -440,9 +447,12 @@ Daily summary and proactive notifications require `HIVE_SUMMARY_CHAT_ID`
 to be set. You can find your chat ID by sending a message to the bot and
 checking the audit log.
 
+Without `OPENAI_API_KEY`, `/blueprint save|search` and auto-retrieve silently
+become no-ops — Hive still boots.
+
 ---
 
-## 10. Known limitations (as of Sprint 10)
+## 10. Known limitations (as of Sprint 11)
 
 - **One-shot subprocess model** — each `send_to_entity` spawns a fresh
   `claude -p` subprocess, uses it, and kills it. The `--resume
@@ -456,8 +466,9 @@ checking the audit log.
 - **No multi-LLM routing** — all entities use Claude via `claude -p`.
   Routing to different LLM providers (OpenAI, Gemini) is not
   implemented.
-- **No semantic knowledge store** — pgvector-based memory/RAG for
-  entities is not built yet.
+- **Blueprints require `OPENAI_API_KEY`** — without it, `/blueprint save|search`
+  and auto-retrieval of blueprints into agent prompts are disabled silently.
+  Hive still boots, but these features are no-ops.
 - **No web dashboard auth** — the web dashboard (when enabled via
   `HIVE_WEB_PORT`) is read-only with no authentication. Bind to
   `127.0.0.1` or use a reverse proxy with auth if exposing externally.
