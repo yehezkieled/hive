@@ -236,6 +236,10 @@ short-circuits when `dev` is already restored).
 
 **Blueprints:** `/blueprint save|search|list` — save a new blueprint, semantic search over past blueprints, list all
 
+When `AUTO_RETRIEVE_ENABLED=true` (default), the top-K semantically-similar
+blueprints are also prepended as context to every prompt sent to any entity
+(maestro, team lead, or worker) — no role gating.
+
 ---
 
 ## 6. Verification commands

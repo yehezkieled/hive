@@ -1319,6 +1319,22 @@ file-based API).
 3. `pytest -v` → 275 passing (same count as Sprint 10: −9 obsolete file-based
    blueprint tests + 4 pgvector tests + 3 embedder tests + 2 auto-retrieve
    tests = net 0).
+4. **VPS deployed 2026-04-18 13:32 UTC.** Migration 11 applied against
+   `pgvector/pgvector:pg16` (pgvector 0.8.2). Telegram smoke test:
+   `/blueprint save` stored blueprint #1, `/blueprint search rollout`
+   returned the saved "deployed" blueprint at cosine distance 0.577
+   (conceptual match — substring search would have missed it), and
+   `/m:dev what do we know about recent rollouts?` replied by directly
+   referencing the saved blueprint, proving auto-retrieval fired.
+
+### Post-ship notes
+
+- **Auto-retrieval scope**: verified to apply to every entity type
+  (maestro, team lead, worker). `ProcessManager.send_to_entity()`
+  (`src/hive/process/manager.py:282-294`) has no role gating, and every
+  prompt dispatch path — Telegram `/m:`, `/t:`, `/a:`, `/swarm`,
+  `/broadcast`, local CLI, and autonomous inter-entity messages drained
+  from the router queue — funnels through that single method.
 
 ---
 
