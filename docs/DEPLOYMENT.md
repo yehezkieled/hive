@@ -431,6 +431,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
+| `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Keep at `127.0.0.1` until auth ships (Sprint 14) — `0.0.0.0` exposes an unauthenticated dashboard to any interface. |
 | `HIVE_AUTO_COMPACT_ENABLED` | `true` | Auto-compact entities when context exceeds threshold |
 | `HIVE_AUTO_COMPACT_THRESHOLD` | `50000` | Input token count that triggers auto-compact |
 | `HIVE_AUTO_KILL_IDLE_ENABLED` | `true` | Kill entities inactive beyond timeout |
@@ -474,8 +475,9 @@ become no-ops — Hive still boots.
   and auto-retrieval of blueprints into agent prompts are disabled silently.
   Hive still boots, but these features are no-ops.
 - **No web dashboard auth** — the web dashboard (when enabled via
-  `HIVE_WEB_PORT`) is read-only with no authentication. Bind to
-  `127.0.0.1` or use a reverse proxy with auth if exposing externally.
+  `HIVE_WEB_PORT`) is read-only with no authentication. `HIVE_WEB_HOST`
+  defaults to `127.0.0.1` so it's localhost-only; do not flip to
+  `0.0.0.0` until Sprint 14 ships proper auth.
 - **Daily summary timing** — the scheduler checks once per hour, so the
   summary may fire up to 59 minutes after the configured hour if the
   process restarts mid-cycle.
