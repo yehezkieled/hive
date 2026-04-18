@@ -697,7 +697,7 @@ class TelegramBridge:
 
         if subcommand == "save":
             # args format: "title" body text
-            title = args.strip().strip('"').strip("'")
+            title = _strip_quotes(args)
             if not title:
                 return 'Usage: /blueprint save "title" body text'
             # For MVP: body is same as title unless a second line was passed.
