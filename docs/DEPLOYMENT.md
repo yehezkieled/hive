@@ -134,9 +134,15 @@ Running migration 002_entities.sql
 Running migration 003_token_usage.sql
 Running migration 004_tasks.sql
 Running migration 005_audit_log.sql
+Running migration 006_entity_session_id.sql
+Running migration 007_entity_hierarchy.sql
+Running migration 008_entity_modes.sql
+Running migration 009_vault_actions.sql
+Running migration 010_last_activity_at.sql
 Registered entity: dev
 Registered default maestro: dev
 Telegram bridge started, polling for updates
+Idle checker started (timeout=30m)
 Running with Telegram bridge
 ```
 
@@ -203,19 +209,31 @@ show `Restored persisted entity: <name>` for each persisted entity and
 **skip** the `Registered default maestro` line (the first-run branch
 short-circuits when `dev` is already restored).
 
-### Telegram commands added in 2b
+### Telegram commands (full list)
 
-- **`/cost [24h|7d|30d]`** — token totals + API-equivalent cost over a
-  window. Default window is 24h. Cost is labeled as *equivalent API
-  cost (covered by Max subscription)* — it is not money actually spent.
-- **`/task add "<title>"`** — create a pending task. Quotes optional.
-- **`/task done <id>`** — mark a task completed (sets `completed_at`).
-- **`/task cancel <id>`** — mark a task cancelled (no `completed_at`).
-- **`/tasks`** — list open tasks (pending + in-progress), priority
-  first, then oldest-first within a priority.
-- **`/audit [entity|command|task]`** — last 20 audit events, newest
-  first. Bare `/audit` shows everything; the optional category filters
-  on the action prefix.
+**Status & monitoring:**
+`/status`, `/health`, `/maestros`, `/org`, `/comms`, `/cost [24h|7d|30d]`,
+`/audit [entity|command|task]`
+
+**Organization:**
+`/m:<name> <msg>`, `/t:<maestro>.<team> <msg>`, `/a:<maestro>.<team>.<worker> <msg>`,
+`/kill <entity>`, `/team create|list|kill <name>`, `/teams`,
+`/worker spawn|kill <team> [name]`, `/new maestro <name> [model]`
+
+**Tasks:**
+`/task add "<title>"`, `/task done|cancel <id>`, `/tasks`,
+`/priority <P0-P4> "<title>"`
+
+**Configuration:**
+`/mode <plan|edit|auto> [entity]`, `/loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]`,
+`/model <opus|sonnet|haiku> [entity]`, `/personality reload <entity>`
+
+**Operations:**
+`/compact <entity>`, `/reset <entity>`, `/broadcast <msg>`, `/swarm <team> <goal>`
+
+**Vault:** `/vault approve|deny|status|log <id>`
+
+**Blueprints:** `/blueprint save|search|list`
 
 ---
 
@@ -394,40 +412,55 @@ in the working tree.
 
 All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 
-| Variable | Purpose |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | Bot API token (from BotFather) — no default, required for Telegram mode |
-| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated numeric Telegram user IDs allowed to talk to hive |
-| `POSTGRES_HOST` (`127.0.0.1`) | PG host |
-| `POSTGRES_PORT` (`5433`) | PG port — matches `docker-compose.yml`'s published port |
-| `POSTGRES_DB` (`hive`) | DB name |
-| `POSTGRES_USER` (`hive`) | User |
-| `POSTGRES_PASSWORD` (`hive`) | Password |
-| `DEFAULT_MAESTRO` (`dev`) | Auto-registered maestro name on first run |
-| `DEFAULT_MODEL` (`sonnet`) | Model for the default maestro |
-| `MAX_CONCURRENT_SESSIONS` (`3`) | Process manager concurrency cap |
+| Variable | Default | Purpose |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | *(none)* | Bot API token (from BotFather) — required for Telegram mode |
+| `TELEGRAM_ALLOWED_USER_IDS` | *(none)* | Comma-separated numeric Telegram user IDs |
+| `POSTGRES_HOST` | `127.0.0.1` | PG host |
+| `POSTGRES_PORT` | `5433` | PG port — matches `docker-compose.yml` |
+| `POSTGRES_DB` | `hive` | DB name |
+| `POSTGRES_USER` | `hive` | User |
+| `POSTGRES_PASSWORD` | `hive` | Password |
+| `HIVE_DEFAULT_MAESTRO` | `dev` | Auto-registered maestro name on first run |
+| `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
+| `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
+| `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
+| `HIVE_AUTO_COMPACT_ENABLED` | `true` | Auto-compact entities when context exceeds threshold |
+| `HIVE_AUTO_COMPACT_THRESHOLD` | `50000` | Input token count that triggers auto-compact |
+| `HIVE_AUTO_KILL_IDLE_ENABLED` | `true` | Kill entities inactive beyond timeout |
+| `HIVE_IDLE_TIMEOUT_MINUTES` | `30` | Minutes of inactivity before auto-kill |
+| `HIVE_DAILY_SUMMARY_ENABLED` | `true` | Send daily Telegram summary |
+| `HIVE_DAILY_SUMMARY_HOUR` | `23` | UTC hour for daily summary (23 = 9am AEST) |
+| `HIVE_SUMMARY_CHAT_ID` | *(none)* | Telegram chat ID for proactive notifications |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.
 
+Daily summary and proactive notifications require `HIVE_SUMMARY_CHAT_ID`
+to be set. You can find your chat ID by sending a message to the bot and
+checking the audit log.
+
 ---
 
-## 10. Known limitations (as of Sprint 2b)
+## 10. Known limitations (as of Sprint 10)
 
-- **No systemd service** — still launched via `nohup`. Survive-reboot is
-  pending.
-- **No persistent sessions** — every Telegram message spawns a fresh
-  `claude -p` subprocess and kills it when done (one-shot mode). The
-  entity state column stays `idle` because `send_to_entity` bypasses
-  `spawn_entity`/`kill_entity` — this is expected, not a bug. Token
-  usage is still recorded for these one-shot sends; the `_record_usage`
-  hook fires in `send_to_entity` after `send_prompt` returns.
-- **No worker task consumption** — the tasks table exists but workers
-  don't exist yet in 2b. `claim_next()` with `SELECT … FOR UPDATE SKIP
-  LOCKED` is marked as a TODO at `src/hive/bus/task_store.py` and lands
-  in Sprint 3.
+- **One-shot subprocess model** — each `send_to_entity` spawns a fresh
+  `claude -p` subprocess, uses it, and kills it. The `--resume
+  <session_id>` flag preserves conversation context across calls (added
+  in Sprint 3a), but there are no long-running entity processes. Entity
+  state stays `idle` between calls — this is expected, not a bug.
 - **`/cost` shows API-equivalent cost only** — `total_cost_usd` comes
   straight from the `claude -p` result event and is labeled as
   "equivalent API cost (covered by Max subscription)". It is not money
   actually spent. Token counts are the real accountability number.
-- **Local-only repo** — not pushed to GitHub yet.
+- **No multi-LLM routing** — all entities use Claude via `claude -p`.
+  Routing to different LLM providers (OpenAI, Gemini) is not
+  implemented.
+- **No semantic knowledge store** — pgvector-based memory/RAG for
+  entities is not built yet.
+- **No web dashboard auth** — the web dashboard (when enabled via
+  `HIVE_WEB_PORT`) is read-only with no authentication. Bind to
+  `127.0.0.1` or use a reverse proxy with auth if exposing externally.
+- **Daily summary timing** — the scheduler checks once per hour, so the
+  summary may fire up to 59 minutes after the configured hour if the
+  process restarts mid-cycle.
