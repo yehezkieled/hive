@@ -11,6 +11,7 @@ from testcontainers.postgres import PostgresContainer
 
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
+from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
@@ -86,6 +87,7 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE audit_log RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE vault_actions RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE blueprints RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE mode_requests RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
@@ -132,3 +134,9 @@ async def vault_store(store: MessageStore) -> AsyncIterator[VaultStore]:
 async def blueprint_store(store: MessageStore) -> AsyncIterator[BlueprintStore]:
     """Function-scoped BlueprintStore sharing the test pool."""
     yield BlueprintStore(store.pool)
+
+
+@pytest_asyncio.fixture
+async def mode_request_store(store: MessageStore) -> AsyncIterator[ModeRequestStore]:
+    """Function-scoped ModeRequestStore sharing the test pool."""
+    yield ModeRequestStore(store.pool)
