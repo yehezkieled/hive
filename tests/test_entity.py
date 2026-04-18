@@ -245,6 +245,35 @@ class TestPermissionMode:
         args = e.build_cli_args()
         assert "--permission-mode" not in args
 
+    def test_set_permission_mode_yolo(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.set_permission_mode("yolo")
+        assert e.permission_mode == "yolo"
+
+    def test_set_permission_mode_yotree(self) -> None:
+        e = Entity(name="test", role="worker")
+        e.set_permission_mode("yotree")
+        assert e.permission_mode == "yotree"
+
+    def test_yolo_emits_dangerous_flag(self) -> None:
+        e = Entity(name="test", role="worker", permission_mode="yolo")
+        args = e.build_cli_args()
+        assert "--dangerously-skip-permissions" in args
+        assert "--permission-mode" not in args
+
+    def test_yotree_emits_dangerous_flag(self) -> None:
+        e = Entity(name="test", role="worker", permission_mode="yotree")
+        args = e.build_cli_args()
+        assert "--dangerously-skip-permissions" in args
+        assert "--permission-mode" not in args
+
+    def test_plan_mode_still_uses_permission_mode_flag(self) -> None:
+        """Regression guard: only yolo/yotree use the dangerous flag."""
+        e = Entity(name="test", role="worker", permission_mode="plan")
+        args = e.build_cli_args()
+        assert "--dangerously-skip-permissions" not in args
+        assert "--permission-mode" in args
+
 
 class TestLoopMode:
     """Test loop_mode field and --append-system-prompt CLI arg."""

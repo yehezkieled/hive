@@ -112,7 +112,15 @@ PERMISSION_MODES: dict[str, str] = {
     "plan": "plan",
     "edit": "default",
     "auto": "bypassPermissions",
+    # `yolo` and `yotree` are sentinels — they map to `--dangerously-skip-permissions`
+    # in build_cli_args rather than a `--permission-mode <value>`. yotree additionally
+    # requires a worktree to be attached (enforced at the ProcessManager level).
+    "yolo": "yolo",
+    "yotree": "yotree",
 }
+
+# Modes that emit --dangerously-skip-permissions instead of --permission-mode
+DANGEROUS_MODES: frozenset[str] = frozenset({"yolo", "yotree"})
 
 
 @dataclass
@@ -197,7 +205,9 @@ class Entity:
         if self.disallowed_tools:
             args.extend(["--disallowedTools", *self.disallowed_tools])
 
-        if self.permission_mode != "default":
+        if self.permission_mode in DANGEROUS_MODES:
+            args.append("--dangerously-skip-permissions")
+        elif self.permission_mode != "default":
             args.extend(["--permission-mode", self.permission_mode])
 
         from hive.process.loops import LOOP_PROMPTS, MESSAGING_PROMPT
