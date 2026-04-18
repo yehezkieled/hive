@@ -226,13 +226,27 @@ short-circuits when `dev` is already restored).
 `/priority <P0-P4> "<title>"`
 
 **Configuration:**
-`/mode <plan|edit|auto> [entity]`, `/loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]`,
+`/mode <plan|edit|auto|yolo|yotree> [entity]`, `/loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]`,
 `/model <opus|sonnet|haiku> [entity]`, `/personality reload <entity>`
+
+> `yolo` and `yotree` both pass `--dangerously-skip-permissions` to the
+> Claude CLI. Non-user-owned entities cannot elevate themselves — they
+> emit a `request_mode_change` hive action which routes to their
+> approver (worker → lead → maestro → user via Telegram). The user
+> resolves with `/approve mode <id>` or `/deny mode <id> [reason]`.
 
 **Operations:**
 `/compact <entity>`, `/reset <entity>`, `/broadcast <msg>`, `/swarm <team> <goal>`
 
+**Approvals:** `/approve [mode <id>]`, `/deny mode <id> [reason]`
+
 **Vault:** `/vault approve|deny|status|log <id>`
+
+**Git workflow (Sprint 12):**
+`/commit <entity> "<message>"` — stage + commit in the entity's worktree.
+`/pr <entity> ["<title>"]` — push branch + `gh pr create`.
+`/merge <entity>` — `gh pr merge --squash --delete-branch`. Disabled
+unless `HIVE_ALLOW_AUTO_MERGE=1` is set in the environment.
 
 **Blueprints:** `/blueprint save|search|list` — save a new blueprint, semantic search over past blueprints, list all
 
@@ -446,6 +460,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `EMBEDDING_DIM` | `1536` | Embedding vector dimension (must match model) |
 | `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
 | `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
+| `HIVE_ALLOW_AUTO_MERGE` | `0` | When `1`, enables `/merge <entity>`. Off by default so a fat-fingered Telegram message can't ship code. |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.
@@ -459,7 +474,7 @@ become no-ops — Hive still boots.
 
 ---
 
-## 10. Known limitations (as of Sprint 11)
+## 10. Known limitations (as of Sprint 12)
 
 - **One-shot subprocess model** — each `send_to_entity` spawns a fresh
   `claude -p` subprocess, uses it, and kills it. The `--resume

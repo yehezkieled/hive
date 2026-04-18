@@ -1562,7 +1562,7 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
-## Sprint 12 — Self-Dev Readiness Bundle (in progress)
+## Sprint 12 — Self-Dev Readiness Bundle (2026-04-18, DONE)
 
 **Goal**: Make Hive capable of developing Hive with minimal human babysitting —
 /help inventory, yolo/yotree modes with approval gates, Telegram-driven git
@@ -1572,13 +1572,18 @@ flow, and auto-retry on task failures.
 (`<hive_actions>` inter-agent protocol), Sprint 2b (approval pattern from
 VaultStore).
 
+**Totals**: 275 → 350 tests (+75), 4 commits on `main`, 2 new migrations (012
+mode_requests, 013 task_retries), 3 new Telegram commands (/commit, /pr,
+/merge), 2 new permission modes (yolo, yotree), 2 new approval commands
+(/approve, /deny), 1 new /help command.
+
 ### Phase 1 — `/help` command (2026-04-18, DONE)
 
 **Files**
 - `src/hive/telegram/help_text.py` (new) — `HelpEntry` dataclass, `HELP_TEXT`
-  dict covering all 28 commands grouped into 9 categories (Status,
+  dict covering every Telegram command grouped into 10 categories (Status,
   Organization, Messaging, Tasks, Session, Resources, Security, Knowledge,
-  Admin). `format_all()` renders the grouped listing; `format_one(name)`
+  Git, Admin). `format_all()` renders the grouped listing; `format_one(name)`
   renders per-command detail with usage, description, and examples.
 - `src/hive/telegram/commands.py` — added `"help"` to `targeted_commands` so
   `/help <cmd>` parses the target correctly.
@@ -1594,14 +1599,120 @@ VaultStore).
 **Verification**
 - `pytest` — 289 tests passing (up from 275).
 - `ruff check src/hive/telegram/` clean.
-- Smoke test via `format_all()` confirms all 28 commands render; output is
-  ~2200 chars (well under Telegram's 4096-char limit).
+- Smoke test via `format_all()` confirms every command renders and output
+  fits well under Telegram's 4096-char message limit.
 
-### Phase 2 — Yolo/yotree modes + hierarchical approval (planned)
+### Phase 2 — Yolo/yotree modes + hierarchical approval (2026-04-18, DONE)
 
-### Phase 3 — Git workflow commands (planned)
+Unlocks `--dangerously-skip-permissions` behind an approval gate. Entities
+that aren't the user's direct maestro can't elevate themselves: they emit a
+`request_mode_change` hive action, which routes to their approver (worker →
+lead → maestro → user). The user receives a Telegram notification for
+maestro-level requests and resolves with `/approve mode <id>` or
+`/deny mode <id> [reason]`.
 
-### Phase 4 — Auto-recovery on task failures (planned)
+**Files**
+- `src/hive/bus/migrations/012_mode_requests.sql` (new) — `mode_requests`
+  table: `id`, `requester`, `requested_mode`, `approver`, `status`
+  (pending/approved/denied/expired), `reason`, `created_at`, `resolved_at`.
+- `src/hive/bus/mode_request_store.py` (new) — shape mirrors `VaultStore`:
+  `create`, `get`, `list_pending(approver)`, `approve`, `deny`,
+  `expire_older_than`, `recent`.
+- `src/hive/models/entity.py` — extended `PERMISSION_MODES` with `yolo` and
+  `yotree` sentinels; added `DANGEROUS_MODES` frozenset; `build_cli_args`
+  emits `--dangerously-skip-permissions` for both modes.
+- `src/hive/bus/actions.py` — new `request_mode_change` action type
+  (fields: `requested_mode`, optional `reason`).
+- `src/hive/process/manager.py` — constructor accepts `mode_request_store`;
+  new `_approver_for`, `request_mode_change`, `approve_mode_request`,
+  `deny_mode_request`, `expire_old_mode_requests`; `send_to_entity` dispatches
+  `request_mode_change` actions on the response.
+- `src/hive/telegram/bridge.py` — new `_execute_approve(sub, args)` and
+  `_execute_deny(sub, args)` handlers; dispatch + `BRIDGE_COMMANDS` updated;
+  `_execute_mode` now renders the `--dangerously-skip-permissions` preview
+  for yolo/yotree.
+- `src/hive/telegram/commands.py` — added `approve`, `deny` to
+  `targeted_commands` so `/approve mode <id>` parses.
+- `src/hive/telegram/help_text.py` — entries for `/approve`, `/deny` added
+  under Security; `/mode` entry updated with yolo/yotree.
+- `personalities/_template.md`, `personalities/maestro-dev.md` — new
+  "Permission modes" section biasing entities toward `yotree` for code work
+  and requiring non-user entities to request elevation via
+  `request_mode_change`.
+- `tests/test_mode_approval.py` (new) — 14 tests across approver
+  resolution, row persistence, notification routing, approve/deny state
+  machine, and expiry.
+- `tests/test_actions.py` — added `TestRequestModeChangeAction` class
+  covering the new action's parse paths.
+
+**Audit categories**: `mode.request`, `mode.approve`, `mode.deny`,
+`mode.expire`.
+
+### Phase 3 — Git workflow commands (2026-04-18, DONE)
+
+Telegram drives git/gh from a worker's worktree. Three new commands layer on
+top of the Phase 2 approval store's design idea (re-using "the person
+pressing the button is the authorization") — `/merge` is gated by the
+environment variable `HIVE_ALLOW_AUTO_MERGE=1` rather than an approval row,
+since running the command in Telegram already funnels through the
+user-allowlist.
+
+**Files**
+- `src/hive/process/git_ops.py` (new) — async wrappers around `git` and
+  `gh`: `run`, `commit` (stages + commits + returns SHA and shortstat),
+  `current_branch` (returns empty string on detached HEAD),
+  `push` (`git push -u origin <branch>`), `gh_pr_create` (`--fill` when no
+  title), `gh_pr_merge` (`--squash --delete-branch`). Extracted so tests can
+  monkeypatch the subprocess runner without stubbing asyncio.
+- `src/hive/telegram/bridge.py` — new `_execute_commit`, `_execute_pr`,
+  `_execute_merge` handlers; `_worktree_for` helper; dispatch lines.
+- `src/hive/telegram/commands.py` — added `commit`, `pr`, `merge` to
+  `targeted_commands`.
+- `src/hive/telegram/help_text.py` — new "Git" category with entries for
+  all three commands.
+- `src/hive/config.py` — `ALLOW_AUTO_MERGE = os.environ.get(...) == "1"`.
+- `tests/test_git_commands.py` (new) — 10 tests covering usage errors,
+  missing worktree, successful commit (verifies the git add/commit sequence
+  and SHA parsing), propagated git failure, pr push+create with title, pr
+  with `--fill` fallback, detached-head refusal, merge disabled by default,
+  and successful merge when the env flag is set.
+
+### Phase 4 — Auto-recovery on task failures (2026-04-18, DONE)
+
+Tasks now carry retry bookkeeping (`retry_count`, `max_retries`,
+`failure_reason`). When a task-bound prompt fails the orchestrator retries
+up to `max_retries` on the same entity with the failure reason prepended,
+then escalates one rung upward — worker → lead → maestro → user
+(Telegram). At user level the existing notification callback fires so the
+on-call operator gets a ping; intermediate escalations route an inter-agent
+inbox message so the parent can re-assign or abort.
+
+**Files**
+- `src/hive/models/task.py` — added `retry_count`, `max_retries`,
+  `failure_reason` dataclass fields.
+- `src/hive/bus/migrations/013_task_retries.sql` (new) — three columns with
+  safe defaults so existing rows remain valid.
+- `src/hive/bus/task_store.py` — new `increment_retry(task_id, reason)` and
+  `update_failure(task_id, reason)`; row mapper updated.
+- `src/hive/bus/actions.py` — new `report_failure` action type (fields:
+  `reason`, optional `task_id`).
+- `src/hive/process/manager.py` — `task_store` constructor arg; new
+  `_task_id_for`, `_escalation_target_for`, `handle_task_failure`;
+  `send_to_entity` dispatches `report_failure` actions.
+- `src/hive/__main__.py` — wires `task_store` into `ProcessManager`.
+- `tests/test_auto_recovery.py` (new) — 14 tests covering model defaults,
+  store increments, action parsing, retry prompt assembly, worker → lead
+  router escalation, maestro → user TG notification, audit emission, and
+  status preservation under retry.
+
+**Audit categories**: `task.retry`, `task.escalated`, `task.gave_up`.
+
+### Sprint 12 verification
+
+- `pytest` — 350 passing (up from 275).
+- `ruff check src/ tests/` — clean.
+- `ruff format --check src/ tests/` — clean.
+- 4 commits on `main` between `b5e2064` and `f32e8a0`.
 
 ---
 
