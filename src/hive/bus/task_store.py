@@ -89,6 +89,44 @@ class TaskStore:
                 task_id,
             )
 
+    async def increment_retry(self, task_id: int, reason: str) -> Task | None:
+        """Bump ``retry_count`` and store the latest failure reason.
+
+        Returns the updated row (or None if the task doesn't exist).
+        Called by ``ProcessManager.handle_task_failure`` each time a
+        task-bound prompt raises or the worker reports a failure.
+        """
+        row = await self.pool.fetchrow(
+            """
+            UPDATE tasks
+            SET retry_count = retry_count + 1,
+                failure_reason = $2
+            WHERE id = $1
+            RETURNING *
+            """,
+            task_id,
+            reason,
+        )
+        return _row_to_task(row) if row else None
+
+    async def update_failure(self, task_id: int, reason: str) -> Task | None:
+        """Record a terminal failure reason without bumping retry_count.
+
+        Used when the task escalates past max_retries — the reason captures
+        why we gave up so a human can skim /tasks and see the story.
+        """
+        row = await self.pool.fetchrow(
+            """
+            UPDATE tasks
+            SET failure_reason = $2
+            WHERE id = $1
+            RETURNING *
+            """,
+            task_id,
+            reason,
+        )
+        return _row_to_task(row) if row else None
+
     async def claim_next(self, entity_name: str) -> Task | None:
         """Atomically claim the highest-priority pending task.
 
@@ -132,4 +170,7 @@ def _row_to_task(row: asyncpg.Record) -> Task:
         created_by=row["created_by"],
         created_at=row["created_at"],
         completed_at=row["completed_at"],
+        retry_count=row["retry_count"],
+        max_retries=row["max_retries"],
+        failure_reason=row["failure_reason"],
     )

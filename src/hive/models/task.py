@@ -34,3 +34,6 @@ class Task:
     description: str | None = None
     assigned_to: str | None = None
     completed_at: datetime | None = None
+    retry_count: int = 0
+    max_retries: int = 3
+    failure_reason: str | None = None

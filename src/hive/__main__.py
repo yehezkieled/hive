@@ -116,6 +116,7 @@ async def main() -> None:
         audit_log=audit_log,
         blueprint_store=blueprint_store,
         mode_request_store=mode_request_store,
+        task_store=task_store,
     )
 
     # Restore persisted entities (organizational structure, not running procs)

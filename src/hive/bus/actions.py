@@ -8,6 +8,9 @@ Supported action types:
 - ``message``: send text to another entity. Fields: ``to``, ``text``.
 - ``request_mode_change``: ask for an elevated permission mode. Fields:
   ``requested_mode`` (yolo|yotree), ``reason`` (optional).
+- ``report_failure``: a task-bound entity tells the orchestrator the
+  current task is failing. Fields: ``reason``; optional ``task_id``
+  override (defaults to the entity's current task_id).
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ _ACTIONS_PATTERN = re.compile(
 
 _MESSAGE_REQUIRED = {"to", "text"}
 _MODE_REQUEST_REQUIRED = {"requested_mode"}
+_FAILURE_REQUIRED = {"reason"}
 
 
 @dataclass
@@ -34,7 +38,7 @@ class Action:
 
     Only the fields relevant to ``type`` are populated. ``to``/``text``
     are set for ``message`` actions; ``requested_mode``/``reason`` for
-    ``request_mode_change``.
+    ``request_mode_change``; ``reason``/``task_id`` for ``report_failure``.
     """
 
     type: str
@@ -42,6 +46,7 @@ class Action:
     text: str | None = None
     requested_mode: str | None = None
     reason: str | None = None
+    task_id: int | None = None
 
 
 def parse_actions(response: str) -> tuple[str, list[Action]]:
@@ -97,6 +102,26 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
                     type=atype,
                     requested_mode=item["requested_mode"],
                     reason=item.get("reason"),
+                )
+            )
+            continue
+
+        if atype == "report_failure":
+            missing = _FAILURE_REQUIRED - item.keys()
+            if missing:
+                logger.warning("report_failure missing fields %s: %s", missing, item)
+                continue
+            raw_task_id = item.get("task_id")
+            try:
+                task_id_val = int(raw_task_id) if raw_task_id is not None else None
+            except (TypeError, ValueError):
+                logger.warning("report_failure has non-integer task_id: %r", raw_task_id)
+                task_id_val = None
+            actions.append(
+                Action(
+                    type=atype,
+                    reason=item["reason"],
+                    task_id=task_id_val,
                 )
             )
             continue

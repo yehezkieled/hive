@@ -13,6 +13,7 @@ from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.permissions import can_message
 from hive.bus.router import MessageRouter
+from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.config import (
     AUTO_COMPACT_ENABLED,
@@ -44,6 +45,7 @@ class ProcessManager:
         audit_log: AuditLog | None = None,
         blueprint_store: BlueprintStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
+        task_store: TaskStore | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
@@ -53,10 +55,12 @@ class ProcessManager:
         self.audit_log = audit_log
         self.blueprint_store = blueprint_store
         self.mode_request_store = mode_request_store
+        self.task_store = task_store
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
+        self._last_failure_reports: list[int] = []
         self._notification_callback: Callable[[str], Awaitable[None]] | None = None
         self._compacting: set[str] = set()
 
@@ -349,6 +353,7 @@ class ProcessManager:
         clean_text, actions = parse_actions(response)
         self._last_routed_actions = []
         self._last_mode_requests = []
+        self._last_failure_reports = []
         for action in actions:
             if action.type == "message":
                 recipient = self._entities.get(action.to) if action.to else None
@@ -378,6 +383,22 @@ class ProcessManager:
                     self._last_mode_requests.append(req_id)
                 except (KeyError, ValueError) as exc:
                     logger.warning("request_mode_change from %s failed: %s", entity_name, exc)
+            elif action.type == "report_failure":
+                reason = action.reason or "(no reason given)"
+                task_id = action.task_id
+                if task_id is None:
+                    task_id = self._task_id_for(entity_name)
+                if task_id is None:
+                    logger.warning(
+                        "report_failure from %s with no task_id and entity has no bound task",
+                        entity_name,
+                    )
+                    continue
+                try:
+                    await self.handle_task_failure(task_id, reason)
+                    self._last_failure_reports.append(task_id)
+                except Exception:
+                    logger.exception("handle_task_failure failed for task %s", task_id)
 
         return clean_text
 
@@ -682,6 +703,112 @@ class ProcessManager:
                 details={"id": row["id"], "mode": row["requested_mode"]},
             )
         return rows
+
+    # -----------------------------------------------------------------
+    # Auto-recovery on task failures (Sprint 12 Phase 4)
+    # -----------------------------------------------------------------
+
+    def _task_id_for(self, entity_name: str) -> int | None:
+        """Return the active task_id bound to an entity, if it's a worker."""
+        entity = self._entities.get(entity_name)
+        if isinstance(entity, WorkerAgent):
+            return entity.task_id
+        return None
+
+    def _escalation_target_for(self, entity_name: str) -> str:
+        """Next rung up the hierarchy when a task fails past max retries.
+
+        Workers escalate to their parent lead, leads to their parent
+        maestro, maestros to the user. Returns ``"user"`` when escalation
+        reaches the top.
+        """
+        entity = self._entities.get(entity_name)
+        if isinstance(entity, WorkerAgent):
+            return entity.lead_name
+        if isinstance(entity, TeamLead):
+            return entity.maestro_name
+        return "user"
+
+    async def handle_task_failure(self, task_id: int, error: str) -> None:
+        """Retry the task on its current owner, then escalate on max retries.
+
+        Flow:
+          1. Bump ``retry_count`` and record the failure reason on the task.
+          2. If ``retry_count < max_retries`` and the task still has an
+             ``assigned_to`` entity, resend the original title to that
+             entity prefixed with the failure context so Claude can retry.
+          3. Otherwise escalate — route a failure report to the next rung
+             (parent lead -> parent maestro -> user via Telegram notify).
+        """
+        if self.task_store is None:
+            logger.warning("handle_task_failure called but task_store not configured")
+            return
+
+        task = await self.task_store.increment_retry(task_id, error)
+        if task is None:
+            logger.warning("handle_task_failure: task %s not found", task_id)
+            return
+
+        assigned = task.assigned_to
+        if task.retry_count <= task.max_retries and assigned and assigned in self._entities:
+            await self._audit(
+                "task.retry",
+                target=assigned,
+                details={
+                    "task_id": task_id,
+                    "attempt": task.retry_count,
+                    "reason": error[:200],
+                },
+            )
+            retry_prompt = (
+                f"[retry {task.retry_count}/{task.max_retries}] "
+                f"Your previous attempt at this task failed: {error}\n\n"
+                f"Task: {task.title}"
+            )
+            if task.description:
+                retry_prompt += f"\n\n{task.description}"
+            try:
+                await self.send_to_entity(assigned, retry_prompt)
+            except Exception:
+                logger.exception("Retry send_to_entity failed for %s", assigned)
+            return
+
+        # Escalate: reached max retries, or no assignee to retry on.
+        if assigned and assigned in self._entities:
+            next_rung = self._escalation_target_for(assigned)
+        else:
+            next_rung = "user"
+        await self.task_store.update_failure(task_id, error)
+        await self._audit(
+            "task.escalated",
+            target=next_rung,
+            details={
+                "task_id": task_id,
+                "from": assigned,
+                "reason": error[:200],
+                "attempts": task.retry_count,
+            },
+        )
+
+        summary = (
+            f"[task #{task_id}] {task.title!r} failed after "
+            f"{task.retry_count} attempt(s).\nLast error: {error}"
+        )
+        if next_rung == "user":
+            await self._audit(
+                "task.gave_up",
+                target=str(task_id),
+                details={"reason": error[:200]},
+            )
+            await self._notify(summary)
+            return
+
+        # Escalate to a registered parent entity by routing an internal
+        # message. The parent's next prompt will include this as pending
+        # inbox content; they can decide to reassign, abort, or message
+        # the user.
+        if next_rung in self._entities and assigned is not None:
+            await self.router.route(assigned, next_rung, summary)
 
     def get_status(self) -> list[dict]:
         """Return status of all tracked entities."""
