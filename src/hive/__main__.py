@@ -27,6 +27,7 @@ from hive.config import (
     SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
+    WEB_HOST,
     WEB_PORT,
 )
 from hive.knowledge.blueprints import BlueprintStore
@@ -165,10 +166,10 @@ async def main() -> None:
                 task_store=task_store,
                 audit_log=audit_log,
             )
-            config = uvicorn.Config(web_app, host="0.0.0.0", port=WEB_PORT, log_level="info")
+            config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)
             asyncio.create_task(server.serve())
-            logger.info("Web dashboard started on port %d", WEB_PORT)
+            logger.info("Web dashboard started on %s:%d", WEB_HOST, WEB_PORT)
 
         # Keep running until interrupted
         stop_event = asyncio.Event()

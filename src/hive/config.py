@@ -48,8 +48,11 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # Default maestro
 DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "dev")
 
-# Web dashboard (0 = disabled)
+# Web dashboard (0 = disabled). WEB_HOST defaults to 127.0.0.1 so the
+# dashboard is only reachable locally (and via Tailscale) unless explicitly
+# bound to 0.0.0.0. Do not flip to 0.0.0.0 until auth ships (Sprint 14).
 WEB_PORT = int(os.environ.get("HIVE_WEB_PORT", "0"))
+WEB_HOST = os.environ.get("HIVE_WEB_HOST", "127.0.0.1")
 
 # Auto-management (Sprint 10)
 AUTO_COMPACT_ENABLED = os.environ.get("HIVE_AUTO_COMPACT_ENABLED", "true").lower() == "true"
