@@ -1,6 +1,4 @@
--- Sprint 11: Blueprints table with pgvector column for semantic similarity search.
--- Stores semantic blueprints (title, body, tags) with OpenAI embedding vectors.
--- HNSW index optimizes cosine-distance retrieval; NULL embeddings are skipped.
+-- 011_blueprints_pgvector.sql — semantic blueprints via pgvector.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
