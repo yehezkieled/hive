@@ -1,112 +1,86 @@
-"""File-based blueprint storage with YAML frontmatter.
+"""PostgreSQL + pgvector blueprint store with OpenAI semantic search.
 
-Blueprints are Markdown files stored in a configurable directory. Each file
-has YAML frontmatter (title, tags, created_at) and a body with the blueprint
-content. Search is simple case-insensitive text matching — no embeddings
-needed for the initial implementation.
+Blueprints are post-project knowledge docs. They're stored as rows in the
+``blueprints`` table with a body column (source of truth) and an embedding
+column (derived from body via ``embed_texts``). Search is cosine-distance
+ordered via pgvector's ``<=>`` operator.
 """
 
 from __future__ import annotations
 
-import re
-from datetime import UTC, datetime
-from pathlib import Path
+from typing import Any
+
+import asyncpg
+from pgvector.asyncpg import register_vector
+
+from hive.knowledge.embedder import embed_texts
 
 
 class BlueprintStore:
-    """Manages blueprint files in a directory."""
+    """asyncpg-backed semantic blueprint store."""
 
-    def __init__(self, directory: Path) -> None:
-        self.directory = directory
-        self.directory.mkdir(parents=True, exist_ok=True)
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self.pool = pool
+        self._registered = False
 
-    def save(
-        self,
-        title: str,
-        content: str,
-        tags: list[str],
-    ) -> Path:
-        """Save a blueprint as a YAML-frontmatter Markdown file.
+    async def _ensure_vector_codec(self, conn: asyncpg.Connection) -> None:
+        """Register the pgvector codec once per connection.
 
-        Returns the path to the created file.
+        pgvector ships a Python codec so asyncpg can encode/decode
+        ``list[float]`` <-> ``vector``. We call this per-connection because
+        pool connections are reused but the codec is connection-scoped.
         """
-        slug = _slugify(title)
-        path = self.directory / f"{slug}.md"
+        await register_vector(conn)
 
-        # Avoid overwriting — append a counter if needed
-        counter = 1
-        while path.exists():
-            path = self.directory / f"{slug}-{counter}.md"
-            counter += 1
+    async def save(self, title: str, body: str, tags: list[str] | None = None) -> int:
+        """Save a blueprint, embed the body, store everything. Return the new id."""
+        tags = tags or []
+        vectors = await embed_texts([body])
+        vector = vectors[0]
 
-        tags_yaml = "\n".join(f"- {tag}" for tag in tags) if tags else "[]"
-        now = datetime.now(UTC).isoformat()
+        async with self.pool.acquire() as conn:
+            await self._ensure_vector_codec(conn)
+            row = await conn.fetchrow(
+                """
+                INSERT INTO blueprints (title, body, tags, embedding)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+                """,
+                title,
+                body,
+                tags,
+                vector,
+            )
+        return row["id"]
 
-        frontmatter = f"---\ntitle: {title}\ntags:\n{tags_yaml}\ncreated_at: {now}\n---\n"
-        path.write_text(frontmatter + content)
-        return path
+    async def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Return blueprints ranked by cosine similarity to the query text."""
+        vectors = await embed_texts([query])
+        if not vectors:
+            return []
+        query_vector = vectors[0]
 
-    def load(self, path: Path) -> dict | None:
-        """Parse a blueprint file into a dict with title, tags, body.
+        async with self.pool.acquire() as conn:
+            await self._ensure_vector_codec(conn)
+            rows = await conn.fetch(
+                """
+                SELECT id, title, body, tags, created_at,
+                       embedding <=> $1 AS distance
+                FROM blueprints
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> $1, id ASC
+                LIMIT $2
+                """,
+                query_vector,
+                limit,
+            )
+        return [dict(row) for row in rows]
 
-        Returns None if the file does not exist.
-        """
-        if not path.exists():
-            return None
-
-        text = path.read_text()
-        return _parse_frontmatter(text, path)
-
-    def list_all(self) -> list[dict]:
-        """List all blueprints with their metadata."""
-        results = []
-        for path in sorted(self.directory.glob("*.md")):
-            bp = self.load(path)
-            if bp:
-                results.append(bp)
-        return results
-
-    def search(self, query: str, limit: int = 5) -> list[dict]:
-        """Case-insensitive text search across titles and body content."""
-        query_lower = query.lower()
-        matches = []
-        for bp in self.list_all():
-            title = bp.get("title", "").lower()
-            body = bp.get("body", "").lower()
-            if query_lower in title or query_lower in body:
-                matches.append(bp)
-                if len(matches) >= limit:
-                    break
-        return matches
-
-
-def _slugify(text: str) -> str:
-    """Convert a title to a filesystem-safe slug."""
-    slug = text.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    return slug.strip("-")
-
-
-def _parse_frontmatter(text: str, path: Path) -> dict:
-    """Extract YAML frontmatter and body from a Markdown string."""
-    if not text.startswith("---\n"):
-        return {"title": path.stem, "tags": [], "body": text, "path": str(path)}
-
-    end = text.find("\n---\n", 4)
-    if end == -1:
-        return {"title": path.stem, "tags": [], "body": text, "path": str(path)}
-
-    front = text[4:end]
-    body = text[end + 5 :]  # skip the closing ---\n
-
-    title = path.stem
-    tags: list[str] = []
-
-    for line in front.splitlines():
-        if line.startswith("title:"):
-            title = line.split(":", 1)[1].strip()
-        elif line.startswith("- "):
-            tags.append(line[2:].strip())
-
-    return {"title": title, "tags": tags, "body": body.strip(), "path": str(path)}
+    async def list_all(self) -> list[dict[str, Any]]:
+        """Return all blueprints, newest first, without embeddings."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, title, body, tags, created_at "
+                "FROM blueprints ORDER BY created_at DESC"
+            )
+        return [dict(row) for row in rows]

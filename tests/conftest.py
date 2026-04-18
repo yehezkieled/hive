@@ -84,6 +84,7 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE tasks RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE audit_log RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE vault_actions RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE blueprints RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
@@ -124,3 +125,10 @@ async def audit_log(store: MessageStore) -> AsyncIterator[AuditLog]:
 async def vault_store(store: MessageStore) -> AsyncIterator[VaultStore]:
     """Function-scoped VaultStore sharing the test pool."""
     yield VaultStore(store.pool)
+
+
+@pytest_asyncio.fixture
+async def blueprint_store(store: MessageStore) -> AsyncIterator["BlueprintStore"]:
+    """Function-scoped BlueprintStore sharing the test pool."""
+    from hive.knowledge.blueprints import BlueprintStore
+    yield BlueprintStore(store.pool)
