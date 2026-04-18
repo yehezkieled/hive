@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-import pytest
-
 from hive.bus.router import MessageRouter
 from hive.knowledge.blueprints import BlueprintStore
 from hive.models.maestro import Maestro
