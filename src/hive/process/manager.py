@@ -13,7 +13,13 @@ from hive.bus.entity_store import EntityStore
 from hive.bus.permissions import can_message
 from hive.bus.router import MessageRouter
 from hive.bus.token_store import TokenStore
-from hive.config import AUTO_COMPACT_ENABLED, AUTO_COMPACT_THRESHOLD
+from hive.config import (
+    AUTO_COMPACT_ENABLED,
+    AUTO_COMPACT_THRESHOLD,
+    AUTO_RETRIEVE_ENABLED,
+    AUTO_RETRIEVE_TOP_K,
+)
+from hive.knowledge.blueprints import BlueprintStore
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
@@ -35,6 +41,7 @@ class ProcessManager:
         entity_store: EntityStore | None = None,
         token_store: TokenStore | None = None,
         audit_log: AuditLog | None = None,
+        blueprint_store: BlueprintStore | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
@@ -42,6 +49,7 @@ class ProcessManager:
         self.entity_store = entity_store
         self.token_store = token_store
         self.audit_log = audit_log
+        self.blueprint_store = blueprint_store
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
         self._last_routed_actions: list[str] = []
@@ -169,6 +177,18 @@ class ProcessManager:
         logger.info("Registered maestro: %s (model=%s)", name, model)
         return maestro
 
+    async def register_entity(self, entity: Entity) -> None:
+        """Register a pre-built entity in IDLE state without spawning a subprocess.
+
+        Useful for tests and for restoring entities that were constructed
+        externally. The entity must not already be registered.
+        """
+        if entity.name in self._entities:
+            raise ValueError(f"Entity {entity.name!r} already exists.")
+        self._entities[entity.name] = entity
+        self.router.register(entity.name)
+        logger.info("Registered entity: %s (role=%s)", entity.name, entity.role)
+
     async def spawn_entity(self, entity: Entity, cwd: Path | None = None) -> ClaudeSession:
         """Spawn a Claude Code subprocess for an entity.
 
@@ -258,6 +278,24 @@ class ProcessManager:
         if pending:
             inbox = "\n".join(pending)
             prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
+
+        # --- Sprint 11: auto-retrieve top-K blueprints as context ---
+        if (
+            AUTO_RETRIEVE_ENABLED
+            and self.blueprint_store is not None
+            and prompt.strip()
+        ):
+            try:
+                hits = await self.blueprint_store.search(prompt, limit=AUTO_RETRIEVE_TOP_K)
+            except Exception:
+                logger.exception("auto-retrieve failed; continuing without blueprints")
+                hits = []
+            if hits:
+                context_lines = ["Relevant past blueprints (retrieved automatically):"]
+                for h in hits:
+                    context_lines.append(f"\n### {h['title']}\n{h['body']}")
+                context_block = "\n".join(context_lines)
+                prompt = f"{context_block}\n\n---\n\n{prompt}"
 
         args = entity.build_cli_args()
         if entity.session_id:
