@@ -16,7 +16,6 @@ from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.config import (
     AUTO_KILL_IDLE_ENABLED,
-    BLUEPRINTS_DIR,
     DAILY_SUMMARY_ENABLED,
     DAILY_SUMMARY_HOUR,
     DEFAULT_MAESTRO,
@@ -104,7 +103,7 @@ async def main() -> None:
     task_store = TaskStore(store.pool)
     audit_log = AuditLog(store.pool)
     vault_store = VaultStore(store.pool)
-    blueprint_store = BlueprintStore(BLUEPRINTS_DIR)
+    blueprint_store = BlueprintStore(store.pool)
 
     process_manager = ProcessManager(
         router=router,
@@ -112,6 +111,7 @@ async def main() -> None:
         entity_store=entity_store,
         token_store=token_store,
         audit_log=audit_log,
+        blueprint_store=blueprint_store,
     )
 
     # Restore persisted entities (organizational structure, not running procs)
