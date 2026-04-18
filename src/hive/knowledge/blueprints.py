@@ -21,7 +21,6 @@ class BlueprintStore:
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
-        self._registered = False
 
     async def _ensure_vector_codec(self, conn: asyncpg.Connection) -> None:
         """Register the pgvector codec once per connection.
@@ -81,6 +80,6 @@ class BlueprintStore:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT id, title, body, tags, created_at "
-                "FROM blueprints ORDER BY created_at DESC"
+                "FROM blueprints ORDER BY created_at DESC, id DESC"
             )
         return [dict(row) for row in rows]
