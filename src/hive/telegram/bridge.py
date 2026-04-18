@@ -281,7 +281,7 @@ class TelegramBridge:
             return await self._execute_vault(cmd.target, cmd.args)
 
         if cmd.name == "blueprint":
-            return self._execute_blueprint(cmd.target, cmd.args)
+            return await self._execute_blueprint(cmd.target, cmd.args)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -688,39 +688,47 @@ class TelegramBridge:
 
         return f"Unknown vault subcommand: {subcommand}"
 
-    def _execute_blueprint(self, subcommand: str | None, args: str) -> str:
+    async def _execute_blueprint(self, subcommand: str | None, args: str) -> str:
         """Handle /blueprint save|search|list."""
         if self.blueprint_store is None:
-            return "Blueprint store not configured."
-
-        if not subcommand:
+            return "Blueprints not configured."
+        if subcommand is None:
             return "Usage: /blueprint save|search|list"
 
-        sub = subcommand.lower()
-
-        if sub == "save":
-            title = _strip_quotes(args).strip()
+        if subcommand == "save":
+            # args format: "title" body text
+            title = args.strip().strip('"').strip("'")
             if not title:
-                return 'Usage: /blueprint save "title"'
-            path = self.blueprint_store.save(title, "", [])
-            return f"Blueprint saved: {path.name}"
+                return 'Usage: /blueprint save "title" body text'
+            # For MVP: body is same as title unless a second line was passed.
+            # Agents can build richer bodies programmatically.
+            parts = title.split("\n", 1)
+            bp_title = parts[0]
+            bp_body = parts[1] if len(parts) > 1 else bp_title
+            bp_id = await self.blueprint_store.save(bp_title, bp_body, [])
+            return f"Blueprint #{bp_id} saved: {bp_title}"
 
-        if sub == "search":
+        if subcommand == "search":
             query = args.strip()
             if not query:
                 return "Usage: /blueprint search <query>"
-            results = self.blueprint_store.search(query)
+            results = await self.blueprint_store.search(query)
             if not results:
                 return f"No blueprints matching {query!r}."
-            lines = [f"- {r['title']}" for r in results]
-            return f"Blueprints ({len(results)}):\n" + "\n".join(lines)
+            lines = [f"Semantic matches for {query!r}:"]
+            for r in results:
+                dist = r.get("distance", 0.0)
+                lines.append(f"  #{r['id']} {r['title']}  (distance={dist:.3f})")
+            return "\n".join(lines)
 
-        if sub == "list":
-            items = self.blueprint_store.list_all()
+        if subcommand == "list":
+            items = await self.blueprint_store.list_all()
             if not items:
                 return "No blueprints saved."
-            lines = [f"- {bp['title']}" for bp in items]
-            return f"Blueprints ({len(items)}):\n" + "\n".join(lines)
+            lines = ["All blueprints:"]
+            for bp in items[:20]:
+                lines.append(f"  #{bp['id']} {bp['title']}")
+            return "\n".join(lines)
 
         return f"Unknown blueprint subcommand: {subcommand}"
 
