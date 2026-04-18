@@ -60,7 +60,7 @@ and coordinate technical work.
 @pytest.fixture(scope="session")
 def pg_dsn() -> Iterator[str]:
     """Session-scoped PostgreSQL container. Yields an asyncpg-compatible DSN."""
-    with PostgresContainer("postgres:16-alpine") as container:
+    with PostgresContainer("pgvector/pgvector:pg16") as container:
         # testcontainers returns a SQLAlchemy-style URL (postgresql+psycopg2://...);
         # strip the driver part to get a plain DSN asyncpg accepts.
         raw = container.get_connection_url()
