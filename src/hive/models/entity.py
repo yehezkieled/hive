@@ -220,6 +220,11 @@ class Entity:
         if self.role in ("maestro", "lead"):
             args.extend(["--append-system-prompt", MESSAGING_PROMPT])
 
+        from hive.config import ADVISOR_ENABLED
+
+        if ADVISOR_ENABLED:
+            args.extend(["--mcp-config", self.mcp_config_path])
+
         return args
 
     @property
@@ -228,6 +233,11 @@ class Entity:
         if self.started_at is None or self.state != EntityState.RUNNING:
             return None
         return (datetime.now(UTC) - self.started_at).total_seconds()
+
+    @property
+    def mcp_config_path(self) -> str:
+        """Path to the per-entity MCP config file for --mcp-config."""
+        return f"/tmp/hive-mcp-{self.name}.json"
 
     def __repr__(self) -> str:
         return f"Entity(name={self.name!r}, role={self.role!r}, state={self.state.value!r})"

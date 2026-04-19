@@ -79,3 +79,9 @@ AUTO_RETRIEVE_TOP_K = int(os.environ.get("AUTO_RETRIEVE_TOP_K", "3"))
 # Git workflow (Sprint 12 Phase 3). /merge is off by default — set the env
 # var to "1" to allow the Telegram bridge to execute `gh pr merge --squash`.
 ALLOW_AUTO_MERGE = os.environ.get("HIVE_ALLOW_AUTO_MERGE", "0") == "1"
+
+# Advisor MCP server (Sprint 13)
+ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "true"
+ADVISOR_COOLDOWN_SECONDS = int(os.environ.get("HIVE_ADVISOR_COOLDOWN_SECONDS", "300"))
+ADVISOR_DAILY_LIMIT = int(os.environ.get("HIVE_ADVISOR_DAILY_LIMIT", "20"))
+ADVISOR_CONTEXT_MESSAGES = int(os.environ.get("HIVE_ADVISOR_CONTEXT_MESSAGES", "5"))

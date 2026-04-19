@@ -213,6 +213,13 @@ class ProcessManager:
         # Load personality if available
         entity.load_personality()
 
+        # Write per-entity MCP config so Claude Code can connect to the advisor server
+        from hive.config import ADVISOR_ENABLED
+        from hive.mcp.config import generate_mcp_config
+
+        if ADVISOR_ENABLED:
+            generate_mcp_config(entity.name, entity.mcp_config_path)
+
         # Build CLI args
         args = entity.build_cli_args()
 
