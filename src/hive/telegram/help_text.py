@@ -210,9 +210,19 @@ HELP_TEXT: dict[str, HelpEntry] = {
     ),
     "model": HelpEntry(
         category="Resources",
-        usage="/model opus|sonnet|haiku <entity>",
-        description="Change an entity's Claude model. Takes effect on next spawn.",
-        examples=("/model opus dev",),
+        usage="/model opus|sonnet|haiku [entity]",
+        description=(
+            "Change an entity's Claude model. Target any entity by full dotted name — "
+            "maestro (`dev`), lead (`dev.backend`), or worker (`dev.backend.w1`). "
+            "Entity defaults to the default maestro if omitted. Persists immediately "
+            "and takes effect on the next prompt sent to that entity. Each entity's "
+            "model is independent; leads/workers only inherit from their parent at spawn time."
+        ),
+        examples=(
+            "/model opus dev",
+            "/model sonnet dev.backend",
+            "/model haiku dev.backend.w1",
+        ),
     ),
     # Security
     "vault": HelpEntry(
