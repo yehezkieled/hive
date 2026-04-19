@@ -68,6 +68,7 @@ BRIDGE_COMMANDS: frozenset[str] = frozenset(
         "commit",
         "pr",
         "merge",
+        "heartbeat",
     }
 )
 
@@ -102,6 +103,12 @@ class TelegramBridge:
         self.mode_request_store = mode_request_store
         self.blueprint_store: BlueprintStore | None = None
         self._app: Application | None = None
+
+        # Heartbeat (Sprint 13) — in-memory state, resets on restart
+        from hive.config import HEARTBEAT_ENABLED, HEARTBEAT_INTERVAL_MINUTES
+
+        self.heartbeat_enabled: bool = HEARTBEAT_ENABLED
+        self.heartbeat_interval_minutes: int = HEARTBEAT_INTERVAL_MINUTES
 
     async def start(self) -> None:
         """Build and start the Telegram bot application."""
@@ -347,6 +354,9 @@ class TelegramBridge:
 
         if cmd.name == "merge":
             return await self._execute_merge(cmd.target)
+
+        if cmd.name == "heartbeat":
+            return await self._execute_heartbeat(cmd.target, cmd.args)
 
         return f"Unknown command: /{cmd.name}"
 
@@ -1059,6 +1069,65 @@ class TelegramBridge:
                 f"- {s['name']} [{s['role']}] {s['state']} (model={s['model']}{pid}{uptime})"
             )
         return "Entities:\n" + "\n".join(lines)
+
+    def format_heartbeat(self) -> str:
+        """Format a compact heartbeat status message."""
+        statuses = self.process_manager.get_status()
+        running = [s for s in statuses if s["alive"]]
+        errors = [s for s in statuses if s["state"] == "error"]
+
+        header = (
+            f"Heartbeat — {self.heartbeat_interval_minutes}m interval\n"
+            f"{len(running)} agent(s) running"
+            + (f", {len(errors)} error(s)." if errors else ".")
+        )
+
+        if not statuses:
+            return f"Heartbeat — {self.heartbeat_interval_minutes}m interval\nNo agents registered."
+
+        lines = [header]
+        for s in statuses:
+            uptime = s.get("uptime")
+            if uptime:
+                hours, rem = divmod(int(uptime), 3600)
+                mins = rem // 60
+                uptime_str = f"{hours}h {mins}m" if hours else f"{mins}m"
+                uptime_part = f" (uptime {uptime_str})"
+            else:
+                uptime_part = ""
+            state = s["state"].upper() if isinstance(s["state"], str) else s["state"].value.upper()
+            lines.append(f"- {s['name']} [{s['role']}] {state}{uptime_part}")
+        return "\n".join(lines)
+
+    async def _execute_heartbeat(self, target: str | None, args: str) -> str:
+        """Handle /heartbeat on|off|status|<minutes> [minutes]."""
+        sub = (target or "").strip().lower()
+
+        if sub == "on":
+            self.heartbeat_enabled = True
+            if args.strip().isdigit():
+                self.heartbeat_interval_minutes = int(args.strip())
+            return (
+                f"Heartbeat enabled (interval: {self.heartbeat_interval_minutes}m). "
+                "Note: HIVE_HEARTBEAT_ENABLED=false in .env will override on restart."
+            )
+
+        if sub == "off":
+            self.heartbeat_enabled = False
+            return "Heartbeat disabled."
+
+        if sub == "status":
+            state = "enabled" if self.heartbeat_enabled else "disabled"
+            return f"Heartbeat {state}, interval {self.heartbeat_interval_minutes}m."
+
+        if sub.isdigit():
+            self.heartbeat_interval_minutes = int(sub)
+            return (
+                f"Heartbeat interval set to {sub}m. "
+                "Change takes effect on the next scheduled tick."
+            )
+
+        return "Usage: /heartbeat on|off|status|<minutes>"
 
 
 def _chunk_text(text: str, max_len: int) -> list[str]:

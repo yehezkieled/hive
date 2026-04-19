@@ -55,6 +55,17 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="List any entities in an unhealthy state.",
         examples=("/health",),
     ),
+    "heartbeat": HelpEntry(
+        category="Status",
+        usage="/heartbeat on|off|status|<minutes>",
+        description="Send periodic agent-status pings to Telegram.",
+        examples=(
+            "/heartbeat on",
+            "/heartbeat 60",
+            "/heartbeat off",
+            "/heartbeat status",
+        ),
+    ),
     "status": HelpEntry(
         category="Status",
         usage="/status",

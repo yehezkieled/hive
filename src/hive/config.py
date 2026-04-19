@@ -63,6 +63,10 @@ DAILY_SUMMARY_ENABLED = os.environ.get("HIVE_DAILY_SUMMARY_ENABLED", "true").low
 DAILY_SUMMARY_HOUR = int(os.environ.get("HIVE_DAILY_SUMMARY_HOUR", "23"))  # UTC
 SUMMARY_CHAT_ID = os.environ.get("HIVE_SUMMARY_CHAT_ID", "")
 
+# Heartbeat (Sprint 13)
+HEARTBEAT_ENABLED = os.environ.get("HIVE_HEARTBEAT_ENABLED", "false").lower() == "true"
+HEARTBEAT_INTERVAL_MINUTES = int(os.environ.get("HIVE_HEARTBEAT_INTERVAL_MINUTES", "30"))
+
 # Embeddings / semantic blueprints (Sprint 11)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")

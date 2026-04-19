@@ -21,6 +21,8 @@ from hive.config import (
     DAILY_SUMMARY_HOUR,
     DEFAULT_MAESTRO,
     DEFAULT_MODEL,
+    HEARTBEAT_ENABLED,
+    HEARTBEAT_INTERVAL_MINUTES,
     IDLE_TIMEOUT_MINUTES,
     MAX_CONCURRENT_SESSIONS,
     PERSONALITIES_DIR,
@@ -82,6 +84,28 @@ async def daily_summary_scheduler(
                 logger.info("Daily summary sent")
             except Exception:
                 logger.exception("Error sending daily summary")
+
+
+async def heartbeat_scheduler(
+    bridge: object,  # TelegramBridge, but avoid circular import at module level
+    stop_event: asyncio.Event,
+) -> None:
+    """Background task: send periodic heartbeat notifications."""
+    while not stop_event.is_set():
+        interval = getattr(bridge, "heartbeat_interval_minutes", 30)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=min(interval * 60, 3600))
+            break  # stop_event was set
+        except TimeoutError:
+            pass  # interval elapsed
+        if not getattr(bridge, "heartbeat_enabled", False):
+            continue
+        try:
+            message = bridge.format_heartbeat()  # type: ignore[attr-defined]
+            await bridge._send_notification(message)  # type: ignore[attr-defined]
+            logger.info("Heartbeat sent")
+        except Exception:
+            logger.exception("Error sending heartbeat")
 
 
 async def main() -> None:
@@ -198,6 +222,13 @@ async def main() -> None:
                 asyncio.create_task(daily_summary_scheduler(bridge, DAILY_SUMMARY_HOUR, stop_event))
             )
             logger.info("Daily summary scheduled at %02d:00 UTC", DAILY_SUMMARY_HOUR)
+        if HEARTBEAT_ENABLED and SUMMARY_CHAT_ID:
+            background_tasks.append(
+                asyncio.create_task(heartbeat_scheduler(bridge, stop_event))
+            )
+            logger.info(
+                "Heartbeat scheduler started (interval=%dm)", HEARTBEAT_INTERVAL_MINUTES
+            )
 
         await stop_event.wait()
 
