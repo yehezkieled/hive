@@ -272,3 +272,10 @@ def test_model_command() -> None:
     assert cmd.name == "model"
     assert cmd.target == "haiku"
     assert cmd.args == "dev.backend.w1"
+
+
+def test_model_command_parses_opusplan() -> None:
+    cmd = parse_command("/model opusplan dev")
+    assert cmd.name == "model"
+    assert cmd.target == "opusplan"
+    assert cmd.args == "dev"

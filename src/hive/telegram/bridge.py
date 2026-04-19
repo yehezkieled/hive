@@ -766,8 +766,8 @@ class TelegramBridge:
         return f"Broadcast to {len(results)} entities:\n" + "\n".join(results)
 
     async def _execute_model(self, model_name: str | None, entity_name: str) -> str:
-        """Handle /model <opus|sonnet|haiku> [entity]."""
-        valid_models = {"opus", "sonnet", "haiku"}
+        """Handle /model <opus|sonnet|haiku|opusplan> [entity]."""
+        valid_models = {"opus", "sonnet", "haiku", "opusplan"}
         if not model_name or model_name not in valid_models:
             return f"Usage: /model <{'|'.join(sorted(valid_models))}> [entity]"
 
