@@ -15,12 +15,12 @@ class TestAdvisorStore:
         from hive.bus.advisor_store import AdvisorStore
 
         pool = MagicMock()
-        pool.fetchrow = AsyncMock(return_value={"id": 1})
+        pool.execute = AsyncMock(return_value=None)
 
         store = AdvisorStore(pool)
-        row_id = await store.record("dev", "context", "response", 100, 50, 0.01, "success")
-        pool.fetchrow.assert_called()
-        assert row_id == 1
+        result = await store.record("dev", "context", "response", 100, 50, 0.01, "success")
+        pool.execute.assert_called()
+        assert result is None
 
     async def test_get_last_call_none_when_no_rows(self) -> None:
         from hive.bus.advisor_store import AdvisorStore
@@ -113,3 +113,97 @@ class TestEntityMcpConfigPath:
         with patch("hive.config.ADVISOR_ENABLED", False):
             args = e.build_cli_args()
         assert "--mcp-config" not in args
+
+
+# ── advisor() tool function tests ────────────────────────────────────────────
+class TestAdvisorTool:
+    """Tests for the advisor() async tool in advisor_server.py.
+
+    All tests mock the DB pool and subprocess to avoid real connections.
+    """
+
+    def setup_method(self) -> None:
+        """Set up module-level globals before each test."""
+        import hive.mcp.advisor_server as advisor_server
+
+        # Pre-set globals so _get_pool() and entity_name check don't block
+        self._advisor_server = advisor_server
+        self._orig_entity_name = advisor_server._entity_name
+        self._orig_pool = advisor_server._pool
+        advisor_server._entity_name = "test"
+
+    def teardown_method(self) -> None:
+        """Restore module-level globals after each test."""
+        self._advisor_server._entity_name = self._orig_entity_name
+        self._advisor_server._pool = self._orig_pool
+
+    async def test_rate_limit_branch(self) -> None:
+        """advisor() returns a rate-limit message when called too soon after last call."""
+        import hive.mcp.advisor_server as advisor_server
+        from hive.bus.advisor_store import AdvisorStore
+
+        # Build a mock pool
+        mock_pool = MagicMock()
+        mock_pool.execute = AsyncMock(return_value=None)
+        advisor_server._pool = mock_pool
+
+        # get_last_call returns very recent timestamp → triggers rate limit
+        with patch.object(AdvisorStore, "get_last_call", new=AsyncMock(return_value=datetime.now(UTC))):
+            with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
+                result = await advisor_server.advisor(context="test")
+
+        assert any(
+            word in result.lower() for word in ("rate", "cooldown", "limit")
+        ), f"Expected rate-limit message, got: {result!r}"
+
+    async def test_daily_limit_branch(self) -> None:
+        """advisor() returns a daily-limit message when count_today reaches ADVISOR_DAILY_LIMIT."""
+        import hive.mcp.advisor_server as advisor_server
+        from hive.bus.advisor_store import AdvisorStore
+        from hive.config import ADVISOR_DAILY_LIMIT
+
+        mock_pool = MagicMock()
+        mock_pool.execute = AsyncMock(return_value=None)
+        advisor_server._pool = mock_pool
+
+        with patch.object(AdvisorStore, "get_last_call", new=AsyncMock(return_value=None)):
+            with patch.object(AdvisorStore, "count_today", new=AsyncMock(return_value=ADVISOR_DAILY_LIMIT)):
+                with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
+                    result = await advisor_server.advisor(context="test")
+
+        assert any(
+            word in result.lower() for word in ("limit", "daily")
+        ), f"Expected daily-limit message, got: {result!r}"
+
+    async def test_happy_path(self) -> None:
+        """advisor() returns the Opus response text on a successful subprocess call."""
+        import hive.mcp.advisor_server as advisor_server
+        from hive.bus.advisor_store import AdvisorStore
+
+        # Canned stream-json output from a one-shot claude -p call
+        canned_output = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Looks good."}]
+                },
+            }
+        ).encode()
+
+        # Mock asyncpg pool with fetch returning empty message list
+        mock_pool = MagicMock()
+        mock_pool.fetch = AsyncMock(return_value=[])
+        mock_pool.execute = AsyncMock(return_value=None)
+        advisor_server._pool = mock_pool
+
+        # Mock the subprocess
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(canned_output, b""))
+
+        with patch.object(AdvisorStore, "get_last_call", new=AsyncMock(return_value=None)):
+            with patch.object(AdvisorStore, "count_today", new=AsyncMock(return_value=0)):
+                with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
+                    with patch("hive.mcp.advisor_server.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+                        result = await advisor_server.advisor(context="")
+
+        assert "Looks good." in result, f"Expected Opus response, got: {result!r}"

@@ -237,6 +237,11 @@ class Entity:
     @property
     def mcp_config_path(self) -> str:
         """Path to the per-entity MCP config file for --mcp-config."""
+        # Guard against path traversal characters in the entity name
+        if "/" in self.name or ".." in self.name:
+            raise ValueError(
+                f"Entity name {self.name!r} contains invalid characters ('/' or '..')."
+            )
         return f"/tmp/hive-mcp-{self.name}.json"
 
     def __repr__(self) -> str:

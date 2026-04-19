@@ -22,14 +22,13 @@ class AdvisorStore:
         output_tokens: int,
         cost_usd: float | None,
         status: str,
-    ) -> int:
-        """Insert one advisor call row. Returns new row id."""
-        row = await self.pool.fetchrow(
+    ) -> None:
+        """Insert one advisor call row."""
+        await self.pool.execute(
             """
             INSERT INTO advisor_calls
                 (entity_name, context, response, input_tokens, output_tokens, cost_usd, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id
             """,
             entity_name,
             context,
@@ -39,10 +38,10 @@ class AdvisorStore:
             cost_usd,
             status,
         )
-        return row["id"]
 
     async def get_last_call(self, entity_name: str) -> datetime | None:
         """Return called_at of the most recent successful call, or None."""
+        # Only 'success' rows count — rate-limited/error calls don't extend the cooldown window
         row = await self.pool.fetchrow(
             """
             SELECT called_at FROM advisor_calls
@@ -55,6 +54,7 @@ class AdvisorStore:
 
     async def count_today(self, entity_name: str) -> int:
         """Count successful calls today (UTC) for this entity."""
+        # Only 'success' rows count — rate-limited/error calls don't extend the cooldown window
         today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         return await self.pool.fetchval(
             """
