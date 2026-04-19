@@ -98,3 +98,30 @@ def test_help_parses_without_target() -> None:
     cmd = parse_command("/help")
     assert cmd.name == "help"
     assert cmd.target is None
+
+
+def test_every_entry_has_examples() -> None:
+    """Every HelpEntry must have at least one example."""
+    missing = [name for name, entry in HELP_TEXT.items() if not entry.examples]
+    assert missing == [], f"Entries missing examples: {missing}"
+
+
+def test_description_style() -> None:
+    """Every description must: start with capital letter, be ≤80 chars, end with period."""
+    errors = []
+    for name, entry in HELP_TEXT.items():
+        desc = entry.description
+        if not desc[0].isupper():
+            errors.append(f"/{name}: description must start with capital letter")
+        if len(desc) > 80:
+            errors.append(f"/{name}: description too long ({len(desc)} chars > 80)")
+        if not desc.endswith("."):
+            errors.append(f"/{name}: description must end with period")
+    assert errors == [], "\n".join(errors)
+
+
+def test_categories_alphabetical_within() -> None:
+    """Commands within each category should be listed alphabetically."""
+    for category in CATEGORIES:
+        names = [name for name, e in HELP_TEXT.items() if e.category == category]
+        assert names == sorted(names), f"{category}: not alphabetical: {names}"

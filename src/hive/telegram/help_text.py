@@ -36,48 +36,54 @@ CATEGORIES = (
 
 
 HELP_TEXT: dict[str, HelpEntry] = {
-    # Status
-    "status": HelpEntry(
+    # Status — alphabetical: audit, comms, health, status
+    "audit": HelpEntry(
         category="Status",
-        usage="/status",
-        description="Show each entity's role, state, and PID.",
-    ),
-    "health": HelpEntry(
-        category="Status",
-        usage="/health",
-        description="List any entities in an unhealthy state.",
+        usage="/audit [prefix]",
+        description="Show the last 20 audit events, filtered by action prefix.",
+        examples=("/audit", "/audit task"),
     ),
     "comms": HelpEntry(
         category="Status",
         usage="/comms",
         description="Show the last 10 inter-entity messages.",
+        examples=("/comms",),
     ),
-    "audit": HelpEntry(
+    "health": HelpEntry(
         category="Status",
-        usage="/audit [prefix]",
-        description=(
-            "Show the last 20 audit events, optionally filtered by action prefix "
-            "(e.g. entity, task, command)."
-        ),
-        examples=("/audit", "/audit task"),
+        usage="/health",
+        description="List any entities in an unhealthy state.",
+        examples=("/health",),
     ),
-    # Organization
+    "status": HelpEntry(
+        category="Status",
+        usage="/status",
+        description="Show each entity's role, state, and PID.",
+        examples=("/status",),
+    ),
+    # Organization — alphabetical: maestros, new, org, team, teams, worker
     "maestros": HelpEntry(
         category="Organization",
         usage="/maestros",
         description="List registered maestros with their model and state.",
+        examples=("/maestros",),
+    ),
+    "new": HelpEntry(
+        category="Organization",
+        usage="/new maestro <name>",
+        description="Register a new maestro from personalities/<name>.md.",
+        examples=("/new maestro pa",),
     ),
     "org": HelpEntry(
         category="Organization",
         usage="/org",
         description="Show the full org tree (maestros -> teams -> workers).",
+        examples=("/org",),
     ),
     "team": HelpEntry(
         category="Organization",
         usage="/team create|list|kill [args]",
-        description=(
-            "Manage teams under a maestro. `create` spawns a new team lead, `kill` removes a team."
-        ),
+        description="Create, list, or kill a team under a maestro.",
         examples=(
             "/team create dev.backend",
             "/team list dev",
@@ -88,6 +94,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
         category="Organization",
         usage="/teams",
         description="List all teams across all maestros.",
+        examples=("/teams",),
     ),
     "worker": HelpEntry(
         category="Organization",
@@ -98,25 +105,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/worker kill dev.backend.w1",
         ),
     ),
-    "new": HelpEntry(
-        category="Organization",
-        usage="/new maestro <name>",
-        description="Register a new maestro from personalities/<name>.md.",
-        examples=("/new maestro pa",),
-    ),
-    # Messaging
-    "message": HelpEntry(
-        category="Messaging",
-        usage="/m:<maestro> <text> | <text>",
-        description=(
-            "Send a message to a maestro. Plain text with no /command prefix "
-            "routes to the default maestro."
-        ),
-        examples=(
-            "/m:dev please audit the token usage",
-            "hello dev",
-        ),
-    ),
+    # Messaging — alphabetical: agent, broadcast, message
     "agent": HelpEntry(
         category="Messaging",
         usage="/a:<maestro>.<team>.<worker> <text>",
@@ -129,24 +118,16 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Send the same message to every registered entity.",
         examples=("/broadcast sprint demo in 5 minutes",),
     ),
-    # Tasks
-    "task": HelpEntry(
-        category="Tasks",
-        usage="/task add|done|cancel <args>",
-        description=(
-            "Manage the task queue. `add` accepts a quoted title; `done`/`cancel` take a task id."
-        ),
+    "message": HelpEntry(
+        category="Messaging",
+        usage="/m:<maestro> <text> | <text>",
+        description="Send a message to a maestro.",
         examples=(
-            '/task add "Add /help command"',
-            "/task done 5",
-            "/task cancel 6",
+            "/m:dev please audit the token usage",
+            "hello dev",
         ),
     ),
-    "tasks": HelpEntry(
-        category="Tasks",
-        usage="/tasks",
-        description="List pending and in-progress tasks.",
-    ),
+    # Tasks — alphabetical: priority, swarm, task, tasks
     "priority": HelpEntry(
         category="Tasks",
         usage='/priority P0|P1|P2|P3|P4 "<title>"',
@@ -159,18 +140,34 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Send the same goal to every worker in a team.",
         examples=("/swarm dev.backend finish the /help command",),
     ),
-    # Session
-    "mode": HelpEntry(
-        category="Session",
-        usage="/mode plan|edit|auto|yolo|yotree <entity>",
-        description=(
-            "Set an entity's permission mode. yolo/yotree require approval "
-            "unless the entity is directly user-owned."
-        ),
+    "task": HelpEntry(
+        category="Tasks",
+        usage="/task add|done|cancel <args>",
+        description="Manage the task queue: add, done, or cancel tasks.",
         examples=(
-            "/mode plan dev",
-            "/mode yotree dev.backend",
+            '/task add "Add /help command"',
+            "/task done 5",
+            "/task cancel 6",
         ),
+    ),
+    "tasks": HelpEntry(
+        category="Tasks",
+        usage="/tasks",
+        description="List pending and in-progress tasks.",
+        examples=("/tasks",),
+    ),
+    # Session — alphabetical: compact, kill, loop, mode, reset
+    "compact": HelpEntry(
+        category="Session",
+        usage="/compact <entity>",
+        description="Summarize an entity's context to free tokens without losing progress.",
+        examples=("/compact dev", "/compact dev.backend.w1"),
+    ),
+    "kill": HelpEntry(
+        category="Session",
+        usage="/kill <entity>",
+        description="Stop an entity's subprocess, which can be respawned by sending a message.",
+        examples=("/kill dev", "/kill dev.backend.w1"),
     ),
     "loop": HelpEntry(
         category="Session",
@@ -178,30 +175,22 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Set the workflow loop framework for an entity.",
         examples=("/loop ralph dev", "/loop ship-it dev"),
     ),
-    "compact": HelpEntry(
+    "mode": HelpEntry(
         category="Session",
-        usage="/compact <entity>",
-        description=(
-            "Summarize an entity's context and restart it with the summary "
-            "seeded — frees tokens without losing progress."
+        usage="/mode plan|edit|auto|yolo|yotree <entity>",
+        description="Set an entity's permission mode.",
+        examples=(
+            "/mode plan dev",
+            "/mode yotree dev.backend",
         ),
     ),
     "reset": HelpEntry(
         category="Session",
         usage="/reset <entity>",
-        description=(
-            "Kill an entity and clear its session id. Next message starts a fresh Claude session."
-        ),
+        description="Kill an entity and clear its session, starting fresh on next message.",
+        examples=("/reset dev.backend.w1",),
     ),
-    "kill": HelpEntry(
-        category="Session",
-        usage="/kill <entity>",
-        description=(
-            "Stop an entity's subprocess. Entity stays registered and can be "
-            "respawned by sending a message."
-        ),
-    ),
-    # Resources
+    # Resources — alphabetical: cost, model (already OK)
     "cost": HelpEntry(
         category="Resources",
         usage="/cost [24h|7d|30d]",
@@ -221,7 +210,19 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/model opusplan dev.backend",
         ),
     ),
-    # Security
+    # Security — alphabetical: approve, deny, vault
+    "approve": HelpEntry(
+        category="Security",
+        usage="/approve [mode <id>]",
+        description="Approve a pending mode-elevation request (yolo/yotree).",
+        examples=("/approve", "/approve mode 7"),
+    ),
+    "deny": HelpEntry(
+        category="Security",
+        usage="/deny mode <id> [reason]",
+        description="Deny a pending mode-elevation request.",
+        examples=('/deny mode 7 "stick to edit for docs"',),
+    ),
     "vault": HelpEntry(
         category="Security",
         usage="/vault approve|deny|status|log <id>",
@@ -232,79 +233,59 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/vault log",
         ),
     ),
-    "approve": HelpEntry(
-        category="Security",
-        usage="/approve [mode <id>]",
-        description=(
-            "Approve a pending mode-elevation request (yolo/yotree). "
-            "With no id, lists pending requests addressed to you."
-        ),
-        examples=("/approve", "/approve mode 7"),
-    ),
-    "deny": HelpEntry(
-        category="Security",
-        usage="/deny mode <id> [reason]",
-        description="Deny a pending mode-elevation request.",
-        examples=('/deny mode 7 "stick to edit for docs"',),
-    ),
-    # Knowledge
+    # Knowledge — single entry
     "blueprint": HelpEntry(
         category="Knowledge",
         usage="/blueprint save|search|list <args>",
-        description=(
-            "Manage semantic blueprints — reusable pattern docs retrieved "
-            "automatically into agent prompts."
-        ),
+        description="Manage semantic blueprints retrieved automatically into agent prompts.",
         examples=(
             '/blueprint save "deploy rollout" "Use blue/green..."',
             "/blueprint search rollout",
             "/blueprint list",
         ),
     ),
-    # Git
+    # Git — alphabetical: commit, merge, pr
     "commit": HelpEntry(
         category="Git",
         usage='/commit <entity> "<message>"',
         description="Stage all changes in an entity's worktree and commit with the given message.",
         examples=('/commit dev.backend.w1 "add retry logic"',),
     ),
-    "pr": HelpEntry(
-        category="Git",
-        usage='/pr <entity> ["<title>"]',
-        description=(
-            "Push the entity's branch to origin and open a pull request with `gh pr create`. "
-            "Title defaults to the last commit's subject."
-        ),
-        examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
-    ),
     "merge": HelpEntry(
         category="Git",
         usage="/merge <entity>",
-        description=(
-            "Squash-merge the PR for the entity's branch. Disabled unless "
-            "HIVE_ALLOW_AUTO_MERGE=1 is set in the environment."
-        ),
+        description="Squash-merge an entity's PR. Requires HIVE_ALLOW_AUTO_MERGE=1.",
         examples=("/merge dev.backend.w1",),
     ),
-    # Admin
-    "personality": HelpEntry(
-        category="Admin",
-        usage="/personality reload <entity>",
-        description="Re-read a personality .md file and apply it to the entity.",
-        examples=("/personality reload dev",),
+    "pr": HelpEntry(
+        category="Git",
+        usage='/pr <entity> ["<title>"]',
+        description="Push the entity's branch and open a pull request with gh pr create.",
+        examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
     ),
+    # Admin — alphabetical: help, personality
     "help": HelpEntry(
         category="Admin",
         usage="/help [command]",
         description="Show this help. `/help <command>` shows detail for one command.",
         examples=("/help", "/help vault"),
     ),
+    "personality": HelpEntry(
+        category="Admin",
+        usage="/personality reload <entity>",
+        description="Re-read a personality .md file and apply it to the entity.",
+        examples=("/personality reload dev",),
+    ),
 }
 
 
 def format_all() -> str:
     """Format the full /help listing, grouped by category."""
-    lines = ["Hive Telegram commands — use `/help <command>` for detail.", ""]
+    lines = [
+        f"Hive Telegram — {len(HELP_TEXT)} commands across {len(CATEGORIES)} categories."
+        f" Use /help <command> for detail.",
+        "",
+    ]
     for category in CATEGORIES:
         entries = [(name, e) for name, e in HELP_TEXT.items() if e.category == category]
         if not entries:
