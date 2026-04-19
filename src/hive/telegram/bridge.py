@@ -632,9 +632,9 @@ class TelegramBridge:
         )
 
     async def _execute_loop(self, loop_name: str | None, entity_name: str) -> str:
-        """Handle /loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]."""
+        """Handle /loop <ralph|ship-it|plan-act-observe|build-test-refine> [entity]."""
         if not loop_name:
-            return "Usage: /loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]"
+            return "Usage: /loop <ralph|ship-it|plan-act-observe|build-test-refine> [entity]"
 
         target = entity_name.strip() if entity_name else self.default_maestro
         entity = self.process_manager.entities.get(target)

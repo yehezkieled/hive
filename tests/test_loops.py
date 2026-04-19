@@ -6,7 +6,7 @@ from hive.process.loops import LOOP_PROMPTS
 def test_loop_prompts_has_expected_keys() -> None:
     assert set(LOOP_PROMPTS.keys()) == {
         "ralph",
-        "yolo",
+        "ship-it",
         "plan-act-observe",
         "build-test-refine",
     }

@@ -18,7 +18,7 @@ LOOP_PROMPTS: dict[str, str] = {
         "Follow the RALPH loop: Read requirements, Ask clarifying questions, "
         "List approach options, Plan steps, Halt for review before executing."
     ),
-    "yolo": "Execute immediately without stopping for confirmation. Ship it.",
+    "ship-it": "Execute immediately without stopping for confirmation. Ship it.",
     "plan-act-observe": (
         "Follow the Plan-Act-Observe cycle: Plan your next step, "
         "Act on it, Observe the result, repeat."

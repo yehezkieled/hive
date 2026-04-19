@@ -284,8 +284,8 @@ class TestLoopMode:
 
     def test_set_loop_mode_valid(self) -> None:
         e = Entity(name="test", role="worker")
-        e.set_loop_mode("yolo")
-        assert e.loop_mode == "yolo"
+        e.set_loop_mode("ship-it")
+        assert e.loop_mode == "ship-it"
 
     def test_set_loop_mode_invalid_raises(self) -> None:
         e = Entity(name="test", role="worker")
@@ -293,7 +293,7 @@ class TestLoopMode:
             e.set_loop_mode("chaos")
 
     def test_build_cli_args_includes_append_system_prompt(self) -> None:
-        e = Entity(name="test", role="worker", loop_mode="yolo")
+        e = Entity(name="test", role="worker", loop_mode="ship-it")
         args = e.build_cli_args()
         assert "--append-system-prompt" in args
         idx = args.index("--append-system-prompt")

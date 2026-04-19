@@ -174,9 +174,9 @@ HELP_TEXT: dict[str, HelpEntry] = {
     ),
     "loop": HelpEntry(
         category="Session",
-        usage="/loop ralph|yolo|plan-act-observe|build-test-refine <entity>",
+        usage="/loop ralph|ship-it|plan-act-observe|build-test-refine <entity>",
         description="Set the workflow loop framework for an entity.",
-        examples=("/loop ralph dev",),
+        examples=("/loop ralph dev", "/loop ship-it dev"),
     ),
     "compact": HelpEntry(
         category="Session",

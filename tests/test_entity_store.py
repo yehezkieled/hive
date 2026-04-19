@@ -219,12 +219,12 @@ async def test_permission_mode_roundtrip(entity_store: EntityStore) -> None:
 
 async def test_loop_mode_roundtrip(entity_store: EntityStore) -> None:
     """loop_mode should survive upsert -> load."""
-    e = Entity(name="test", role="worker", loop_mode="yolo")
+    e = Entity(name="test", role="worker", loop_mode="ship-it")
     await entity_store.upsert(e)
 
     loaded = await entity_store.load("test")
     assert loaded is not None
-    assert loaded.loop_mode == "yolo"
+    assert loaded.loop_mode == "ship-it"
 
 
 async def test_current_priority_roundtrip(entity_store: EntityStore) -> None:
