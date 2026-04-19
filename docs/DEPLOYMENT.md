@@ -53,6 +53,10 @@ pip install -e ".[dev]"
 
 The dev extras pull in `pytest`, `testcontainers[postgres]`, and `ruff`.
 
+**Sprint 13 note**: `mcp` was added as a runtime dependency in `pyproject.toml`
+(the MCP advisor server runs as a stdio subprocess per entity). It is installed
+automatically via `pip install -e .` — no manual step required.
+
 ### Create `.env`
 
 Copy the template and fill in real values:
@@ -140,6 +144,9 @@ Running migration 008_entity_modes.sql
 Running migration 009_vault_actions.sql
 Running migration 010_last_activity_at.sql
 Running migration 011_blueprints_pgvector.sql
+Running migration 012_mode_requests.sql
+Running migration 013_task_retries.sql
+Running migration 014_loop_yolo_to_ship_it.sql
 Registered entity: dev
 Registered default maestro: dev
 Telegram bridge started, polling for updates
@@ -226,8 +233,21 @@ short-circuits when `dev` is already restored).
 `/priority <P0-P4> "<title>"`
 
 **Configuration:**
-`/mode <plan|edit|auto|yolo|yotree> [entity]`, `/loop <ralph|yolo|plan-act-observe|build-test-refine> [entity]`,
-`/model <opus|sonnet|haiku> [entity]`, `/personality reload <entity>`
+`/mode <plan|edit|auto|yolo|yotree> [entity]`, `/loop <ralph|ship-it|plan-act-observe|build-test-refine> [entity]`,
+`/model <opus|sonnet|haiku|opusplan> [entity]`, `/personality reload <entity>`
+
+> `opusplan` is a Claude Code alias: the planning phase uses Opus and execution
+> uses Sonnet. Pass it exactly as `opusplan` to `/model`.
+>
+> The loop mode formerly named `yolo` has been renamed `ship-it` to avoid
+> collision with `/mode yolo` (which means dangerous permissions). Using
+> `/loop yolo` now returns an "unknown loop" error — use `/loop ship-it`.
+
+**Heartbeat:**
+`/heartbeat on` — enable periodic status pings.
+`/heartbeat off` — disable.
+`/heartbeat status` — show current state and next scheduled ping time.
+`/heartbeat <minutes>` — set the ping interval (e.g. `/heartbeat 15`).
 
 > `yolo` and `yotree` both pass `--dangerously-skip-permissions` to the
 > Claude CLI. Non-user-owned entities cannot elevate themselves — they
@@ -461,6 +481,12 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
 | `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
 | `HIVE_ALLOW_AUTO_MERGE` | `0` | When `1`, enables `/merge <entity>`. Off by default so a fat-fingered Telegram message can't ship code. |
+| `HIVE_HEARTBEAT_ENABLED` | `false` | `true` to enable periodic status pings to Telegram. |
+| `HIVE_HEARTBEAT_INTERVAL_MINUTES` | `30` | Ping interval in minutes. |
+| `HIVE_ADVISOR_ENABLED` | `true` | `false` to disable the per-entity MCP advisor server. |
+| `HIVE_ADVISOR_COOLDOWN_SECONDS` | `300` | Minimum seconds between advisor calls per entity. |
+| `HIVE_ADVISOR_DAILY_LIMIT` | `20` | Max advisor calls per entity per day. |
+| `HIVE_ADVISOR_CONTEXT_MESSAGES` | `5` | Number of recent messages fed to advisor as context. |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.
@@ -474,7 +500,7 @@ become no-ops — Hive still boots.
 
 ---
 
-## 10. Known limitations (as of Sprint 12)
+## 10. Known limitations (as of Sprint 13)
 
 - **One-shot subprocess model** — each `send_to_entity` spawns a fresh
   `claude -p` subprocess, uses it, and kills it. The `--resume

@@ -1562,6 +1562,20 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 13 — Command UX, Observability, Entity Self-Review (2026-04-19, DONE)
+
+**Status:** Complete
+**Branch:** sprint-13-cmd-ux
+
+### Changes shipped:
+1. **opusplan model** — `/model opusplan <entity>` sets the entity to use Claude's opusplan alias (Opus for planning, Sonnet for execution).
+2. **Loop yolo → ship-it** — Renamed the `yolo` loop mode to `ship-it` to avoid collision with `/mode yolo` (dangerous permissions). DB migration 014 handles existing rows automatically.
+3. **Help improvements** — Every command now has usage examples in `/help <command>`. Flat `/help` listing shows count header. Descriptions standardized to ≤80 chars.
+4. **Heartbeat scheduler** — New `/heartbeat on|off|status|<minutes>` command. Sends periodic status pings to Telegram with entity health summary. Controlled via `HIVE_HEARTBEAT_ENABLED` env var.
+5. **MCP advisor server** — Each entity spawns a stdio MCP server exposing an `advisor()` tool backed by Opus. Entities call it for second-opinion review. Rate-limited to 5-min cooldown + 20 calls/day per entity. Audit log in `advisor_calls` table.
+
+---
+
 ## Sprint 12 — Self-Dev Readiness Bundle (2026-04-18, DONE)
 
 **Goal**: Make Hive capable of developing Hive with minimal human babysitting —
