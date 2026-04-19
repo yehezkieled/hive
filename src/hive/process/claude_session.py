@@ -10,6 +10,14 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# asyncio's default StreamReader buffer is 64 KB. Stream-json events
+# from ``claude -p`` routinely exceed that when a single assistant
+# message, tool result, or (since Sprint 11) auto-retrieved blueprint
+# block lands on one line — triggering LimitOverrunError on readline().
+# 10 MB per line is generous enough to survive any realistic payload
+# without inviting runaway memory use.
+_STREAM_LIMIT = 10 * 1024 * 1024
+
 
 class ClaudeSession:
     """Manages a single claude -p subprocess with stream-json I/O.
@@ -42,6 +50,7 @@ class ClaudeSession:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=self.cwd,
+            limit=_STREAM_LIMIT,
         )
         self.pid = self.process.pid
         self.started_at = datetime.now(UTC)

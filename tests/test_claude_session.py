@@ -90,6 +90,30 @@ async def test_session_usage_defaults_when_result_missing_usage() -> None:
     assert session.last_usage["output_tokens"] == 0
 
 
+async def test_session_handles_line_larger_than_default_stream_limit(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Regression: stream-json events that exceed asyncio's default 64 KB
+    StreamReader buffer must not crash. We bump ``limit`` to 10 MB in
+    ``ClaudeSession.start`` so a long assistant message / tool result /
+    auto-retrieved blueprint context on a single line parses fine.
+    """
+    # Generate events from inside python (not via bash arg) so we don't
+    # hit the OS arg-list limit with 200 KB of inline payload.
+    emitter = tmp_path / "emit.py"
+    emitter.write_text(
+        "import json\n"
+        "t = 'x' * 200_000\n"
+        "print(json.dumps({'type':'assistant',"
+        "'message':{'content':[{'type':'text','text':t}]}}))\n"
+        "print(json.dumps({'type':'result','result':t,'session_id':'big'}))\n"
+    )
+    session = ClaudeSession(args=["python3", str(emitter)])
+    await session.start()
+
+    response = await session.send_prompt("")
+    assert len(response) >= 200_000
+    assert session.session_id == "big"
+
+
 async def test_kill_session() -> None:
     """Test killing a long-running session."""
     session = ClaudeSession(args=["sleep", "60"])
