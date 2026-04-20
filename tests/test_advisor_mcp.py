@@ -175,6 +175,73 @@ class TestAdvisorTool:
             word in result.lower() for word in ("limit", "daily")
         ), f"Expected daily-limit message, got: {result!r}"
 
+    async def test_send_to_entity_writes_mcp_config_for_registered_maestro(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: send_to_entity must write the MCP config file even when
+        the entity was registered via register_maestro (not spawn_entity)."""
+        import asyncpg
+        from hive.models.maestro import Maestro
+        from hive.process.manager import ProcessManager
+
+        maestro = Maestro(name="dev", role="maestro")
+        # Override mcp_config_path to use tmp_path so we don't touch /tmp
+        config_path = str(tmp_path / "hive-mcp-dev.json")
+        maestro.__dict__["_mcp_config_path_override"] = config_path
+
+        captured_path: list[str] = []
+
+        def fake_generate(entity_name: str, path: str) -> None:
+            captured_path.append(path)
+            Path(path).write_text("{}")
+
+        mock_pool = MagicMock(spec=asyncpg.Pool)
+        pm = ProcessManager.__new__(ProcessManager)
+        pm._entities = {"dev": maestro}
+        pm._pool = mock_pool
+        pm._worktree_manager = MagicMock()
+        pm._compacting = set()
+        pm.blueprint_store = None
+        pm.audit_log = MagicMock()
+        pm.audit_log.log = AsyncMock()
+        pm.token_store = MagicMock()
+        pm.token_store.record = AsyncMock()
+        pm.task_store = MagicMock()
+        pm.task_store.get_pending_for = AsyncMock(return_value=[])
+        pm.router = MagicMock()
+        pm.router.has_pending = MagicMock(return_value=False)
+        pm.router.get_next = AsyncMock(return_value=None)
+        pm.router.get_inbox = AsyncMock(return_value=[])
+        pm.mode_request_store = MagicMock()
+        pm.mode_request_store.get_pending = AsyncMock(return_value=[])
+        pm.permissions = MagicMock()
+        pm.permissions.can_message = MagicMock(return_value=(True, ""))
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.send_prompt = AsyncMock(return_value="pong")
+        mock_session.kill = AsyncMock()
+        mock_session.session_id = None
+        mock_session.last_usage = None
+        mock_session.messages = []
+
+        pm._record_usage = AsyncMock()
+        pm._persist = AsyncMock()
+        pm._notify = AsyncMock()
+        pm._audit = AsyncMock()
+
+        with (
+            patch("hive.process.manager.generate_mcp_config", side_effect=fake_generate),
+            patch("hive.process.manager.ADVISOR_ENABLED", True),
+            patch("hive.process.manager.ClaudeSession", return_value=mock_session),
+            patch("hive.process.manager.can_message", return_value=(True, "")),
+            patch.object(type(maestro), "mcp_config_path", new_callable=lambda: property(lambda self: config_path)),
+        ):
+            result = await pm.send_to_entity("dev", "ping")
+
+        assert captured_path, "generate_mcp_config was not called — MCP file would be missing"
+        assert result == "pong"
+
     async def test_happy_path(self) -> None:
         """advisor() returns the Opus response text on a successful subprocess call."""
         import hive.mcp.advisor_server as advisor_server

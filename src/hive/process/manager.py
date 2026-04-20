@@ -16,11 +16,13 @@ from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.config import (
+    ADVISOR_ENABLED,
     AUTO_COMPACT_ENABLED,
     AUTO_COMPACT_THRESHOLD,
     AUTO_RETRIEVE_ENABLED,
     AUTO_RETRIEVE_TOP_K,
 )
+from hive.mcp.config import generate_mcp_config
 from hive.knowledge.blueprints import BlueprintStore
 from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
 from hive.models.maestro import Maestro
@@ -311,6 +313,9 @@ class ProcessManager:
         args = entity.build_cli_args()
         if entity.session_id:
             args.extend(["--resume", entity.session_id])
+
+        if ADVISOR_ENABLED:
+            generate_mcp_config(entity.name, entity.mcp_config_path)
 
         session = ClaudeSession(args=args)
         await session.start()
