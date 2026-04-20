@@ -22,8 +22,8 @@ from hive.config import (
     AUTO_RETRIEVE_ENABLED,
     AUTO_RETRIEVE_TOP_K,
 )
-from hive.mcp.config import generate_mcp_config
 from hive.knowledge.blueprints import BlueprintStore
+from hive.mcp.config import generate_mcp_config
 from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead

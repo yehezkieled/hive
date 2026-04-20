@@ -148,7 +148,8 @@ class TestAdvisorTool:
         advisor_server._pool = mock_pool
 
         # get_last_call returns very recent timestamp → triggers rate limit
-        with patch.object(AdvisorStore, "get_last_call", new=AsyncMock(return_value=datetime.now(UTC))):
+        recent = AsyncMock(return_value=datetime.now(UTC))
+        with patch.object(AdvisorStore, "get_last_call", new=recent):
             with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
                 result = await advisor_server.advisor(context="test")
 
@@ -166,8 +167,9 @@ class TestAdvisorTool:
         mock_pool.execute = AsyncMock(return_value=None)
         advisor_server._pool = mock_pool
 
+        at_limit = AsyncMock(return_value=ADVISOR_DAILY_LIMIT)
         with patch.object(AdvisorStore, "get_last_call", new=AsyncMock(return_value=None)):
-            with patch.object(AdvisorStore, "count_today", new=AsyncMock(return_value=ADVISOR_DAILY_LIMIT)):
+            with patch.object(AdvisorStore, "count_today", new=at_limit):
                 with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
                     result = await advisor_server.advisor(context="test")
 
@@ -181,6 +183,7 @@ class TestAdvisorTool:
         """Regression: send_to_entity must write the MCP config file even when
         the entity was registered via register_maestro (not spawn_entity)."""
         import asyncpg
+
         from hive.models.maestro import Maestro
         from hive.process.manager import ProcessManager
 
@@ -230,12 +233,13 @@ class TestAdvisorTool:
         pm._notify = AsyncMock()
         pm._audit = AsyncMock()
 
+        mcp_prop = property(lambda self: config_path)
         with (
             patch("hive.process.manager.generate_mcp_config", side_effect=fake_generate),
             patch("hive.process.manager.ADVISOR_ENABLED", True),
             patch("hive.process.manager.ClaudeSession", return_value=mock_session),
             patch("hive.process.manager.can_message", return_value=(True, "")),
-            patch.object(type(maestro), "mcp_config_path", new_callable=lambda: property(lambda self: config_path)),
+            patch.object(type(maestro), "mcp_config_path", new_callable=lambda: mcp_prop),
         ):
             result = await pm.send_to_entity("dev", "ping")
 
@@ -267,10 +271,14 @@ class TestAdvisorTool:
         mock_proc = MagicMock()
         mock_proc.communicate = AsyncMock(return_value=(canned_output, b""))
 
+        proc_patch = patch(
+            "hive.mcp.advisor_server.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=mock_proc),
+        )
         with patch.object(AdvisorStore, "get_last_call", new=AsyncMock(return_value=None)):
             with patch.object(AdvisorStore, "count_today", new=AsyncMock(return_value=0)):
                 with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
-                    with patch("hive.mcp.advisor_server.asyncio.create_subprocess_exec", new=AsyncMock(return_value=mock_proc)):
+                    with proc_patch:
                         result = await advisor_server.advisor(context="")
 
         assert "Looks good." in result, f"Expected Opus response, got: {result!r}"
