@@ -1078,8 +1078,7 @@ class TelegramBridge:
 
         header = (
             f"Heartbeat — {self.heartbeat_interval_minutes}m interval\n"
-            f"{len(running)} agent(s) running"
-            + (f", {len(errors)} error(s)." if errors else ".")
+            f"{len(running)} agent(s) running" + (f", {len(errors)} error(s)." if errors else ".")
         )
 
         if not statuses:
@@ -1123,8 +1122,7 @@ class TelegramBridge:
         if sub.isdigit():
             self.heartbeat_interval_minutes = int(sub)
             return (
-                f"Heartbeat interval set to {sub}m. "
-                "Change takes effect on the next scheduled tick."
+                f"Heartbeat interval set to {sub}m. Change takes effect on the next scheduled tick."
             )
 
         return "Usage: /heartbeat on|off|status|<minutes>"

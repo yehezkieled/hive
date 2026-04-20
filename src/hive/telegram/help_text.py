@@ -211,9 +211,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "model": HelpEntry(
         category="Resources",
         usage="/model opus|sonnet|haiku|opusplan [entity]",
-        description=(
-            "Change entity model. opusplan plans with Opus and executes with Sonnet."
-        ),
+        description=("Change entity model. opusplan plans with Opus and executes with Sonnet."),
         examples=(
             "/model opus dev",
             "/model sonnet dev.backend",

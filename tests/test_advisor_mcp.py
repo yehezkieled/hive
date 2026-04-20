@@ -153,9 +153,9 @@ class TestAdvisorTool:
             with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
                 result = await advisor_server.advisor(context="test")
 
-        assert any(
-            word in result.lower() for word in ("rate", "cooldown", "limit")
-        ), f"Expected rate-limit message, got: {result!r}"
+        assert any(word in result.lower() for word in ("rate", "cooldown", "limit")), (
+            f"Expected rate-limit message, got: {result!r}"
+        )
 
     async def test_daily_limit_branch(self) -> None:
         """advisor() returns a daily-limit message when count_today reaches ADVISOR_DAILY_LIMIT."""
@@ -173,9 +173,9 @@ class TestAdvisorTool:
                 with patch.object(AdvisorStore, "record", new=AsyncMock(return_value=None)):
                     result = await advisor_server.advisor(context="test")
 
-        assert any(
-            word in result.lower() for word in ("limit", "daily")
-        ), f"Expected daily-limit message, got: {result!r}"
+        assert any(word in result.lower() for word in ("limit", "daily")), (
+            f"Expected daily-limit message, got: {result!r}"
+        )
 
     async def test_send_to_entity_writes_mcp_config_for_registered_maestro(
         self, tmp_path: Path
@@ -255,9 +255,7 @@ class TestAdvisorTool:
         canned_output = json.dumps(
             {
                 "type": "assistant",
-                "message": {
-                    "content": [{"type": "text", "text": "Looks good."}]
-                },
+                "message": {"content": [{"type": "text", "text": "Looks good."}]},
             }
         ).encode()
 

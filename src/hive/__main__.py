@@ -223,12 +223,8 @@ async def main() -> None:
             )
             logger.info("Daily summary scheduled at %02d:00 UTC", DAILY_SUMMARY_HOUR)
         if HEARTBEAT_ENABLED and SUMMARY_CHAT_ID:
-            background_tasks.append(
-                asyncio.create_task(heartbeat_scheduler(bridge, stop_event))
-            )
-            logger.info(
-                "Heartbeat scheduler started (interval=%dm)", HEARTBEAT_INTERVAL_MINUTES
-            )
+            background_tasks.append(asyncio.create_task(heartbeat_scheduler(bridge, stop_event)))
+            logger.info("Heartbeat scheduler started (interval=%dm)", HEARTBEAT_INTERVAL_MINUTES)
 
         await stop_event.wait()
 

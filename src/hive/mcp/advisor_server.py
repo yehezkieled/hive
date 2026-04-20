@@ -92,9 +92,7 @@ async def advisor(context: str = "") -> str:
                 "Advisor daily limit (%d) reached for entity %r.", ADVISOR_DAILY_LIMIT, entity_name
             )
             try:
-                await advisor_store.record(
-                    entity_name, context, None, 0, 0, None, "rate_limited"
-                )
+                await advisor_store.record(entity_name, context, None, 0, 0, None, "rate_limited")
             except Exception:
                 pass
             return f"Advisor daily limit ({ADVISOR_DAILY_LIMIT} calls) reached."
@@ -110,10 +108,12 @@ async def advisor(context: str = "") -> str:
             entity_name,
             ADVISOR_CONTEXT_MESSAGES,
         )
-        messages_text = "\n".join(
-            f"[{r['timestamp'].strftime('%H:%M')} {r['sender']} → {r['recipient']}]: {r['content']}"
-            for r in reversed(rows)
-        ) or "(no recent messages)"
+
+        def _fmt_row(r: dict) -> str:
+            ts = r["timestamp"].strftime("%H:%M")
+            return f"[{ts} {r['sender']} → {r['recipient']}]: {r['content']}"
+
+        messages_text = "\n".join(_fmt_row(r) for r in reversed(rows)) or "(no recent messages)"
 
         # ── Build prompt ─────────────────────────────────────────────────────
         # Wrap message history in XML delimiters so raw content can't inject
@@ -213,9 +213,7 @@ async def advisor(context: str = "") -> str:
             if pool is not None:
                 from hive.bus.advisor_store import AdvisorStore
 
-                await AdvisorStore(pool).record(
-                    entity_name, context, None, 0, 0, None, "error"
-                )
+                await AdvisorStore(pool).record(entity_name, context, None, 0, 0, None, "error")
         except Exception:
             pass
         return f"Advisor error: {exc}"
