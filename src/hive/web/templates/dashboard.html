@@ -48,6 +48,7 @@
 
     {# ── Chat rail ────────────────────────────────────────────────────── #}
     <aside class="chat-rail">
+      <div class="chat-rail__resizer" id="chat-rail-resizer" title="Drag to resize"></div>
       <div class="chat-rail__head">
         <span class="chat-rail__title">Chat</span>
         <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
@@ -198,6 +199,28 @@ function ensureToken() {
   return token;
 }
 
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
+}
+
+// Tiny markdown-ish renderer: fenced code, inline code, bold. Escape-first
+// to avoid any XSS — content is server-controlled but defensive anyway.
+function renderMarkdown(text) {
+  let html = escapeHtml(text);
+  const fenced = [];
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) => {
+    fenced.push(code.replace(/^\n/, '').replace(/\n$/, ''));
+    return `\u0000FENCED${fenced.length - 1}\u0000`;
+  });
+  html = html.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\u0000FENCED(\d+)\u0000/g, (_, i) =>
+    `<pre><code>${fenced[i]}</code></pre>`);
+  return html;
+}
+
 function appendChatLine(from, text) {
   const rail = document.querySelector('.chat-rail__messages');
   if (!rail) return;
@@ -209,14 +232,14 @@ function appendChatLine(from, text) {
     wrap.className = 'msg msg--user';
     wrap.innerHTML = '<div class="msg__avatar">me</div>'
       + '<div class="msg__body"><div class="msg__bubble"></div></div>';
-    wrap.querySelector('.msg__bubble').textContent = text;
+    wrap.querySelector('.msg__bubble').innerHTML = renderMarkdown(text);
   } else {
     wrap.className = 'msg msg--agent';
     wrap.innerHTML = '<div class="msg__avatar">·</div>'
       + '<div class="msg__body"><span class="msg__from"></span>'
       + '<div class="msg__bubble"></div></div>';
     wrap.querySelector('.msg__from').textContent = from;
-    wrap.querySelector('.msg__bubble').textContent = text;
+    wrap.querySelector('.msg__bubble').innerHTML = renderMarkdown(text);
   }
   rail.appendChild(wrap);
   rail.scrollTop = rail.scrollHeight;
@@ -284,6 +307,44 @@ document.querySelectorAll('.composer__chip').forEach(chip => {
   });
 });
 refreshSendState();
+
+// Render markdown on server-rendered initial messages.
+document.querySelectorAll('.chat-rail__messages .msg__bubble').forEach(el => {
+  el.innerHTML = renderMarkdown(el.textContent);
+});
+
+// Drag-resizable chat-rail. Width persists in localStorage.
+(function setupRailResizer() {
+  const rail = document.querySelector('.chat-rail');
+  const handle = document.getElementById('chat-rail-resizer');
+  if (!rail || !handle) return;
+  const KEY = 'hive_chat_rail_width';
+  const MIN = 280, MAX = Math.min(720, Math.floor(window.innerWidth * 0.6));
+  const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+  if (!Number.isNaN(saved)) rail.style.width = Math.max(MIN, Math.min(MAX, saved)) + 'px';
+  let dragging = false;
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    handle.classList.add('is-dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const left = rail.getBoundingClientRect().left;
+    const w = Math.max(MIN, Math.min(MAX, e.clientX - left));
+    rail.style.width = w + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('is-dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    localStorage.setItem(KEY, parseInt(rail.style.width, 10));
+  });
+})();
 
 // Live notification stream (Sprint 15 Phase 4). EventSource cannot set
 // custom headers, so the token rides in the query string — same gate.

@@ -243,7 +243,21 @@ body {
   flex-direction: column;
   font-size: 13px;
   min-height: 0;
+  position: relative;
 }
+.chat-rail__resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  background: transparent;
+  transition: background 0.15s;
+}
+.chat-rail__resizer:hover,
+.chat-rail__resizer.is-dragging { background: var(--honey); opacity: 0.4; }
 .chat-rail__head {
   padding: 12px 16px;
   border-bottom: 1px solid var(--rule-soft);
@@ -397,6 +411,9 @@ body {
   font-size: 13px;
   line-height: 1.5;
   border-radius: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 .msg--user .msg__bubble {
   background: var(--ink);
@@ -409,7 +426,43 @@ body {
   color: var(--ink);
   border: 1px solid var(--rule-soft);
   border-bottom-left-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
 }
+.msg__bubble code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: rgba(31, 24, 18, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.msg--user .msg__bubble code {
+  background: rgba(250, 247, 237, 0.18);
+  color: var(--paper);
+}
+.msg__bubble pre {
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  background: rgba(31, 24, 18, 0.06);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.msg--user .msg__bubble pre {
+  background: rgba(250, 247, 237, 0.12);
+  border-color: rgba(250, 247, 237, 0.2);
+}
+.msg__bubble pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+.msg__bubble strong { font-weight: 700; }
 .msg--system {
   align-self: center;
   font-family: var(--font-mono);
