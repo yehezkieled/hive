@@ -196,6 +196,8 @@ async def main() -> None:
                 audit_log=audit_log,
                 vault_store=vault_store,
                 mode_request_store=mode_request_store,
+                default_maestro=DEFAULT_MAESTRO,
+                personalities_dir=PERSONALITIES_DIR,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)

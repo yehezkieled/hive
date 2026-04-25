@@ -26,48 +26,7 @@ if TYPE_CHECKING:
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
-
-
-def _mock_view_model() -> dict:
-    """Static placeholder data for Phase 1 — replaced with real data in Phase 2."""
-    return {
-        "approvals_count": 0,
-        "health": {"state": "active", "label": "all systems ok"},
-        "hero": {
-            "mood": "buzzing",
-            "active_count": 0,
-            "idle_count": 0,
-            "dormant_count": 0,
-        },
-        "chat": {
-            "participants": [],
-            "messages": [],
-        },
-        "pa": {
-            "name": "pa",
-            "role": "personal assistant",
-            "state": "dormant",
-            "summary": "PA maestro not yet spawned. Run /m:pa hello in Telegram to register.",
-            "updated": "—",
-            "leads": 0,
-            "workers": 0,
-            "tasks": [],
-            "mode": "—",
-            "model": "—",
-        },
-        "vault": {
-            "pending_approvals": 0,
-            "highest": None,
-            "recent": [],
-        },
-        "active": [],
-        "idle": [],
-        "dormant": [],
-        "terminal": {
-            "unlocked": False,
-            "hint": "available via SSH on Tailscale (port 7777)",
-        },
-    }
+PERSONALITIES_DIR = Path(__file__).resolve().parents[3] / "personalities"
 
 
 def create_app(
@@ -77,12 +36,18 @@ def create_app(
     audit_log: AuditLog | None = None,
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
+    default_maestro: str = "dev",
+    personalities_dir: Path | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
+    from hive.web.view_model import build_landing_view_model
+
     app = FastAPI(title="Hive Dashboard", version="0.2.0")
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    pdir = personalities_dir if personalities_dir is not None else PERSONALITIES_DIR
 
     # ─── JSON API (preserved from v0.1) ─────────────────────────────────
     @app.get("/api/status")
@@ -155,8 +120,15 @@ def create_app(
 
     # ─── Landing fragment endpoints (htmx) ─────────────────────────────
     async def _build_view() -> dict:
-        # Phase 1: mock data. Phase 2 wires this to real stores.
-        return _mock_view_model()
+        return await build_landing_view_model(
+            process_manager=process_manager,
+            task_store=task_store,
+            token_store=token_store,
+            vault_store=vault_store,
+            mode_request_store=mode_request_store,
+            personalities_dir=pdir,
+            default_maestro=default_maestro,
+        )
 
     @app.get("/api/landing/hero", response_class=HTMLResponse)
     async def landing_hero(request: Request):
