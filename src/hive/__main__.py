@@ -21,12 +21,20 @@ from hive.config import (
     DAILY_SUMMARY_HOUR,
     DEFAULT_MAESTRO,
     DEFAULT_MODEL,
+    EMAIL_DIGEST_BUFFER_SIZE,
+    EMAIL_DIGEST_INTERVAL_MINUTES,
+    EMAIL_ENABLED,
+    EMAIL_TO,
     HEARTBEAT_ENABLED,
     HEARTBEAT_INTERVAL_MINUTES,
     IDLE_TIMEOUT_MINUTES,
     MAX_CONCURRENT_SESSIONS,
     PERSONALITIES_DIR,
     POSTGRES_DSN,
+    SMTP_HOST,
+    SMTP_PASSWORD,
+    SMTP_PORT,
+    SMTP_USER,
     SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
@@ -34,7 +42,7 @@ from hive.config import (
     WEB_PORT,
 )
 from hive.knowledge.blueprints import BlueprintStore
-from hive.notifications import NotificationDispatcher
+from hive.notifications import EmailDigest, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
 logger = logging.getLogger("hive")
@@ -134,6 +142,25 @@ async def main() -> None:
     mode_request_store = ModeRequestStore(store.pool)
 
     notification_dispatcher = NotificationDispatcher()
+
+    if EMAIL_ENABLED:
+        if not EMAIL_TO:
+            logger.warning(
+                "HIVE_EMAIL_ENABLED set but HIVE_EMAIL_TO is empty; skipping email digest"
+            )
+        else:
+            digest = EmailDigest(
+                recipient=EMAIL_TO,
+                smtp_host=SMTP_HOST,
+                smtp_port=SMTP_PORT,
+                smtp_user=SMTP_USER,
+                smtp_password=SMTP_PASSWORD,
+                buffer_size=EMAIL_DIGEST_BUFFER_SIZE,
+                interval_minutes=EMAIL_DIGEST_INTERVAL_MINUTES,
+            )
+            notification_dispatcher.register(digest)
+            mode = "console" if digest.console_mode else "smtp"
+            logger.info("Email digest channel registered (mode=%s, to=%s)", mode, EMAIL_TO)
 
     process_manager = ProcessManager(
         router=router,

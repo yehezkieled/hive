@@ -71,6 +71,18 @@ SUMMARY_CHAT_ID = os.environ.get("HIVE_SUMMARY_CHAT_ID", "")
 HEARTBEAT_ENABLED = os.environ.get("HIVE_HEARTBEAT_ENABLED", "false").lower() == "true"
 HEARTBEAT_INTERVAL_MINUTES = int(os.environ.get("HIVE_HEARTBEAT_INTERVAL_MINUTES", "30"))
 
+# Email digest (Sprint 15 Phase 5). When enabled but SMTP* unset, the
+# digest runs in console mode — events are logged instead of sent — so
+# the channel is testable on dev hosts without real credentials.
+EMAIL_ENABLED = os.environ.get("HIVE_EMAIL_ENABLED", "false").lower() == "true"
+EMAIL_TO = os.environ.get("HIVE_EMAIL_TO", "")
+SMTP_HOST = os.environ.get("HIVE_SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("HIVE_SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("HIVE_SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("HIVE_SMTP_PASSWORD", "")
+EMAIL_DIGEST_INTERVAL_MINUTES = int(os.environ.get("HIVE_EMAIL_DIGEST_INTERVAL_MINUTES", "60"))
+EMAIL_DIGEST_BUFFER_SIZE = int(os.environ.get("HIVE_EMAIL_DIGEST_BUFFER_SIZE", "20"))
+
 # Embeddings / semantic blueprints (Sprint 11)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")

@@ -13,5 +13,11 @@ from hive.notifications.dispatcher import (
     NotificationChannel,
     NotificationDispatcher,
 )
+from hive.notifications.email import EmailDigest
 
-__all__ = ["Notification", "NotificationChannel", "NotificationDispatcher"]
+__all__ = [
+    "EmailDigest",
+    "Notification",
+    "NotificationChannel",
+    "NotificationDispatcher",
+]
