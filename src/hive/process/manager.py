@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
+from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
 
@@ -48,6 +48,7 @@ class ProcessManager:
         blueprint_store: BlueprintStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         task_store: TaskStore | None = None,
+        notification_dispatcher: NotificationDispatcher | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
@@ -58,12 +59,12 @@ class ProcessManager:
         self.blueprint_store = blueprint_store
         self.mode_request_store = mode_request_store
         self.task_store = task_store
+        self.notification_dispatcher = notification_dispatcher
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
         self._last_failure_reports: list[int] = []
-        self._notification_callback: Callable[[str], Awaitable[None]] | None = None
         self._compacting: set[str] = set()
 
     async def _persist(self, entity: Entity) -> None:
@@ -860,18 +861,11 @@ class ProcessManager:
                 logger.warning("Entity %s died unexpectedly", name)
         return unhealthy
 
-    def set_notification_callback(self, callback: Callable[[str], Awaitable[None]]) -> None:
-        """Register a callback for proactive notifications (e.g. Telegram alerts)."""
-        self._notification_callback = callback
-
-    async def _notify(self, message: str) -> None:
-        """Send a proactive notification if a callback is registered."""
-        if self._notification_callback is None:
+    async def _notify(self, message: str, kind: str = "info") -> None:
+        """Send a proactive notification through the registered dispatcher."""
+        if self.notification_dispatcher is None:
             return
-        try:
-            await self._notification_callback(message)
-        except Exception:
-            logger.exception("Notification callback failed")
+        await self.notification_dispatcher.dispatch(Notification(text=message, kind=kind))
 
     async def compact_entity(self, entity_name: str) -> str:
         """Compact an entity's context: summarize, kill, re-register, seed.

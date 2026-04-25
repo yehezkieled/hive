@@ -25,11 +25,22 @@ from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
+from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+class _CapturingChannel:
+    """Test channel that records every notification it receives."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def send(self, notification: Notification) -> None:
+        self.messages.append(notification.text)
 
 
 @pytest_asyncio.fixture
@@ -38,7 +49,12 @@ async def manager(
     task_store: TaskStore,
     audit_log: AuditLog,
 ) -> AsyncIterator[ProcessManager]:
-    mgr = ProcessManager(router=router, task_store=task_store, audit_log=audit_log)
+    mgr = ProcessManager(
+        router=router,
+        task_store=task_store,
+        audit_log=audit_log,
+        notification_dispatcher=NotificationDispatcher(),
+    )
     try:
         yield mgr
     finally:
@@ -204,21 +220,17 @@ async def test_handle_task_failure_notifies_user_when_maestro_escalates(
     for _ in range(3):
         await task_store.increment_retry(task.id, "p")
 
-    captured: list[str] = []
-
-    async def notify(msg: str) -> None:
-        captured.append(msg)
-
-    manager.set_notification_callback(notify)
+    channel = _CapturingChannel()
+    manager.notification_dispatcher.register(channel)
     send = AsyncMock()
     monkeypatch.setattr(manager, "send_to_entity", send)
 
     await manager.handle_task_failure(task.id, "boom")
 
     send.assert_not_called()
-    assert captured, "Expected user-level TG notification on maestro escalation"
-    assert "boom" in captured[0]
-    assert f"task #{task.id}" in captured[0]
+    assert channel.messages, "Expected user-level TG notification on maestro escalation"
+    assert "boom" in channel.messages[0]
+    assert f"task #{task.id}" in channel.messages[0]
 
 
 async def test_handle_task_failure_without_store_is_noop(

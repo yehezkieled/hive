@@ -34,6 +34,7 @@ from hive.config import (
     WEB_PORT,
 )
 from hive.knowledge.blueprints import BlueprintStore
+from hive.notifications import NotificationDispatcher
 from hive.process.manager import ProcessManager
 
 logger = logging.getLogger("hive")
@@ -132,6 +133,8 @@ async def main() -> None:
     blueprint_store = BlueprintStore(store.pool)
     mode_request_store = ModeRequestStore(store.pool)
 
+    notification_dispatcher = NotificationDispatcher()
+
     process_manager = ProcessManager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
@@ -141,6 +144,7 @@ async def main() -> None:
         blueprint_store=blueprint_store,
         mode_request_store=mode_request_store,
         task_store=task_store,
+        notification_dispatcher=notification_dispatcher,
     )
 
     # Restore persisted entities (organizational structure, not running procs)
@@ -181,7 +185,11 @@ async def main() -> None:
         )
         bridge.blueprint_store = blueprint_store
         await bridge.start()
-        logger.info("Running with Telegram bridge")
+        notification_dispatcher.register(bridge)
+        logger.info(
+            "Running with Telegram bridge (notification channels: %d)",
+            notification_dispatcher.channel_count,
+        )
 
         # Start web dashboard if configured
         if WEB_PORT > 0:

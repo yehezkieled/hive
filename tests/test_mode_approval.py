@@ -13,7 +13,18 @@ from hive.bus.router import MessageRouter
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
+from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
+
+
+class _CapturingChannel:
+    """Test channel that records every notification it receives."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def send(self, notification: Notification) -> None:
+        self.messages.append(notification.text)
 
 
 @pytest_asyncio.fixture
@@ -22,7 +33,11 @@ async def manager(
     mode_request_store: ModeRequestStore,
 ) -> AsyncIterator[ProcessManager]:
     """ProcessManager wired to the session PG container via mode_request_store."""
-    mgr = ProcessManager(router=router, mode_request_store=mode_request_store)
+    mgr = ProcessManager(
+        router=router,
+        mode_request_store=mode_request_store,
+        notification_dispatcher=NotificationDispatcher(),
+    )
     try:
         yield mgr
     finally:
@@ -86,17 +101,13 @@ async def test_maestro_request_notifies_user(
     manager: ProcessManager,
 ) -> None:
     _populate_org(manager)
-    notifications: list[str] = []
-
-    async def capture(msg: str) -> None:
-        notifications.append(msg)
-
-    manager.set_notification_callback(capture)
+    channel = _CapturingChannel()
+    manager.notification_dispatcher.register(channel)
     await manager.request_mode_change("dev", "yolo", reason="quick CI fix")
-    assert len(notifications) == 1
-    assert "dev" in notifications[0]
-    assert "yolo" in notifications[0]
-    assert "quick CI fix" in notifications[0]
+    assert len(channel.messages) == 1
+    assert "dev" in channel.messages[0]
+    assert "yolo" in channel.messages[0]
+    assert "quick CI fix" in channel.messages[0]
 
 
 async def test_lead_request_does_not_notify_user(
@@ -104,14 +115,10 @@ async def test_lead_request_does_not_notify_user(
 ) -> None:
     """Leads escalate to their maestro, not the user — no TG ping."""
     _populate_org(manager)
-    notifications: list[str] = []
-
-    async def capture(msg: str) -> None:
-        notifications.append(msg)
-
-    manager.set_notification_callback(capture)
+    channel = _CapturingChannel()
+    manager.notification_dispatcher.register(channel)
     await manager.request_mode_change("dev.backend", "yotree")
-    assert notifications == []
+    assert channel.messages == []
 
 
 async def test_approve_updates_entity_mode(

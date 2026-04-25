@@ -15,14 +15,29 @@ from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
+from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 from hive.process.worktree import WorktreeManager
+
+
+class _CapturingChannel:
+    """Test channel that records every notification it receives."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def send(self, notification: Notification) -> None:
+        self.messages.append(notification.text)
 
 
 @pytest_asyncio.fixture
 async def manager(router: MessageRouter) -> AsyncIterator[ProcessManager]:
     """Create a process manager over the shared test router."""
-    mgr = ProcessManager(router=router, max_sessions=2)
+    mgr = ProcessManager(
+        router=router,
+        max_sessions=2,
+        notification_dispatcher=NotificationDispatcher(),
+    )
     try:
         yield mgr
     finally:
@@ -1047,12 +1062,8 @@ class TestIdleKill:
         assert killed == []
 
     async def test_notification_on_idle_kill(self, manager: ProcessManager) -> None:
-        notifications: list[str] = []
-
-        async def capture(msg: str) -> None:
-            notifications.append(msg)
-
-        manager.set_notification_callback(capture)
+        channel = _CapturingChannel()
+        manager.notification_dispatcher.register(channel)
 
         entity = Entity(name="worker", role="worker")
         entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
@@ -1060,6 +1071,6 @@ class TestIdleKill:
         manager.router.register("worker")
 
         await manager.kill_idle_entities(30)
-        assert len(notifications) == 1
-        assert "worker" in notifications[0]
-        assert "inactive" in notifications[0]
+        assert len(channel.messages) == 1
+        assert "worker" in channel.messages[0]
+        assert "inactive" in channel.messages[0]

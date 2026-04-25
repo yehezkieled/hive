@@ -1,0 +1,67 @@
+"""Channel-based notification dispatcher (Sprint 15)."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Notification:
+    """A single proactive event the orchestrator wants to surface.
+
+    ``kind`` exists for future per-channel routing (e.g. "send P0 errors
+    to email but not SSE"). For now every channel receives every event.
+    """
+
+    text: str
+    kind: str = "info"
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@runtime_checkable
+class NotificationChannel(Protocol):
+    """Anything that can receive a notification.
+
+    Telegram bridge, SSE broker, and email digest all implement this.
+    """
+
+    async def send(self, notification: Notification) -> None: ...
+
+
+class NotificationDispatcher:
+    """Fan-out registry — owns the list of channels and delivers events.
+
+    A failing channel is logged and skipped; the others still receive
+    the notification. This is important because the email digest can
+    fail silently for hours without taking down Telegram alerts.
+    """
+
+    def __init__(self) -> None:
+        self._channels: list[NotificationChannel] = []
+
+    def register(self, channel: NotificationChannel) -> None:
+        if channel not in self._channels:
+            self._channels.append(channel)
+
+    def unregister(self, channel: NotificationChannel) -> None:
+        if channel in self._channels:
+            self._channels.remove(channel)
+
+    @property
+    def channel_count(self) -> int:
+        return len(self._channels)
+
+    async def dispatch(self, notification: Notification) -> None:
+        for channel in list(self._channels):
+            try:
+                await channel.send(notification)
+            except Exception:
+                logger.exception(
+                    "Notification channel %s failed",
+                    type(channel).__name__,
+                )

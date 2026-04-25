@@ -18,6 +18,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
 from hive.models.task import TaskStatus
+from hive.notifications import Notification
 from hive.telegram.commands import parse_command
 
 if TYPE_CHECKING:
@@ -112,10 +113,11 @@ class TelegramBridge:
         await self._app.initialize()
         await self._app.start()
         await self._app.updater.start_polling(drop_pending_updates=True)  # type: ignore[union-attr]
-
-        # Register notification callback so ProcessManager can send proactive alerts
-        self.process_manager.set_notification_callback(self._send_notification)
         logger.info("Telegram bridge started, polling for updates")
+
+    async def send(self, notification: Notification) -> None:
+        """NotificationChannel implementation — delivers to the Telegram chat."""
+        await self._send_notification(notification.text)
 
     async def _send_notification(self, message: str) -> None:
         """Send a proactive notification to the configured chat."""
