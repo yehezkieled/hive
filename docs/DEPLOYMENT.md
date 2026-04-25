@@ -157,6 +157,35 @@ Running with Telegram bridge
 Migrations are idempotent and tracked in `schema_migrations` — subsequent
 startups skip already-applied ones silently.
 
+### Web dashboard (Sprint 14)
+
+The A.2 Paper Ops landing page lives at `/`. It's disabled by default —
+set `HIVE_WEB_PORT` to a port to enable it:
+
+```bash
+HIVE_WEB_PORT=8080 python -m hive
+```
+
+Defaults:
+
+- `HIVE_WEB_HOST=127.0.0.1` — localhost-only. Reach the page via Tailscale
+  rather than exposing it publicly:
+  ```
+  http://<tailscale-host>:8080/
+  ```
+  e.g. `http://tailfb3900.ts.net:8080/`. SSH or `tailscale up` from the
+  device first; the dashboard is read-only with no authentication, so the
+  Tailnet ACL is the access boundary.
+- The page polls three htmx fragments — `/api/landing/{hero,vault,active}`
+  — at 30s / 15s / 5s respectively. JSON endpoints from earlier sprints
+  (`/api/{status,org,tasks,cost,audit}`) remain available alongside.
+- Static assets (`/static/landing.css`) are mounted from
+  `src/hive/web/static/` — bumping the CSS file is hot-reloadable on
+  browser refresh; no server restart needed for stylesheet-only changes.
+
+Auth is deferred — do **not** flip `HIVE_WEB_HOST` to `0.0.0.0` until a
+later sprint ships session-cookie or OAuth-based authentication.
+
 ### Find the actual python PID
 
 `$!` from `nohup … &` points at the shell wrapper, which often dies right
@@ -467,7 +496,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
-| `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Keep at `127.0.0.1` until auth ships (Sprint 14) — `0.0.0.0` exposes an unauthenticated dashboard to any interface. |
+| `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Keep at `127.0.0.1` until auth lands (deferred past Sprint 14) — `0.0.0.0` exposes an unauthenticated dashboard to any interface. |
 | `HIVE_AUTO_COMPACT_ENABLED` | `true` | Auto-compact entities when context exceeds threshold |
 | `HIVE_AUTO_COMPACT_THRESHOLD` | `50000` | Input token count that triggers auto-compact |
 | `HIVE_AUTO_KILL_IDLE_ENABLED` | `true` | Kill entities inactive beyond timeout |
@@ -500,7 +529,7 @@ become no-ops — Hive still boots.
 
 ---
 
-## 10. Known limitations (as of Sprint 13)
+## 10. Known limitations (as of Sprint 14)
 
 - **One-shot subprocess model** — each `send_to_entity` spawns a fresh
   `claude -p` subprocess, uses it, and kills it. The `--resume
@@ -520,7 +549,8 @@ become no-ops — Hive still boots.
 - **No web dashboard auth** — the web dashboard (when enabled via
   `HIVE_WEB_PORT`) is read-only with no authentication. `HIVE_WEB_HOST`
   defaults to `127.0.0.1` so it's localhost-only; do not flip to
-  `0.0.0.0` until Sprint 14 ships proper auth.
+  `0.0.0.0` until a later sprint ships session/OAuth auth (Sprint 14
+  shipped the A.2 landing page but deferred auth).
 - **Daily summary timing** — the scheduler checks once per hour, so the
   summary may fire up to 59 minutes after the configured hour if the
   process restarts mid-cycle.

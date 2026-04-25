@@ -1562,6 +1562,93 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 14 — Web Landing Page (A.2 Paper Ops) (2026-04-25, DONE)
+
+**Status:** Complete
+**Branch:** main (merged direct)
+
+**Goal**: Replace the dark-slate htmx dashboard at `/` with the A.2 Paper Ops
+landing page from `claude.ai/design`, server-rendered and wired to live Hive
+state. Auth deferred to a follow-up sprint — site stays bound to `127.0.0.1`
+and is reached via Tailscale.
+
+**Builds on**: Sprint 2b (TaskStore), Sprint 6 (VaultStore), Sprint 12
+(ModeRequestStore), the existing FastAPI + Jinja2 + htmx web stack.
+
+**Totals**: 378 → 387 tests (+9), 2 commits on `main`, 1 new module
+(`view_model.py`), 4 new templates (`_macros.html` + 3 partials), 1 new
+stylesheet (`landing.css`, ~530 lines).
+
+### Phase 1 — Visual shell with mock data
+**Files**
+- `src/hive/web/static/landing.css` (new) — design tokens lifted from
+  `direction-a3.jsx` into CSS custom properties (paper, ink, accent, honey,
+  sage, vault). Layout for `.shell`, `.main-row`, `.content`, `.top-bar`,
+  `.chat-rail`, `.hero`, `.maestro-card`, `.vault-card`, `.idle-strip`,
+  `.dormant-pill`, `.terminal-bar`. Animations: `a3-pulse-ring`, `a3-badge`,
+  `a3-hum`, `a3-bob`.
+- `src/hive/web/templates/_macros.html` (new) — shared Jinja2 macros
+  (`bee`, `hex`, `state_dot`, `pri_pill`, `tasks_chip`, `maestro_card`)
+  extracted into a dedicated file so partials can render standalone without
+  triggering a full `dashboard.html` render at macro-import time.
+- `src/hive/web/templates/dashboard.html` (rewritten) — A.2 layout with top
+  bar, chat rail, hero strip (htmx every 30s), pinned PA + Vault cards
+  (vault polled every 15s), active maestros grid (every 5s), idle list,
+  dormant pills, terminal bar.
+- `src/hive/web/templates/_partials/{hero,vault,active}.html` (new) — htmx
+  `innerHTML` swap targets so the wrapper elements with `hx-get` attributes
+  persist across polls.
+- `src/hive/web/app.py` — added `STATIC_DIR` mount at `/static`, three
+  fragment endpoints (`/api/landing/{hero,vault,active}`), a temporary
+  `_mock_view_model()` helper for Phase 1.
+- `src/hive/__main__.py` — passes `vault_store` and `mode_request_store`
+  into `create_app(...)`.
+
+### Phase 2 — Wire live process state
+**Files**
+- `src/hive/web/view_model.py` (new) — `build_landing_view_model(...)`
+  async function. Reads `process_manager.entities`, splits maestros into
+  active/idle by `EntityState`, scans `personalities/*.md` for dormant
+  candidates, queries `vault_store.pending("vault")` and
+  `mode_request_store.list_pending(default_maestro)` for approvals, and
+  returns the dict shape consumed by `dashboard.html` and the htmx
+  partials. Maps integer `task.priority` → `P{n}` strings at the
+  view-model layer (templates expect strings).
+- `src/hive/web/app.py` — `_build_view()` now delegates to
+  `build_landing_view_model`; mock helper removed.
+- `src/hive/__main__.py` — passes `default_maestro=DEFAULT_MAESTRO` and
+  `personalities_dir=PERSONALITIES_DIR` into `create_app(...)`.
+
+### Phase 3 — Tests + docs
+**Files**
+- `tests/test_web_landing.py` (new) — 9 tests across landing page render,
+  fragment endpoints, view-model shape, registered-maestro promotion to
+  active section, vault pending counting, and dormant detection from
+  personalities directory.
+- `docs/PROJECT_PLAN.md` — this section.
+- `docs/DEPLOYMENT.md` — `HIVE_WEB_PORT` setup and Tailscale URL pattern.
+
+### Verification
+- `pytest tests/ -q` → 387 passed.
+- `ruff check src/ tests/` → clean.
+- `curl http://127.0.0.1:8080/` → returns the A.2 page with `Hive — Landing`
+  in the title.
+- `curl http://127.0.0.1:8080/api/landing/{hero,vault,active}` → all 200,
+  htmx-shaped HTML fragments.
+- Browser via Tailscale (`http://<tailscale-host>:8080/`) — bee mascot
+  animates, top bar shows correct counts, sections populate from real
+  state, htmx polls fire every 5/15/30s without errors.
+
+### Out of scope (deferred)
+- Web auth (OAuth / session cookies) — `127.0.0.1` binding only.
+- Interactive chat-from-web — v1 shows a static "talking to /m:dev"
+  placeholder reading the most-recent MessageStore conversation.
+- WebSocket live updates (htmx polling is enough at personal scale).
+- Drag-to-pin maestros (visual cue only in v1).
+- Multi-page navigation — only "Hive" tab is functional.
+
+---
+
 ## Sprint 13 — Command UX, Observability, Entity Self-Review (2026-04-19, DONE)
 
 **Status:** Complete
