@@ -117,18 +117,14 @@ class TestViewModelShape:
         )
         vault.log = AsyncMock(return_value=[])
 
-        view = await build_landing_view_model(
-            process_manager=_bare_pm(), vault_store=vault
-        )
+        view = await build_landing_view_model(process_manager=_bare_pm(), vault_store=vault)
 
         assert view["vault"]["pending_approvals"] == 1
         assert view["approvals_count"] == 1
         assert view["vault"]["highest"]["desc"] == "transfer 50 USD"
 
     @pytest.mark.asyncio
-    async def test_dormant_lists_unregistered_personalities(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_dormant_lists_unregistered_personalities(self, tmp_path: Path) -> None:
         (tmp_path / "maestro-pa.md").write_text("# Entity: PA")
         (tmp_path / "maestro-dev.md").write_text("# Entity: Dev")
         (tmp_path / "_template.md").write_text("# template")
@@ -137,9 +133,7 @@ class TestViewModelShape:
         pm = MagicMock()
         pm.entities = {"dev": dev}
 
-        view = await build_landing_view_model(
-            process_manager=pm, personalities_dir=tmp_path
-        )
+        view = await build_landing_view_model(process_manager=pm, personalities_dir=tmp_path)
 
         names = {d["name"] for d in view["dormant"]}
         assert names == {"pa"}

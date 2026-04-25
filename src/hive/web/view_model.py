@@ -75,9 +75,7 @@ async def _open_tasks_for(name: str, task_store: TaskStore | None) -> list[dict]
     ]
 
 
-async def _entity_to_card(
-    entity: Entity, *, task_store: TaskStore | None
-) -> dict:
+async def _entity_to_card(entity: Entity, *, task_store: TaskStore | None) -> dict:
     """Build the card dict consumed by ``_macros.html`` ``maestro_card``."""
     leads = workers = 0
     if isinstance(entity, Maestro):
@@ -126,9 +124,7 @@ _PA_STUB: dict = {
     "name": "pa",
     "role": "personal assistant",
     "state": "dormant",
-    "summary": (
-        "PA maestro not yet spawned. Run /m:pa hello in Telegram to register."
-    ),
+    "summary": ("PA maestro not yet spawned. Run /m:pa hello in Telegram to register."),
     "updated": "—",
     "leads": 0,
     "workers": 0,
@@ -157,12 +153,8 @@ async def build_landing_view_model(
     for m in maestros:
         (active_maestros if _display_state(m) == "active" else idle_maestros).append(m)
 
-    active_cards = [
-        await _entity_to_card(m, task_store=task_store) for m in active_maestros
-    ]
-    active_cards.sort(
-        key=lambda c: -sum(1 for t in c["tasks"] if t["priority"] in ("P0", "P1"))
-    )
+    active_cards = [await _entity_to_card(m, task_store=task_store) for m in active_maestros]
+    active_cards.sort(key=lambda c: -sum(1 for t in c["tasks"] if t["priority"] in ("P0", "P1")))
 
     idle_list = [
         {
@@ -238,16 +230,11 @@ async def build_landing_view_model(
             "dormant_count": dormant_count,
         },
         "chat": {
-            "participants": (
-                [f"/m:{default_maestro}"] if default_maestro in entities else []
-            ),
+            "participants": ([f"/m:{default_maestro}"] if default_maestro in entities else []),
             "messages": [
                 {
                     "from": "system",
-                    "text": (
-                        "Chat from web is read-only in v1. "
-                        "Use Telegram to send."
-                    ),
+                    "text": ("Chat from web is read-only in v1. Use Telegram to send."),
                 },
             ],
         },
