@@ -16,20 +16,27 @@ from fastapi import Header, HTTPException, status
 from hive.config import WEB_TOKEN
 
 
-def require_token(authorization: str | None = Header(default=None)) -> None:
-    """FastAPI dependency: 401 unless ``Authorization`` matches WEB_TOKEN.
+def require_token(
+    authorization: str | None = Header(default=None),
+    token: str | None = None,
+) -> None:
+    """FastAPI dependency: 401 unless caller proves they hold ``WEB_TOKEN``.
 
-    Used as ``Depends(require_token)`` so SSE (Phase 4) can reuse the
-    same gate without bringing middleware into the picture.
+    Accepts either ``Authorization: Bearer <token>`` (preferred for fetch)
+    or ``?token=<token>`` (required for SSE since browser ``EventSource``
+    cannot set custom headers).
     """
     if not WEB_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Web write surface disabled: set HIVE_WEB_TOKEN",
         )
-    expected = f"Bearer {WEB_TOKEN}"
-    if authorization != expected:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing bearer token",
-        )
+    expected_header = f"Bearer {WEB_TOKEN}"
+    if authorization == expected_header:
+        return
+    if token is not None and token == WEB_TOKEN:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing bearer token",
+    )

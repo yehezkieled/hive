@@ -197,6 +197,7 @@ async def main() -> None:
 
             from hive.commands.dispatch import CommandDispatcher
             from hive.web.app import create_app
+            from hive.web.sse import SSEBroker
 
             web_dispatcher = CommandDispatcher(
                 process_manager=process_manager,
@@ -207,6 +208,13 @@ async def main() -> None:
                 vault_store=vault_store,
                 mode_request_store=mode_request_store,
                 blueprint_store=blueprint_store,
+            )
+
+            sse_broker = SSEBroker()
+            notification_dispatcher.register(sse_broker)
+            logger.info(
+                "SSE broker registered (notification channels: %d)",
+                notification_dispatcher.channel_count,
             )
 
             web_app = create_app(
@@ -220,6 +228,7 @@ async def main() -> None:
                 personalities_dir=PERSONALITIES_DIR,
                 command_dispatcher=web_dispatcher,
                 message_store=store,
+                sse_broker=sse_broker,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)

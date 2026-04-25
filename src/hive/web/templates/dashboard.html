@@ -177,17 +177,46 @@
 </div>
 
 <script>
+function ensureToken() {
+  let token = sessionStorage.getItem('hive_web_token');
+  if (!token) {
+    token = prompt('Enter HIVE_WEB_TOKEN:');
+    if (token) sessionStorage.setItem('hive_web_token', token);
+  }
+  return token;
+}
+
+function appendChatLine(from, text) {
+  const rail = document.querySelector('.chat-rail__messages');
+  if (!rail) return;
+  const wrap = document.createElement('div');
+  if (from === 'system') {
+    wrap.className = 'msg--system';
+    wrap.textContent = text;
+  } else if (from === 'user') {
+    wrap.className = 'msg msg--user';
+    wrap.innerHTML = '<div class="msg__avatar">me</div>'
+      + '<div class="msg__body"><div class="msg__bubble"></div></div>';
+    wrap.querySelector('.msg__bubble').textContent = text;
+  } else {
+    wrap.className = 'msg msg--agent';
+    wrap.innerHTML = '<div class="msg__avatar">·</div>'
+      + '<div class="msg__body"><span class="msg__from"></span>'
+      + '<div class="msg__bubble"></div></div>';
+    wrap.querySelector('.msg__from').textContent = from;
+    wrap.querySelector('.msg__bubble').textContent = text;
+  }
+  rail.appendChild(wrap);
+  rail.scrollTop = rail.scrollHeight;
+}
+
 async function sendChatCommand(event) {
   event.preventDefault();
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return false;
-  let token = sessionStorage.getItem('hive_web_token');
-  if (!token) {
-    token = prompt('Enter HIVE_WEB_TOKEN:');
-    if (!token) return false;
-    sessionStorage.setItem('hive_web_token', token);
-  }
+  const token = ensureToken();
+  if (!token) return false;
   try {
     const resp = await fetch('/api/command', {
       method: 'POST',
@@ -206,14 +235,34 @@ async function sendChatCommand(event) {
       alert('Command failed: ' + resp.status);
       return false;
     }
+    const data = await resp.json();
+    appendChatLine('user', text);
+    if (data && data.text) appendChatLine('hive', data.text);
     input.value = '';
-    // Phase 4 (SSE) will push updates live; for now reload to refresh chat.
-    window.location.reload();
   } catch (err) {
     alert('Network error: ' + err.message);
   }
   return false;
 }
+
+// Live notification stream (Sprint 15 Phase 4). EventSource cannot set
+// custom headers, so the token rides in the query string — same gate.
+function startNotificationStream() {
+  const token = sessionStorage.getItem('hive_web_token');
+  if (!token) return;  // user hasn't authenticated yet; will start after first /api/command
+  const es = new EventSource('/sse/notifications?token=' + encodeURIComponent(token));
+  es.onmessage = (ev) => {
+    try {
+      const evt = JSON.parse(ev.data);
+      appendChatLine('system', '[' + (evt.kind || 'info') + '] ' + evt.text);
+    } catch (_) {
+      appendChatLine('system', ev.data);
+    }
+  };
+  es.onerror = () => { es.close(); setTimeout(startNotificationStream, 5000); };
+}
+
+document.addEventListener('DOMContentLoaded', startNotificationStream);
 </script>
 </body>
 </html>

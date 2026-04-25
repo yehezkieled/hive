@@ -10,13 +10,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from hive.web.auth import require_token
+from hive.web.sse import format_event
 
 if TYPE_CHECKING:
     from hive.bus.audit_log import AuditLog
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from hive.bus.vault_store import VaultStore
     from hive.commands.dispatch import CommandDispatcher
     from hive.process.manager import ProcessManager
+    from hive.web.sse import SSEBroker
 
 
 class CommandRequest(BaseModel):
@@ -50,6 +52,7 @@ def create_app(
     personalities_dir: Path | None = None,
     command_dispatcher: CommandDispatcher | None = None,
     message_store: MessageStore | None = None,
+    sse_broker: SSEBroker | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
     from hive.web.view_model import build_landing_view_model
@@ -138,6 +141,25 @@ def create_app(
             return {"text": "Command surface not configured."}
         result = await command_dispatcher.dispatch(body.text, actor="web:user")
         return {"text": result.text, "metadata": result.metadata}
+
+    @app.get("/sse/notifications")
+    async def sse_notifications(_: None = Depends(require_token)):
+        if sse_broker is None:
+            raise HTTPException(status_code=503, detail="SSE broker not configured")
+        queue = sse_broker.subscribe()
+
+        async def event_stream():
+            # Immediate comment frame so the client confirms connectivity
+            # without waiting for the first real notification.
+            yield ": ready\n\n"
+            try:
+                while True:
+                    notification = await queue.get()
+                    yield format_event(notification)
+            finally:
+                sse_broker.unsubscribe(queue)
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @app.get("/api/messages")
     async def api_messages(limit: int = 20):
