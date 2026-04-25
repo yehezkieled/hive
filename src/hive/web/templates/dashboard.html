@@ -84,18 +84,19 @@
           {% endif %}
         {% endfor %}
       </div>
-      <div class="chat-rail__input">
+      <form class="chat-rail__input" id="chat-form" onsubmit="return sendChatCommand(event)">
         <div class="chat-rail__input-row">
           <span class="chat-rail__caret">›</span>
-          <span class="chat-rail__placeholder">Type message or /command…</span>
-          <button class="chat-rail__send">↑</button>
+          <input type="text" name="text" id="chat-input" class="chat-rail__textbox"
+                 placeholder="Type message or /command…" autocomplete="off" />
+          <button type="submit" class="chat-rail__send">↑</button>
         </div>
         <div class="chat-rail__suggestions">
           {% for cmd in ['/help', '/m:<name>', '/new', '/task', '/status'] %}
-          <span class="suggestion">{{ cmd }}</span>
+          <span class="suggestion" onclick="document.getElementById('chat-input').value='{{ cmd }}'">{{ cmd }}</span>
           {% endfor %}
         </div>
-      </div>
+      </form>
     </aside>
 
     {# ── Main content ─────────────────────────────────────────────────── #}
@@ -174,5 +175,45 @@
   </footer>
 
 </div>
+
+<script>
+async function sendChatCommand(event) {
+  event.preventDefault();
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return false;
+  let token = sessionStorage.getItem('hive_web_token');
+  if (!token) {
+    token = prompt('Enter HIVE_WEB_TOKEN:');
+    if (!token) return false;
+    sessionStorage.setItem('hive_web_token', token);
+  }
+  try {
+    const resp = await fetch('/api/command', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ text }),
+    });
+    if (resp.status === 401) {
+      sessionStorage.removeItem('hive_web_token');
+      alert('Auth failed — token cleared. Try again.');
+      return false;
+    }
+    if (!resp.ok) {
+      alert('Command failed: ' + resp.status);
+      return false;
+    }
+    input.value = '';
+    // Phase 4 (SSE) will push updates live; for now reload to refresh chat.
+    window.location.reload();
+  } catch (err) {
+    alert('Network error: ' + err.message);
+  }
+  return false;
+}
+</script>
 </body>
 </html>

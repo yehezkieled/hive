@@ -124,6 +124,30 @@ class TestViewModelShape:
         assert view["vault"]["highest"]["desc"] == "transfer 50 USD"
 
     @pytest.mark.asyncio
+    async def test_chat_messages_empty_without_message_store(self) -> None:
+        view = await build_landing_view_model(process_manager=_bare_pm())
+        assert view["chat"]["messages"] == []
+
+    @pytest.mark.asyncio
+    async def test_chat_messages_populated_from_message_store(self) -> None:
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC)
+        store = MagicMock()
+        # get_recent returns DESC; view-model reverses for chronological display
+        store.get_recent = AsyncMock(
+            return_value=[
+                {"sender": "dev", "recipient": "user", "content": "second", "timestamp": now},
+                {"sender": "user", "recipient": "dev", "content": "first", "timestamp": now},
+            ]
+        )
+        view = await build_landing_view_model(process_manager=_bare_pm(), message_store=store)
+        msgs = view["chat"]["messages"]
+        assert [m["text"] for m in msgs] == ["first", "second"]
+        assert msgs[0]["from"] == "user"
+        assert msgs[1]["from"] == "dev"
+
+    @pytest.mark.asyncio
     async def test_dormant_lists_unregistered_personalities(self, tmp_path: Path) -> None:
         (tmp_path / "maestro-pa.md").write_text("# Entity: PA")
         (tmp_path / "maestro-dev.md").write_text("# Entity: Dev")

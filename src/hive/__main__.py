@@ -195,7 +195,19 @@ async def main() -> None:
         if WEB_PORT > 0:
             import uvicorn
 
+            from hive.commands.dispatch import CommandDispatcher
             from hive.web.app import create_app
+
+            web_dispatcher = CommandDispatcher(
+                process_manager=process_manager,
+                default_maestro=DEFAULT_MAESTRO,
+                token_store=token_store,
+                task_store=task_store,
+                audit_log=audit_log,
+                vault_store=vault_store,
+                mode_request_store=mode_request_store,
+                blueprint_store=blueprint_store,
+            )
 
             web_app = create_app(
                 process_manager=process_manager,
@@ -206,6 +218,8 @@ async def main() -> None:
                 mode_request_store=mode_request_store,
                 default_maestro=DEFAULT_MAESTRO,
                 personalities_dir=PERSONALITIES_DIR,
+                command_dispatcher=web_dispatcher,
+                message_store=store,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)

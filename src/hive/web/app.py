@@ -10,18 +10,28 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+
+from hive.web.auth import require_token
 
 if TYPE_CHECKING:
     from hive.bus.audit_log import AuditLog
     from hive.bus.mode_request_store import ModeRequestStore
+    from hive.bus.store import MessageStore
     from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
     from hive.bus.vault_store import VaultStore
+    from hive.commands.dispatch import CommandDispatcher
     from hive.process.manager import ProcessManager
+
+
+class CommandRequest(BaseModel):
+    text: str
+
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
@@ -38,6 +48,8 @@ def create_app(
     mode_request_store: ModeRequestStore | None = None,
     default_maestro: str = "dev",
     personalities_dir: Path | None = None,
+    command_dispatcher: CommandDispatcher | None = None,
+    message_store: MessageStore | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
     from hive.web.view_model import build_landing_view_model
@@ -116,6 +128,34 @@ def create_app(
             for e in events
         ]
 
+    # ─── Write surface (Sprint 15) ─────────────────────────────────────
+    @app.post("/api/command")
+    async def api_command(
+        body: CommandRequest,
+        _: None = Depends(require_token),
+    ):
+        if command_dispatcher is None:
+            return {"text": "Command surface not configured."}
+        result = await command_dispatcher.dispatch(body.text, actor="web:user")
+        return {"text": result.text, "metadata": result.metadata}
+
+    @app.get("/api/messages")
+    async def api_messages(limit: int = 20):
+        if message_store is None:
+            return {"messages": []}
+        rows = await message_store.get_recent(limit=limit)
+        return {
+            "messages": [
+                {
+                    "from": "user" if r["sender"] == "user" else r["sender"],
+                    "to": r["recipient"],
+                    "text": r["content"],
+                    "timestamp": str(r["timestamp"]),
+                }
+                for r in rows
+            ]
+        }
+
     # ─── Landing fragment endpoints (htmx) ─────────────────────────────
     async def _build_view() -> dict:
         return await build_landing_view_model(
@@ -126,6 +166,7 @@ def create_app(
             mode_request_store=mode_request_store,
             personalities_dir=pdir,
             default_maestro=default_maestro,
+            message_store=message_store,
         )
 
     @app.get("/api/landing/hero", response_class=HTMLResponse)

@@ -53,6 +53,10 @@ DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "dev")
 # bound to 0.0.0.0. Do not flip to 0.0.0.0 until auth ships (Sprint 14).
 WEB_PORT = int(os.environ.get("HIVE_WEB_PORT", "0"))
 WEB_HOST = os.environ.get("HIVE_WEB_HOST", "127.0.0.1")
+# Bearer token required for write endpoints (POST /api/command, SSE).
+# Empty/unset disables the write surface entirely — read-only landing
+# still works because the Tailscale bind already gates network access.
+WEB_TOKEN = os.environ.get("HIVE_WEB_TOKEN", "")
 
 # Auto-management (Sprint 10)
 AUTO_COMPACT_ENABLED = os.environ.get("HIVE_AUTO_COMPACT_ENABLED", "true").lower() == "true"

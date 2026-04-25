@@ -18,6 +18,7 @@ from hive.models.task import TaskStatus
 
 if TYPE_CHECKING:
     from hive.bus.mode_request_store import ModeRequestStore
+    from hive.bus.store import MessageStore
     from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
     from hive.bus.vault_store import VaultStore
@@ -143,6 +144,7 @@ async def build_landing_view_model(
     mode_request_store: ModeRequestStore | None = None,
     personalities_dir: Path | None = None,
     default_maestro: str = "dev",
+    message_store: MessageStore | None = None,
 ) -> dict:
     """Assemble the landing-page view-model dict from live Hive state."""
     entities = process_manager.entities
@@ -209,6 +211,17 @@ async def build_landing_view_model(
         for r in vault_recent
     ]
 
+    chat_messages: list[dict] = []
+    if message_store is not None:
+        rows = await message_store.get_recent(limit=20)
+        for r in reversed(rows):  # store returns DESC; UI reads top→bottom oldest→newest
+            chat_messages.append(
+                {
+                    "from": "user" if r["sender"] == "user" else r["sender"],
+                    "text": r["content"],
+                }
+            )
+
     active_count = len(active_maestros)
     idle_count = len(idle_maestros)
     dormant_count = len(dormant_list)
@@ -231,12 +244,7 @@ async def build_landing_view_model(
         },
         "chat": {
             "participants": ([f"/m:{default_maestro}"] if default_maestro in entities else []),
-            "messages": [
-                {
-                    "from": "system",
-                    "text": ("Chat from web is read-only in v1. Use Telegram to send."),
-                },
-            ],
+            "messages": chat_messages,
         },
         "pa": pa_card,
         "vault": {
