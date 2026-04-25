@@ -1652,8 +1652,18 @@ stylesheet (`landing.css`, ~530 lines).
 `HIVE_WEB_PORT=8080` added to `.env`, service restarted, all six BEM
 classes (`top-bar`, `hero__title`, `maestro-card`, `vault-card`,
 `chat-rail`, `terminal-bar`) present in rendered HTML, fragment
-endpoints return 200. Reachable via Tailscale at
-`http://tailfb3900.ts.net:8080/`.
+endpoints return 200.
+
+**Follow-up (2026-04-25, ~11:55 UTC)**: initial bind was
+`127.0.0.1:8080` (the project's hardened default), so Tailscale peers
+got `ERR_CONNECTION_REFUSED`. Curl-from-VPS smoke check missed it
+because loopback worked fine. Fixed by setting
+`HIVE_WEB_HOST=100.79.194.84` (the VPS's Tailscale IP), which makes
+the bind tailnet-only as a socket-level constraint. Reachable from any
+tailnet device at `http://100.79.194.84:8080/` (or via MagicDNS
+short name `http://ubuntu-s-4vcpu-8gb-sgp1-01:8080/`). Lesson: post-
+deploy verification must hit the actual access path, not just
+loopback.
 
 ---
 

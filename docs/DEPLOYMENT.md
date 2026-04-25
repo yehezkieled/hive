@@ -166,16 +166,28 @@ set `HIVE_WEB_PORT` to a port to enable it:
 HIVE_WEB_PORT=8080 python -m hive
 ```
 
-Defaults:
+Defaults & Tailscale binding:
 
-- `HIVE_WEB_HOST=127.0.0.1` — localhost-only. Reach the page via Tailscale
-  rather than exposing it publicly:
+- `HIVE_WEB_HOST=127.0.0.1` — **localhost-only by default**. Loopback
+  bind means the service literally rejects connections from any other
+  interface, including Tailscale, regardless of firewall rules.
+- To make the dashboard reachable from your other devices, bind it to
+  the **VPS's Tailscale IP** (find it with `tailscale ip -4`):
+  ```bash
+  HIVE_WEB_HOST=100.79.194.84  # this VPS's tailnet IP
+  HIVE_WEB_PORT=8080
   ```
-  http://<tailscale-host>:8080/
-  ```
-  e.g. `http://tailfb3900.ts.net:8080/`. SSH or `tailscale up` from the
-  device first; the dashboard is read-only with no authentication, so the
-  Tailnet ACL is the access boundary.
+  Then from any other device in the same tailnet, browse to
+  `http://100.79.194.84:8080/` (or the MagicDNS hostname,
+  `http://ubuntu-s-4vcpu-8gb-sgp1-01:8080/`).
+- **Why bind to the Tailscale IP, not `0.0.0.0`?** Defense in depth.
+  `0.0.0.0` would also work today (ufw blocks public 8080), but binding
+  to the Tailscale IP makes "Tailscale-only" a hard socket-level
+  constraint — even if ufw was disabled, the public interface couldn't
+  accept the traffic. The intent stays explicit in the config.
+- **Note**: `tailfb3900.ts.net` is your tailnet *domain*, not a device
+  hostname; it does not resolve to an IP on its own. Use the device's
+  Tailscale IP or its MagicDNS short name.
 - The page polls three htmx fragments — `/api/landing/{hero,vault,active}`
   — at 30s / 15s / 5s respectively. JSON endpoints from earlier sprints
   (`/api/{status,org,tasks,cost,audit}`) remain available alongside.
@@ -496,7 +508,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
-| `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Keep at `127.0.0.1` until auth lands (deferred past Sprint 14) — `0.0.0.0` exposes an unauthenticated dashboard to any interface. |
+| `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Set to the VPS's Tailscale IP (e.g. `100.79.194.84`) for tailnet-only access from other devices. Keep off `0.0.0.0` until auth lands (deferred past Sprint 14). |
 | `HIVE_AUTO_COMPACT_ENABLED` | `true` | Auto-compact entities when context exceeds threshold |
 | `HIVE_AUTO_COMPACT_THRESHOLD` | `50000` | Input token count that triggers auto-compact |
 | `HIVE_AUTO_KILL_IDLE_ENABLED` | `true` | Kill entities inactive beyond timeout |
