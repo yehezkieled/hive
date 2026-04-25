@@ -56,15 +56,22 @@ def _display_state(entity: Entity) -> str:
 
 
 async def _open_tasks_for(name: str, task_store: TaskStore | None) -> list[dict]:
-    """Tasks pending/in-progress assigned to ``name``, mapped to card dicts."""
+    """Tasks pending/in-progress assigned to ``name`` or anything below it.
+
+    Hive's naming convention is ``maestro.team[.worker]`` (see ``Team``), so
+    a maestro card surfaces work assigned to the maestro itself *and* to any
+    lead/worker in its org tree. Without this, a task delegated to
+    ``dev.backend.w1`` would never appear on the ``dev`` maestro card.
+    """
     if task_store is None:
         return []
     rows = await task_store.list(status=TaskStatus.PENDING, limit=200)
     rows += await task_store.list(status=TaskStatus.IN_PROGRESS, limit=200)
+    prefix = f"{name}."
     return [
         {"priority": _priority_label(t.priority)}
         for t in rows
-        if t.assigned_to == name
+        if t.assigned_to == name or (t.assigned_to or "").startswith(prefix)
     ]
 
 
