@@ -463,6 +463,37 @@ body {
   border-radius: 0;
 }
 .msg__bubble strong { font-weight: 700; }
+.msg__bubble .md-table {
+  margin: 6px 0 2px;
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid var(--rule-soft);
+}
+.msg__bubble table {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.msg__bubble th,
+.msg__bubble td {
+  padding: 4px 9px;
+  border-bottom: 1px solid var(--rule-soft);
+  border-right: 1px solid var(--rule-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+.msg__bubble th:last-child,
+.msg__bubble td:last-child { border-right: 0; }
+.msg__bubble tbody tr:last-child td { border-bottom: 0; }
+.msg__bubble th {
+  background: rgba(31, 24, 18, 0.06);
+  font-weight: 700;
+}
+.msg--user .msg__bubble .md-table { border-color: rgba(250, 247, 237, 0.25); }
+.msg--user .msg__bubble th,
+.msg--user .msg__bubble td { border-color: rgba(250, 247, 237, 0.18); }
+.msg--user .msg__bubble th { background: rgba(250, 247, 237, 0.15); }
 .msg--system {
   align-self: center;
   font-family: var(--font-mono);

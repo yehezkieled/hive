@@ -205,8 +205,41 @@ function escapeHtml(s) {
   ));
 }
 
-// Tiny markdown-ish renderer: fenced code, inline code, bold. Escape-first
-// to avoid any XSS — content is server-controlled but defensive anyway.
+// Tiny markdown-ish renderer: fenced code, pipe tables, inline code, bold.
+// Escape-first to avoid any XSS — content is server-controlled but defensive.
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+}
+function renderTables(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const next = lines[i + 1];
+    if (line && line.includes('|') && next != null && next.includes('|')) {
+      const sep = splitTableRow(next);
+      if (sep.length >= 1 && sep.every(c => /^:?-{3,}:?$/.test(c))) {
+        const headers = splitTableRow(line);
+        const rows = [];
+        i += 2;
+        while (i < lines.length && lines[i].trim() !== '' && lines[i].includes('|')) {
+          rows.push(splitTableRow(lines[i]));
+          i++;
+        }
+        const ths = headers.map(c => `<th>${c}</th>`).join('');
+        const trs = rows.map(r =>
+          '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>'
+        ).join('');
+        out.push(`<div class="md-table"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`);
+        continue;
+      }
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n');
+}
 function renderMarkdown(text) {
   let html = escapeHtml(text);
   const fenced = [];
@@ -214,6 +247,7 @@ function renderMarkdown(text) {
     fenced.push(code.replace(/^\n/, '').replace(/\n$/, ''));
     return `\u0000FENCED${fenced.length - 1}\u0000`;
   });
+  html = renderTables(html);
   html = html.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
   html = html.replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\u0000FENCED(\d+)\u0000/g, (_, i) =>
