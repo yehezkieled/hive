@@ -198,6 +198,68 @@ Defaults & Tailscale binding:
 Auth is deferred — do **not** flip `HIVE_WEB_HOST` to `0.0.0.0` until a
 later sprint ships session-cookie or OAuth-based authentication.
 
+### Web write surface (Sprint 15)
+
+Two endpoints accept input from the browser tab:
+
+- `POST /api/command` — body `{"text": "/help"}`. Auth: `Authorization:
+  Bearer $HIVE_WEB_TOKEN`. Routes through the same `CommandDispatcher`
+  that Telegram uses, with `actor="web:user"`.
+- `GET /sse/notifications` — `text/event-stream` of proactive events
+  (mode requests, retries, escalations, daily summary…). Browsers'
+  `EventSource` cannot set custom headers, so the gate also accepts the
+  token via query string: `/sse/notifications?token=$HIVE_WEB_TOKEN`.
+- `GET /api/messages?limit=20` — recent message history. **Open**
+  (Tailscale bind is the gate); read-only.
+
+**Setup**:
+
+```bash
+# Pick a long random string; the dashboard's chat input prompts the
+# user for it on first send and caches it in sessionStorage.
+HIVE_WEB_TOKEN=$(openssl rand -hex 32)
+echo "HIVE_WEB_TOKEN=$HIVE_WEB_TOKEN" >> .env
+systemctl --user restart hive.service
+```
+
+Smoke-test from any tailnet device:
+
+```bash
+curl -X POST http://100.79.194.84:8080/api/command \
+  -H "Authorization: Bearer $HIVE_WEB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "/help"}'
+```
+
+**Empty `HIVE_WEB_TOKEN` disables writes entirely** — the dependency
+rejects every request unconditionally rather than match-anything. Read
+endpoints (landing GET, htmx fragments, `/api/messages`) keep working.
+
+### Email digest (Sprint 15)
+
+Off-line reach for proactive notifications. Disabled by default. With
+`HIVE_EMAIL_ENABLED=true` and `HIVE_EMAIL_TO` set the channel buffers
+events and flushes when either threshold trips:
+
+- `HIVE_EMAIL_DIGEST_BUFFER_SIZE=20` — flush after N events.
+- `HIVE_EMAIL_DIGEST_INTERVAL_MINUTES=60` — flush after T minutes.
+
+**Console mode**: when `HIVE_SMTP_HOST` is unset the digest logs the
+rendered body instead of sending. Useful on dev hosts and as a smoke
+test before wiring real SMTP. Logs land in `journalctl --user -u
+hive.service -g "Email digest"`.
+
+For a real SMTP backend (Gmail app password, Mailgun, AWS SES, etc.):
+
+```bash
+HIVE_EMAIL_ENABLED=true
+HIVE_EMAIL_TO=you@example.com
+HIVE_SMTP_HOST=smtp.example.com
+HIVE_SMTP_PORT=587
+HIVE_SMTP_USER=apikey-or-user
+HIVE_SMTP_PASSWORD=...
+```
+
 ### Find the actual python PID
 
 `$!` from `nohup … &` points at the shell wrapper, which often dies right
@@ -528,6 +590,14 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_ADVISOR_COOLDOWN_SECONDS` | `300` | Minimum seconds between advisor calls per entity. |
 | `HIVE_ADVISOR_DAILY_LIMIT` | `20` | Max advisor calls per entity per day. |
 | `HIVE_ADVISOR_CONTEXT_MESSAGES` | `5` | Number of recent messages fed to advisor as context. |
+| `HIVE_WEB_TOKEN` | *(empty)* | Bearer token for the web write surface (Sprint 15). Empty disables `POST /api/command` and `/sse/notifications` entirely. |
+| `HIVE_EMAIL_ENABLED` | `false` | Enable the email digest channel (Sprint 15). |
+| `HIVE_EMAIL_TO` | *(empty)* | Recipient address for digests. Required when enabled. |
+| `HIVE_SMTP_HOST` | *(empty)* | SMTP server. Empty triggers console mode (digest is logged, not sent). |
+| `HIVE_SMTP_PORT` | `587` | SMTP port (starttls). |
+| `HIVE_SMTP_USER` / `HIVE_SMTP_PASSWORD` | *(empty)* | SMTP auth credentials. |
+| `HIVE_EMAIL_DIGEST_INTERVAL_MINUTES` | `60` | Time-based flush trigger for the digest. |
+| `HIVE_EMAIL_DIGEST_BUFFER_SIZE` | `20` | Size-based flush trigger for the digest. |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.

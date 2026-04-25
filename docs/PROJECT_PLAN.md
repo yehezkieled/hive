@@ -1562,6 +1562,94 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 15 — Web Write Surface + Multi-Channel Notifications (2026-04-25, DONE)
+
+**Status:** Complete
+**Branch:** main (merged direct)
+
+**Goal**: Make the web dashboard a real second surface alongside Telegram —
+issue commands, see chat history, get push notifications — without
+retiring Telegram. Notifications fan out to Telegram, the browser tab
+(SSE), and an email digest from a single dispatcher.
+
+**Builds on**: Sprint 14 (read-only A.2 landing page), Sprint 1
+(MessageStore.get_recent), the existing Telegram bridge.
+
+**Totals**: 387 → 440 tests (+53), 5 commits on `main`, 5 new modules
+(`commands/dispatch.py`, `notifications/dispatcher.py`,
+`notifications/email.py`, `web/auth.py`, `web/sse.py`).
+
+### Phase 1 — Extract CommandDispatcher (refactor)
+Pulled the 34 manager-backed command paths out of
+`telegram/bridge.py:_execute_command` into a transport-agnostic
+`CommandDispatcher.dispatch(text, actor) -> CommandResult`. Bridge is
+now a thin adapter that parses Telegram updates, calls the dispatcher,
+and formats the reply for Telegram. No behavior change. Commit `06ad29b`.
+
+### Phase 2 — NotificationDispatcher + Telegram channel
+Replaced `ProcessManager.set_notification_callback()` (single sink) with
+`NotificationDispatcher` — channels register and each receives every
+event with per-channel error isolation. TelegramBridge becomes the first
+channel. Notification dataclass carries `text`, `kind`, `timestamp`.
+Commit `8d9f0ae`.
+
+### Phase 3 — Web write endpoints + bearer-token auth
+- `POST /api/command` (auth-gated) routes through CommandDispatcher with
+  `actor="web:user"`.
+- `GET /api/messages?limit=20` exposes recent messages from MessageStore;
+  read access stays gated by Tailscale-only network bind.
+- `web/auth.py` exposes `require_token` as a FastAPI dependency. Empty
+  `HIVE_WEB_TOKEN` rejects all writes — disabled-closed, never open.
+- `view_model.chat.messages` populated from the store; the static "use
+  Telegram" stub is gone.
+- Dashboard chat input becomes a real form. Commit `cd4ac96`.
+
+### Phase 4 — SSE broker + live chat-rail updates
+- `web/sse.py` adds `SSEBroker` with bounded per-subscriber asyncio
+  queues. Slow consumers drop their oldest event so a stalled tab can't
+  back-pressure Telegram or email.
+- `GET /sse/notifications` emits `text/event-stream` with an immediate
+  `:ready` comment frame for connection confirmation.
+- `require_token` now also accepts `?token=` (browsers' EventSource
+  cannot set custom headers).
+- Dashboard subscribes on load and appends incoming events directly into
+  the chat rail — no more page reloads. Commit `9b70957`.
+
+### Phase 5 — Email digest channel
+- `notifications/email.py` adds `EmailDigest`, a notification channel
+  that buffers events and flushes on size or interval. Console mode
+  (logs the digest) when SMTP_HOST is unset, so it's exercisable on dev
+  hosts without credentials. Commit `20c08f0`.
+
+### New env vars
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `HIVE_WEB_TOKEN` | (empty) | Bearer token for write surface; empty disables writes |
+| `HIVE_EMAIL_ENABLED` | `false` | Toggle email digest |
+| `HIVE_EMAIL_TO` | (empty) | Recipient address |
+| `HIVE_SMTP_HOST` | (empty) | SMTP server (empty = console mode) |
+| `HIVE_SMTP_PORT` | `587` | SMTP port |
+| `HIVE_SMTP_USER` / `HIVE_SMTP_PASSWORD` | (empty) | SMTP auth |
+| `HIVE_EMAIL_DIGEST_INTERVAL_MINUTES` | `60` | Time-based flush |
+| `HIVE_EMAIL_DIGEST_BUFFER_SIZE` | `20` | Size-based flush |
+
+### Verification
+- `pytest tests/ -q` → 440 passing.
+- `ruff check src/ tests/ && ruff format --check src/ tests/` → clean.
+- Browser at `http://100.79.194.84:8080/`: chat rail shows real recent
+  messages, typing `/help` posts to the API and the response appears
+  inline, mode-request triggers stream into the rail via SSE.
+
+### Out of scope (deferred)
+- Multi-user auth (OAuth/sessions) — single-user shared bearer token.
+- WebSocket — SSE is enough for one-way notifications.
+- Per-channel notification routing ("P0 to email only") — every channel
+  gets every event for now.
+- Email rich templates — plain-text digest in v1.
+- Telegram retirement — explicitly kept; revisit after web parity.
+
+---
+
 ## Sprint 14 — Web Landing Page (A.2 Paper Ops) (2026-04-25, DONE)
 
 **Status:** Complete
