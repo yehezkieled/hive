@@ -194,6 +194,8 @@ async def main() -> None:
                 token_store=token_store,
                 task_store=task_store,
                 audit_log=audit_log,
+                vault_store=vault_store,
+                mode_request_store=mode_request_store,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)

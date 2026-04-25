@@ -1,0 +1,26 @@
+{# Hero strip — bee, headline, hive stat counters. #}
+{% from "_macros.html" import bee %}
+<div class="hero__bee">{{ bee(size=48) }}</div>
+<div class="hero__copy">
+  <h1 class="hero__title">
+    The hive is <span class="hero__title-accent">{{ view.hero.mood }}</span>.
+  </h1>
+  <p class="hero__subtitle">
+    {{ view.hero.active_count }} maestros active · {{ view.hero.idle_count }} idle · {{ view.hero.dormant_count }} dormant.
+    <span class="hero__hint">drag any card into chat to ping them.</span>
+  </p>
+</div>
+<div class="hero__stats">
+  <div class="hero__stat">
+    <div class="hero__stat-n hero__stat-n--active">{{ view.hero.active_count }}</div>
+    <div class="hero__stat-label">active</div>
+  </div>
+  <div class="hero__stat">
+    <div class="hero__stat-n hero__stat-n--idle">{{ view.hero.idle_count }}</div>
+    <div class="hero__stat-label">idle</div>
+  </div>
+  <div class="hero__stat">
+    <div class="hero__stat-n hero__stat-n--dormant">{{ view.hero.dormant_count }}</div>
+    <div class="hero__stat-label">dormant</div>
+  </div>
+</div>

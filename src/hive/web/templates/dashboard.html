@@ -1,117 +1,178 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hive Dashboard</title>
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 1rem; }
-        h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #f59e0b; }
-        h2 { font-size: 1.1rem; margin-bottom: 0.5rem; color: #94a3b8; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-        .card { background: #1e293b; border-radius: 8px; padding: 1rem; border: 1px solid #334155; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-        th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #334155; }
-        th { color: #94a3b8; font-weight: 600; }
-        .state-running { color: #22c55e; }
-        .state-idle { color: #94a3b8; }
-        .cost-val { font-size: 1.5rem; font-weight: bold; color: #f59e0b; }
-        .empty { color: #64748b; font-style: italic; }
-        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hive — Landing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Nunito+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/landing.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body>
-    <h1>Hive Dashboard</h1>
-    <div class="grid">
-        <div class="card">
-            <h2>Entities</h2>
-            <div id="status" hx-get="/api/status" hx-trigger="load, every 5s" hx-swap="innerHTML">
-                <p class="empty">Loading...</p>
-            </div>
-        </div>
-        <div class="card">
-            <h2>Organization</h2>
-            <div id="org" hx-get="/api/org" hx-trigger="load, every 5s" hx-swap="innerHTML">
-                <p class="empty">Loading...</p>
-            </div>
-        </div>
-        <div class="card">
-            <h2>Tasks</h2>
-            <div id="tasks" hx-get="/api/tasks" hx-trigger="load, every 10s" hx-swap="innerHTML">
-                <p class="empty">Loading...</p>
-            </div>
-        </div>
-        <div class="card">
-            <h2>Cost</h2>
-            <div id="cost" hx-get="/api/cost" hx-trigger="load, every 30s" hx-swap="innerHTML">
-                <p class="empty">Loading...</p>
-            </div>
-        </div>
+{% from "_macros.html" import bee, hex, state_dot, pri_pill, tasks_chip, maestro_card %}
+
+<div class="shell">
+
+  {# ── Top bar ─────────────────────────────────────────────────────────── #}
+  <header class="top-bar">
+    <div class="top-bar__brand">
+      <span class="top-bar__bee">{{ bee(size=30) }}</span>
+      <span class="top-bar__brand-text">
+        <span class="top-bar__brand-name">hive</span>
+        <span class="top-bar__brand-meta">v0.4 · personal</span>
+      </span>
     </div>
+    <nav class="top-bar__tabs">
+      <button class="tab is-active">Hive</button>
+      <button class="tab" title="Coming soon">Projects</button>
+      <button class="tab" title="Coming soon">Dashboard</button>
+      <button class="tab" title="Coming soon">Knowledge</button>
+    </nav>
+    <div class="top-bar__right">
+      <span class="health-pill">
+        {{ state_dot(view.health.state, size=7) }} {{ view.health.label }}
+      </span>
+      <button class="bell" title="Pending approvals">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3d332a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+        {% if view.approvals_count %}<span class="bell__count">{{ view.approvals_count }}</span>{% endif %}
+      </button>
+      <button class="terminal-btn" title="Terminal available via SSH on Tailscale">
+        <span class="terminal-btn__caret">⌃</span> terminal
+      </button>
+    </div>
+  </header>
 
-    <script>
-        // Render JSON responses into HTML tables/elements
-        document.body.addEventListener('htmx:beforeSwap', function(evt) {
-            const target = evt.detail.target;
-            try {
-                const data = JSON.parse(evt.detail.xhr.responseText);
-                if (target.id === 'status') {
-                    evt.detail.serverResponse = renderStatus(data);
-                } else if (target.id === 'org') {
-                    evt.detail.serverResponse = renderOrg(data);
-                } else if (target.id === 'tasks') {
-                    evt.detail.serverResponse = renderTasks(data);
-                } else if (target.id === 'cost') {
-                    evt.detail.serverResponse = renderCost(data);
-                }
-            } catch(e) {}
-        });
+  <div class="main-row">
 
-        function renderStatus(data) {
-            if (!data.length) return '<p class="empty">No entities running.</p>';
-            let rows = data.map(e =>
-                `<tr>
-                    <td>${e.name}</td>
-                    <td>${e.role}</td>
-                    <td class="state-${e.state.toLowerCase()}">${e.state}</td>
-                    <td>${e.model}</td>
-                    <td>${e.pid || '-'}</td>
-                </tr>`
-            ).join('');
-            return `<table><tr><th>Name</th><th>Role</th><th>State</th><th>Model</th><th>PID</th></tr>${rows}</table>`;
-        }
+    {# ── Chat rail ────────────────────────────────────────────────────── #}
+    <aside class="chat-rail">
+      <div class="chat-rail__head">
+        <span class="chat-rail__title">Chat</span>
+        <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
+        <span class="chat-rail__head-actions">
+          <button class="btn">History</button>
+          <button class="btn btn--primary">+ New</button>
+        </span>
+      </div>
+      <div class="chat-rail__addressed">
+        <span class="chat-rail__addressed-label">Talking to:</span>
+        {% for p in view.chat.participants %}
+        <span class="participant">{{ p }}<span class="participant__close">×</span></span>
+        {% endfor %}
+      </div>
+      <div class="chat-rail__messages">
+        {% for m in view.chat.messages %}
+          {% if m.from == 'system' %}
+            <div class="msg--system">{{ m.text }}</div>
+          {% elif m.from == 'user' %}
+            <div class="msg msg--user">
+              <div class="msg__avatar">me</div>
+              <div class="msg__body">
+                <div class="msg__bubble">{{ m.text }}</div>
+              </div>
+            </div>
+          {% else %}
+            <div class="msg msg--agent">
+              <div class="msg__avatar">{{ hex(size=14) }}</div>
+              <div class="msg__body">
+                <span class="msg__from">{{ m.from }}</span>
+                <div class="msg__bubble">{{ m.text }}</div>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <div class="chat-rail__input">
+        <div class="chat-rail__input-row">
+          <span class="chat-rail__caret">›</span>
+          <span class="chat-rail__placeholder">Type message or /command…</span>
+          <button class="chat-rail__send">↑</button>
+        </div>
+        <div class="chat-rail__suggestions">
+          {% for cmd in ['/help', '/m:<name>', '/new', '/task', '/status'] %}
+          <span class="suggestion">{{ cmd }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </aside>
 
-        function renderOrg(data) {
-            if (!data.maestros || !data.maestros.length) return '<p class="empty">No maestros.</p>';
-            return data.maestros.map(m => {
-                let html = `<strong>${m.name}</strong> [${m.state}]`;
-                for (const [teamName, team] of Object.entries(m.teams || {})) {
-                    html += `<div style="margin-left:1rem">${teamName}`;
-                    if (team.lead) html += ` (lead: ${team.lead})`;
-                    (team.workers || []).forEach(w => {
-                        html += `<div style="margin-left:1rem">${w.name} [${w.state}]</div>`;
-                    });
-                    html += '</div>';
-                }
-                return `<div style="margin-bottom:0.5rem">${html}</div>`;
-            }).join('');
-        }
+    {# ── Main content ─────────────────────────────────────────────────── #}
+    <main class="content">
+      <div class="backdrop"></div>
+      <div class="content-inner">
 
-        function renderTasks(data) {
-            if (!data.length) return '<p class="empty">No open tasks.</p>';
-            let rows = data.map(t =>
-                `<tr><td>#${t.id}</td><td>P${t.priority}</td><td>${t.status}</td><td>${t.title}</td></tr>`
-            ).join('');
-            return `<table><tr><th>ID</th><th>Pri</th><th>Status</th><th>Title</th></tr>${rows}</table>`;
-        }
+        {# Hero strip — innerHTML swap, the section.hero wrapper persists. #}
+        <section class="hero" hx-get="/api/landing/hero" hx-trigger="every 30s" hx-swap="innerHTML">
+          {% include "_partials/hero.html" %}
+        </section>
 
-        function renderCost(data) {
-            if (!data.call_count) return '<p class="empty">No usage data.</p>';
-            return `<div class="cost-val">$${(data.cost_usd || 0).toFixed(4)}</div>
-                    <p>${data.call_count} calls, ${(data.input_tokens||0).toLocaleString()} in / ${(data.output_tokens||0).toLocaleString()} out</p>`;
-        }
-    </script>
+        {# Pinned: PA + Vault #}
+        <div class="section-head">
+          <h3 class="section-head__title">Pinned</h3>
+          <span class="section-head__count section-head__count--active">2</span>
+          <span class="section-head__rule"></span>
+        </div>
+        <div class="cards-grid cards-grid--pinned">
+          {{ maestro_card(view.pa, pinned=true) }}
+          <div class="vault-wrapper" style="display: contents;" hx-get="/api/landing/vault" hx-trigger="every 15s" hx-swap="innerHTML">
+            {% include "_partials/vault.html" %}
+          </div>
+        </div>
+
+        {# Active maestros #}
+        <div class="section-head">
+          <h3 class="section-head__title">Active maestros</h3>
+          <span class="section-head__count section-head__count--active">{{ view.active|length }}</span>
+          <span class="section-head__rule"></span>
+          <span class="section-head__right">sorted by P0·P1 pending</span>
+        </div>
+        <div class="cards-grid" hx-get="/api/landing/active" hx-trigger="every 5s" hx-swap="innerHTML">
+          {% include "_partials/active.html" %}
+        </div>
+
+        {# Idle #}
+        <div class="section-head">
+          <h3 class="section-head__title">Idle</h3>
+          <span class="section-head__count">{{ view.idle|length }}</span>
+          <span class="section-head__rule"></span>
+        </div>
+        <div class="idle-list">
+          {% for m in view.idle %}
+          <div class="idle-strip">
+            {{ state_dot(m.state, size=8) }}
+            <span class="idle-strip__addr">/m:{{ m.name }}</span>
+            <span class="idle-strip__role">{{ m.role }}</span>
+            <span class="idle-strip__last">last active {{ m.last_active }}</span>
+          </div>
+          {% endfor %}
+        </div>
+
+        {# Dormant #}
+        <div class="section-head">
+          <h3 class="section-head__title">Dormant</h3>
+          <span class="section-head__count">{{ view.dormant|length }}</span>
+          <span class="section-head__rule"></span>
+        </div>
+        <div class="dormant-list">
+          {% for m in view.dormant %}
+          <span class="dormant-pill">{{ hex(size=9, fill='#f6f1de', stroke='#a79a89') }}{{ m.name }}</span>
+          {% endfor %}
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  {# ── Terminal bar ───────────────────────────────────────────────────── #}
+  <footer class="terminal-bar">
+    <span class="terminal-bar__label">▲ terminal</span>
+    {% if view.terminal.unlocked %}<span class="terminal-bar__chip">unlocked</span>{% endif %}
+    <span class="terminal-bar__hint">{{ view.terminal.hint }}</span>
+    <span class="terminal-bar__prompt">~/hive $</span>
+  </footer>
+
+</div>
 </body>
 </html>

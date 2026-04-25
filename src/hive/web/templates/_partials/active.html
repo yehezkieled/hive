@@ -1,0 +1,5 @@
+{# Active maestro cards — inner contents of .cards-grid. #}
+{% from "_macros.html" import maestro_card %}
+{% for m in view.active %}
+{{ maestro_card(m) }}
+{% endfor %}
