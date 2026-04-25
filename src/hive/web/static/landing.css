@@ -48,7 +48,8 @@ body {
 .shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   position: relative;
   overflow: hidden;
 }
@@ -422,58 +423,86 @@ body {
   font-weight: 600;
 }
 
-.chat-rail__input {
+/* ─── Composer (claude.ai-style chat input) ────────────────── */
+.composer {
   border-top: 1px solid var(--rule-soft);
-  padding: 11px 16px;
+  padding: 12px 14px 14px;
   background: var(--paper-soft);
+  flex-shrink: 0;
 }
-.chat-rail__input-row {
+.composer__box {
   background: var(--paper);
   border: 1px solid var(--rule-soft);
-  padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: 16px;
+  padding: 10px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.composer__box:focus-within {
+  border-color: var(--ink-3);
+  box-shadow: 0 0 0 3px rgba(31, 24, 18, 0.06);
+}
+.composer__textarea {
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  padding: 4px 4px 0;
+  max-height: 160px;
+  overflow-y: auto;
+  width: 100%;
+}
+.composer__textarea::placeholder { color: var(--ink-4); }
+.composer__row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.chat-rail__caret {
-  font-family: var(--font-mono);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 700;
-}
-.chat-rail__placeholder {
-  font-size: 13px;
-  color: var(--ink-4);
-  flex: 1;
-}
-.chat-rail__send {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: var(--ink);
-  color: var(--paper);
-  display: grid;
-  place-items: center;
-  font-size: 11px;
-  cursor: pointer;
-  border: 0;
-}
-.chat-rail__suggestions {
-  margin-top: 7px;
+.composer__hints {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
-.suggestion {
+.composer__chip {
   font-family: var(--font-mono);
   font-size: 10px;
-  padding: 2px 7px;
-  background: var(--paper);
+  padding: 3px 9px;
+  background: var(--paper-soft);
   border: 1px solid var(--rule-soft);
-  border-radius: 4px;
+  border-radius: 999px;
   color: var(--ink-3);
   font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.12s;
+}
+.composer__chip:hover { background: var(--honey-soft); color: var(--ink); }
+.composer__chip:active { transform: translateY(1px); }
+.composer__send {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  border: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s, transform 0.12s;
+  flex-shrink: 0;
+}
+.composer__send:hover:not(:disabled) { transform: translateY(-1px); }
+.composer__send:disabled {
+  background: var(--ink-4);
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 /* ─── Hero strip ────────────────────────────────────────── */

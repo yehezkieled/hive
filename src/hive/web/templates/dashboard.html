@@ -84,17 +84,29 @@
           {% endif %}
         {% endfor %}
       </div>
-      <form class="chat-rail__input" id="chat-form" onsubmit="return sendChatCommand(event)">
-        <div class="chat-rail__input-row">
-          <span class="chat-rail__caret">›</span>
-          <input type="text" name="text" id="chat-input" class="chat-rail__textbox"
-                 placeholder="Type message or /command…" autocomplete="off" />
-          <button type="submit" class="chat-rail__send">↑</button>
-        </div>
-        <div class="chat-rail__suggestions">
-          {% for cmd in ['/help', '/m:<name>', '/new', '/task', '/status'] %}
-          <span class="suggestion" onclick="document.getElementById('chat-input').value='{{ cmd }}'">{{ cmd }}</span>
-          {% endfor %}
+      <form class="composer" id="chat-form" onsubmit="return sendChatCommand(event)">
+        <div class="composer__box">
+          <textarea
+            id="chat-input"
+            class="composer__textarea"
+            name="text"
+            rows="1"
+            placeholder="Message Hive…  (try /help)"
+            autocomplete="off"></textarea>
+          <div class="composer__row">
+            <div class="composer__hints">
+              {% for cmd in ['/help', '/m:dev', '/task', '/status'] %}
+              <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
+              {% endfor %}
+            </div>
+            <button type="submit" class="composer__send" aria-label="Send" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2.5"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 19V5M5 12l7-7 7 7"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </form>
     </aside>
@@ -239,11 +251,39 @@ async function sendChatCommand(event) {
     appendChatLine('user', text);
     if (data && data.text) appendChatLine('hive', data.text);
     input.value = '';
+    input.style.height = 'auto';
+    refreshSendState();
   } catch (err) {
     alert('Network error: ' + err.message);
   }
   return false;
 }
+
+const composer = document.getElementById('chat-input');
+const sendBtn = document.querySelector('.composer__send');
+
+function autosize() {
+  composer.style.height = 'auto';
+  composer.style.height = composer.scrollHeight + 'px';
+}
+function refreshSendState() {
+  sendBtn.disabled = !composer.value.trim();
+}
+composer.addEventListener('input', () => { autosize(); refreshSendState(); });
+composer.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey) {
+    ev.preventDefault();
+    document.getElementById('chat-form').requestSubmit();
+  }
+});
+document.querySelectorAll('.composer__chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    composer.value = chip.dataset.cmd + ' ';
+    composer.focus();
+    composer.dispatchEvent(new Event('input'));
+  });
+});
+refreshSendState();
 
 // Live notification stream (Sprint 15 Phase 4). EventSource cannot set
 // custom headers, so the token rides in the query string — same gate.
