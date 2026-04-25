@@ -1647,6 +1647,14 @@ stylesheet (`landing.css`, ~530 lines).
 - Drag-to-pin maestros (visual cue only in v1).
 - Multi-page navigation — only "Hive" tab is functional.
 
+### Deployed 2026-04-25 11:25 UTC
+
+`HIVE_WEB_PORT=8080` added to `.env`, service restarted, all six BEM
+classes (`top-bar`, `hero__title`, `maestro-card`, `vault-card`,
+`chat-rail`, `terminal-bar`) present in rendered HTML, fragment
+endpoints return 200. Reachable via Tailscale at
+`http://tailfb3900.ts.net:8080/`.
+
 ---
 
 ## Sprint 13 — Command UX, Observability, Entity Self-Review (2026-04-19, DONE)
