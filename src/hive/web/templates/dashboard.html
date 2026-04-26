@@ -496,10 +496,16 @@ document.addEventListener('DOMContentLoaded', startNotificationStream);
     {name:'task',    description:'Manage tasks.'},
   ];
 
+  const ALIASES = [
+    {name:'m:', description:'Message a maestro — e.g. /m:dev hello'},
+    {name:'t:', description:'Message a team — e.g. /t:dev.myteam hello'},
+    {name:'a:', description:'Message a worker — e.g. /a:dev.team.worker hello'},
+  ];
+
   fetch('/api/commands')
     .then(r => r.ok ? r.json() : Promise.reject())
-    .then(data => { commands = data; })
-    .catch(() => { commands = FALLBACK; });
+    .then(data => { commands = [...data, ...ALIASES]; })
+    .catch(() => { commands = [...FALLBACK, ...ALIASES]; });
 
   function render() {
     dropdown.innerHTML = '';
@@ -533,7 +539,7 @@ document.addEventListener('DOMContentLoaded', startNotificationStream);
   function selectItem(index) {
     const cmd = filtered[index];
     if (!cmd) return;
-    input.value = '/' + cmd.name + ' ';
+    input.value = '/' + cmd.name + (cmd.name.endsWith(':') ? '' : ' ');
     closeDropdown();
     input.focus();
     input.dispatchEvent(new Event('input'));
@@ -548,7 +554,7 @@ document.addEventListener('DOMContentLoaded', startNotificationStream);
   }
 
   input.addEventListener('input', () => {
-    const m = input.value.match(/^\/(\w*)$/);
+    const m = input.value.match(/^\/(\w*:?)$/);
     if (m) openDropdown(m[1]); else closeDropdown();
   });
 
