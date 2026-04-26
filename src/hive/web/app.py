@@ -135,6 +135,20 @@ def create_app(
             for e in events
         ]
 
+    @app.get("/api/commands")
+    async def api_commands():
+        from hive.telegram.help_text import HELP_TEXT
+
+        return [
+            {
+                "name": name,
+                "usage": entry.usage,
+                "description": entry.description,
+                "category": entry.category,
+            }
+            for name, entry in sorted(HELP_TEXT.items())
+        ]
+
     # ─── Write surface (Sprint 15) ─────────────────────────────────────
     @app.post("/api/command")
     async def api_command(
