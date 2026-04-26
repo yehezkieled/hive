@@ -1,11 +1,13 @@
 """FastAPI application for the Hive web dashboard.
 
 Serves the A.2 Paper Ops landing page at `/` and JSON/HTML endpoints
-that power live refresh of the hero, vault, and active-maestros sections.
+that power live refresh of the hero, vault, active, idle, and dormant
+sections.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
 class CommandRequest(BaseModel):
     text: str
 
+
+logger = logging.getLogger("hive.web")
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
@@ -140,6 +144,15 @@ def create_app(
         if command_dispatcher is None:
             return {"text": "Command surface not configured."}
         result = await command_dispatcher.dispatch(body.text, actor="web:user")
+        # Persist the round-trip so chat history survives a page refresh.
+        if message_store is not None:
+            try:
+                await message_store.log_message(sender="user", recipient="hive", content=body.text)
+                await message_store.log_message(
+                    sender="hive", recipient="user", content=result.text
+                )
+            except Exception:
+                logger.exception("Failed to persist web chat message")
         return {"text": result.text, "metadata": result.metadata}
 
     @app.get("/sse/notifications")
@@ -205,6 +218,16 @@ def create_app(
     async def landing_active(request: Request):
         view = await _build_view()
         return templates.TemplateResponse(request, "_partials/active.html", {"view": view})
+
+    @app.get("/api/landing/idle", response_class=HTMLResponse)
+    async def landing_idle(request: Request):
+        view = await _build_view()
+        return templates.TemplateResponse(request, "_partials/idle.html", {"view": view})
+
+    @app.get("/api/landing/dormant", response_class=HTMLResponse)
+    async def landing_dormant(request: Request):
+        view = await _build_view()
+        return templates.TemplateResponse(request, "_partials/dormant.html", {"view": view})
 
     # ─── Landing page ──────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse)

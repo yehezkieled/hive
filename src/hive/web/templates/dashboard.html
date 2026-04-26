@@ -152,15 +152,8 @@
           <span class="section-head__count">{{ view.idle|length }}</span>
           <span class="section-head__rule"></span>
         </div>
-        <div class="idle-list">
-          {% for m in view.idle %}
-          <div class="idle-strip">
-            {{ state_dot(m.state, size=8) }}
-            <span class="idle-strip__addr">/m:{{ m.name }}</span>
-            <span class="idle-strip__role">{{ m.role }}</span>
-            <span class="idle-strip__last">last active {{ m.last_active }}</span>
-          </div>
-          {% endfor %}
+        <div class="idle-list" hx-get="/api/landing/idle" hx-trigger="every 5s" hx-swap="innerHTML">
+          {% include "_partials/idle.html" %}
         </div>
 
         {# Dormant #}
@@ -169,10 +162,8 @@
           <span class="section-head__count">{{ view.dormant|length }}</span>
           <span class="section-head__rule"></span>
         </div>
-        <div class="dormant-list">
-          {% for m in view.dormant %}
-          <span class="dormant-pill">{{ hex(size=9, fill='#f6f1de', stroke='#a79a89') }}{{ m.name }}</span>
-          {% endfor %}
+        <div class="dormant-list" hx-get="/api/landing/dormant" hx-trigger="every 30s" hx-swap="innerHTML">
+          {% include "_partials/dormant.html" %}
         </div>
 
       </div>

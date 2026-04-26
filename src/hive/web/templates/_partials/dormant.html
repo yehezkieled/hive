@@ -1,0 +1,5 @@
+{# Dormant maestro pills — inner contents of .dormant-list. #}
+{% from "_macros.html" import hex %}
+{% for m in view.dormant %}
+<span class="dormant-pill">{{ hex(size=9, fill='#f6f1de', stroke='#a79a89') }}{{ m.name }}</span>
+{% endfor %}
