@@ -1562,6 +1562,94 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Post-Sprint 15 polish (2026-04-26, DONE)
+
+**Status:** Complete (not a sprint — small UX/UI follow-ups after a real
+day of using the web dashboard)
+**Branch:** main (5 commits, all pushed)
+**Totals:** 440 → 446 tests (+6), no migrations.
+
+A day of dogfooding Sprint 15 surfaced five distinct UX gaps. Each
+landed as its own small commit so the rollback story stays clean.
+
+### 1. Viewport-locked layout + claude.ai-style composer (`ecb0b73`)
+The chat rail used to grow forever and push the page off-screen. The
+shell is now a single 100vh flex column: hero/vault/active/idle/dormant
+sit in the scroll-region, the composer is a sticky footer. Composer
+itself is a textarea autosizing on input, Enter-to-send /
+Shift+Enter-for-newline, mirroring claude.ai. Dropping the old
+single-line input also let us delete the floating "send" arrow.
+
+### 2. Resizable rail + markdown-rendered bubbles (`7f6f051`)
+The rail's width is now a drag-handle on its left edge, persisted in
+`localStorage` so it survives reloads. Bubble bodies render markdown
+(bold, italic, inline `code`, fenced blocks, links) via a small
+escape-first renderer — no DOMPurify dependency, but the escape pass
+keeps it XSS-safe. Code fences get monospace + paper-grey background.
+
+### 3. Markdown table rendering (`1ec9207`)
+GitHub-flavored tables (header / `|---|` separator / rows) render as
+real `<table>` elements. The renderer was extended to recognise the
+two-line header pattern before the existing inline pass.
+
+### 4. Chat persistence + idle/dormant auto-refresh (`95293eb`)
+Two bugs found by real use:
+- **Chat history disappeared on reload.** `/api/command` was
+  dispatching but never persisting to `MessageStore`. Added a pair of
+  `log_message` calls (user → hive, hive → user) inside the endpoint
+  inside a try/except so a write failure can't break the response.
+- **New maestros / killed maestros didn't show up live.** The hero,
+  vault, and active sections htmx-poll their fragments, but the idle
+  and dormant sections were static. Added `/api/landing/idle` (5s) and
+  `/api/landing/dormant` (30s) plus the corresponding `_partials/`
+  templates.
+
+### 5. Optimistic chat UI + yolo default + mode-request bubbles (`377838b`)
+Three coupled issues from real use:
+- **Long blocking wait after Send hides feedback.** `/api/command` is
+  synchronous and a fresh-spawn `claude -p` round-trip is 5-30s; the
+  user can't tell their message landed. The composer now paints the
+  user bubble + a typing indicator (three pulsing dots) **before** the
+  await, so feedback is instant. A full async-job rewrite is deferred.
+- **New maestros denied tool calls under headless `claude -p`.** The
+  default `permission_mode = "default"` means tool calls hit a
+  permission prompt that has no UI in `-p` mode — the maestro
+  narrates "click Allow" and stalls. `register_maestro` now sets
+  `permission_mode = "yolo"` (`--dangerously-skip-permissions`) on new
+  maestros. Existing persisted maestros keep their stored mode.
+- **No web UI for mode-elevation requests.** When a maestro emits
+  `<request_mode>yolo</request_mode>` and `approver == "user"`, the
+  notification now carries structured `data` (id, requester, requested
+  mode, reason). The browser SSE handler renders it as an inline
+  bubble with Allow / Deny buttons that POST to two new endpoints:
+  `/api/mode-request/{id}/approve` and `/api/mode-request/{id}/deny`.
+  Telegram still works via `/approve mode N` — both surfaces are live.
+
+`Notification` dataclass gained `data: dict | None`; `format_event`
+forwards it to the SSE payload. Six new tests cover the endpoint pair
+(auth gates, happy paths, 404 on missing/already-resolved rows).
+
+### Verification
+- `pytest tests/ -q` → 446 passing.
+- `ruff check src/ tests/ && ruff format --check src/ tests/` → clean.
+- Browser at `http://100.79.194.84:8080/`: composer paints instant
+  feedback, new maestros register without permission stalls, mode
+  bubbles approve/deny inline.
+
+### Out of scope (deferred)
+- **Async job model** for `/api/command` (return job-id immediately,
+  stream tokens via SSE). Big architectural change; the optimistic UI
+  buys most of the perceived improvement without the rewrite.
+- **Token-by-token streaming** of maestro responses — same rewrite.
+- **Backfilling `yolo`** for existing persisted maestros. Promote one
+  with `/m:<name> mode yolo` per maestro as needed.
+- **Mode-request bubbles for worker-to-maestro requests.** Today only
+  `approver == "user"` requests fan out to notifications; surfacing
+  maestro-approver requests would require routing them to the right
+  maestro's chat, not the global rail.
+
+---
+
 ## Sprint 15 — Web Write Surface + Multi-Channel Notifications (2026-04-25, DONE)
 
 **Status:** Complete

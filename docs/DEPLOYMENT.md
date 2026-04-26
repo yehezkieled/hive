@@ -188,9 +188,10 @@ Defaults & Tailscale binding:
 - **Note**: `tailfb3900.ts.net` is your tailnet *domain*, not a device
   hostname; it does not resolve to an IP on its own. Use the device's
   Tailscale IP or its MagicDNS short name.
-- The page polls three htmx fragments — `/api/landing/{hero,vault,active}`
-  — at 30s / 15s / 5s respectively. JSON endpoints from earlier sprints
-  (`/api/{status,org,tasks,cost,audit}`) remain available alongside.
+- The page polls five htmx fragments — `/api/landing/{hero,vault,active,idle,dormant}`
+  — at 30s / 15s / 5s / 5s / 30s respectively. JSON endpoints from
+  earlier sprints (`/api/{status,org,tasks,cost,audit}`) remain
+  available alongside.
 - Static assets (`/static/landing.css`) are mounted from
   `src/hive/web/static/` — bumping the CSS file is hot-reloadable on
   browser refresh; no server restart needed for stylesheet-only changes.
@@ -198,19 +199,35 @@ Defaults & Tailscale binding:
 Auth is deferred — do **not** flip `HIVE_WEB_HOST` to `0.0.0.0` until a
 later sprint ships session-cookie or OAuth-based authentication.
 
-### Web write surface (Sprint 15)
+### Web write surface (Sprint 15 + 2026-04-26 polish)
 
-Two endpoints accept input from the browser tab:
+Endpoints that accept input from the browser tab:
 
 - `POST /api/command` — body `{"text": "/help"}`. Auth: `Authorization:
   Bearer $HIVE_WEB_TOKEN`. Routes through the same `CommandDispatcher`
-  that Telegram uses, with `actor="web:user"`.
+  that Telegram uses, with `actor="web:user"`. Each round-trip is
+  persisted to `MessageStore` (user → hive, hive → user) so chat
+  history survives a page reload.
+- `POST /api/mode-request/{id}/approve` — approve a pending mode
+  elevation. Auth same as `/api/command`. Returns 404 if the row is
+  missing or already resolved. Wired to the Allow button on inline
+  mode-request bubbles.
+- `POST /api/mode-request/{id}/deny` — symmetrical denial endpoint.
 - `GET /sse/notifications` — `text/event-stream` of proactive events
   (mode requests, retries, escalations, daily summary…). Browsers'
   `EventSource` cannot set custom headers, so the gate also accepts the
   token via query string: `/sse/notifications?token=$HIVE_WEB_TOKEN`.
+  Mode-request notifications now carry a structured `data` field that
+  the browser dispatches to a clickable Allow/Deny bubble in the chat
+  rail.
 - `GET /api/messages?limit=20` — recent message history. **Open**
   (Tailscale bind is the gate); read-only.
+
+**New-maestro permission default (2026-04-26).** `register_maestro`
+sets `permission_mode = "yolo"` on freshly created maestros so headless
+`claude -p` tool calls aren't auto-denied. Existing maestros restored
+from postgres keep their persisted mode unchanged. Promote an existing
+maestro explicitly with `/m:<name> mode yolo` when needed.
 
 **Setup**:
 
@@ -611,7 +628,7 @@ become no-ops — Hive still boots.
 
 ---
 
-## 10. Known limitations (as of Sprint 14)
+## 10. Known limitations (as of 2026-04-26)
 
 - **One-shot subprocess model** — each `send_to_entity` spawns a fresh
   `claude -p` subprocess, uses it, and kills it. The `--resume
@@ -628,11 +645,18 @@ become no-ops — Hive still boots.
 - **Blueprints require `OPENAI_API_KEY`** — without it, `/blueprint save|search`
   and auto-retrieval of blueprints into agent prompts are disabled silently.
   Hive still boots, but these features are no-ops.
-- **No web dashboard auth** — the web dashboard (when enabled via
-  `HIVE_WEB_PORT`) is read-only with no authentication. `HIVE_WEB_HOST`
-  defaults to `127.0.0.1` so it's localhost-only; do not flip to
-  `0.0.0.0` until a later sprint ships session/OAuth auth (Sprint 14
-  shipped the A.2 landing page but deferred auth).
+- **Web dashboard auth is bearer-token only** — Sprint 15 added a
+  shared `HIVE_WEB_TOKEN` to gate `POST /api/command`, the mode-request
+  approve/deny endpoints, and `GET /sse/notifications`. Read endpoints
+  (the landing page itself, htmx fragments, `/api/messages`) stay open
+  and rely on the Tailscale bind as the network-level gate. Multi-user
+  OAuth/sessions still deferred. Do not flip `HIVE_WEB_HOST` to
+  `0.0.0.0` until that lands.
+- **`/api/command` is synchronous** — each call spawns a fresh `claude
+  -p` and blocks the request until the response lands (5–30s typical).
+  The browser paints an optimistic user bubble + typing indicator
+  immediately, but the underlying long wait is real. A job-id + SSE
+  streaming rewrite is deferred.
 - **Daily summary timing** — the scheduler checks once per hour, so the
   summary may fire up to 59 minutes after the configured hour if the
   process restarts mid-cycle.
