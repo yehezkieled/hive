@@ -248,7 +248,7 @@ function renderMarkdown(text) {
 
 function appendChatLine(from, text) {
   const rail = document.querySelector('.chat-rail__messages');
-  if (!rail) return;
+  if (!rail) return null;
   const wrap = document.createElement('div');
   if (from === 'system') {
     wrap.className = 'msg--system';
@@ -268,6 +268,75 @@ function appendChatLine(from, text) {
   }
   rail.appendChild(wrap);
   rail.scrollTop = rail.scrollHeight;
+  return wrap;
+}
+
+function appendTypingBubble(name) {
+  const rail = document.querySelector('.chat-rail__messages');
+  if (!rail) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'msg msg--agent msg--typing';
+  wrap.innerHTML = '<div class="msg__avatar">·</div>'
+    + '<div class="msg__body"><span class="msg__from"></span>'
+    + '<div class="msg__bubble msg__bubble--typing">'
+    + '<span></span><span></span><span></span></div></div>';
+  wrap.querySelector('.msg__from').textContent = name;
+  rail.appendChild(wrap);
+  rail.scrollTop = rail.scrollHeight;
+  return wrap;
+}
+
+function appendModeRequestBubble(data) {
+  const rail = document.querySelector('.chat-rail__messages');
+  if (!rail) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'msg msg--agent msg--mode-req';
+  const reasonText = data.reason ? escapeHtml(data.reason) : '<em>(no reason given)</em>';
+  wrap.innerHTML =
+    '<div class="msg__avatar">!</div>'
+    + '<div class="msg__body"><span class="msg__from">mode request #' + data.id + '</span>'
+    + '<div class="msg__bubble mode-req__bubble">'
+    + '<div class="mode-req__head"><strong>' + escapeHtml(data.requester) + '</strong> '
+    + '→ <code>' + escapeHtml(data.requested_mode) + '</code></div>'
+    + '<div class="mode-req__reason">' + reasonText + '</div>'
+    + '<div class="mode-req__actions">'
+    + '<button class="mode-req__btn mode-req__btn--allow" data-action="approve">Allow</button>'
+    + '<button class="mode-req__btn mode-req__btn--deny" data-action="deny">Deny</button>'
+    + '</div></div></div>';
+  rail.appendChild(wrap);
+  rail.scrollTop = rail.scrollHeight;
+
+  wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const action = btn.dataset.action;
+      const token = sessionStorage.getItem('hive_web_token');
+      if (!token) {
+        appendChatLine('system', 'No auth token — send a message first to set it.');
+        return;
+      }
+      wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = true);
+      try {
+        const resp = await fetch('/api/mode-request/' + data.id + '/' + action, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+        if (!resp.ok) {
+          wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
+          wrap.classList.add('mode-req--error');
+          setTimeout(() => wrap.classList.remove('mode-req--error'), 1500);
+          appendChatLine('system', 'Mode-request action failed: ' + resp.status);
+          return;
+        }
+        const verb = action === 'approve' ? 'Approved' : 'Denied';
+        wrap.querySelector('.mode-req__actions').innerHTML =
+          '<span class="mode-req__resolved">' + verb + '</span>';
+      } catch (err) {
+        wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
+        appendChatLine('system', 'Network error: ' + err.message);
+      }
+    });
+  });
+  return wrap;
 }
 
 async function sendChatCommand(event) {
@@ -277,6 +346,18 @@ async function sendChatCommand(event) {
   if (!text) return false;
   const token = ensureToken();
   if (!token) return false;
+
+  // Optimistic UI: paint user message + clear composer immediately.
+  appendChatLine('user', text);
+  input.value = '';
+  input.style.height = 'auto';
+  refreshSendState();
+
+  // Show a typing indicator for the addressed maestro (or "hive").
+  const m = text.match(/^\/m:(\w+)/);
+  const typingFor = m ? m[1] : 'hive';
+  const typingEl = appendTypingBubble(typingFor);
+
   try {
     const resp = await fetch('/api/command', {
       method: 'POST',
@@ -286,23 +367,21 @@ async function sendChatCommand(event) {
       },
       body: JSON.stringify({ text }),
     });
+    if (typingEl) typingEl.remove();
     if (resp.status === 401) {
       sessionStorage.removeItem('hive_web_token');
-      alert('Auth failed — token cleared. Try again.');
+      appendChatLine('system', 'Auth failed — token cleared. Try again.');
       return false;
     }
     if (!resp.ok) {
-      alert('Command failed: ' + resp.status);
+      appendChatLine('system', 'Command failed: ' + resp.status);
       return false;
     }
     const data = await resp.json();
-    appendChatLine('user', text);
     if (data && data.text) appendChatLine('hive', data.text);
-    input.value = '';
-    input.style.height = 'auto';
-    refreshSendState();
   } catch (err) {
-    alert('Network error: ' + err.message);
+    if (typingEl) typingEl.remove();
+    appendChatLine('system', 'Network error: ' + err.message);
   }
   return false;
 }
@@ -380,7 +459,11 @@ function startNotificationStream() {
   es.onmessage = (ev) => {
     try {
       const evt = JSON.parse(ev.data);
-      appendChatLine('system', '[' + (evt.kind || 'info') + '] ' + evt.text);
+      if (evt.kind === 'mode_request' && evt.data) {
+        appendModeRequestBubble(evt.data);
+      } else {
+        appendChatLine('system', '[' + (evt.kind || 'info') + '] ' + evt.text);
+      }
     } catch (_) {
       appendChatLine('system', ev.data);
     }

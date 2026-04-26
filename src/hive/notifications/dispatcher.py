@@ -16,10 +16,13 @@ class Notification:
 
     ``kind`` exists for future per-channel routing (e.g. "send P0 errors
     to email but not SSE"). For now every channel receives every event.
+    ``data`` carries optional structured payload — used by the web UI
+    to render interactive bubbles (e.g. mode-request Allow/Deny).
     """
 
     text: str
     kind: str = "info"
+    data: dict | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

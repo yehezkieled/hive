@@ -155,6 +155,26 @@ def create_app(
                 logger.exception("Failed to persist web chat message")
         return {"text": result.text, "metadata": result.metadata}
 
+    @app.post("/api/mode-request/{request_id}/approve")
+    async def api_mode_approve(
+        request_id: int,
+        _: None = Depends(require_token),
+    ):
+        row = await process_manager.approve_mode_request(request_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Request not found or already resolved")
+        return {"ok": True, "id": row["id"], "status": row.get("status", "approved")}
+
+    @app.post("/api/mode-request/{request_id}/deny")
+    async def api_mode_deny(
+        request_id: int,
+        _: None = Depends(require_token),
+    ):
+        row = await process_manager.deny_mode_request(request_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Request not found or already resolved")
+        return {"ok": True, "id": row["id"], "status": row.get("status", "denied")}
+
     @app.get("/sse/notifications")
     async def sse_notifications(_: None = Depends(require_token)):
         if sse_broker is None:

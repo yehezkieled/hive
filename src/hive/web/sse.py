@@ -68,6 +68,7 @@ def format_event(notification: Notification) -> str:
         {
             "text": notification.text,
             "kind": notification.kind,
+            "data": notification.data,
             "timestamp": notification.timestamp.isoformat(),
         }
     )

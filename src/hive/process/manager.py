@@ -174,6 +174,10 @@ class ProcessManager:
             model=model,
             personality_path=personality_path,
         )
+        # New maestros default to `yolo` so first-message tool calls
+        # don't get auto-denied under headless `claude -p`. Existing
+        # maestros restored from postgres keep their persisted mode.
+        maestro.permission_mode = "yolo"
         if personality_path and personality_path.exists():
             maestro.load_personality()
 
@@ -661,7 +665,14 @@ class ProcessManager:
                 f"[mode request #{row['id']}] {requester} -> {requested_mode}. "
                 f"Reason: {reason_text}\n"
                 f"Approve: /approve mode {row['id']}   "
-                f"Deny: /deny mode {row['id']} <reason>"
+                f"Deny: /deny mode {row['id']} <reason>",
+                kind="mode_request",
+                data={
+                    "id": row["id"],
+                    "requester": requester,
+                    "requested_mode": requested_mode,
+                    "reason": reason,
+                },
             )
         return row["id"]
 
@@ -861,11 +872,18 @@ class ProcessManager:
                 logger.warning("Entity %s died unexpectedly", name)
         return unhealthy
 
-    async def _notify(self, message: str, kind: str = "info") -> None:
+    async def _notify(
+        self,
+        message: str,
+        kind: str = "info",
+        data: dict | None = None,
+    ) -> None:
         """Send a proactive notification through the registered dispatcher."""
         if self.notification_dispatcher is None:
             return
-        await self.notification_dispatcher.dispatch(Notification(text=message, kind=kind))
+        await self.notification_dispatcher.dispatch(
+            Notification(text=message, kind=kind, data=data)
+        )
 
     async def compact_entity(self, entity_name: str) -> str:
         """Compact an entity's context: summarize, kill, re-register, seed.
