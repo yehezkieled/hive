@@ -266,7 +266,20 @@ def create_app(
     # ─── Landing page ──────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
+        from hive.telegram.help_text import HELP_TEXT
+
         view = await _build_view()
-        return templates.TemplateResponse(request, "dashboard.html", {"view": view})
+        # Entries with `display` set are aliases (e.g. message → m:); the
+        # composer already lists them via its ALIASES array, so skip here
+        # to avoid a confusing duplicate row that inserts the unparseable
+        # internal name.
+        commands = [
+            {"name": name, "usage": entry.usage, "description": entry.description}
+            for name, entry in sorted(HELP_TEXT.items())
+            if entry.display is None
+        ]
+        return templates.TemplateResponse(
+            request, "dashboard.html", {"view": view, "commands": commands}
+        )
 
     return app

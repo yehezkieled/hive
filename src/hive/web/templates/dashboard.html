@@ -422,6 +422,10 @@ document.querySelectorAll('.chat-rail__messages .msg__bubble').forEach(el => {
   el.innerHTML = renderMarkdown(el.textContent);
 });
 
+// Land on the latest message after a refresh.
+const initialRail = document.querySelector('.chat-rail__messages');
+if (initialRail) initialRail.scrollTop = initialRail.scrollHeight;
+
 // Drag-resizable chat-rail. Width persists in localStorage.
 (function setupRailResizer() {
   const rail = document.querySelector('.chat-rail');
@@ -478,42 +482,29 @@ function startNotificationStream() {
 
 document.addEventListener('DOMContentLoaded', startNotificationStream);
 
+const HIVE_COMMANDS = {{ commands|tojson }};
+
 (function initAutocomplete() {
   const input    = document.getElementById('chat-input');
   const dropdown = document.getElementById('cmd-dropdown');
   if (!input || !dropdown) return;
 
-  let commands = [], filtered = [], activeIndex = -1;
-
-  const FALLBACK = [
-    {name:'status',  description:'Show entity states.'},
-    {name:'health',  description:'List unhealthy entities.'},
-    {name:'help',    description:'Show help.'},
-    {name:'tasks',   description:'List pending/in-progress tasks.'},
-    {name:'org',     description:'Show full org tree.'},
-    {name:'kill',    description:'Stop entity subprocess.'},
-    {name:'mode',    description:'Set permission mode.'},
-    {name:'task',    description:'Manage tasks.'},
-  ];
-
   const ALIASES = [
-    {name:'m:', description:'Message a maestro — e.g. /m:dev hello'},
-    {name:'t:', description:'Message a team — e.g. /t:dev.myteam hello'},
-    {name:'a:', description:'Message a worker — e.g. /a:dev.team.worker hello'},
+    {name:'m:', usage:'/m:<maestro> <text>',                  description:'Message a maestro'},
+    {name:'t:', usage:'/t:<maestro>.<team> <text>',           description:'Message a team'},
+    {name:'a:', usage:'/a:<maestro>.<team>.<worker> <text>',  description:'Message a worker'},
   ];
 
-  fetch('/api/commands')
-    .then(r => r.ok ? r.json() : Promise.reject())
-    .then(data => { commands = [...data, ...ALIASES]; })
-    .catch(() => { commands = [...FALLBACK, ...ALIASES]; });
+  let commands = [...HIVE_COMMANDS, ...ALIASES], filtered = [], activeIndex = -1;
 
   function render() {
     dropdown.innerHTML = '';
     filtered.forEach((cmd, i) => {
       const item = document.createElement('div');
       item.className = 'cmd-dropdown__item' + (i === activeIndex ? ' is-active' : '');
+      const usage = cmd.usage || ('/' + cmd.name);
       item.innerHTML =
-        '<span class="cmd-dropdown__name">/' + escapeHtml(cmd.name) + '</span>' +
+        '<span class="cmd-dropdown__usage">' + escapeHtml(usage) + '</span>' +
         '<span class="cmd-dropdown__desc">'  + escapeHtml(cmd.description) + '</span>';
       item.addEventListener('mousedown', e => { e.preventDefault(); selectItem(i); });
       dropdown.appendChild(item);
@@ -597,14 +588,21 @@ document.addEventListener('DOMContentLoaded', startNotificationStream);
   padding: 6px 0;
 }
 .cmd-dropdown__item {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; flex-direction: column; gap: 2px;
   padding: 7px 14px; cursor: pointer;
-  font-family: var(--font-mono); font-size: 11.5px;
 }
 .cmd-dropdown__item:hover,
 .cmd-dropdown__item.is-active { background: var(--honey-soft); }
-.cmd-dropdown__name { color: var(--ink); font-weight: 700; min-width: 90px; flex-shrink: 0; }
-.cmd-dropdown__desc { color: var(--ink-3); font-family: var(--font-sans); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmd-dropdown__usage {
+  color: var(--ink); font-weight: 700;
+  font-family: var(--font-mono); font-size: 11.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cmd-dropdown__desc {
+  color: var(--ink-3);
+  font-family: var(--font-sans); font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 </style>
 </body>
 </html>

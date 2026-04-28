@@ -39,8 +39,9 @@ def test_all_entries_have_required_fields() -> None:
 
 def test_format_all_includes_every_command() -> None:
     rendered = format_all()
-    for name in HELP_TEXT:
-        assert f"/{name}" in rendered, f"{name} missing from /help output"
+    for name, entry in HELP_TEXT.items():
+        shown = entry.display or name
+        assert f"/{shown}" in rendered, f"{name} missing from /help output"
 
 
 def test_format_all_groups_by_category() -> None:

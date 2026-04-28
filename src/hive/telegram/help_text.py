@@ -18,6 +18,7 @@ class HelpEntry:
     usage: str
     description: str
     examples: tuple[str, ...] = ()
+    display: str | None = None
 
 
 # Category ordering for /help listing output
@@ -133,6 +134,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
         category="Messaging",
         usage="/m:<maestro> <text> | <text>",
         description="Send a message to a maestro.",
+        display="m:",
         examples=(
             "/m:dev please audit the token usage",
             "hello dev",
@@ -301,7 +303,8 @@ def format_all() -> str:
             continue
         lines.append(f"{category}:")
         for name, entry in sorted(entries):
-            lines.append(f"  /{name} — {entry.description}")
+            shown = entry.display or name
+            lines.append(f"  /{shown} — {entry.description}")
         lines.append("")
     return "\n".join(lines).rstrip()
 
@@ -313,8 +316,9 @@ def format_one(name: str) -> str:
     if entry is None:
         return f"Unknown command: /{name}. Try /help for the full list."
 
+    shown = entry.display or name
     lines = [
-        f"/{name} — {entry.category}",
+        f"/{shown} — {entry.category}",
         "",
         f"Usage: {entry.usage}",
         "",
