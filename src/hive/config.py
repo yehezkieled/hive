@@ -83,14 +83,18 @@ SMTP_PASSWORD = os.environ.get("HIVE_SMTP_PASSWORD", "")
 EMAIL_DIGEST_INTERVAL_MINUTES = int(os.environ.get("HIVE_EMAIL_DIGEST_INTERVAL_MINUTES", "60"))
 EMAIL_DIGEST_BUFFER_SIZE = int(os.environ.get("HIVE_EMAIL_DIGEST_BUFFER_SIZE", "20"))
 
-# Embeddings / semantic blueprints (Sprint 11)
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1536"))
+# Embeddings / semantic blueprints (Sprint 11; provider switched to Voyage in Sprint 16)
+VOYAGE_API_KEY = os.environ.get("VOYAGE_API_KEY", "")
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "voyage-multimodal-3")
+EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 
 # Auto-retrieval: inject top-K blueprints into every entity prompt.
 AUTO_RETRIEVE_ENABLED = os.environ.get("AUTO_RETRIEVE_ENABLED", "true").lower() == "true"
 AUTO_RETRIEVE_TOP_K = int(os.environ.get("AUTO_RETRIEVE_TOP_K", "3"))
+# Maximum cosine distance for an auto-retrieved blueprint to be prepended.
+# 0 = identical, 2 = opposite. Without this filter a small corpus prepends
+# the same blueprint to every prompt regardless of relevance.
+AUTO_RETRIEVE_MAX_DISTANCE = float(os.environ.get("AUTO_RETRIEVE_MAX_DISTANCE", "0.6"))
 
 # Git workflow (Sprint 12 Phase 3). /merge is off by default — set the env
 # var to "1" to allow the Telegram bridge to execute `gh pr merge --squash`.

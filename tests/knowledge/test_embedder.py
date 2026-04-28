@@ -1,4 +1,4 @@
-"""Tests for the OpenAI embedder wrapper."""
+"""Tests for the Voyage embedder wrapper."""
 
 from __future__ import annotations
 
@@ -6,19 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hive.knowledge.embedder import embed_texts
+from hive.knowledge.embedder import embed_multimodal, embed_texts
 
 
 @pytest.fixture
-def mock_openai(monkeypatch):
-    """Patch the lazily-created AsyncOpenAI client with a mock."""
+def mock_voyage(monkeypatch):
+    """Patch the lazily-created Voyage AsyncClient with a mock."""
     mock_client = MagicMock()
     mock_response = MagicMock()
-    mock_response.data = [
-        MagicMock(embedding=[0.1] * 1536),
-        MagicMock(embedding=[0.2] * 1536),
-    ]
-    mock_client.embeddings.create = AsyncMock(return_value=mock_response)
+    mock_response.embeddings = [[0.1] * 1024, [0.2] * 1024]
+    mock_client.multimodal_embed = AsyncMock(return_value=mock_response)
 
     import hive.knowledge.embedder as emb
 
@@ -26,21 +23,39 @@ def mock_openai(monkeypatch):
     return mock_client
 
 
-async def test_embed_texts_returns_one_vector_per_input(mock_openai):
+async def test_embed_texts_returns_one_vector_per_input(mock_voyage):
     vectors = await embed_texts(["hello", "world"])
     assert len(vectors) == 2
-    assert all(len(v) == 1536 for v in vectors)
+    assert all(len(v) == 1024 for v in vectors)
 
 
-async def test_embed_texts_passes_model_and_input(mock_openai):
-    await embed_texts(["foo"])
-    mock_openai.embeddings.create.assert_awaited_once()
-    kwargs = mock_openai.embeddings.create.call_args.kwargs
-    assert kwargs["model"] == "text-embedding-3-small"
-    assert kwargs["input"] == ["foo"]
+async def test_embed_texts_wraps_each_text_as_single_segment_doc(mock_voyage):
+    await embed_texts(["foo", "bar"])
+    mock_voyage.multimodal_embed.assert_awaited_once()
+    kwargs = mock_voyage.multimodal_embed.call_args.kwargs
+    assert kwargs["model"] == "voyage-multimodal-3"
+    # Voyage's multimodal endpoint takes a list of documents, each a list of
+    # segments. Pure text is wrapped as a one-segment list per input.
+    assert kwargs["inputs"] == [["foo"], ["bar"]]
 
 
-async def test_embed_texts_empty_list_short_circuits(mock_openai):
+async def test_embed_texts_empty_list_short_circuits(mock_voyage):
     vectors = await embed_texts([])
     assert vectors == []
-    mock_openai.embeddings.create.assert_not_awaited()
+    mock_voyage.multimodal_embed.assert_not_awaited()
+
+
+async def test_embed_multimodal_passes_inputs_through(mock_voyage):
+    docs = [["text segment", "more text"], ["other doc"]]
+    vectors = await embed_multimodal(docs)
+    assert len(vectors) == 2
+    mock_voyage.multimodal_embed.assert_awaited_once()
+    kwargs = mock_voyage.multimodal_embed.call_args.kwargs
+    assert kwargs["inputs"] == docs
+    assert kwargs["model"] == "voyage-multimodal-3"
+
+
+async def test_embed_multimodal_empty_short_circuits(mock_voyage):
+    vectors = await embed_multimodal([])
+    assert vectors == []
+    mock_voyage.multimodal_embed.assert_not_awaited()

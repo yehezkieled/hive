@@ -7,13 +7,23 @@ import pytest
 
 @pytest.fixture
 def mock_embed(monkeypatch):
-    """Patch embed_texts to return deterministic vectors."""
+    """Patch embed_texts to return deterministic one-hot vectors per leading char.
+
+    Same first character → same vector, so cosine distance = 0. Different
+    first character → orthogonal vectors, so cosine distance = 1. This gives
+    us predictable distances for both ordering and threshold tests.
+    """
     calls: list[list[str]] = []
 
     async def fake(texts: list[str]) -> list[list[float]]:
         calls.append(texts)
-        # Distinct vectors per input so similarity ordering is meaningful.
-        return [[float(ord(t[0]) % 10)] + [0.0] * 1535 for t in texts]
+        results: list[list[float]] = []
+        for t in texts:
+            vec = [0.0] * 1024
+            if t:
+                vec[ord(t[0]) % 1024] = 1.0
+            results.append(vec)
+        return results
 
     monkeypatch.setattr("hive.knowledge.blueprints.embed_texts", fake)
     return calls
@@ -32,7 +42,7 @@ async def test_search_returns_semantically_ordered_results(blueprint_store, mock
     await blueprint_store.save("alpha", "a content", [])
     await blueprint_store.save("bravo", "b content", [])
     await blueprint_store.save("charlie", "c content", [])
-    # Query with "a..." → should match alpha first (same leading char -> same vector).
+    # Query with leading 'a' → matches alpha exactly (distance 0); others orthogonal.
     results = await blueprint_store.search("another query", limit=2)
     assert len(results) == 2
     assert results[0]["title"] == "alpha"
@@ -48,3 +58,19 @@ async def test_list_all_returns_newest_first(blueprint_store, mock_embed):
     await blueprint_store.save("second", "2", [])
     rows = await blueprint_store.list_all()
     assert [r["title"] for r in rows] == ["second", "first"]
+
+
+async def test_search_max_distance_filters_far_results(blueprint_store, mock_embed):
+    """With max_distance set, orthogonal blueprints (distance ~1) are dropped."""
+    await blueprint_store.save("alpha", "a content", [])
+    await blueprint_store.save("zulu", "z content", [])
+
+    # Without filter: both come back (alpha first because distance 0).
+    no_filter = await blueprint_store.search("alpha-ish", limit=10)
+    assert len(no_filter) == 2
+
+    # With tight threshold: only alpha (distance 0). Zulu's cosine distance
+    # is 1.0 (orthogonal), well above 0.5.
+    filtered = await blueprint_store.search("alpha-ish", limit=10, max_distance=0.5)
+    assert len(filtered) == 1
+    assert filtered[0]["title"] == "alpha"

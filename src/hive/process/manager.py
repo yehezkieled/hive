@@ -19,6 +19,7 @@ from hive.config import (
     AUTO_COMPACT_ENABLED,
     AUTO_COMPACT_THRESHOLD,
     AUTO_RETRIEVE_ENABLED,
+    AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
 )
 from hive.knowledge.blueprints import BlueprintStore
@@ -304,7 +305,11 @@ class ProcessManager:
         # --- Sprint 11: auto-retrieve top-K blueprints as context ---
         if AUTO_RETRIEVE_ENABLED and self.blueprint_store is not None and prompt.strip():
             try:
-                hits = await self.blueprint_store.search(prompt, limit=AUTO_RETRIEVE_TOP_K)
+                hits = await self.blueprint_store.search(
+                    prompt,
+                    limit=AUTO_RETRIEVE_TOP_K,
+                    max_distance=AUTO_RETRIEVE_MAX_DISTANCE,
+                )
             except Exception:
                 logger.exception("auto-retrieve failed; continuing without blueprints")
                 hits = []

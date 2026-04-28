@@ -52,8 +52,18 @@ class BlueprintStore:
             )
         return row["id"]
 
-    async def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Return blueprints ranked by cosine similarity to the query text."""
+    async def search(
+        self,
+        query: str,
+        limit: int = 5,
+        max_distance: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return blueprints ranked by cosine similarity to the query text.
+
+        If ``max_distance`` is given, results above that cosine distance are
+        dropped. With a small corpus this avoids prepending a barely-related
+        blueprint to every prompt.
+        """
         vectors = await embed_texts([query])
         if not vectors:
             return []
@@ -61,18 +71,34 @@ class BlueprintStore:
 
         async with self.pool.acquire() as conn:
             await self._ensure_vector_codec(conn)
-            rows = await conn.fetch(
-                """
-                SELECT id, title, body, tags, created_at,
-                       embedding <=> $1 AS distance
-                FROM blueprints
-                WHERE embedding IS NOT NULL
-                ORDER BY embedding <=> $1, id ASC
-                LIMIT $2
-                """,
-                query_vector,
-                limit,
-            )
+            if max_distance is None:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, title, body, tags, created_at,
+                           embedding <=> $1 AS distance
+                    FROM blueprints
+                    WHERE embedding IS NOT NULL
+                    ORDER BY embedding <=> $1, id ASC
+                    LIMIT $2
+                    """,
+                    query_vector,
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, title, body, tags, created_at,
+                           embedding <=> $1 AS distance
+                    FROM blueprints
+                    WHERE embedding IS NOT NULL
+                      AND embedding <=> $1 < $3
+                    ORDER BY embedding <=> $1, id ASC
+                    LIMIT $2
+                    """,
+                    query_vector,
+                    limit,
+                    max_distance,
+                )
         return [dict(row) for row in rows]
 
     async def list_all(self) -> list[dict[str, Any]]:
