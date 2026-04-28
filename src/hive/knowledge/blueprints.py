@@ -1,4 +1,4 @@
-"""PostgreSQL + pgvector blueprint store with OpenAI semantic search.
+"""PostgreSQL + pgvector blueprint store with Voyage semantic search.
 
 Blueprints are post-project knowledge docs. They're stored as rows in the
 ``blueprints`` table with a body column (source of truth) and an embedding
