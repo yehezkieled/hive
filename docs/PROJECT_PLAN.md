@@ -1562,6 +1562,84 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 16 — Voyage Embedding Migration (2026-04-28, DONE)
+
+**Status:** Complete
+**Branch:** `sprint-16-voyage-embeddings` → main
+**Totals:** 446 → 450 tests (+4), 1 migration (`016_embedding_dim_1024.sql`).
+
+**Goal**: Replace OpenAI `text-embedding-3-small` (1536d, text-only) with
+Voyage `voyage-multimodal-3` (1024d, joint text+image) so the knowledge
+store can eventually hold images as well as text. Independent driver:
+the OpenAI key was leaked on 2026-04-26 via a faulty redaction regex
+(`sk-[A-Za-z0-9-]*` didn't match underscores) and needed rotation —
+this migration removes Hive's dependency on it entirely.
+
+**Builds on**: Sprint 11 (semantic blueprints via pgvector) and the
+Sprint 13 auto-retrieve flow — the embedding provider sits underneath
+both.
+
+### Locked decisions
+- **Provider**: Voyage `voyage-multimodal-3`. Recommended by Anthropic;
+  joint text+image embedding space; 1024d.
+- **Existing data**: drop the 1 existing blueprint. 1536d and 1024d
+  vectors live in different vector spaces, so there is no
+  "convert" path — re-saving re-embeds via the new provider.
+- **Migration order**: Voyage key in `.env` → deploy → smoke test →
+  THEN revoke the OpenAI key. Revoking first crashes every
+  `send_to_entity` until deploy lands.
+- **`max_distance` filter**: new env var `AUTO_RETRIEVE_MAX_DISTANCE`
+  (default `0.6`) suppresses lone-blueprint noise. With only 1 saved
+  blueprint, every prompt would otherwise pull it in regardless of
+  semantic relevance.
+- **Multimodal scope**: ship the embedder API surface
+  (`embed_multimodal`) but don't wire image inputs into bridge/web yet
+  — that's a future sprint.
+
+### Files changed
+| File | Change |
+|------|--------|
+| `pyproject.toml` | Removed `openai>=1.30`; added `voyageai>=0.3` |
+| `src/hive/config.py` | `OPENAI_API_KEY` → `VOYAGE_API_KEY`; `EMBEDDING_MODEL` default → `voyage-multimodal-3`; `EMBEDDING_DIM` default → `1024`; new `AUTO_RETRIEVE_MAX_DISTANCE` (default `0.6`) |
+| `src/hive/knowledge/embedder.py` | Full rewrite. Voyage `AsyncClient` lazily constructed. `embed_texts` wraps each input as a single-segment doc and calls `multimodal_embed` (voyage-multimodal-3 doesn't support `embed`). New `embed_multimodal(inputs)` for future image use |
+| `src/hive/knowledge/blueprints.py` | `search()` now accepts `max_distance: float \| None`; SQL branches into a `WHERE embedding <=> $1 < $threshold` filter when set |
+| `src/hive/process/manager.py` | Auto-retrieve passes `AUTO_RETRIEVE_MAX_DISTANCE` to `blueprint_store.search()` |
+| `src/hive/bus/migrations/016_embedding_dim_1024.sql` (new) | TRUNCATE blueprints; DROP HNSW index; ALTER COLUMN to `vector(1024)`; recreate HNSW index. pgvector cannot cast across dimensions, hence the truncate-first approach |
+| `tests/knowledge/test_embedder.py` | Mock Voyage client instead of OpenAI; 1024d vectors; +2 multimodal tests (5 total) |
+| `tests/knowledge/test_blueprints_pgvector.py` | 1024d one-hot fixtures keyed off `ord(t[0]) % 1024`; +1 `max_distance` filter test (5 total) |
+| `tests/process/test_auto_retrieve.py` | 1024d mocks; +1 orthogonal-vector test for the `max_distance` filter (3 total) |
+| `.env` (VPS) | Replaced `OPENAI_API_KEY` with `VOYAGE_API_KEY`; added `AUTO_RETRIEVE_MAX_DISTANCE=0.6` |
+| `docs/DEPLOYMENT.md` | Documented the new env vars and the provider switch |
+
+### Verification
+- `pytest tests/ -q` → 450 passing.
+- `ruff check src/ tests/ && ruff format --check src/ tests/` → clean.
+- Migration 016 runs on service start; `\d blueprints` shows
+  `embedding | vector(1024)`.
+- `/blueprint save smoke-test "..."` succeeds → first Voyage call
+  works.
+- `/blueprint search sprint` returns the saved blueprint with a cosine
+  distance score.
+- `/m:dev` with a related prompt prepends blueprint context (visible
+  in logs); with an unrelated prompt the `max_distance` filter
+  suppresses it.
+- `journalctl --user-unit hive.service -n 200 | grep -i openai` →
+  empty.
+
+### Out of scope (deferred)
+- **Codex CLI + `codex-plugin-cc`** to absorb the $10 OpenAI credit
+  balance: separate workstream.
+- **Image embeddings end-to-end**: `embed_multimodal()` is wired but
+  bridge/web input paths still only accept text.
+- **Re-embed utility script**: skipped — only 1 blueprint and we're
+  dropping it. Add later if Voyage releases a model upgrade we want
+  to migrate to.
+- **OpenAI refund**: user emails help.openai.com asking for the
+  unused balance. Discretionary; worth trying since this sprint
+  permanently removes the OpenAI dep.
+
+---
+
 ## Post-Sprint 15 polish (2026-04-26, DONE)
 
 **Status:** Complete (not a sprint — small UX/UI follow-ups after a real

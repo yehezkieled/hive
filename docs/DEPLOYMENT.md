@@ -146,7 +146,9 @@ Running migration 010_last_activity_at.sql
 Running migration 011_blueprints_pgvector.sql
 Running migration 012_mode_requests.sql
 Running migration 013_task_retries.sql
-Running migration 014_loop_yolo_to_ship_it.sql
+Running migration 014_rename_loop_yolo.sql
+Running migration 015_advisor_calls.sql
+Running migration 016_embedding_dim_1024.sql
 Registered entity: dev
 Registered default maestro: dev
 Telegram bridge started, polling for updates
@@ -595,11 +597,12 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_DAILY_SUMMARY_ENABLED` | `true` | Send daily Telegram summary |
 | `HIVE_DAILY_SUMMARY_HOUR` | `23` | UTC hour for daily summary (23 = 9am AEST) |
 | `HIVE_SUMMARY_CHAT_ID` | *(none)* | Telegram chat ID for proactive notifications |
-| `OPENAI_API_KEY` | *(none)* | OpenAI API key — required for blueprint embeddings + semantic search + auto-retrieve |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model name |
-| `EMBEDDING_DIM` | `1536` | Embedding vector dimension (must match model) |
+| `VOYAGE_API_KEY` | *(none)* | Voyage AI API key — required for blueprint embeddings + semantic search + auto-retrieve. Get one at https://dash.voyageai.com/ |
+| `EMBEDDING_MODEL` | `voyage-multimodal-3` | Voyage embedding model name. Multimodal-only model — pure text inputs are wrapped as single-segment docs internally |
+| `EMBEDDING_DIM` | `1024` | Embedding vector dimension (must match model). Changed from 1536 → 1024 in Sprint 16 |
 | `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
 | `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
+| `AUTO_RETRIEVE_MAX_DISTANCE` | `0.6` | Maximum cosine distance for an auto-retrieved blueprint (Sprint 16). 0=identical, 1=orthogonal. Lower = stricter relevance gate; suppresses lone-blueprint noise when the store is small |
 | `HIVE_ALLOW_AUTO_MERGE` | `0` | When `1`, enables `/merge <entity>`. Off by default so a fat-fingered Telegram message can't ship code. |
 | `HIVE_HEARTBEAT_ENABLED` | `false` | `true` to enable periodic status pings to Telegram. |
 | `HIVE_HEARTBEAT_INTERVAL_MINUTES` | `30` | Ping interval in minutes. |
@@ -623,7 +626,7 @@ Daily summary and proactive notifications require `HIVE_SUMMARY_CHAT_ID`
 to be set. You can find your chat ID by sending a message to the bot and
 checking the audit log.
 
-Without `OPENAI_API_KEY`, `/blueprint save|search` and auto-retrieve silently
+Without `VOYAGE_API_KEY`, `/blueprint save|search` and auto-retrieve silently
 become no-ops — Hive still boots.
 
 ---
@@ -642,9 +645,10 @@ become no-ops — Hive still boots.
 - **No multi-LLM routing** — all entities use Claude via `claude -p`.
   Routing to different LLM providers (OpenAI, Gemini) is not
   implemented.
-- **Blueprints require `OPENAI_API_KEY`** — without it, `/blueprint save|search`
+- **Blueprints require `VOYAGE_API_KEY`** — without it, `/blueprint save|search`
   and auto-retrieval of blueprints into agent prompts are disabled silently.
-  Hive still boots, but these features are no-ops.
+  Hive still boots, but these features are no-ops. (Switched from OpenAI →
+  Voyage `voyage-multimodal-3` in Sprint 16 for joint text+image support.)
 - **Web dashboard auth is bearer-token only** — Sprint 15 added a
   shared `HIVE_WEB_TOKEN` to gate `POST /api/command`, the mode-request
   approve/deny endpoints, and `GET /sse/notifications`. Read endpoints
