@@ -10,18 +10,23 @@ sink — lives here.
 from __future__ import annotations
 
 import logging
+import mimetypes
+import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
+from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
 from hive.models.task import TaskStatus
 from hive.notifications import Notification
-from hive.telegram.commands import parse_command
+from hive.telegram.commands import Command, parse_command
 
 if TYPE_CHECKING:
+    from hive.bus.attachment_store import AttachmentStore
     from hive.bus.audit_log import AuditLog
     from hive.bus.mode_request_store import ModeRequestStore
     from hive.bus.task_store import TaskStore
@@ -59,6 +64,7 @@ class TelegramBridge:
         audit_log: AuditLog | None = None,
         vault_store: VaultStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
+        attachment_store: AttachmentStore | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -69,6 +75,7 @@ class TelegramBridge:
         self.audit_log = audit_log
         self.vault_store = vault_store
         self.mode_request_store = mode_request_store
+        self.attachment_store = attachment_store
         self._app: Application | None = None
 
         self.dispatcher = CommandDispatcher(
@@ -80,6 +87,7 @@ class TelegramBridge:
             vault_store=vault_store,
             mode_request_store=mode_request_store,
             blueprint_store=None,
+            attachment_store=attachment_store,
         )
 
         # Heartbeat (Sprint 13) — in-memory state, resets on restart
@@ -109,6 +117,10 @@ class TelegramBridge:
         self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message))
         # Handle commands (anything starting with /)
         self._app.add_handler(MessageHandler(filters.COMMAND, self._handle_message))
+        # Sprint 17 — file transit. Photos arrive as PhotoSize lists (compressed JPEG);
+        # documents (any file uploaded as "Send file") arrive via filters.Document.ALL.
+        self._app.add_handler(MessageHandler(filters.PHOTO, self._handle_attachment))
+        self._app.add_handler(MessageHandler(filters.Document.ALL, self._handle_attachment))
 
         await self._app.initialize()
         await self._app.start()
@@ -213,6 +225,127 @@ class TelegramBridge:
         # Send response back
         if response:
             # Telegram messages have a 4096 char limit
+            for chunk in _chunk_text(response, 4096):
+                await update.message.reply_text(chunk)
+
+    async def _handle_attachment(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle PHOTO + DOCUMENT messages — Sprint 17 file transit.
+
+        Downloads the file to ``UPLOADS_DIR``, persists metadata, and (if
+        the caption parses to a routable command — /m:, /t:, /a:, or plain
+        text) forwards the prompt to the target entity with the file's
+        absolute path injected as a context prefix. Captions that don't
+        route to an entity get a hint reply instead.
+        """
+        if update.message is None:
+            return
+
+        user_id = update.effective_user.id if update.effective_user else 0
+        if self.allowed_user_ids and user_id not in self.allowed_user_ids:
+            logger.warning("Unauthorized attachment from user %d", user_id)
+            return
+
+        if self.attachment_store is None:
+            logger.warning("Attachment received but attachment_store not configured")
+            await update.message.reply_text("Attachments not configured on this server.")
+            return
+
+        # Resolve the source object (PhotoSize or Document) and metadata.
+        original_name: str | None
+        mime_type: str | None
+        if update.message.photo:
+            tg_file = update.message.photo[-1]  # largest resolution
+            original_name = None
+            mime_type = "image/jpeg"
+        elif update.message.document is not None:
+            doc = update.message.document
+            tg_file = doc
+            original_name = doc.file_name
+            mime_type = doc.mime_type
+        else:
+            return  # filter shouldn't dispatch here, but be safe
+
+        size_bytes = tg_file.file_size
+        if size_bytes is not None and size_bytes > UPLOAD_MAX_BYTES:
+            await update.message.reply_text(
+                f"File too large ({size_bytes} bytes). Max is {UPLOAD_MAX_BYTES} bytes "
+                f"({UPLOAD_MAX_BYTES // (1024 * 1024)} MB)."
+            )
+            return
+
+        # Pick an extension: filename takes precedence, else mime guess, else .bin
+        ext = ""
+        if original_name:
+            ext = Path(original_name).suffix
+        if not ext and mime_type:
+            ext = mimetypes.guess_extension(mime_type) or ""
+        if not ext:
+            ext = ".bin"
+
+        filename = f"{uuid.uuid4().hex}{ext}"
+        target = UPLOADS_DIR / filename
+
+        try:
+            tg_obj = await context.bot.get_file(tg_file.file_id)
+            await tg_obj.download_to_drive(target)
+        except Exception:
+            logger.exception("Failed to download Telegram attachment")
+            await update.message.reply_text("Failed to download the file. Try again.")
+            return
+
+        caption = update.message.caption or ""
+        cmd = parse_command(caption, default_maestro=self.default_maestro)
+
+        # Only route attachments through routable commands. Other commands
+        # (/status, /task, etc.) ignore the file entirely so the file is at
+        # least retrievable later via /files.
+        routable = cmd.name in {"message", "team", "agent"} and cmd.target
+
+        forwarded_to = cmd.target if routable else None
+        attachment_id = await self.attachment_store.save(
+            file_path=str(target),
+            original_name=original_name,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            source="telegram",
+            actor=f"user:{user_id}",
+            forwarded_to=forwarded_to,
+        )
+
+        if not routable:
+            await update.message.reply_text(
+                f"📎 File received and stored as attachment #{attachment_id}.\n"
+                f"Add a caption like `/m:{self.default_maestro} <text>` to forward "
+                "the file to an agent."
+            )
+            return
+
+        # Build the prompt prefix. The agent will see the absolute path and
+        # can use Read/Bash to consume it (yolo permission mode bypasses prompts).
+        meta_parts = [mime_type or "unknown"]
+        if size_bytes is not None:
+            meta_parts.append(f"{size_bytes} bytes")
+        if original_name:
+            meta_parts.append(f"original: {original_name}")
+        prefix = f"[Attached file: {target} ({', '.join(meta_parts)})]\n\n"
+        enriched_args = prefix + cmd.args
+
+        actor = f"user:{user_id}"
+        enriched_cmd = Command(name=cmd.name, target=cmd.target, args=enriched_args)
+        response = await self._execute_command(enriched_cmd, actor=actor)
+
+        if self.audit_log is not None:
+            await self.audit_log.record(
+                actor=actor,
+                action=f"command.{cmd.name}",
+                target=cmd.target,
+                details={
+                    "args": (cmd.args or "")[:200],
+                    "attachment_id": attachment_id,
+                },
+            )
+
+        if response:
             for chunk in _chunk_text(response, 4096):
                 await update.message.reply_text(chunk)
 
