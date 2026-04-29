@@ -16,11 +16,13 @@ DATA_DIR = PROJECT_ROOT / "data"
 PERSONALITIES_DIR = PROJECT_ROOT / "personalities"
 WORKTREES_DIR = PROJECT_ROOT / "worktrees"
 BLUEPRINTS_DIR = DATA_DIR / "blueprints"
+UPLOADS_DIR = DATA_DIR / "uploads"
 
 # Ensure runtime directories exist
 DATA_DIR.mkdir(exist_ok=True)
 WORKTREES_DIR.mkdir(exist_ok=True)
 BLUEPRINTS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
 
 # Database — PostgreSQL via asyncpg
 POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "127.0.0.1")
@@ -99,6 +101,9 @@ AUTO_RETRIEVE_MAX_DISTANCE = float(os.environ.get("AUTO_RETRIEVE_MAX_DISTANCE", 
 # Git workflow (Sprint 12 Phase 3). /merge is off by default — set the env
 # var to "1" to allow the Telegram bridge to execute `gh pr merge --squash`.
 ALLOW_AUTO_MERGE = os.environ.get("HIVE_ALLOW_AUTO_MERGE", "0") == "1"
+
+# Attachments (Sprint 17). 20 MB matches Telegram bot API getFile cap.
+UPLOAD_MAX_BYTES = int(os.environ.get("HIVE_UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
 
 # Advisor MCP server (Sprint 13)
 ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "true"
