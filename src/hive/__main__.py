@@ -7,6 +7,7 @@ import logging
 import signal
 from datetime import UTC, datetime
 
+from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
@@ -140,6 +141,7 @@ async def main() -> None:
     vault_store = VaultStore(store.pool)
     blueprint_store = BlueprintStore(store.pool)
     mode_request_store = ModeRequestStore(store.pool)
+    attachment_store = AttachmentStore(store.pool)
 
     notification_dispatcher = NotificationDispatcher()
 
@@ -209,6 +211,7 @@ async def main() -> None:
             audit_log=audit_log,
             vault_store=vault_store,
             mode_request_store=mode_request_store,
+            attachment_store=attachment_store,
         )
         bridge.blueprint_store = blueprint_store
         await bridge.start()
@@ -235,6 +238,7 @@ async def main() -> None:
                 vault_store=vault_store,
                 mode_request_store=mode_request_store,
                 blueprint_store=blueprint_store,
+                attachment_store=attachment_store,
             )
 
             sse_broker = SSEBroker()
@@ -256,6 +260,7 @@ async def main() -> None:
                 command_dispatcher=web_dispatcher,
                 message_store=store,
                 sse_broker=sse_broker,
+                attachment_store=attachment_store,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)

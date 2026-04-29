@@ -662,6 +662,48 @@ body {
   cursor: not-allowed;
   opacity: 0.6;
 }
+.composer__attach {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--paper-soft);
+  color: var(--ink-3);
+  border: 1px solid var(--rule-soft);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.12s;
+  flex-shrink: 0;
+}
+.composer__attach:hover {
+  background: var(--honey-soft);
+  color: var(--ink);
+}
+.composer__attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 4px 0;
+  padding: 4px 8px;
+  background: var(--honey-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  max-width: fit-content;
+}
+.composer__attach-chip[hidden] { display: none; }
+.composer__attach-chip button {
+  background: transparent;
+  border: 0;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.composer__attach-chip button:hover { color: var(--ink); }
 
 /* ─── Hero strip ────────────────────────────────────────── */
 .hero {

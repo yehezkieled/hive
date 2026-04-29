@@ -97,12 +97,25 @@
               placeholder="Message Hive…  (try /help)"
               autocomplete="off"></textarea>
           </div>
+          <div id="composer-attach-chip" class="composer__attach-chip" hidden>
+            <span id="composer-attach-name"></span>
+            <button type="button" id="composer-attach-clear" aria-label="Remove attachment">×</button>
+          </div>
           <div class="composer__row">
             <div class="composer__hints">
               {% for cmd in ['/help', '/m:dev', '/task', '/status'] %}
               <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
               {% endfor %}
             </div>
+            <input type="file" id="composer-attach" hidden>
+            <button type="button" class="composer__attach" id="composer-attach-btn"
+                    aria-label="Attach file" title="Attach file (max 20 MB)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2.5"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
             <button type="submit" class="composer__send" aria-label="Send" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" stroke-width="2.5"
@@ -345,13 +358,18 @@ function appendModeRequestBubble(data) {
 async function sendChatCommand(event) {
   event.preventDefault();
   const input = document.getElementById('chat-input');
+  const fileInput = document.getElementById('composer-attach');
+  const stagedFile = fileInput && fileInput.files && fileInput.files[0];
   const text = input.value.trim();
-  if (!text) return false;
+  if (!text && !stagedFile) return false;
   const token = ensureToken();
   if (!token) return false;
 
   // Optimistic UI: paint user message + clear composer immediately.
-  appendChatLine('user', text);
+  const userLine = stagedFile
+    ? (text ? `📎 ${stagedFile.name} — ${text}` : `📎 ${stagedFile.name}`)
+    : text;
+  appendChatLine('user', userLine);
   input.value = '';
   input.style.height = 'auto';
   refreshSendState();
@@ -362,18 +380,37 @@ async function sendChatCommand(event) {
   const typingEl = appendTypingBubble(typingFor);
 
   try {
-    const resp = await fetch('/api/command', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token,
-      },
-      body: JSON.stringify({ text }),
-    });
+    let resp;
+    if (stagedFile) {
+      const fd = new FormData();
+      fd.append('file', stagedFile);
+      fd.append('text', text);
+      resp = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body: fd,
+      });
+      // Reset the staged file after submit (success or failure).
+      fileInput.value = '';
+      clearAttachChip();
+    } else {
+      resp = await fetch('/api/command', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: JSON.stringify({ text }),
+      });
+    }
     if (typingEl) typingEl.remove();
     if (resp.status === 401) {
       sessionStorage.removeItem('hive_web_token');
       appendChatLine('system', 'Auth failed — token cleared. Try again.');
+      return false;
+    }
+    if (resp.status === 413) {
+      appendChatLine('system', 'File too large (max 20 MB).');
       return false;
     }
     if (!resp.ok) {
@@ -381,12 +418,29 @@ async function sendChatCommand(event) {
       return false;
     }
     const data = await resp.json();
-    if (data && data.text) appendChatLine('hive', data.text);
+    if (stagedFile) {
+      if (data && data.response) {
+        appendChatLine('hive', data.response);
+      } else if (data && data.id != null) {
+        const tail = data.forwarded_to ? ` → ${data.forwarded_to}` : '';
+        appendChatLine('system', `📎 Attachment #${data.id} stored${tail}.`);
+      }
+    } else if (data && data.text) {
+      appendChatLine('hive', data.text);
+    }
   } catch (err) {
     if (typingEl) typingEl.remove();
     appendChatLine('system', 'Network error: ' + err.message);
   }
   return false;
+}
+
+function clearAttachChip() {
+  const chip = document.getElementById('composer-attach-chip');
+  const name = document.getElementById('composer-attach-name');
+  if (chip) chip.hidden = true;
+  if (name) name.textContent = '';
+  refreshSendState();
 }
 
 const composer = document.getElementById('chat-input');
@@ -398,9 +452,46 @@ function autosize() {
   composer.style.height = composer.scrollHeight + 'px';
 }
 function refreshSendState() {
-  sendBtn.disabled = !composer.value.trim();
+  const fileInput = document.getElementById('composer-attach');
+  const hasFile = !!(fileInput && fileInput.files && fileInput.files[0]);
+  sendBtn.disabled = !composer.value.trim() && !hasFile;
 }
 composer.addEventListener('input', () => { autosize(); refreshSendState(); });
+
+(function setupAttachButton() {
+  const btn = document.getElementById('composer-attach-btn');
+  const fileInput = document.getElementById('composer-attach');
+  const chip = document.getElementById('composer-attach-chip');
+  const name = document.getElementById('composer-attach-name');
+  const clear = document.getElementById('composer-attach-clear');
+  if (!btn || !fileInput) return;
+  btn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) {
+      if (chip) chip.hidden = true;
+      refreshSendState();
+      return;
+    }
+    if (f.size > 20 * 1024 * 1024) {
+      appendChatLine('system', `File too large (${(f.size / 1024 / 1024).toFixed(1)} MB > 20 MB).`);
+      fileInput.value = '';
+      if (chip) chip.hidden = true;
+      refreshSendState();
+      return;
+    }
+    if (name) name.textContent = `📎 ${f.name}`;
+    if (chip) chip.hidden = false;
+    refreshSendState();
+  });
+  if (clear) {
+    clear.addEventListener('click', () => {
+      fileInput.value = '';
+      if (chip) chip.hidden = true;
+      refreshSendState();
+    });
+  }
+})();
 composer.addEventListener('keydown', (ev) => {
   if (dropdownOpen) return;
   if (ev.key === 'Enter' && !ev.shiftKey) {

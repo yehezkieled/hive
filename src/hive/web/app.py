@@ -8,20 +8,25 @@ sections.
 from __future__ import annotations
 
 import logging
+import mimetypes
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
+from hive.telegram.commands import Command, parse_command
 from hive.web.auth import require_token
 from hive.web.sse import format_event
 
 if TYPE_CHECKING:
+    from hive.bus.attachment_store import AttachmentStore
     from hive.bus.audit_log import AuditLog
     from hive.bus.mode_request_store import ModeRequestStore
     from hive.bus.store import MessageStore
@@ -57,6 +62,7 @@ def create_app(
     command_dispatcher: CommandDispatcher | None = None,
     message_store: MessageStore | None = None,
     sse_broker: SSEBroker | None = None,
+    attachment_store: AttachmentStore | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
     from hive.web.view_model import build_landing_view_model
@@ -168,6 +174,106 @@ def create_app(
             except Exception:
                 logger.exception("Failed to persist web chat message")
         return {"text": result.text, "metadata": result.metadata}
+
+    @app.post("/api/upload")
+    async def api_upload(
+        file: UploadFile = File(...),
+        text: str = Form(""),
+        _: None = Depends(require_token),
+    ) -> dict[str, Any]:
+        """Multipart upload — Sprint 17 web file transit.
+
+        Mirrors the Telegram PHOTO/DOCUMENT path: stores the file under
+        ``UPLOADS_DIR``, persists metadata via the AttachmentStore, and
+        (if ``text`` parses to a routable command) forwards the prompt
+        to the targeted entity with the file's absolute path injected
+        as a context prefix.
+        """
+        if attachment_store is None:
+            raise HTTPException(status_code=503, detail="Attachments not configured")
+
+        original_name = file.filename
+        mime_type = file.content_type
+
+        ext = ""
+        if original_name:
+            ext = Path(original_name).suffix
+        if not ext and mime_type:
+            ext = mimetypes.guess_extension(mime_type) or ""
+        if not ext:
+            ext = ".bin"
+
+        filename = f"{uuid.uuid4().hex}{ext}"
+        target = UPLOADS_DIR / filename
+
+        size_bytes = 0
+        try:
+            with target.open("wb") as fh:
+                while True:
+                    chunk = await file.read(64 * 1024)
+                    if not chunk:
+                        break
+                    size_bytes += len(chunk)
+                    if size_bytes > UPLOAD_MAX_BYTES:
+                        fh.close()
+                        target.unlink(missing_ok=True)
+                        raise HTTPException(
+                            status_code=413,
+                            detail=(
+                                f"File too large; max {UPLOAD_MAX_BYTES} bytes "
+                                f"({UPLOAD_MAX_BYTES // (1024 * 1024)} MB)."
+                            ),
+                        )
+                    fh.write(chunk)
+        finally:
+            await file.close()
+
+        cmd = parse_command(text or "", default_maestro=default_maestro)
+        routable = cmd.name in {"message", "team", "agent"} and cmd.target
+
+        forwarded_to = cmd.target if routable else None
+        attachment_id = await attachment_store.save(
+            file_path=str(target),
+            original_name=original_name,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            source="web",
+            actor="web:user",
+            forwarded_to=forwarded_to,
+        )
+
+        if not routable or command_dispatcher is None:
+            return {"id": attachment_id, "forwarded_to": forwarded_to}
+
+        meta_parts = [mime_type or "unknown"]
+        if size_bytes:
+            meta_parts.append(f"{size_bytes} bytes")
+        if original_name:
+            meta_parts.append(f"original: {original_name}")
+        prefix = f"[Attached file: {target} ({', '.join(meta_parts)})]\n\n"
+        enriched_args = prefix + (cmd.args or "")
+        enriched_cmd = Command(name=cmd.name, target=cmd.target, args=enriched_args)
+
+        result = await command_dispatcher.dispatch_command(enriched_cmd, actor="web:user")
+
+        if message_store is not None:
+            try:
+                user_log = f"[file #{attachment_id}: {original_name or filename}]"
+                if text:
+                    user_log = f"{user_log} {text}"
+                await message_store.log_message(sender="user", recipient="hive", content=user_log)
+                await message_store.log_message(
+                    sender="hive", recipient="user", content=result.text
+                )
+            except Exception:
+                logger.exception("Failed to persist web upload chat message")
+
+        return {
+            "id": attachment_id,
+            "forwarded_to": cmd.target,
+            "response": result.text,
+            "metadata": result.metadata,
+        }
 
     @app.post("/api/mode-request/{request_id}/approve")
     async def api_mode_approve(
