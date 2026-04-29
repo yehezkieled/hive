@@ -1562,6 +1562,92 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 17 — File Transit (2026-04-28, DONE)
+
+**Status:** Complete
+**Branch:** `sprint-17-file-transit` → main
+**Totals:** 450 → 471 tests (+21), 1 migration (`017_attachments.sql`).
+
+**Goal**: enable Telegram and the web composer to attach files (photos,
+PDFs, CSVs, Excel — anything ≤ 20 MB), persist them under
+`data/uploads/`, and surface their absolute path to the targeted
+maestro inside the prompt so Claude Code's `Read` tool can consume
+them. **No embedding work** — that's Sprint 18. This sprint solves the
+"how does a file get from a phone to the agent's filesystem at all"
+problem in isolation.
+
+**Builds on**: Sprint 15 (the shared `CommandDispatcher` extracted from
+the Telegram bridge — both surfaces now reuse it for the routing call
+on captioned uploads) and Sprint 16's joint text+image embedding
+plumbing (the file path will become the input for Sprint 18).
+
+### Locked decisions
+- **Storage**: flat layout under `DATA_DIR / "uploads/"`, filenames are
+  `{uuid4().hex}{ext}`. Outside `BLUEPRINTS_DIR` because uploads aren't
+  blueprints — Sprint 18 may *promote* them, but raw transit lives in
+  its own directory.
+- **DB**: dedicated `attachments` table — minimal audit trail
+  (path, mime, size, source `'telegram' | 'web'`, actor, optional
+  `forwarded_to`). Not coupled to `blueprints`.
+- **Routing**: caption (Telegram) or `text` field (web) is parsed by
+  the existing `parse_command` and only routes if it resolves to
+  `message`/`team`/`agent` (i.e. `/m:`, `/t:`, `/a:`, or plain text).
+  `/status`, `/task`, etc. ignore the file but still log the upload.
+- **Prompt shape**: surface prepends
+  `[Attached file: {abs_path} ({mime}, {size} bytes, original: {name})]\n\n`
+  to the user's text. No `ProcessManager` signature change — it's a
+  surface-level concern.
+- **Worker access**: yolo permission mode (default since Sprint 15
+  polish) bypasses Read prompts so the absolute path "just works". No
+  `--add-dir` plumbing needed.
+- **File-size cap**: 20 MB (Telegram bot API hard limit), env var
+  `HIVE_UPLOAD_MAX_BYTES` for tuning. Web mirrors the cap and returns
+  413.
+- **No type filter**: this sprint is dumb pipe — Sprint 18 decides what
+  is/isn't embeddable.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/migrations/017_attachments.sql` (new) | `attachments` table + `created_at DESC` index. |
+| `src/hive/bus/attachment_store.py` (new) | `AttachmentStore` (`save`, `get`, `list_recent`) + `AttachmentMeta` dataclass. |
+| `src/hive/config.py` | Added `UPLOADS_DIR = DATA_DIR / "uploads"` (mkdir on import) and `UPLOAD_MAX_BYTES` (env `HIVE_UPLOAD_MAX_BYTES`, default 20 MB). |
+| `pyproject.toml` | Added `python-multipart>=0.0.9` (FastAPI `UploadFile` requirement). |
+| `src/hive/telegram/bridge.py` | New `_handle_attachment` registered for `filters.PHOTO` + `filters.Document.ALL`; constructor takes `attachment_store`. Auth + size cap + uuid filename + caption-driven routing + audit log entry. |
+| `src/hive/web/app.py` | New `POST /api/upload` (multipart). Streams to disk in 64 KiB chunks, aborts mid-stream on 413; persists via `attachment_store`; on routable caption builds enriched `Command` and dispatches via `CommandDispatcher.dispatch_command`. |
+| `src/hive/web/templates/dashboard.html` | Paperclip button + hidden `<input type="file">` + chip showing the staged filename + JS branch in `sendChatCommand` that swaps `/api/command` for multipart `POST /api/upload` when a file is staged. Pre-flight 20 MB check on the client. |
+| `src/hive/web/static/landing.css` | Styles for `.composer__attach`, `.composer__attach-chip`. |
+| `src/hive/commands/dispatch.py` | `KNOWN_COMMANDS += {"files"}`; constructor takes `attachment_store`; new `_execute_files(args)` lists `list_recent(N)`. Helper `_format_bytes`. |
+| `src/hive/telegram/help_text.py` | New `/files` entry under Resources (alphabetical: cost, files, model). |
+| `src/hive/__main__.py` | Instantiates `AttachmentStore(pool)` and threads it into `TelegramBridge`, the web `CommandDispatcher`, and `create_app`. |
+| `tests/conftest.py` | `attachment_store` fixture; `attachments` added to per-test TRUNCATE list. |
+| `tests/test_attachment_store.py` (new) | 4 tests — save/get/list/orderings. |
+| `tests/test_telegram_files.py` (new) | 7 tests — routable caption, no caption, document mime, oversize, unauth, plain caption, command caption skips routing. |
+| `tests/test_web_upload.py` (new) | 6 tests — routing path, no-text store-only, command caption no-route, 413 oversize, 401 missing token, 503 no store. |
+| `tests/test_command_dispatcher.py` | 4 new `/files` tests. |
+
+### Verification
+- `pytest tests/ -q` → **471 passing** (was 450).
+- `ruff check src/ tests/ && ruff format --check src/ tests/` → clean.
+- Migration 017 runs on service start; `\d attachments` shows the table.
+- Telegram smoke: photo with caption `/m:dev describe this image` →
+  dev's response references the image content; `/files 5` lists the
+  upload with `→dev`.
+- Web smoke (Tailscale URL): paperclip → pick PDF → text
+  `/m:dev summarize` → dev's response renders in chat.
+- `psql -c "SELECT id, source, mime_type, forwarded_to FROM attachments ORDER BY id DESC LIMIT 5"`
+  matches.
+
+### Out of scope (deferred to Sprint 18+)
+- All embedding / blueprint integration of uploaded files.
+- Multi-file per message (Telegram `media_group_id`, web multi-file forms).
+- EXIF stripping / sanitization.
+- File expiry / cleanup cron.
+- Inline image rendering in the web chat.
+
+---
+
 ## Sprint 16 — Voyage Embedding Migration (2026-04-28, DONE)
 
 **Status:** Complete

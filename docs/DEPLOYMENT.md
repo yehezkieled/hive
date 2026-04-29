@@ -279,6 +279,61 @@ HIVE_SMTP_USER=apikey-or-user
 HIVE_SMTP_PASSWORD=...
 ```
 
+### File transit (Sprint 17)
+
+Telegram and the web composer can both transfer files onto the VPS for
+agents to read. Files land in `data/uploads/{uuid}{ext}` (outside
+`BLUEPRINTS_DIR` — these are raw uploads, not embedded blueprints) and
+the database `attachments` table records every upload as an audit row.
+
+**Caption / text routing**:
+
+- `/m:<entity> <text>` (e.g. `/m:dev summarize this`) → file is stored
+  *and* the target entity receives a prompt with a prepended
+  `[Attached file: /abs/path (mime, N bytes, original: name.ext)]`
+  block. Yolo permission mode (default for new maestros since Sprint 15)
+  lets Claude Code's `Read` tool open the absolute path with no
+  per-file prompt.
+- Empty caption → file is stored only. Telegram replies with a
+  "📎 File received and stored" hint; the web returns
+  `{"id": N, "forwarded_to": null}`.
+- Non-routable caption (e.g. `/status`) → file is stored, no routing.
+
+**Size cap**: `HIVE_UPLOAD_MAX_BYTES` (default 20 MB, mirrors the
+Telegram Bot API hard limit). Telegram replies with a size error;
+the web `POST /api/upload` aborts mid-stream with HTTP 413 and removes
+the partial file.
+
+**Audit / inspection**: `/files [N]` (Telegram or web composer) lists
+the most recent uploads (default 20, max 100):
+
+```
+Recent attachments (last 3):
+  #42 2026-04-29 14:32 telegram →dev image/jpeg 1.2MB photo.jpg
+  #41 2026-04-29 14:30 web      →—  application/pdf 3.4MB report.pdf
+  #40 2026-04-29 14:28 telegram →qa text/plain  812B  notes.txt
+```
+
+`→—` means no entity received the file (caption was empty or
+non-routable). `psql … -c "SELECT id, source, mime_type, forwarded_to
+FROM attachments ORDER BY id DESC LIMIT 5"` is the SQL-level
+equivalent.
+
+**Smoke test (post-deploy)** — from the Tailscale URL
+`http://100.79.194.84:8080/`, not loopback:
+
+1. Telegram: send a photo with caption `/m:dev describe this image` →
+   expect dev's response referencing the image content.
+2. Telegram: send a PDF with no caption → expect "📎 File received"
+   reply; `/files 5` shows it with `→—`.
+3. Web: paperclip → pick PDF → text `/m:dev summarize` → response
+   renders in the chat panel.
+4. `ls data/uploads/` shows the four uuid-named files.
+
+Out of scope for Sprint 17 (deferred to Sprint 18+): embedding /
+blueprint integration, multi-file messages, EXIF stripping, file
+expiry. See `docs/PROJECT_PLAN.md` for the full deferred list.
+
 ### Find the actual python PID
 
 `$!` from `nohup … &` points at the shell wrapper, which often dies right
@@ -343,7 +398,7 @@ short-circuits when `dev` is already restored).
 
 **Status & monitoring:**
 `/status`, `/health`, `/maestros`, `/org`, `/comms`, `/cost [24h|7d|30d]`,
-`/audit [entity|command|task]`
+`/audit [entity|command|task]`, `/files [N]`
 
 **Organization:**
 `/m:<name> <msg>`, `/t:<maestro>.<team> <msg>`, `/a:<maestro>.<team>.<worker> <msg>`,
@@ -618,6 +673,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_SMTP_USER` / `HIVE_SMTP_PASSWORD` | *(empty)* | SMTP auth credentials. |
 | `HIVE_EMAIL_DIGEST_INTERVAL_MINUTES` | `60` | Time-based flush trigger for the digest. |
 | `HIVE_EMAIL_DIGEST_BUFFER_SIZE` | `20` | Size-based flush trigger for the digest. |
+| `HIVE_UPLOAD_MAX_BYTES` | `20971520` (20 MB) | Cap for Telegram + web file uploads (Sprint 17). Mirrors Telegram's 20 MB Bot API limit. |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.
