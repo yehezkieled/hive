@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 
 import pytest_asyncio
 
+from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.router import MessageRouter
@@ -40,6 +41,7 @@ async def dispatcher(
     vault_store: VaultStore,
     mode_request_store: ModeRequestStore,
     blueprint_store: BlueprintStore,
+    attachment_store: AttachmentStore,
 ) -> CommandDispatcher:
     return CommandDispatcher(
         process_manager=manager,
@@ -50,6 +52,7 @@ async def dispatcher(
         vault_store=vault_store,
         mode_request_store=mode_request_store,
         blueprint_store=blueprint_store,
+        attachment_store=attachment_store,
     )
 
 
@@ -151,3 +154,68 @@ async def test_actor_param_threads_to_task_creation(
     await dispatcher.dispatch('/task add "via web"', actor="web:user")
     tasks = await task_store.list()
     assert tasks[0].created_by == "web:user"
+
+
+# ---------------------------------------------------------------------------
+# /files — Sprint 17 attachment listing
+# ---------------------------------------------------------------------------
+
+
+async def test_files_empty_returns_friendly_message(dispatcher: CommandDispatcher) -> None:
+    result = await dispatcher.dispatch("/files", actor="test")
+    assert "No attachments" in result.text
+
+
+async def test_files_lists_recent_uploads(
+    dispatcher: CommandDispatcher, attachment_store: AttachmentStore
+) -> None:
+    a_id = await attachment_store.save(
+        file_path="/tmp/uploads/abc.jpg",
+        original_name="cat.jpg",
+        mime_type="image/jpeg",
+        size_bytes=1500,
+        source="telegram",
+        actor="user:42",
+        forwarded_to="dev",
+    )
+    b_id = await attachment_store.save(
+        file_path="/tmp/uploads/def.pdf",
+        original_name="report.pdf",
+        mime_type="application/pdf",
+        size_bytes=2 * 1024 * 1024,
+        source="web",
+        actor="web:user",
+        forwarded_to=None,
+    )
+    result = await dispatcher.dispatch("/files", actor="test")
+    text = result.text
+    assert f"#{a_id}" in text
+    assert f"#{b_id}" in text
+    assert "telegram" in text
+    assert "web" in text
+    assert "→dev" in text
+    assert "image/jpeg" in text
+    assert "application/pdf" in text
+    # Newest first → b_id (saved last) before a_id in output
+    assert text.index(f"#{b_id}") < text.index(f"#{a_id}")
+
+
+async def test_files_respects_limit(
+    dispatcher: CommandDispatcher, attachment_store: AttachmentStore
+) -> None:
+    for i in range(5):
+        await attachment_store.save(
+            file_path=f"/tmp/uploads/{i}.bin",
+            original_name=None,
+            mime_type=None,
+            size_bytes=i,
+            source="web",
+            actor=None,
+        )
+    result = await dispatcher.dispatch("/files 2", actor="test")
+    assert "last 2" in result.text
+
+
+async def test_files_invalid_arg_returns_usage(dispatcher: CommandDispatcher) -> None:
+    result = await dispatcher.dispatch("/files notanumber", actor="test")
+    assert "Usage" in result.text

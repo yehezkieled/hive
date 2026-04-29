@@ -203,12 +203,18 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Kill an entity and clear its session, starting fresh on next message.",
         examples=("/reset dev.backend.w1",),
     ),
-    # Resources — alphabetical: cost, model (already OK)
+    # Resources — alphabetical: cost, files, model
     "cost": HelpEntry(
         category="Resources",
         usage="/cost [24h|7d|30d]",
         description="Show token usage and equivalent API cost (covered by the Max subscription).",
         examples=("/cost", "/cost 7d"),
+    ),
+    "files": HelpEntry(
+        category="Resources",
+        usage="/files [N]",
+        description="List the most recent uploads (default 20, max 100).",
+        examples=("/files", "/files 5"),
     ),
     "model": HelpEntry(
         category="Resources",

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from hive.config import ALLOW_AUTO_MERGE
@@ -26,6 +27,7 @@ from hive.telegram.commands import Command, parse_command
 from hive.telegram.help_text import format_all, format_one
 
 if TYPE_CHECKING:
+    from hive.bus.attachment_store import AttachmentStore
     from hive.bus.audit_log import AuditLog
     from hive.bus.mode_request_store import ModeRequestStore
     from hive.bus.task_store import TaskStore
@@ -77,6 +79,7 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(
         "commit",
         "pr",
         "merge",
+        "files",
     }
 )
 
@@ -112,6 +115,7 @@ class CommandDispatcher:
         vault_store: VaultStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         blueprint_store: BlueprintStore | None = None,
+        attachment_store: AttachmentStore | None = None,
     ) -> None:
         self.process_manager = process_manager
         self.default_maestro = default_maestro
@@ -121,6 +125,7 @@ class CommandDispatcher:
         self.vault_store = vault_store
         self.mode_request_store = mode_request_store
         self.blueprint_store = blueprint_store
+        self.attachment_store = attachment_store
 
     async def dispatch(self, text: str, actor: str = "system") -> CommandResult:
         """Parse ``text`` then dispatch — convenience for callers without a Command."""
@@ -258,6 +263,9 @@ class CommandDispatcher:
 
         if cmd.name == "merge":
             return CommandResult(text=await self._execute_merge(cmd.target))
+
+        if cmd.name == "files":
+            return CommandResult(text=await self._execute_files(cmd.args))
 
         return CommandResult(text=f"Unknown command: /{cmd.name}")
 
@@ -420,6 +428,36 @@ class CommandDispatcher:
         lines = [_format_audit_row(event) for event in events]
         header = f"Audit (last {len(events)}):"
         return header + "\n" + "\n".join(lines)
+
+    async def _execute_files(self, args: str) -> str:
+        """Handle /files [N] — list the most recent uploads (default 20, max 100)."""
+        if self.attachment_store is None:
+            return "Attachments not configured."
+
+        limit = 20
+        raw = (args or "").strip()
+        if raw:
+            try:
+                limit = int(raw.split()[0])
+            except ValueError:
+                return "Usage: /files [N]"
+            if limit < 1:
+                return "Usage: /files [N] — N must be >= 1."
+            limit = min(limit, 100)
+
+        rows = await self.attachment_store.list_recent(limit=limit)
+        if not rows:
+            return "No attachments yet."
+
+        lines = [f"Recent attachments (last {len(rows)}):"]
+        for r in rows:
+            ts = r.created_at.strftime("%Y-%m-%d %H:%M")
+            forwarded = r.forwarded_to or "—"
+            mime = r.mime_type or "?"
+            size = _format_bytes(r.size_bytes)
+            name = r.original_name or Path(r.file_path).name
+            lines.append(f"  #{r.id} {ts} {r.source} →{forwarded} {mime} {size} {name}")
+        return "\n".join(lines)
 
     async def _format_tasks_list(self) -> str:
         """Format the open (pending + in-progress) tasks for /tasks."""
@@ -1045,3 +1083,16 @@ def _format_audit_row(event: dict) -> str:
     action = event["action"]
     target = event["target"] or "-"
     return f"{ts:%H:%M:%S} {actor} {action} {target}"
+
+
+def _format_bytes(n: int | None) -> str:
+    """Pretty-print a byte count (B/KB/MB/GB) for /files output."""
+    if n is None:
+        return "?"
+    if n < 1024:
+        return f"{n}B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f}KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f}MB"
+    return f"{n / (1024 * 1024 * 1024):.1f}GB"
