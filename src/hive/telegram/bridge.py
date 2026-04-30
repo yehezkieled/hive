@@ -21,6 +21,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
 from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
+from hive.knowledge.attachment_embedder import embed_attachment
 from hive.models.task import TaskStatus
 from hive.notifications import Notification
 from hive.telegram.commands import Command, parse_command
@@ -311,6 +312,14 @@ class TelegramBridge:
             actor=f"user:{user_id}",
             forwarded_to=forwarded_to,
         )
+
+        try:
+            embedded = await embed_attachment(str(target), mime_type)
+            if embedded is not None:
+                vector, embed_text = embedded
+                await self.attachment_store.update_embedding(attachment_id, vector, embed_text)
+        except Exception:
+            logger.exception("Failed to embed Telegram upload %s", target)
 
         if not routable:
             await update.message.reply_text(

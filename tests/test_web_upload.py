@@ -164,6 +164,38 @@ def test_upload_oversize_returns_413(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert list(target_dir.iterdir()) == []
 
 
+def test_upload_embedder_failure_still_persists_file(
+    uploads_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sprint 18 regression: a Voyage outage must not break uploads."""
+    monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("voyage down")
+
+    monkeypatch.setattr("hive.web.app.embed_attachment", boom)
+
+    store = _attachment_store(next_id=11)
+    store.update_embedding = AsyncMock()
+    client = TestClient(
+        create_app(
+            process_manager=_bare_pm(),
+            command_dispatcher=_dispatcher_returning(),
+            attachment_store=store,
+        )
+    )
+    resp = client.post(
+        "/api/upload",
+        files={"file": ("note.txt", b"hi", "text/plain")},
+        data={"text": ""},
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"id": 11, "forwarded_to": None}
+    store.save.assert_awaited_once()
+    store.update_embedding.assert_not_awaited()
+
+
 def test_upload_requires_token(uploads_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
     client = TestClient(

@@ -105,6 +105,16 @@ ALLOW_AUTO_MERGE = os.environ.get("HIVE_ALLOW_AUTO_MERGE", "0") == "1"
 # Attachments (Sprint 17). 20 MB matches Telegram bot API getFile cap.
 UPLOAD_MAX_BYTES = int(os.environ.get("HIVE_UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
 
+# Attachment embeddings (Sprint 18). Cap text fed to the embedder so we
+# don't blow Voyage's 32K-token document limit on large PDFs/text files.
+# 8000 chars ≈ 2000 tokens, well under spec.
+ATTACHMENT_EMBED_MAX_CHARS = int(os.environ.get("HIVE_ATTACHMENT_EMBED_MAX_CHARS", "8000"))
+# When true, auto-retrieve also queries the attachments table and renders
+# a separate "Relevant uploaded files" block alongside blueprint hits.
+AUTO_RETRIEVE_INCLUDE_ATTACHMENTS = (
+    os.environ.get("HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS", "true").lower() == "true"
+)
+
 # Advisor MCP server (Sprint 13)
 ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "true"
 ADVISOR_COOLDOWN_SECONDS = int(os.environ.get("HIVE_ADVISOR_COOLDOWN_SECONDS", "300"))

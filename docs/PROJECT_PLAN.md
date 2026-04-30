@@ -1562,6 +1562,101 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 18 — File Embedding Integration (2026-04-30, DONE)
+
+**Status:** Complete
+**Branch:** `sprint-18-file-embeddings` → main
+**Totals:** 471 → 495 tests (+24), 1 migration (`018_attachment_embeddings.sql`).
+
+**Goal**: close the loop opened in Sprint 17. Uploaded files now get a
+Voyage embedding at upload time and are surfaced via the same
+auto-retrieve flow that already injects matching blueprints into agent
+prompts. Images go through `embed_multimodal`; PDFs and `text/*` files
+get extracted then `embed_texts`. Other mime types stay searchable by
+name only (NULL embedding, skipped by the search `WHERE`).
+
+**Builds on**: Sprint 16 (multimodal embedder API was built for this) and
+Sprint 17 (file transit + `attachments` table).
+
+### Locked decisions
+- **Schema**: extend `attachments` with `embedding vector(1024)` and
+  `embed_text TEXT`. Single HNSW index. NULL rows are excluded from
+  search via `WHERE embedding IS NOT NULL` — same pattern as blueprints.
+- **Write path is split**: `attachment_store.save()` stays as before
+  (durable row first); `update_embedding(id, vec, text)` is called
+  after. If embedding raises, the row exists with NULL — the backfill
+  script picks it up later via the same code path.
+- **Embedding strategy by mime**:
+  - `image/*` → `PIL.Image.open` → `thumbnail((1024,1024))` →
+    `embed_multimodal([[image]])`. Thumbnail is mandatory — Voyage
+    multimodal-3 caps at ~16MP.
+  - `application/pdf` → `pypdf.PdfReader` → join page text → truncate
+    to `ATTACHMENT_EMBED_MAX_CHARS` (default 8000) → `embed_texts`.
+  - `text/*` → bytes → utf-8 with `errors="replace"` fallback →
+    truncate → `embed_texts`.
+  - Other → return `None`; column stays NULL.
+- **Sync embedding**: runs inline after `save()` on both upload paths.
+  Background tasks would introduce a "where's my embedding?" race for
+  zero benefit; auto-retrieve is already on the user-facing critical
+  path so the latency budget is shared.
+- **Empty-extraction guard**: image-only PDFs and encrypted PDFs return
+  empty strings from pypdf — skip + log + leave NULL.
+- **Auto-retrieve renders two labeled blocks** (not interleaved by
+  distance). Blueprints are consumed inline (body in the prompt); files
+  are listed by path so the agent's first move is `Read`. Conflating
+  them confuses the action the agent should take.
+- **Config knobs** (env-overridable):
+  - `HIVE_ATTACHMENT_EMBED_MAX_CHARS` (default `8000`)
+  - `HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS` (default `true`)
+- **Backfill** is idempotent on `WHERE embedding IS NULL`. The same
+  loop handles new-upload retries.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/migrations/018_attachment_embeddings.sql` (new) | `embedding vector(1024)` + `embed_text TEXT` columns on `attachments`; HNSW cosine index. |
+| `src/hive/bus/attachment_store.py` | New `update_embedding(id, vec, text)`; new `search(query, limit, max_distance)` mirroring `BlueprintStore`; new `list_unembedded()` for the backfill script; per-connection `_ensure_vector_codec`. |
+| `src/hive/knowledge/attachment_embedder.py` (new) | `embed_attachment(path, mime)` with mime routing, image thumbnailing, PDF + text extraction, all four guards (encrypted PDF, empty extract, bad bytes, malformed). Returns `(vec, embed_text) \| None`. |
+| `src/hive/web/app.py` | `/api/upload` calls `embed_attachment` + `update_embedding` after `save`; failure logs only, response is unchanged. |
+| `src/hive/telegram/bridge.py` | Same wiring on `_handle_attachment`. |
+| `src/hive/process/manager.py` | Constructor takes `attachment_store`; auto-retrieve also queries it; renders second labeled block under `AUTO_RETRIEVE_INCLUDE_ATTACHMENTS`. Blueprint and attachment failures isolated. |
+| `src/hive/config.py` | New `ATTACHMENT_EMBED_MAX_CHARS`, `AUTO_RETRIEVE_INCLUDE_ATTACHMENTS`. |
+| `src/hive/__main__.py` | Threads `attachment_store` into `ProcessManager`. |
+| `pyproject.toml` | Added `pillow>=10`, `pypdf>=4`. |
+| `scripts/backfill_attachment_embeddings.py` (new) | Idempotent CLI: pulls `list_unembedded()`, runs each through `embed_attachment` + `update_embedding`. Skips files that vanished. |
+| `tests/knowledge/test_attachment_embedder.py` (new) | 14 tests — missing/unsupported, text/markdown happy path, truncation, encoding fallback, empty text skip, image happy path, oversized thumbnail, corrupt image, PDF happy path (mocked), encrypted PDF, empty PDF, `PdfReadError`, embedder failure. |
+| `tests/fixtures/sample.png` (new) | 32×32 PNG fixture for the image happy-path test. |
+| `tests/test_attachment_store.py` | +6 tests — `update_embedding`, `search` ordering, `max_distance` filter, NULL-row exclusion, `list_unembedded`. |
+| `tests/process/test_auto_retrieve.py` | +3 tests — both blocks rendered, `INCLUDE_ATTACHMENTS=False` suppresses, attachment search failure isolated from blueprint search. |
+| `tests/test_web_upload.py` | +1 regression — embedder failure still saves the file. |
+| `tests/test_telegram_files.py` | +1 regression — same on the Telegram path. |
+| `tests/test_advisor_mcp.py` | Set `pm.attachment_store = None` on the `__new__`-built test stub. |
+
+### Verification
+- `pytest tests/ -q` → **495 passing** (was 471).
+- `ruff check src/ tests/ scripts/ && ruff format --check src/ tests/ scripts/` → clean.
+- Migration 018 runs on service start; `\d attachments` shows
+  `embedding | vector(1024)` and `embed_text | text`.
+- Backfill: `python scripts/backfill_attachment_embeddings.py` →
+  pre-existing uploads (`be4c9bc5...pdf`, `f7912b84...md`) get embeddings;
+  second run is a no-op (`Skipped=0 Embedded=0`).
+- Web smoke (Tailscale URL): upload an image → `psql -c "SELECT id, mime_type, embedding IS NOT NULL FROM attachments ORDER BY id DESC LIMIT 1"` shows `t`.
+- Auto-retrieve smoke: `/m:dev` with a prompt referencing the uploaded
+  file's content → response references the file by path; logs show the
+  "Relevant uploaded files" block in the prompt.
+- Failure-mode smoke: temporarily clobber `VOYAGE_API_KEY` →
+  upload returns 200, row exists with `embedding IS NULL`, error logged.
+
+### Out of scope (deferred to Sprint 19+)
+- Multi-file per message (Telegram `media_group_id`, web multi-file forms).
+- EXIF stripping / sanitization.
+- File expiry / cleanup cron.
+- Inline image rendering in the web chat.
+- User-facing `/files search` command.
+
+---
+
 ## Sprint 17 — File Transit (2026-04-28, DONE)
 
 **Status:** Complete

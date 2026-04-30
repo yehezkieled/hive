@@ -171,6 +171,7 @@ async def main() -> None:
         token_store=token_store,
         audit_log=audit_log,
         blueprint_store=blueprint_store,
+        attachment_store=attachment_store,
         mode_request_store=mode_request_store,
         task_store=task_store,
         notification_dispatcher=notification_dispatcher,

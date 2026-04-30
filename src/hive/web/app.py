@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
+from hive.knowledge.attachment_embedder import embed_attachment
 from hive.telegram.commands import Command, parse_command
 from hive.web.auth import require_token
 from hive.web.sse import format_event
@@ -241,6 +242,14 @@ def create_app(
             actor="web:user",
             forwarded_to=forwarded_to,
         )
+
+        try:
+            embedded = await embed_attachment(str(target), mime_type)
+            if embedded is not None:
+                vector, embed_text = embedded
+                await attachment_store.update_embedding(attachment_id, vector, embed_text)
+        except Exception:
+            logger.exception("Failed to embed web upload %s", target)
 
         if not routable or command_dispatcher is None:
             return {"id": attachment_id, "forwarded_to": forwarded_to}
