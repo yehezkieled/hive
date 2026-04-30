@@ -1,18 +1,27 @@
 """Persistent metadata for uploaded files.
 
-Sprint 17 ships file transit only — Telegram and web upload paths drop
-files onto the VPS filesystem under ``UPLOADS_DIR`` and record one row
-per file here. ``forwarded_to`` records which entity (if any) the
-caption routed the file to; NULL means the file was stored without an
-agent reading it. Sprint 18 will add embedding / blueprint integration.
+Sprint 17 ships file transit: Telegram and web upload paths drop files
+onto the VPS filesystem under ``UPLOADS_DIR`` and record one row per
+file here. ``forwarded_to`` records which entity (if any) the caption
+routed the file to; NULL means the file was stored without an agent
+reading it.
+
+Sprint 18 adds embedding columns. ``update_embedding`` is called after
+``save`` (sync, but the row persists even if embedding fails). ``search``
+mirrors ``BlueprintStore.search`` — cosine distance via pgvector with an
+optional ``max_distance`` filter.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 import asyncpg
+from pgvector.asyncpg import register_vector
+
+from hive.knowledge.embedder import embed_texts
 
 
 @dataclass
@@ -35,6 +44,15 @@ class AttachmentStore:
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         self.pool = pool
+
+    async def _ensure_vector_codec(self, conn: asyncpg.Connection) -> None:
+        """Register the pgvector codec on this connection.
+
+        pgvector's Python codec is connection-scoped and pool connections
+        are reused, so every method that reads/writes ``vector`` columns
+        must register before issuing the query.
+        """
+        await register_vector(conn)
 
     async def save(
         self,
@@ -65,6 +83,76 @@ class AttachmentStore:
         )
         return row["id"]
 
+    async def update_embedding(
+        self,
+        attachment_id: int,
+        embedding: list[float],
+        embed_text: str,
+    ) -> None:
+        """Set the embedding + embed_text for an attachment row."""
+        async with self.pool.acquire() as conn:
+            await self._ensure_vector_codec(conn)
+            await conn.execute(
+                """
+                UPDATE attachments
+                SET embedding = $1, embed_text = $2
+                WHERE id = $3
+                """,
+                embedding,
+                embed_text,
+                attachment_id,
+            )
+
+    async def search(
+        self,
+        query: str,
+        limit: int = 5,
+        max_distance: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return attachments ranked by cosine similarity to the query text.
+
+        Mirrors :meth:`BlueprintStore.search`. NULL-embedding rows are
+        excluded by ``WHERE embedding IS NOT NULL``.
+        """
+        vectors = await embed_texts([query])
+        if not vectors:
+            return []
+        query_vector = vectors[0]
+
+        async with self.pool.acquire() as conn:
+            await self._ensure_vector_codec(conn)
+            if max_distance is None:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, file_path, original_name, mime_type,
+                           embed_text, created_at,
+                           embedding <=> $1 AS distance
+                    FROM attachments
+                    WHERE embedding IS NOT NULL
+                    ORDER BY embedding <=> $1, id ASC
+                    LIMIT $2
+                    """,
+                    query_vector,
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, file_path, original_name, mime_type,
+                           embed_text, created_at,
+                           embedding <=> $1 AS distance
+                    FROM attachments
+                    WHERE embedding IS NOT NULL
+                      AND embedding <=> $1 < $3
+                    ORDER BY embedding <=> $1, id ASC
+                    LIMIT $2
+                    """,
+                    query_vector,
+                    limit,
+                    max_distance,
+                )
+        return [dict(row) for row in rows]
+
     async def get(self, attachment_id: int) -> AttachmentMeta | None:
         """Fetch a single attachment by id, or None if missing."""
         row = await self.pool.fetchrow(
@@ -78,6 +166,19 @@ class AttachmentStore:
         rows = await self.pool.fetch(
             "SELECT * FROM attachments ORDER BY created_at DESC LIMIT $1",
             limit,
+        )
+        return [_row_to_meta(row) for row in rows]
+
+    async def list_unembedded(self) -> list[AttachmentMeta]:
+        """Return rows whose embedding is NULL — used by the backfill script."""
+        rows = await self.pool.fetch(
+            """
+            SELECT id, file_path, original_name, mime_type, size_bytes,
+                   source, actor, forwarded_to, created_at
+            FROM attachments
+            WHERE embedding IS NULL
+            ORDER BY id ASC
+            """
         )
         return [_row_to_meta(row) for row in rows]
 
