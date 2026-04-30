@@ -316,7 +316,7 @@ class TestCurrentPriority:
 
 
 class TestMessagingPromptInjection:
-    """Test that MESSAGING_PROMPT is injected for maestro/lead but not workers."""
+    """Test that MESSAGING_PROMPT is injected for every hierarchy role."""
 
     def test_maestro_includes_messaging_prompt(self) -> None:
         m = Maestro(name="dev")
@@ -335,13 +335,15 @@ class TestMessagingPromptInjection:
         messaging_args = [args[i + 1] for i in indices]
         assert any("hive_actions" in a for a in messaging_args)
 
-    def test_worker_excludes_messaging_prompt(self) -> None:
+    def test_worker_includes_messaging_prompt(self) -> None:
         w = WorkerAgent(name="dev.backend.w1")
         args = w.build_cli_args()
-        # Should have only one --append-system-prompt (loop prompt)
+        # Workers also get the protocol so they can report back to their lead.
+        # bus/permissions.py gates who they can actually address.
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 1
-        assert "hive_actions" not in args[indices[0] + 1]
+        assert len(indices) == 2
+        messaging_args = [args[i + 1] for i in indices]
+        assert any("hive_actions" in a for a in messaging_args)
 
 
 class TestSubclasses:

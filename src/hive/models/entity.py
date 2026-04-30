@@ -216,8 +216,10 @@ class Entity:
         if loop_text:
             args.extend(["--append-system-prompt", loop_text])
 
-        # Maestros and leads can send inter-agent messages
-        if self.role in ("maestro", "lead"):
+        # All hierarchy roles need the messaging protocol so workers can
+        # report back to their lead. Permission gates restrict who they can
+        # actually message (see bus/permissions.py).
+        if self.role in ("maestro", "lead", "worker"):
             args.extend(["--append-system-prompt", MESSAGING_PROMPT])
 
         from hive.config import ADVISOR_ENABLED
