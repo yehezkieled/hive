@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from hive.bus.actions import parse_actions
+from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
@@ -19,6 +20,7 @@ from hive.config import (
     AUTO_COMPACT_ENABLED,
     AUTO_COMPACT_THRESHOLD,
     AUTO_RETRIEVE_ENABLED,
+    AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,
     AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
 )
@@ -47,6 +49,7 @@ class ProcessManager:
         token_store: TokenStore | None = None,
         audit_log: AuditLog | None = None,
         blueprint_store: BlueprintStore | None = None,
+        attachment_store: AttachmentStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         task_store: TaskStore | None = None,
         notification_dispatcher: NotificationDispatcher | None = None,
@@ -58,6 +61,7 @@ class ProcessManager:
         self.token_store = token_store
         self.audit_log = audit_log
         self.blueprint_store = blueprint_store
+        self.attachment_store = attachment_store
         self.mode_request_store = mode_request_store
         self.task_store = task_store
         self.notification_dispatcher = notification_dispatcher
@@ -303,22 +307,53 @@ class ProcessManager:
             prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
 
         # --- Sprint 11: auto-retrieve top-K blueprints as context ---
-        if AUTO_RETRIEVE_ENABLED and self.blueprint_store is not None and prompt.strip():
-            try:
-                hits = await self.blueprint_store.search(
-                    prompt,
-                    limit=AUTO_RETRIEVE_TOP_K,
-                    max_distance=AUTO_RETRIEVE_MAX_DISTANCE,
-                )
-            except Exception:
-                logger.exception("auto-retrieve failed; continuing without blueprints")
-                hits = []
-            if hits:
-                context_lines = ["Relevant past blueprints (retrieved automatically):"]
-                for h in hits:
-                    context_lines.append(f"\n### {h['title']}\n{h['body']}")
-                context_block = "\n".join(context_lines)
-                prompt = f"{context_block}\n\n---\n\n{prompt}"
+        # --- Sprint 18: also pull semantically-related uploaded files. ---
+        # Blueprints are consumed inline (body in the prompt); files are
+        # rendered as a separate block listing paths so the agent's first
+        # move is a `Read` on the path it cares about.
+        prepended_blocks: list[str] = []
+        if AUTO_RETRIEVE_ENABLED and prompt.strip():
+            if self.blueprint_store is not None:
+                try:
+                    blueprint_hits = await self.blueprint_store.search(
+                        prompt,
+                        limit=AUTO_RETRIEVE_TOP_K,
+                        max_distance=AUTO_RETRIEVE_MAX_DISTANCE,
+                    )
+                except Exception:
+                    logger.exception("auto-retrieve failed; continuing without blueprints")
+                    blueprint_hits = []
+                if blueprint_hits:
+                    bp_lines = ["Relevant past blueprints (retrieved automatically):"]
+                    for h in blueprint_hits:
+                        bp_lines.append(f"\n### {h['title']}\n{h['body']}")
+                    prepended_blocks.append("\n".join(bp_lines))
+
+            if AUTO_RETRIEVE_INCLUDE_ATTACHMENTS and self.attachment_store is not None:
+                try:
+                    attachment_hits = await self.attachment_store.search(
+                        prompt,
+                        limit=AUTO_RETRIEVE_TOP_K,
+                        max_distance=AUTO_RETRIEVE_MAX_DISTANCE,
+                    )
+                except Exception:
+                    logger.exception("auto-retrieve failed; continuing without attachments")
+                    attachment_hits = []
+                if attachment_hits:
+                    file_lines = ["Relevant uploaded files (retrieved automatically):"]
+                    for h in attachment_hits:
+                        snippet = (h.get("embed_text") or "")[:200].replace("\n", " ")
+                        name = h.get("original_name") or h["file_path"]
+                        mime = h.get("mime_type") or "unknown"
+                        file_lines.append(
+                            f"- {h['file_path']} ({mime}, original: {name})"
+                            + (f' — snippet: "{snippet}"' if snippet else "")
+                        )
+                    prepended_blocks.append("\n".join(file_lines))
+
+        if prepended_blocks:
+            context_block = "\n\n---\n\n".join(prepended_blocks)
+            prompt = f"{context_block}\n\n---\n\n{prompt}"
 
         args = entity.build_cli_args()
         if entity.session_id:

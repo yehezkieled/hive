@@ -205,6 +205,7 @@ class TestAdvisorTool:
         pm._worktree_manager = MagicMock()
         pm._compacting = set()
         pm.blueprint_store = None
+        pm.attachment_store = None
         pm.audit_log = MagicMock()
         pm.audit_log.log = AsyncMock()
         pm.token_store = MagicMock()
