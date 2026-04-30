@@ -856,6 +856,228 @@ class TestActionRouting:
         await mgr.kill_all()
 
 
+# -- Sprint 19: autonomous spawn/kill dispatcher --
+
+
+class TestAutonomousDispatch:
+    """Maestro/lead emitting spawn_team/spawn_worker/kill_entity actions."""
+
+    def _mock_session(self, response: str) -> AsyncMock:
+        instance = AsyncMock()
+        instance.start = AsyncMock()
+        instance.send_prompt = AsyncMock(return_value=response)
+        instance.kill = AsyncMock()
+        instance.session_id = "sess-1"
+        instance.last_usage = None
+        return instance
+
+    async def _send(self, manager: ProcessManager, name: str, response: str) -> str:
+        instance = self._mock_session(response)
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            return await manager.send_to_entity(name, "go")
+
+    async def test_maestro_spawn_team_creates_lead(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        response = (
+            "Done.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "spawn_team", "team_name": "backend"}]\n'
+            "</hive_actions>"
+        )
+        await self._send(manager, "dev", response)
+
+        assert "dev.backend" in manager.entities
+        assert manager._last_spawned_teams == ["dev.backend"]
+        assert "backend" in maestro.teams
+
+    async def test_lead_spawn_team_denied(self, manager: ProcessManager) -> None:
+        """Leads can't spawn teams — they should be rejected silently and audited."""
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead
+        for n in ("dev", "dev.backend"):
+            manager.router.register(n)
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "frontend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev.backend", response)
+
+        assert manager._last_spawned_teams == []
+        assert "dev.frontend" not in manager.entities
+
+    async def test_maestro_spawn_worker_under_own_lead(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        # First seed a team manually so spawn_worker has a lead to attach to
+        await manager.register_entity(maestro)
+        await manager.create_team("dev", "backend")
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev", response)
+
+        assert manager._last_spawned_workers == ["dev.backend.w1"]
+        assert "dev.backend.w1" in manager.entities
+
+    async def test_lead_spawn_worker_under_self(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        await manager.register_entity(maestro)
+        await manager.create_team("dev", "backend")
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev.backend", response)
+
+        assert manager._last_spawned_workers == ["dev.backend.w1"]
+
+    async def test_lead_spawn_worker_under_other_team_denied(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        await manager.register_entity(maestro)
+        await manager.create_team("dev", "backend")
+        await manager.create_team("dev", "frontend")
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.frontend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev.backend", response)
+
+        assert manager._last_spawned_workers == []
+
+    async def test_worker_spawn_actions_denied(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        worker = WorkerAgent(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead
+        manager._entities["dev.backend.w1"] = worker
+        for n in ("dev", "dev.backend", "dev.backend.w1"):
+            manager.router.register(n)
+
+        response = (
+            "<hive_actions>\n"
+            "[\n"
+            '  {"type": "spawn_team", "team_name": "rogue"},\n'
+            '  {"type": "spawn_worker", "lead": "dev.backend"}\n'
+            "]\n"
+            "</hive_actions>"
+        )
+        await self._send(manager, "dev.backend.w1", response)
+
+        assert manager._last_spawned_teams == []
+        assert manager._last_spawned_workers == []
+
+    async def test_maestro_kill_own_org_member(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="dev", model="sonnet")
+        await manager.register_entity(maestro)
+        await manager.create_team("dev", "backend")
+        assert "dev.backend" in manager.entities
+
+        response = (
+            '<hive_actions>\n[{"type": "kill_entity", "target": "dev.backend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev", response)
+
+        assert manager._last_killed_entities == ["dev.backend"]
+        assert "dev.backend" not in manager.entities
+
+    async def test_kill_default_maestro_denied(self, manager: ProcessManager) -> None:
+        """Default maestro is sacred — never killable, even by another maestro."""
+        from hive.config import DEFAULT_MAESTRO
+
+        default = Maestro(name=DEFAULT_MAESTRO, model="sonnet")
+        other = Maestro(name="ops", model="sonnet")
+        manager._entities[DEFAULT_MAESTRO] = default
+        manager._entities["ops"] = other
+        manager.router.register(DEFAULT_MAESTRO)
+        manager.router.register("ops")
+
+        response = (
+            "<hive_actions>\n"
+            f'[{{"type": "kill_entity", "target": "{DEFAULT_MAESTRO}"}}]\n'
+            "</hive_actions>"
+        )
+        await self._send(manager, "ops", response)
+
+        assert manager._last_killed_entities == []
+        assert DEFAULT_MAESTRO in manager.entities
+
+    async def test_self_kill_denied(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="ops", model="sonnet")
+        manager._entities["ops"] = maestro
+        manager.router.register("ops")
+
+        response = '<hive_actions>\n[{"type": "kill_entity", "target": "ops"}]\n</hive_actions>'
+        await self._send(manager, "ops", response)
+
+        assert manager._last_killed_entities == []
+        assert "ops" in manager.entities
+
+    async def test_spawn_actions_audited_with_actor(
+        self,
+        router: MessageRouter,
+        audit_log: AuditLog,
+    ) -> None:
+        """Spawn actions write audit events tagged with the emitting entity."""
+        mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
+        maestro = Maestro(name="dev", model="sonnet")
+        await mgr.register_entity(maestro)
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        )
+        instance = self._mock_session(response)
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await mgr.send_to_entity("dev", "go")
+
+        events = await audit_log.recent(action_prefix="entity.spawn_team")
+        # Either a "entity.spawn_team" or denial — should be the spawn one
+        spawn_events = [e for e in events if e["action"] == "entity.spawn_team"]
+        assert len(spawn_events) == 1
+        assert spawn_events[0]["actor"] == "dev"
+        assert spawn_events[0]["target"] == "dev.backend"
+
+        await mgr.kill_all()
+
+    async def test_kill_denied_audited(
+        self,
+        router: MessageRouter,
+        audit_log: AuditLog,
+    ) -> None:
+        """Denied kills emit entity.kill_denied with actor tag."""
+        from hive.config import DEFAULT_MAESTRO
+
+        mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
+        default = Maestro(name=DEFAULT_MAESTRO, model="sonnet")
+        other = Maestro(name="ops", model="sonnet")
+        await mgr.register_entity(default)
+        await mgr.register_entity(other)
+
+        response = (
+            "<hive_actions>\n"
+            f'[{{"type": "kill_entity", "target": "{DEFAULT_MAESTRO}"}}]\n'
+            "</hive_actions>"
+        )
+        instance = self._mock_session(response)
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await mgr.send_to_entity("ops", "go")
+
+        events = await audit_log.recent(action_prefix="entity.kill_denied")
+        assert len(events) == 1
+        assert events[0]["actor"] == "ops"
+        assert events[0]["target"] == DEFAULT_MAESTRO
+
+        await mgr.kill_all()
+
+
 # -- Sprint 10: compact_entity tests --
 
 

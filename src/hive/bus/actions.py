@@ -11,6 +11,13 @@ Supported action types:
 - ``report_failure``: a task-bound entity tells the orchestrator the
   current task is failing. Fields: ``reason``; optional ``task_id``
   override (defaults to the entity's current task_id).
+- ``spawn_team``: maestro creates a new team in its own org. Fields:
+  ``team_name``; optional ``model`` (default sonnet).
+- ``spawn_worker``: maestro or lead spawns a worker under a team.
+  Fields: ``lead`` (full lead name like ``dev.backend``); optional
+  ``worker_name``, ``task_id``.
+- ``kill_entity``: maestro or lead kills an entity in its scope.
+  Fields: ``target``.
 """
 
 from __future__ import annotations
@@ -30,6 +37,9 @@ _ACTIONS_PATTERN = re.compile(
 _MESSAGE_REQUIRED = {"to", "text"}
 _MODE_REQUEST_REQUIRED = {"requested_mode"}
 _FAILURE_REQUIRED = {"reason"}
+_SPAWN_TEAM_REQUIRED = {"team_name"}
+_SPAWN_WORKER_REQUIRED = {"lead"}
+_KILL_ENTITY_REQUIRED = {"target"}
 
 
 @dataclass
@@ -38,7 +48,9 @@ class Action:
 
     Only the fields relevant to ``type`` are populated. ``to``/``text``
     are set for ``message`` actions; ``requested_mode``/``reason`` for
-    ``request_mode_change``; ``reason``/``task_id`` for ``report_failure``.
+    ``request_mode_change``; ``reason``/``task_id`` for ``report_failure``;
+    ``team_name``/``model`` for ``spawn_team``; ``lead``/``worker_name``/
+    ``task_id`` for ``spawn_worker``; ``target`` for ``kill_entity``.
     """
 
     type: str
@@ -47,6 +59,11 @@ class Action:
     requested_mode: str | None = None
     reason: str | None = None
     task_id: int | None = None
+    team_name: str | None = None
+    model: str | None = None
+    lead: str | None = None
+    worker_name: str | None = None
+    target: str | None = None
 
 
 def parse_actions(response: str) -> tuple[str, list[Action]]:
@@ -124,6 +141,49 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
                     task_id=task_id_val,
                 )
             )
+            continue
+
+        if atype == "spawn_team":
+            missing = _SPAWN_TEAM_REQUIRED - item.keys()
+            if missing:
+                logger.warning("spawn_team missing fields %s: %s", missing, item)
+                continue
+            actions.append(
+                Action(
+                    type=atype,
+                    team_name=item["team_name"],
+                    model=item.get("model"),
+                )
+            )
+            continue
+
+        if atype == "spawn_worker":
+            missing = _SPAWN_WORKER_REQUIRED - item.keys()
+            if missing:
+                logger.warning("spawn_worker missing fields %s: %s", missing, item)
+                continue
+            raw_task_id = item.get("task_id")
+            try:
+                task_id_val = int(raw_task_id) if raw_task_id is not None else None
+            except (TypeError, ValueError):
+                logger.warning("spawn_worker has non-integer task_id: %r", raw_task_id)
+                task_id_val = None
+            actions.append(
+                Action(
+                    type=atype,
+                    lead=item["lead"],
+                    worker_name=item.get("worker_name"),
+                    task_id=task_id_val,
+                )
+            )
+            continue
+
+        if atype == "kill_entity":
+            missing = _KILL_ENTITY_REQUIRED - item.keys()
+            if missing:
+                logger.warning("kill_entity missing fields %s: %s", missing, item)
+                continue
+            actions.append(Action(type=atype, target=item["target"]))
             continue
 
         logger.warning("Unknown action type %r, skipping", atype)

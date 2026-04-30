@@ -316,34 +316,38 @@ class TestCurrentPriority:
 
 
 class TestMessagingPromptInjection:
-    """Test that MESSAGING_PROMPT is injected for every hierarchy role."""
+    """MESSAGING_PROMPT is injected for every hierarchy role; AUTONOMY_PROMPT
+    only for maestro/lead (workers cannot spawn or kill).
+    """
 
-    def test_maestro_includes_messaging_prompt(self) -> None:
+    def test_maestro_includes_messaging_and_autonomy_prompts(self) -> None:
         m = Maestro(name="dev")
         args = m.build_cli_args()
-        # Should have two --append-system-prompt entries: loop + messaging
+        # loop + messaging + autonomy = 3 --append-system-prompt entries
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 2
-        messaging_args = [args[i + 1] for i in indices]
-        assert any("hive_actions" in a for a in messaging_args)
+        assert len(indices) == 3
+        appended = [args[i + 1] for i in indices]
+        assert any("hive_actions" in a for a in appended)
+        assert any("spawn_team" in a for a in appended)
 
-    def test_lead_includes_messaging_prompt(self) -> None:
+    def test_lead_includes_messaging_and_autonomy_prompts(self) -> None:
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
         args = lead.build_cli_args()
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 2
-        messaging_args = [args[i + 1] for i in indices]
-        assert any("hive_actions" in a for a in messaging_args)
+        assert len(indices) == 3
+        appended = [args[i + 1] for i in indices]
+        assert any("hive_actions" in a for a in appended)
+        assert any("spawn_worker" in a for a in appended)
 
-    def test_worker_includes_messaging_prompt(self) -> None:
+    def test_worker_includes_messaging_only(self) -> None:
         w = WorkerAgent(name="dev.backend.w1")
         args = w.build_cli_args()
-        # Workers also get the protocol so they can report back to their lead.
-        # bus/permissions.py gates who they can actually address.
+        # Workers get loop + messaging but NOT autonomy (no spawn/kill power).
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert len(indices) == 2
-        messaging_args = [args[i + 1] for i in indices]
-        assert any("hive_actions" in a for a in messaging_args)
+        appended = [args[i + 1] for i in indices]
+        assert any("hive_actions" in a for a in appended)
+        assert not any("spawn_team" in a or "kill_entity" in a for a in appended)
 
 
 class TestSubclasses:

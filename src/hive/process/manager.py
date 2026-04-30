@@ -11,7 +11,7 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
-from hive.bus.permissions import can_message
+from hive.bus.permissions import can_kill, can_message, can_spawn_team, can_spawn_worker
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -23,6 +23,7 @@ from hive.config import (
     AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,
     AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
+    DEFAULT_MAESTRO,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import generate_mcp_config
@@ -70,6 +71,9 @@ class ProcessManager:
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
         self._last_failure_reports: list[int] = []
+        self._last_spawned_teams: list[str] = []
+        self._last_spawned_workers: list[str] = []
+        self._last_killed_entities: list[str] = []
         self._compacting: set[str] = set()
 
     async def _persist(self, entity: Entity) -> None:
@@ -411,6 +415,9 @@ class ProcessManager:
         self._last_routed_actions = []
         self._last_mode_requests = []
         self._last_failure_reports = []
+        self._last_spawned_teams = []
+        self._last_spawned_workers = []
+        self._last_killed_entities = []
         for action in actions:
             if action.type == "message":
                 recipient = self._entities.get(action.to) if action.to else None
@@ -456,6 +463,86 @@ class ProcessManager:
                     self._last_failure_reports.append(task_id)
                 except Exception:
                     logger.exception("handle_task_failure failed for task %s", task_id)
+            elif action.type == "spawn_team":
+                if not action.team_name:
+                    continue
+                if not can_spawn_team(entity.role, entity.name):
+                    logger.warning("spawn_team denied: %s (role=%s)", entity.name, entity.role)
+                    await self._audit(
+                        "entity.spawn_team_denied",
+                        target=action.team_name,
+                        details={"reason": "role_not_permitted", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    continue
+                try:
+                    lead = await self.create_team(
+                        entity_name,
+                        action.team_name,
+                        model=action.model or "sonnet",
+                    )
+                    self._last_spawned_teams.append(lead.name)
+                    await self._audit(
+                        "entity.spawn_team",
+                        target=lead.name,
+                        details={"team": action.team_name, "maestro": entity_name},
+                        actor=entity_name,
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    logger.warning("spawn_team from %s failed: %s", entity_name, exc)
+            elif action.type == "spawn_worker":
+                if not action.lead:
+                    continue
+                if not can_spawn_worker(entity.role, entity.name, action.lead):
+                    logger.warning("spawn_worker denied: %s -> %s", entity.name, action.lead)
+                    await self._audit(
+                        "entity.spawn_worker_denied",
+                        target=action.lead,
+                        details={"reason": "scope_violation", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    continue
+                try:
+                    worker = await self.spawn_worker(
+                        action.lead,
+                        worker_name=action.worker_name,
+                        task_id=action.task_id,
+                    )
+                    self._last_spawned_workers.append(worker.name)
+                    await self._audit(
+                        "entity.autonomous_spawn_worker",
+                        target=worker.name,
+                        details={"lead": action.lead, "task_id": action.task_id},
+                        actor=entity_name,
+                    )
+                except (KeyError, TypeError, RuntimeError) as exc:
+                    logger.warning("spawn_worker from %s failed: %s", entity_name, exc)
+            elif action.type == "kill_entity":
+                if not action.target:
+                    continue
+                if not can_kill(entity.role, entity.name, action.target, DEFAULT_MAESTRO):
+                    logger.warning("kill_entity denied: %s -> %s", entity.name, action.target)
+                    await self._audit(
+                        "entity.kill_denied",
+                        target=action.target,
+                        details={"reason": "permission_denied", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    continue
+                if action.target not in self._entities:
+                    logger.warning("kill_entity target not found: %s", action.target)
+                    continue
+                try:
+                    await self.kill_entity(action.target)
+                    self._last_killed_entities.append(action.target)
+                    await self._audit(
+                        "entity.autonomous_kill",
+                        target=action.target,
+                        details={"actor_role": entity.role},
+                        actor=entity_name,
+                    )
+                except Exception:
+                    logger.exception("kill_entity from %s failed", entity_name)
 
         return clean_text
 
