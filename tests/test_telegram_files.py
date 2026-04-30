@@ -213,3 +213,25 @@ async def test_command_caption_does_not_route_attachment(uploads_dir: Path) -> N
     bridge.attachment_store.save.assert_awaited_once()
     assert bridge.attachment_store.save.await_args.kwargs["forwarded_to"] is None
     bridge._execute_command.assert_not_awaited()
+
+
+async def test_embedder_failure_still_persists_file(
+    uploads_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sprint 18 regression: a Voyage outage must not break Telegram uploads."""
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("voyage down")
+
+    monkeypatch.setattr("hive.telegram.bridge.embed_attachment", boom)
+
+    store = AsyncMock(save=AsyncMock(return_value=77), update_embedding=AsyncMock())
+    bridge = _make_bridge(uploads_dir=uploads_dir, attachment_store=store)
+    update, context = _make_photo_update(caption=None)
+
+    await bridge._handle_attachment(update, context)
+
+    store.save.assert_awaited_once()
+    store.update_embedding.assert_not_awaited()
+    reply = update.message.reply_text.await_args.args[0]
+    assert "#77" in reply
