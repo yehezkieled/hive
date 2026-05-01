@@ -280,7 +280,19 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Push the entity's branch and open a pull request with gh pr create.",
         examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
     ),
-    # Admin — alphabetical: help, personality
+    # Admin — alphabetical: budget, eval, help, personality
+    "budget": HelpEntry(
+        category="Admin",
+        usage="/budget [maestro]",
+        description="Show the facts prompt the scheduler would send to a maestro.",
+        examples=("/budget", "/budget dev"),
+    ),
+    "eval": HelpEntry(
+        category="Admin",
+        usage="/eval [maestro]",
+        description="Fire one scheduler tick now so the maestro re-allocates capacity.",
+        examples=("/eval", "/eval dev"),
+    ),
     "help": HelpEntry(
         category="Admin",
         usage="/help [command]",

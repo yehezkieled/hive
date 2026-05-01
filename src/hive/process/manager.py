@@ -75,6 +75,10 @@ class ProcessManager:
         self._last_spawned_workers: list[str] = []
         self._last_killed_entities: list[str] = []
         self._compacting: set[str] = set()
+        # Set after construction by __main__.py so the dispatch site can
+        # consult the rate limiter. Optional — tests construct managers
+        # without a scheduler and the spawn dispatch falls back to "allow".
+        self.scheduler: object | None = None
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -475,6 +479,15 @@ class ProcessManager:
                         actor=entity_name,
                     )
                     continue
+                if self.scheduler is not None and not self.scheduler.can_autospawn(entity_name):
+                    logger.warning("spawn_team rate-limited: %s", entity_name)
+                    await self._audit(
+                        "entity.spawn_rate_limited",
+                        target=action.team_name,
+                        details={"action_type": "spawn_team", "limit": self.scheduler.spawn_limit},
+                        actor=entity_name,
+                    )
+                    continue
                 try:
                     lead = await self.create_team(
                         entity_name,
@@ -482,6 +495,8 @@ class ProcessManager:
                         model=action.model or "sonnet",
                     )
                     self._last_spawned_teams.append(lead.name)
+                    if self.scheduler is not None:
+                        self.scheduler.record_autospawn(entity_name)
                     await self._audit(
                         "entity.spawn_team",
                         target=lead.name,
@@ -502,6 +517,18 @@ class ProcessManager:
                         actor=entity_name,
                     )
                     continue
+                if self.scheduler is not None and not self.scheduler.can_autospawn(entity_name):
+                    logger.warning("spawn_worker rate-limited: %s", entity_name)
+                    await self._audit(
+                        "entity.spawn_rate_limited",
+                        target=action.lead,
+                        details={
+                            "action_type": "spawn_worker",
+                            "limit": self.scheduler.spawn_limit,
+                        },
+                        actor=entity_name,
+                    )
+                    continue
                 try:
                     worker = await self.spawn_worker(
                         action.lead,
@@ -509,6 +536,8 @@ class ProcessManager:
                         task_id=action.task_id,
                     )
                     self._last_spawned_workers.append(worker.name)
+                    if self.scheduler is not None:
+                        self.scheduler.record_autospawn(entity_name)
                     await self._audit(
                         "entity.autonomous_spawn_worker",
                         target=worker.name,

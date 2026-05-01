@@ -79,7 +79,7 @@ async def test_worker_replies_to_lead_via_hive_actions(
         delivered = await router.get_next(lead.name, timeout=1.0)
         assert delivered is not None, "Lead's queue did not receive the worker's message."
         assert delivered.sender == worker.name
-        assert "complete" in delivered.text.lower()
+        assert "complete" in delivered.content.lower()
 
         events = await audit_log.recent(action_prefix="message.")
         assert any(
