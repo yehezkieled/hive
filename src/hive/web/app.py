@@ -66,7 +66,7 @@ def create_app(
     attachment_store: AttachmentStore | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
-    from hive.web.view_model import build_landing_view_model
+    from hive.web.view_model import build_dashboard_view_model, build_landing_view_model
 
     app = FastAPI(title="Hive Dashboard", version="0.2.0")
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -380,7 +380,7 @@ def create_app(
 
     # ─── Landing page ──────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse)
-    async def dashboard(request: Request):
+    async def landing(request: Request):
         from hive.telegram.help_text import HELP_TEXT
 
         view = await _build_view()
@@ -394,7 +394,25 @@ def create_app(
             if entry.display is None
         ]
         return templates.TemplateResponse(
-            request, "dashboard.html", {"view": view, "commands": commands}
+            request, "landing.html", {"view": view, "commands": commands}
         )
+
+    # ─── Dashboard tab (Sprint 20) ─────────────────────────────────────
+    async def _build_dashboard() -> dict:
+        return await build_dashboard_view_model(
+            token_store=token_store,
+            audit_log=audit_log,
+            task_store=task_store,
+            process_manager=process_manager,
+        )
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard(request: Request):
+        data = await _build_dashboard()
+        return templates.TemplateResponse(request, "dashboard.html", {"data": data})
+
+    @app.get("/api/dashboard/all")
+    async def api_dashboard_all(_: None = Depends(require_token)):
+        return await _build_dashboard()
 
     return app

@@ -1562,6 +1562,100 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 20 — Dashboard Tab (2026-05-01, DONE)
+
+**Status:** Complete
+**Branch:** `sprint-20-dashboard-tab` → main
+**Totals:** 551 → 583 tests (+32). No migrations.
+
+**Goal**: fill the long-reserved **Dashboard** tab placeholder on the
+landing's top bar with a dense observability surface for the agents
+themselves — cost burn, token mix, cache efficiency, audit stream,
+backlog, system health. Sprints 14–19 piled telemetry into Postgres
+(`token_usage`, `audit_log`, `tasks`); the data was queryable via
+`/cost`, `/audit`, `/tasks` Telegram commands but never collated into
+one view. Sprint 20 ships that view.
+
+The design is a handoff bundle from claude.ai/design: 8 widgets
+(W1–W8), hand-rolled SVG, "Paper Ops" warm palette matching the
+existing landing.
+
+### Locked decisions
+
+- **Render chrome from Jinja, widgets from React.** The design's
+  `D_TopBar` and `D_TerminalBar` were dropped; the dashboard inherits
+  the existing landing's chrome with the **Dashboard** tab active and
+  the **Hive** tab linking back to `/`. Mounts React only into a
+  single `#root` widget-grid container.
+- **Babel-in-browser** (no build step). Three JSX files load via
+  `<script type="text/babel" src="…">` from unpkg's React 18.3.1 +
+  Babel-standalone 7.29.0. Trade-off: ~5MB of CDN payload on first
+  load, no toolchain. Acceptable for an internal dashboard; if the
+  payload becomes a problem later, switch to a Vite build.
+- **First-paint = server-rendered `window.HIVE_DASH = {{ data |
+  tojson }}`** inline (matches existing landing precedent).
+- **Refresh = 30s polling** of `/api/dashboard/all`. `setInterval`
+  reassigns `window.HIVE_DASH` and dispatches a `'hive-data-updated'`
+  custom event; `DashboardPage` listens and bumps a `useState` tick to
+  re-render. Skipped SSE — polling matches the landing's htmx pattern.
+- **Wire 5 widgets to real telemetry, mock 3** with `# TODO Sprint 21+:`
+  markers — health probes, CFD anomaly heuristics, and the failure
+  classifier all need new instrumentation that's not in this sprint.
+- **`/api/dashboard/all` is bearer-token protected** via the existing
+  `Depends(require_token)`. Per-entity cost is more sensitive than the
+  landing hero, which stays open behind the Tailscale bind.
+- **Renamed `templates/dashboard.html` → `landing.html`** (the file
+  already self-titles "Hive — Landing"). One-time cost; eliminates a
+  permanent name collision and frees up the canonical name for the
+  new dashboard route.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/token_store.py` | +5 aggregation methods: `daily_cost(days)`, `token_burn(window, buckets)`, `cost_by_entity_model(since)`, `cache_stats(since)`, `cache_overall_daily(days)`. CTE-based bucket scheme for `token_burn`; zero-fill via `generate_series` for daily series. |
+| `src/hive/bus/audit_log.py` | +`histogram(window_minutes=60)` — 60 buckets of 1 min, each `{i, command, entity, task, git}` from `split_part(action, '.', 1)`. |
+| `src/hive/web/view_model.py` | +`build_dashboard_view_model()` shaping the `window.HIVE_DASH` payload + 8 helpers (`_build_cost30` per-DOW median/stdev, `_build_cfd` 42-point ramp, `_build_burn` 4 ranges, `_build_matrix`, `_build_cache`, `_build_histogram`, `_build_audit_feed`, `_entity_names`). Mock helpers `_mock_health` for the 3 deferred widgets. |
+| `src/hive/web/app.py` | Renamed `dashboard()` → `landing()` (route stays at `/`); new `dashboard()` at `/dashboard`; new `GET /api/dashboard/all` token-protected. |
+| `src/hive/web/templates/landing.html` (renamed) | Dashboard tab now `<a href="/dashboard">Dashboard</a>` instead of `<button class="tab" title="Coming soon">`. |
+| `src/hive/web/templates/dashboard.html` (new) | Jinja chrome (top-bar mirrored from landing, no chat-rail), `window.HIVE_DASH` first-paint script, React 18.3.1 + Babel CDN loads, three JSX files, inline `DashboardPage` component wrapped in `{% raw %}…{% endraw %}` (JSX `{ }` clashes with Jinja `{{ }}`). |
+| `src/hive/web/static/dashboard/dashboard-shell.jsx` (new, copied) | Carries the D palette, dStyles, atoms (D_Bee, D_Hex, D_StateDot, D_PriorityPill, D_NSPill, D_Card, D_PageHeader, D_Backdrop). |
+| `src/hive/web/static/dashboard/dashboard-w1234.jsx` (new, copied) | W1 cost ribbon, W2 system health, W3 workload CFD, W4 token burn. |
+| `src/hive/web/static/dashboard/dashboard-w5678.jsx` (new, copied + patched) | W5 entity×model cost matrix, W6 cache hit, W7 audit timeline, W8 failure scatter. Patch: W7 namespace array `['command','entity','task','vault','mcp']` → `['command','entity','task','git']` (matches what `audit_log.action` actually contains; `vault`/`mcp` were design assumptions, not real namespaces). |
+| `src/hive/web/static/dashboard/refresh.js` (new) | 30s `setInterval` calling `/api/dashboard/all` with `Authorization: Bearer ${sessionStorage.getItem('hive_web_token')}`; respects `window.HIVE_AUTO_REFRESH === false` toggle; degrades silently if no token. |
+| `src/hive/web/static/dashboard/dashboard.css` (new) | Minimal scaffolding: `.dashboard-main` (flex/overflow auto), `#root` min-height, `@keyframes d-bob` and `@keyframes d-blink` for the design's bee + sage dot animations. |
+| `src/hive/web/templates/_macros.html` | Updated stale `dashboard.html` reference to `landing.html`. |
+| `tests/test_token_store_dashboard.py` (new) | 16 tests — daily_cost (zero-fill, group, DOW, exclude outside window), token_burn (zero-fill, aggregates, exclude outside window), cost_by_entity_model (empty, groups, since-filter), cache_stats (empty, hit_pct, per-entity, exclude outside window), cache_overall_daily (zero-fill, today). |
+| `tests/test_audit_log_histogram.py` (new) | 6 tests — bucket count, zero-fill, namespace counting, recent-event placement, old-event placement, exclusion outside window. |
+| `tests/test_web_dashboard.py` (new) | 10 tests — `/dashboard` 200 + `id="root"` + `window.HIVE_DASH` + Hive tab links back to `/`; static JSX/refresh.js served; `/api/dashboard/all` requires token (401) + returns full payload (16 keys); view-model empty shape; JSON-serializable round-trip; CFD 42 points + dayBoundaries `[5,11,17,23,29,35,41]`. |
+
+### Verification
+- `pytest tests/ -q` → **583 passing** (was 551).
+- `ruff check src/ tests/` and `ruff format src/ tests/` clean.
+- Browser smoke from the Tailscale URL (not loopback): all 8 widgets
+  paint; W1/W4/W5/W6/W7 reflect live numbers (compare to `/cost 24h`);
+  W2/W3/W8 render their mock/derived data; range switcher
+  (1h/24h/7d/30d) updates the token burn chart; auto-refresh toggle
+  off → no further `/api/dashboard/all` calls; toggle on → calls every
+  30s; "Hive" tab routes to `/`, "Dashboard" tab on landing routes to
+  `/dashboard`.
+
+### Out of scope (deferred to Sprint 21+)
+- **W2 System health** real probes (postgres ping, claude API
+  liveness, disk %, heartbeat gap detection). Currently all 5 strips
+  hardcoded `ok` with synthetic summaries.
+- **W3 Workload CFD** real anomaly detection ("widening for 3+ days").
+  Currently a basic 7-day stacked series derived from `tasks.status`
+  with stub anomaly windows.
+- **W8 Failure scatter** classifier (`task.failure_reason` text →
+  rate.limit/retry/crash/escalate). Currently empty array.
+- Vite build pipeline (replacing Babel-in-browser if CDN payload
+  becomes annoying).
+- Multi-LLM routing, web OAuth, vault completeness audit — same
+  deferrals as Sprint 19.
+
+---
+
 ## Sprint 19 — Maestro Autonomy (2026-04-30, DONE)
 
 **Status:** Complete

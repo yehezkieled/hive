@@ -8,7 +8,7 @@ time via :meth:`TokenStore.totals`.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, TypedDict
 
 import asyncpg
@@ -106,3 +106,157 @@ class TokenStore:
             limit,
         )
         return [dict(row) for row in rows]
+
+    async def daily_cost(self, days: int = 30) -> list[dict[str, Any]]:
+        """Per-day cost (zero-filled) plus Postgres day-of-week for baseline math."""
+        rows = await self.pool.fetch(
+            """
+            WITH days AS (
+                SELECT generate_series(
+                    (CURRENT_DATE - ($1::int - 1) * INTERVAL '1 day')::date,
+                    CURRENT_DATE,
+                    INTERVAL '1 day'
+                )::date AS d
+            )
+            SELECT
+                to_char(days.d, 'YYYY-MM-DD') AS date,
+                COALESCE(SUM(t.cost_usd), 0)::float8 AS cost,
+                EXTRACT(DOW FROM days.d)::int AS dow
+            FROM days
+            LEFT JOIN token_usage t
+                ON (t.recorded_at AT TIME ZONE 'UTC')::date = days.d
+            GROUP BY days.d
+            ORDER BY days.d
+            """,
+            days,
+        )
+        return [dict(r) for r in rows]
+
+    async def token_burn(self, window: timedelta, buckets: int) -> list[dict[str, Any]]:
+        """Time-bucketed token mix + cost; ``window`` split into ``buckets`` equal slices."""
+        rows = await self.pool.fetch(
+            """
+            WITH range_t AS (
+                SELECT NOW() - $1::interval AS start_t, NOW() AS end_t
+            ),
+            bucket_size AS (
+                SELECT (end_t - start_t) / $2::int AS size FROM range_t
+            ),
+            bucket_idx AS (
+                SELECT generate_series(0, $2::int - 1) AS i
+            ),
+            buckets AS (
+                SELECT
+                    bi.i,
+                    (SELECT start_t FROM range_t)
+                        + bi.i * (SELECT size FROM bucket_size) AS bucket_start,
+                    (SELECT start_t FROM range_t)
+                        + (bi.i + 1) * (SELECT size FROM bucket_size) AS bucket_end
+                FROM bucket_idx bi
+            )
+            SELECT
+                b.i,
+                b.bucket_start AS ts,
+                COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+                COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+                COALESCE(SUM(t.cache_creation_input_tokens), 0)::bigint
+                    AS cache_creation_input_tokens,
+                COALESCE(SUM(t.cache_read_input_tokens), 0)::bigint
+                    AS cache_read_input_tokens,
+                COALESCE(SUM(t.cost_usd), 0)::float8 AS cost
+            FROM buckets b
+            LEFT JOIN token_usage t
+                ON t.recorded_at >= b.bucket_start
+                AND t.recorded_at < b.bucket_end
+            GROUP BY b.i, b.bucket_start
+            ORDER BY b.i
+            """,
+            window,
+            buckets,
+        )
+        return [dict(r) for r in rows]
+
+    async def cost_by_entity_model(self, since: datetime) -> dict[str, dict[str, float]]:
+        """Sparse ``{entity_name: {model: cost_usd}}`` matrix since ``since``."""
+        rows = await self.pool.fetch(
+            """
+            SELECT
+                entity_name,
+                model,
+                COALESCE(SUM(cost_usd), 0)::float8 AS cost
+            FROM token_usage
+            WHERE recorded_at >= $1
+            GROUP BY entity_name, model
+            """,
+            since,
+        )
+        out: dict[str, dict[str, float]] = {}
+        for r in rows:
+            out.setdefault(r["entity_name"], {})[r["model"]] = r["cost"]
+        return out
+
+    async def cache_stats(self, since: datetime) -> list[dict[str, Any]]:
+        """Per-entity ``{name, hit_pct, cached_tokens, fresh_tokens}`` since ``since``.
+
+        ``hit_pct = cache_read / (cache_read + input) * 100``. Entities with no
+        activity in the window are excluded.
+        """
+        rows = await self.pool.fetch(
+            """
+            SELECT
+                entity_name AS name,
+                COALESCE(SUM(cache_read_input_tokens), 0)::bigint AS cached_tokens,
+                COALESCE(SUM(input_tokens), 0)::bigint AS fresh_tokens
+            FROM token_usage
+            WHERE recorded_at >= $1
+            GROUP BY entity_name
+            ORDER BY entity_name
+            """,
+            since,
+        )
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            cached = r["cached_tokens"]
+            fresh = r["fresh_tokens"]
+            total = cached + fresh
+            hit_pct = (cached / total * 100.0) if total > 0 else 0.0
+            out.append(
+                {
+                    "name": r["name"],
+                    "hit_pct": round(hit_pct, 1),
+                    "cached_tokens": cached,
+                    "fresh_tokens": fresh,
+                }
+            )
+        return out
+
+    async def cache_overall_daily(self, days: int = 7) -> list[float]:
+        """Daily overall cache-hit-rate series, length ``days`` (0.0 on empty days)."""
+        rows = await self.pool.fetch(
+            """
+            WITH days AS (
+                SELECT generate_series(
+                    (CURRENT_DATE - ($1::int - 1) * INTERVAL '1 day')::date,
+                    CURRENT_DATE,
+                    INTERVAL '1 day'
+                )::date AS d
+            )
+            SELECT
+                days.d,
+                COALESCE(SUM(t.cache_read_input_tokens), 0)::bigint AS cached,
+                COALESCE(SUM(t.input_tokens), 0)::bigint AS fresh
+            FROM days
+            LEFT JOIN token_usage t
+                ON (t.recorded_at AT TIME ZONE 'UTC')::date = days.d
+            GROUP BY days.d
+            ORDER BY days.d
+            """,
+            days,
+        )
+        out: list[float] = []
+        for r in rows:
+            cached = r["cached"]
+            fresh = r["fresh"]
+            total = cached + fresh
+            out.append(round((cached / total * 100.0), 1) if total > 0 else 0.0)
+        return out
