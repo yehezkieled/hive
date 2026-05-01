@@ -244,8 +244,7 @@ class ProcessManager:
                 preempted = await self._preempt_for_priority(entity.current_priority)
             if preempted is None:
                 raise RuntimeError(
-                    f"Max concurrent sessions ({self.max_sessions}) reached. "
-                    "Kill an entity first."
+                    f"Max concurrent sessions ({self.max_sessions}) reached. Kill an entity first."
                 )
             logger.info(
                 "Preempted %s (p%s) to free a slot for %s (p%s)",
