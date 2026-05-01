@@ -407,6 +407,61 @@ The script lists rows with `embedding IS NULL` and runs the same
 second run after success is a no-op (the WHERE clause excludes embedded
 rows).
 
+### Maestro autonomy (Sprint 19)
+
+The maestro is the org's CEO. Every
+`HIVE_PRIORITY_EVAL_INTERVAL_MINUTES` the orchestrator builds a "facts"
+prompt — free session slots, pending tasks grouped by priority, an org
+snapshot with idle-time per entity, and 24h token cost — and sends it
+to each alive maestro via `send_to_entity`. The maestro decides whether
+to `spawn_team`, `spawn_worker`, `kill_entity`, or do nothing, emitting
+its decision as a `<hive_actions>` block. The orchestrator is a dumb
+facts pipe; allocation policy lives in the maestro's prompt.
+
+Workers can now message their lead too — they get the same
+`MESSAGING_PROMPT` as leads/maestros and emit `<hive_actions>` to
+report progress or escalate. Permission gates already restrict who
+they can address.
+
+**New env vars** (all optional — sensible defaults):
+
+```
+HIVE_PRIORITY_EVAL_INTERVAL_MINUTES=120   # how often the scheduler ticks
+HIVE_AUTONOMOUS_SPAWN_LIMIT=3             # max autonomous spawns per maestro per window
+HIVE_PRIORITY_PREEMPT_ENABLED=true        # allow preemption when at cap (false = hard-fail)
+```
+
+**New commands**:
+
+- `/eval [maestro]` — fire one scheduler tick on demand for a single
+  maestro (defaults to `dev`). The maestro receives the facts prompt
+  immediately and may emit autonomous spawn/kill actions in response.
+  Use this to nudge re-allocation between intervals.
+- `/budget [maestro]` — print the facts prompt the scheduler *would*
+  send, without sending. Debug aid for reading exactly what the
+  maestro would see — capacity, pending tasks, org snapshot, 24h cost.
+
+**Rate limit**: each maestro can autonomously spawn at most
+`HIVE_AUTONOMOUS_SPAWN_LIMIT` entities per eval window. The counter
+keys on the **root maestro** of the dotted name (so a chatty lead
+under `dev.backend` cannot dodge the cap by spawning under
+`dev.frontend`). Excess spawns are rejected and audited as
+`entity.spawn_rate_limited`. Counters reset each scheduler tick.
+
+**Preemption** (last-resort safety net): when `spawn_entity` is called
+at `MAX_CONCURRENT_SESSIONS` and `HIVE_PRIORITY_PREEMPT_ENABLED=true`,
+the orchestrator picks the lowest-priority **RUNNING** entity strictly
+worse than the new one's priority and kills it before retrying the
+spawn. The default maestro is exempt (killing the org root would
+cascade). Preempts audit as `entity.kill actor=system reason=preempt`.
+With `HIVE_PRIORITY_PREEMPT_ENABLED=false`, hitting the cap raises
+immediately and the user is surfaced the failure via the existing
+notification path.
+
+The intent is that preemption rarely fires — the scheduler's facts
+prompt makes idle/stale entities visible every interval so the maestro
+recycles them via `kill_entity` before the cap forces preemption.
+
 ### Find the actual python PID
 
 `$!` from `nohup … &` points at the shell wrapper, which often dies right
