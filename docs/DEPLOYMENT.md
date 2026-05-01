@@ -407,6 +407,79 @@ The script lists rows with `embedding IS NULL` and runs the same
 second run after success is a no-op (the WHERE clause excludes embedded
 rows).
 
+### Dashboard tab (Sprint 20)
+
+The landing's long-reserved **Dashboard** tab placeholder now points
+to a working observability surface at `/dashboard` — 8 widgets
+covering cost burn, token mix, cache efficiency, audit stream,
+backlog, and system health. Same Tailscale bind as the landing; the
+JSON API behind it is bearer-token gated.
+
+**Access path** (Tailscale URL, not loopback):
+
+```
+http://100.79.194.84:8080/dashboard
+```
+
+**Widgets currently wired to live telemetry**:
+
+- W1 30-day cost ribbon — per-DOW median ± stdev anomaly envelope
+  derived from `token_usage.recorded_at` + `cost_usd`.
+- W4 token burn (1h/24h/7d/30d range switcher) — input/output/cache
+  mix in time-bucketed slices.
+- W5 entity × model cost matrix — sparse `{entity: {model: cost}}`
+  for the last 24h.
+- W6 cache hit rate — per-entity hit %, 7-day daily sparkline.
+- W7 audit timeline — 60-bucket histogram (1 min each) of
+  `audit_log.action` namespaces (`command`, `entity`, `task`, `git`).
+
+**Widgets with mock/derived data** (TODO Sprint 21+):
+
+- W2 system health — all 5 strips hardcoded `ok` until probes land
+  (postgres ping, claude API liveness, disk %, heartbeat gap).
+- W3 workload CFD — basic 7-day stacked series from `tasks.status`,
+  no real anomaly detection yet.
+- W8 failure scatter — empty until a `task.failure_reason` classifier
+  ships.
+
+**JSON API** (token-gated):
+
+```bash
+curl http://100.79.194.84:8080/api/dashboard/all \
+  -H "Authorization: Bearer $HIVE_WEB_TOKEN"
+```
+
+Returns the entire `window.HIVE_DASH` payload (16 keys: `cost30`,
+`health`, `sankey`, `p0p1Backlog`, `cfd`, `burn`, `burnEvents`,
+`matrix`, `cacheRows`, `cacheOverall`, `histogram`, `auditFeed`,
+`failures`, `failuresSummary`, `entitiesY`, `lastUpdated`). The
+landing's chat token (set in sessionStorage on first send) is reused
+for the dashboard's 30s polling — no separate token to configure.
+
+**Refresh behaviour**: 30s `setInterval`. Toggle off via the
+auto-refresh chip in the UI to halt polling. First paint is
+server-rendered (`window.HIVE_DASH = {{ data | tojson }}`) so the
+dashboard renders instantly without an API round-trip — useful for
+dropping in to verify widgets without a token.
+
+**Renamed templates**: `templates/dashboard.html` (Sprint 14 landing)
+was renamed to `templates/landing.html` to free the canonical name
+for the new dashboard route. The landing still serves at `/`; only
+the file name changed.
+
+**JSX assets** (Babel-in-browser, no build step):
+
+```
+src/hive/web/static/dashboard/dashboard-shell.jsx
+src/hive/web/static/dashboard/dashboard-w1234.jsx
+src/hive/web/static/dashboard/dashboard-w5678.jsx
+src/hive/web/static/dashboard/refresh.js
+src/hive/web/static/dashboard/dashboard.css
+```
+
+Edit any of these and refresh the browser — Babel transpiles in
+the page on every load. No server restart needed.
+
 ### Maestro autonomy (Sprint 19)
 
 The maestro is the org's CEO. Every

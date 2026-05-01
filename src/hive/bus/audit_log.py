@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import asyncpg
 
@@ -78,6 +79,51 @@ class AuditLog:
                 limit,
             )
         return [_row_to_dict(row) for row in rows]
+
+    async def histogram(self, window_minutes: int = 60) -> list[dict[str, Any]]:
+        """Per-minute event counts split by namespace prefix (command/entity/task/git).
+
+        Returns ``window_minutes`` rows ``{i, command, entity, task, git}``,
+        oldest→newest. The ``i`` index lets the caller render bars without
+        joining timestamps client-side.
+        """
+        rows = await self.pool.fetch(
+            """
+            WITH range_t AS (
+                SELECT
+                    date_trunc('minute', NOW())
+                        - ($1::int - 1) * INTERVAL '1 minute' AS start_t
+            ),
+            buckets AS (
+                SELECT
+                    i,
+                    (SELECT start_t FROM range_t) + i * INTERVAL '1 minute' AS bucket_start
+                FROM generate_series(0, $1::int - 1) AS i
+            )
+            SELECT
+                b.i,
+                COUNT(*) FILTER (
+                    WHERE split_part(a.action, '.', 1) = 'command'
+                )::int AS command,
+                COUNT(*) FILTER (
+                    WHERE split_part(a.action, '.', 1) = 'entity'
+                )::int AS entity,
+                COUNT(*) FILTER (
+                    WHERE split_part(a.action, '.', 1) = 'task'
+                )::int AS task,
+                COUNT(*) FILTER (
+                    WHERE split_part(a.action, '.', 1) = 'git'
+                )::int AS git
+            FROM buckets b
+            LEFT JOIN audit_log a
+                ON a.timestamp >= b.bucket_start
+                AND a.timestamp < b.bucket_start + INTERVAL '1 minute'
+            GROUP BY b.i
+            ORDER BY b.i
+            """,
+            window_minutes,
+        )
+        return [dict(r) for r in rows]
 
 
 def _row_to_dict(row: asyncpg.Record) -> dict:

@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hive — Landing</title>
+  <title>Hive — Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=Nunito+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/landing.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="stylesheet" href="/static/dashboard/dashboard.css">
 </head>
 <body>
-{% from "_macros.html" import bee, hex, state_dot, pri_pill, tasks_chip, maestro_card %}
+{% from "_macros.html" import bee, state_dot %}
 
 <div class="shell">
 
-  {# ── Top bar ─────────────────────────────────────────────────────────── #}
+  {# ── Top bar (mirrors landing chrome; Dashboard tab active) ─────────── #}
   <header class="top-bar">
     <div class="top-bar__brand">
       <span class="top-bar__bee">{{ bee(size=30) }}</span>
@@ -25,675 +25,121 @@
       </span>
     </div>
     <nav class="top-bar__tabs">
-      <button class="tab is-active">Hive</button>
+      <a class="tab" href="/">Hive</a>
       <button class="tab" title="Coming soon">Projects</button>
-      <button class="tab" title="Coming soon">Dashboard</button>
+      <button class="tab is-active">Dashboard</button>
       <button class="tab" title="Coming soon">Knowledge</button>
     </nav>
     <div class="top-bar__right">
       <span class="health-pill">
-        {{ state_dot(view.health.state, size=7) }} {{ view.health.label }}
+        {{ state_dot('active', size=7) }} all systems ok
       </span>
-      <button class="bell" title="Pending approvals">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3d332a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
-        {% if view.approvals_count %}<span class="bell__count">{{ view.approvals_count }}</span>{% endif %}
-      </button>
       <button class="terminal-btn" title="Terminal available via SSH on Tailscale">
         <span class="terminal-btn__caret">⌃</span> terminal
       </button>
     </div>
   </header>
 
-  <div class="main-row">
+  {# ── Dashboard mount point ─────────────────────────────────────────── #}
+  <main class="dashboard-main">
+    <div id="root"></div>
+  </main>
 
-    {# ── Chat rail ────────────────────────────────────────────────────── #}
-    <aside class="chat-rail">
-      <div class="chat-rail__resizer" id="chat-rail-resizer" title="Drag to resize"></div>
-      <div class="chat-rail__head">
-        <span class="chat-rail__title">Chat</span>
-        <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
-        <span class="chat-rail__head-actions">
-          <button class="btn">History</button>
-          <button class="btn btn--primary">+ New</button>
-        </span>
-      </div>
-      <div class="chat-rail__addressed">
-        <span class="chat-rail__addressed-label">Talking to:</span>
-        {% for p in view.chat.participants %}
-        <span class="participant">{{ p }}<span class="participant__close">×</span></span>
-        {% endfor %}
-      </div>
-      <div class="chat-rail__messages">
-        {% for m in view.chat.messages %}
-          {% if m.from == 'system' %}
-            <div class="msg--system">{{ m.text }}</div>
-          {% elif m.from == 'user' %}
-            <div class="msg msg--user">
-              <div class="msg__avatar">me</div>
-              <div class="msg__body">
-                <div class="msg__bubble">{{ m.text }}</div>
-              </div>
-            </div>
-          {% else %}
-            <div class="msg msg--agent">
-              <div class="msg__avatar">{{ hex(size=14) }}</div>
-              <div class="msg__body">
-                <span class="msg__from">{{ m.from }}</span>
-                <div class="msg__bubble">{{ m.text }}</div>
-              </div>
-            </div>
-          {% endif %}
-        {% endfor %}
-      </div>
-      <form class="composer" id="chat-form" onsubmit="return sendChatCommand(event)">
-        <div class="composer__box">
-          <div class="autocomplete-wrap">
-            <div id="cmd-dropdown" class="cmd-dropdown" hidden></div>
-            <textarea
-              id="chat-input"
-              class="composer__textarea"
-              name="text"
-              rows="1"
-              placeholder="Message Hive…  (try /help)"
-              autocomplete="off"></textarea>
-          </div>
-          <div id="composer-attach-chip" class="composer__attach-chip" hidden>
-            <span id="composer-attach-name"></span>
-            <button type="button" id="composer-attach-clear" aria-label="Remove attachment">×</button>
-          </div>
-          <div class="composer__row">
-            <div class="composer__hints">
-              {% for cmd in ['/help', '/m:dev', '/task', '/status'] %}
-              <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
-              {% endfor %}
-            </div>
-            <input type="file" id="composer-attach" hidden>
-            <button type="button" class="composer__attach" id="composer-attach-btn"
-                    aria-label="Attach file" title="Attach file (max 20 MB)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" stroke-width="2.5"
-                   stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-              </svg>
-            </button>
-            <button type="submit" class="composer__send" aria-label="Send" disabled>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" stroke-width="2.5"
-                   stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 19V5M5 12l7-7 7 7"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </form>
-    </aside>
-
-    {# ── Main content ─────────────────────────────────────────────────── #}
-    <main class="content">
-      <div class="backdrop"></div>
-      <div class="content-inner">
-
-        {# Hero strip — innerHTML swap, the section.hero wrapper persists. #}
-        <section class="hero" hx-get="/api/landing/hero" hx-trigger="every 30s" hx-swap="innerHTML">
-          {% include "_partials/hero.html" %}
-        </section>
-
-        {# Pinned: PA + Vault #}
-        <div class="section-head">
-          <h3 class="section-head__title">Pinned</h3>
-          <span class="section-head__count section-head__count--active">2</span>
-          <span class="section-head__rule"></span>
-        </div>
-        <div class="cards-grid cards-grid--pinned">
-          {{ maestro_card(view.pa, pinned=true) }}
-          <div class="vault-wrapper" style="display: contents;" hx-get="/api/landing/vault" hx-trigger="every 15s" hx-swap="innerHTML">
-            {% include "_partials/vault.html" %}
-          </div>
-        </div>
-
-        {# Active maestros #}
-        <div class="section-head">
-          <h3 class="section-head__title">Active maestros</h3>
-          <span class="section-head__count section-head__count--active">{{ view.active|length }}</span>
-          <span class="section-head__rule"></span>
-          <span class="section-head__right">sorted by P0·P1 pending</span>
-        </div>
-        <div class="cards-grid" hx-get="/api/landing/active" hx-trigger="every 5s" hx-swap="innerHTML">
-          {% include "_partials/active.html" %}
-        </div>
-
-        {# Idle #}
-        <div class="section-head">
-          <h3 class="section-head__title">Idle</h3>
-          <span class="section-head__count">{{ view.idle|length }}</span>
-          <span class="section-head__rule"></span>
-        </div>
-        <div class="idle-list" hx-get="/api/landing/idle" hx-trigger="every 5s" hx-swap="innerHTML">
-          {% include "_partials/idle.html" %}
-        </div>
-
-        {# Dormant #}
-        <div class="section-head">
-          <h3 class="section-head__title">Dormant</h3>
-          <span class="section-head__count">{{ view.dormant|length }}</span>
-          <span class="section-head__rule"></span>
-        </div>
-        <div class="dormant-list" hx-get="/api/landing/dormant" hx-trigger="every 30s" hx-swap="innerHTML">
-          {% include "_partials/dormant.html" %}
-        </div>
-
-      </div>
-    </main>
-  </div>
-
-  {# ── Terminal bar ───────────────────────────────────────────────────── #}
   <footer class="terminal-bar">
     <span class="terminal-bar__label">▲ terminal</span>
-    {% if view.terminal.unlocked %}<span class="terminal-bar__chip">unlocked</span>{% endif %}
-    <span class="terminal-bar__hint">{{ view.terminal.hint }}</span>
+    <span class="terminal-bar__hint">available via SSH on Tailscale (port 7777)</span>
     <span class="terminal-bar__prompt">~/hive $</span>
   </footer>
-
 </div>
 
+{# ── Server-rendered first-paint payload ──────────────────────────────── #}
 <script>
-function ensureToken() {
-  let token = sessionStorage.getItem('hive_web_token');
-  if (!token) {
-    token = prompt('Enter HIVE_WEB_TOKEN:');
-    if (token) sessionStorage.setItem('hive_web_token', token);
-  }
-  return token;
-}
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => (
-    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
-  ));
-}
-
-// Tiny markdown-ish renderer: fenced code, pipe tables, inline code, bold.
-// Escape-first to avoid any XSS — content is server-controlled but defensive.
-function splitTableRow(line) {
-  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
-}
-function renderTables(text) {
-  const lines = text.split('\n');
-  const out = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const next = lines[i + 1];
-    if (line && line.includes('|') && next != null && next.includes('|')) {
-      const sep = splitTableRow(next);
-      if (sep.length >= 1 && sep.every(c => /^:?-{3,}:?$/.test(c))) {
-        const headers = splitTableRow(line);
-        const rows = [];
-        i += 2;
-        while (i < lines.length && lines[i].trim() !== '' && lines[i].includes('|')) {
-          rows.push(splitTableRow(lines[i]));
-          i++;
-        }
-        const ths = headers.map(c => `<th>${c}</th>`).join('');
-        const trs = rows.map(r =>
-          '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>'
-        ).join('');
-        out.push(`<div class="md-table"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`);
-        continue;
-      }
-    }
-    out.push(line);
-    i++;
-  }
-  return out.join('\n');
-}
-function renderMarkdown(text) {
-  let html = escapeHtml(text);
-  const fenced = [];
-  html = html.replace(/```([\s\S]*?)```/g, (_, code) => {
-    fenced.push(code.replace(/^\n/, '').replace(/\n$/, ''));
-    return `\u0000FENCED${fenced.length - 1}\u0000`;
-  });
-  html = renderTables(html);
-  html = html.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^\n*]+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\u0000FENCED(\d+)\u0000/g, (_, i) =>
-    `<pre><code>${fenced[i]}</code></pre>`);
-  return html;
-}
-
-function appendChatLine(from, text) {
-  const rail = document.querySelector('.chat-rail__messages');
-  if (!rail) return null;
-  const wrap = document.createElement('div');
-  if (from === 'system') {
-    wrap.className = 'msg--system';
-    wrap.textContent = text;
-  } else if (from === 'user') {
-    wrap.className = 'msg msg--user';
-    wrap.innerHTML = '<div class="msg__avatar">me</div>'
-      + '<div class="msg__body"><div class="msg__bubble"></div></div>';
-    wrap.querySelector('.msg__bubble').innerHTML = renderMarkdown(text);
-  } else {
-    wrap.className = 'msg msg--agent';
-    wrap.innerHTML = '<div class="msg__avatar"><svg viewBox="0 0 20 20" width="14" height="14"><path d="M10 1.5 L17.5 5.75 L17.5 14.25 L10 18.5 L2.5 14.25 L2.5 5.75 Z" fill="#e0a726" stroke="#1f1812" stroke-width="1.4" stroke-linejoin="round"/></svg></div>'
-      + '<div class="msg__body"><span class="msg__from"></span>'
-      + '<div class="msg__bubble"></div></div>';
-    wrap.querySelector('.msg__from').textContent = from;
-    wrap.querySelector('.msg__bubble').innerHTML = renderMarkdown(text);
-  }
-  rail.appendChild(wrap);
-  rail.scrollTop = rail.scrollHeight;
-  return wrap;
-}
-
-function appendTypingBubble(name) {
-  const rail = document.querySelector('.chat-rail__messages');
-  if (!rail) return null;
-  const wrap = document.createElement('div');
-  wrap.className = 'msg msg--agent msg--typing';
-  wrap.innerHTML = '<div class="msg__avatar"><svg viewBox="0 0 20 20" width="14" height="14"><path d="M10 1.5 L17.5 5.75 L17.5 14.25 L10 18.5 L2.5 14.25 L2.5 5.75 Z" fill="#e0a726" stroke="#1f1812" stroke-width="1.4" stroke-linejoin="round"/></svg></div>'
-    + '<div class="msg__body"><span class="msg__from"></span>'
-    + '<div class="msg__bubble msg__bubble--typing">'
-    + '<span></span><span></span><span></span></div></div>';
-  wrap.querySelector('.msg__from').textContent = name;
-  rail.appendChild(wrap);
-  rail.scrollTop = rail.scrollHeight;
-  return wrap;
-}
-
-function appendModeRequestBubble(data) {
-  const rail = document.querySelector('.chat-rail__messages');
-  if (!rail) return null;
-  const wrap = document.createElement('div');
-  wrap.className = 'msg msg--agent msg--mode-req';
-  const reasonText = data.reason ? escapeHtml(data.reason) : '<em>(no reason given)</em>';
-  wrap.innerHTML =
-    '<div class="msg__avatar">!</div>'
-    + '<div class="msg__body"><span class="msg__from">mode request #' + data.id + '</span>'
-    + '<div class="msg__bubble mode-req__bubble">'
-    + '<div class="mode-req__head"><strong>' + escapeHtml(data.requester) + '</strong> '
-    + '→ <code>' + escapeHtml(data.requested_mode) + '</code></div>'
-    + '<div class="mode-req__reason">' + reasonText + '</div>'
-    + '<div class="mode-req__actions">'
-    + '<button class="mode-req__btn mode-req__btn--allow" data-action="approve">Allow</button>'
-    + '<button class="mode-req__btn mode-req__btn--deny" data-action="deny">Deny</button>'
-    + '</div></div></div>';
-  rail.appendChild(wrap);
-  rail.scrollTop = rail.scrollHeight;
-
-  wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const action = btn.dataset.action;
-      const token = sessionStorage.getItem('hive_web_token');
-      if (!token) {
-        appendChatLine('system', 'No auth token — send a message first to set it.');
-        return;
-      }
-      wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = true);
-      try {
-        const resp = await fetch('/api/mode-request/' + data.id + '/' + action, {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
-        });
-        if (!resp.ok) {
-          wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
-          wrap.classList.add('mode-req--error');
-          setTimeout(() => wrap.classList.remove('mode-req--error'), 1500);
-          appendChatLine('system', 'Mode-request action failed: ' + resp.status);
-          return;
-        }
-        const verb = action === 'approve' ? 'Approved' : 'Denied';
-        wrap.querySelector('.mode-req__actions').innerHTML =
-          '<span class="mode-req__resolved">' + verb + '</span>';
-      } catch (err) {
-        wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
-        appendChatLine('system', 'Network error: ' + err.message);
-      }
-    });
-  });
-  return wrap;
-}
-
-async function sendChatCommand(event) {
-  event.preventDefault();
-  const input = document.getElementById('chat-input');
-  const fileInput = document.getElementById('composer-attach');
-  const stagedFile = fileInput && fileInput.files && fileInput.files[0];
-  const text = input.value.trim();
-  if (!text && !stagedFile) return false;
-  const token = ensureToken();
-  if (!token) return false;
-
-  // Optimistic UI: paint user message + clear composer immediately.
-  const userLine = stagedFile
-    ? (text ? `📎 ${stagedFile.name} — ${text}` : `📎 ${stagedFile.name}`)
-    : text;
-  appendChatLine('user', userLine);
-  input.value = '';
-  input.style.height = 'auto';
-  refreshSendState();
-
-  // Show a typing indicator for the addressed maestro (or "hive").
-  const m = text.match(/^\/m:(\w+)/);
-  const typingFor = m ? m[1] : 'hive';
-  const typingEl = appendTypingBubble(typingFor);
-
-  try {
-    let resp;
-    if (stagedFile) {
-      const fd = new FormData();
-      fd.append('file', stagedFile);
-      fd.append('text', text);
-      resp = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-        body: fd,
-      });
-      // Reset the staged file after submit (success or failure).
-      fileInput.value = '';
-      clearAttachChip();
-    } else {
-      resp = await fetch('/api/command', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token,
-        },
-        body: JSON.stringify({ text }),
-      });
-    }
-    if (typingEl) typingEl.remove();
-    if (resp.status === 401) {
-      sessionStorage.removeItem('hive_web_token');
-      appendChatLine('system', 'Auth failed — token cleared. Try again.');
-      return false;
-    }
-    if (resp.status === 413) {
-      appendChatLine('system', 'File too large (max 20 MB).');
-      return false;
-    }
-    if (!resp.ok) {
-      appendChatLine('system', 'Command failed: ' + resp.status);
-      return false;
-    }
-    const data = await resp.json();
-    if (stagedFile) {
-      if (data && data.response) {
-        appendChatLine('hive', data.response);
-      } else if (data && data.id != null) {
-        const tail = data.forwarded_to ? ` → ${data.forwarded_to}` : '';
-        appendChatLine('system', `📎 Attachment #${data.id} stored${tail}.`);
-      }
-    } else if (data && data.text) {
-      appendChatLine('hive', data.text);
-    }
-  } catch (err) {
-    if (typingEl) typingEl.remove();
-    appendChatLine('system', 'Network error: ' + err.message);
-  }
-  return false;
-}
-
-function clearAttachChip() {
-  const chip = document.getElementById('composer-attach-chip');
-  const name = document.getElementById('composer-attach-name');
-  if (chip) chip.hidden = true;
-  if (name) name.textContent = '';
-  refreshSendState();
-}
-
-const composer = document.getElementById('chat-input');
-const sendBtn = document.querySelector('.composer__send');
-let dropdownOpen = false;
-
-function autosize() {
-  composer.style.height = 'auto';
-  composer.style.height = composer.scrollHeight + 'px';
-}
-function refreshSendState() {
-  const fileInput = document.getElementById('composer-attach');
-  const hasFile = !!(fileInput && fileInput.files && fileInput.files[0]);
-  sendBtn.disabled = !composer.value.trim() && !hasFile;
-}
-composer.addEventListener('input', () => { autosize(); refreshSendState(); });
-
-(function setupAttachButton() {
-  const btn = document.getElementById('composer-attach-btn');
-  const fileInput = document.getElementById('composer-attach');
-  const chip = document.getElementById('composer-attach-chip');
-  const name = document.getElementById('composer-attach-name');
-  const clear = document.getElementById('composer-attach-clear');
-  if (!btn || !fileInput) return;
-  btn.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => {
-    const f = fileInput.files && fileInput.files[0];
-    if (!f) {
-      if (chip) chip.hidden = true;
-      refreshSendState();
-      return;
-    }
-    if (f.size > 20 * 1024 * 1024) {
-      appendChatLine('system', `File too large (${(f.size / 1024 / 1024).toFixed(1)} MB > 20 MB).`);
-      fileInput.value = '';
-      if (chip) chip.hidden = true;
-      refreshSendState();
-      return;
-    }
-    if (name) name.textContent = `📎 ${f.name}`;
-    if (chip) chip.hidden = false;
-    refreshSendState();
-  });
-  if (clear) {
-    clear.addEventListener('click', () => {
-      fileInput.value = '';
-      if (chip) chip.hidden = true;
-      refreshSendState();
-    });
-  }
-})();
-composer.addEventListener('keydown', (ev) => {
-  if (dropdownOpen) return;
-  if (ev.key === 'Enter' && !ev.shiftKey) {
-    ev.preventDefault();
-    document.getElementById('chat-form').requestSubmit();
-  }
-});
-document.querySelectorAll('.composer__chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    composer.value = chip.dataset.cmd + ' ';
-    composer.focus();
-    composer.dispatchEvent(new Event('input'));
-  });
-});
-refreshSendState();
-
-// Render markdown on server-rendered initial messages.
-document.querySelectorAll('.chat-rail__messages .msg__bubble').forEach(el => {
-  el.innerHTML = renderMarkdown(el.textContent);
-});
-
-// Land on the latest message after a refresh.
-const initialRail = document.querySelector('.chat-rail__messages');
-if (initialRail) initialRail.scrollTop = initialRail.scrollHeight;
-
-// Drag-resizable chat-rail. Width persists in localStorage.
-(function setupRailResizer() {
-  const rail = document.querySelector('.chat-rail');
-  const handle = document.getElementById('chat-rail-resizer');
-  if (!rail || !handle) return;
-  const KEY = 'hive_chat_rail_width';
-  const MIN = 280, MAX = Math.min(720, Math.floor(window.innerWidth * 0.6));
-  const saved = parseInt(localStorage.getItem(KEY) || '', 10);
-  if (!Number.isNaN(saved)) rail.style.width = Math.max(MIN, Math.min(MAX, saved)) + 'px';
-  let dragging = false;
-  handle.addEventListener('mousedown', (e) => {
-    dragging = true;
-    handle.classList.add('is-dragging');
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const left = rail.getBoundingClientRect().left;
-    const w = Math.max(MIN, Math.min(MAX, e.clientX - left));
-    rail.style.width = w + 'px';
-  });
-  document.addEventListener('mouseup', () => {
-    if (!dragging) return;
-    dragging = false;
-    handle.classList.remove('is-dragging');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    localStorage.setItem(KEY, parseInt(rail.style.width, 10));
-  });
-})();
-
-// Live notification stream (Sprint 15 Phase 4). EventSource cannot set
-// custom headers, so the token rides in the query string — same gate.
-function startNotificationStream() {
-  const token = sessionStorage.getItem('hive_web_token');
-  if (!token) return;  // user hasn't authenticated yet; will start after first /api/command
-  const es = new EventSource('/sse/notifications?token=' + encodeURIComponent(token));
-  es.onmessage = (ev) => {
-    try {
-      const evt = JSON.parse(ev.data);
-      if (evt.kind === 'mode_request' && evt.data) {
-        appendModeRequestBubble(evt.data);
-      } else {
-        appendChatLine('system', '[' + (evt.kind || 'info') + '] ' + evt.text);
-      }
-    } catch (_) {
-      appendChatLine('system', ev.data);
-    }
-  };
-  es.onerror = () => { es.close(); setTimeout(startNotificationStream, 5000); };
-}
-
-document.addEventListener('DOMContentLoaded', startNotificationStream);
-
-const HIVE_COMMANDS = {{ commands|tojson }};
-
-(function initAutocomplete() {
-  const input    = document.getElementById('chat-input');
-  const dropdown = document.getElementById('cmd-dropdown');
-  if (!input || !dropdown) return;
-
-  const ALIASES = [
-    {name:'m:', usage:'/m:<maestro> <text>',                  description:'Message a maestro'},
-    {name:'t:', usage:'/t:<maestro>.<team> <text>',           description:'Message a team'},
-    {name:'a:', usage:'/a:<maestro>.<team>.<worker> <text>',  description:'Message a worker'},
-  ];
-
-  let commands = [...HIVE_COMMANDS, ...ALIASES], filtered = [], activeIndex = -1;
-
-  function render() {
-    dropdown.innerHTML = '';
-    filtered.forEach((cmd, i) => {
-      const item = document.createElement('div');
-      item.className = 'cmd-dropdown__item' + (i === activeIndex ? ' is-active' : '');
-      const usage = cmd.usage || ('/' + cmd.name);
-      item.innerHTML =
-        '<span class="cmd-dropdown__usage">' + escapeHtml(usage) + '</span>' +
-        '<span class="cmd-dropdown__desc">'  + escapeHtml(cmd.description) + '</span>';
-      item.addEventListener('mousedown', e => { e.preventDefault(); selectItem(i); });
-      dropdown.appendChild(item);
-    });
-  }
-
-  function openDropdown(prefix) {
-    filtered = commands.filter(c => c.name.startsWith(prefix.toLowerCase()));
-    if (!filtered.length) { closeDropdown(); return; }
-    activeIndex = -1;
-    render();
-    dropdown.removeAttribute('hidden');
-    dropdownOpen = true;
-  }
-
-  function closeDropdown() {
-    dropdown.setAttribute('hidden', '');
-    dropdownOpen = false;
-    activeIndex = -1;
-    filtered = [];
-  }
-
-  function selectItem(index) {
-    const cmd = filtered[index];
-    if (!cmd) return;
-    input.value = '/' + cmd.name + (cmd.name.endsWith(':') ? '' : ' ');
-    closeDropdown();
-    input.focus();
-    input.dispatchEvent(new Event('input'));
-  }
-
-  function moveActive(delta) {
-    if (!filtered.length) return;
-    activeIndex = (activeIndex + delta + filtered.length) % filtered.length;
-    render();
-    const items = dropdown.querySelectorAll('.cmd-dropdown__item');
-    if (items[activeIndex]) items[activeIndex].scrollIntoView({ block: 'nearest' });
-  }
-
-  input.addEventListener('input', () => {
-    const m = input.value.match(/^\/(\w*:?)$/);
-    if (m) openDropdown(m[1]); else closeDropdown();
-  });
-
-  input.addEventListener('keydown', ev => {
-    if (!dropdownOpen) return;
-    if (ev.key === 'ArrowDown') {
-      ev.preventDefault(); ev.stopPropagation(); moveActive(1);
-    } else if (ev.key === 'ArrowUp') {
-      ev.preventDefault(); ev.stopPropagation(); moveActive(-1);
-    } else if (ev.key === 'Enter' && !ev.shiftKey) {
-      ev.preventDefault(); ev.stopPropagation();
-      activeIndex >= 0 ? selectItem(activeIndex) : closeDropdown();
-    } else if (ev.key === 'Tab') {
-      ev.preventDefault(); ev.stopPropagation();
-      selectItem(activeIndex >= 0 ? activeIndex : 0);
-    } else if (ev.key === 'Escape') {
-      ev.preventDefault(); ev.stopPropagation(); closeDropdown();
-    }
-  });
-
-  document.addEventListener('mousedown', e => {
-    if (dropdownOpen && !dropdown.contains(e.target) && e.target !== input)
-      closeDropdown();
-  });
-})();
+  window.HIVE_DASH = {{ data | tojson }};
 </script>
-<style>
-.autocomplete-wrap { position: relative; }
-.cmd-dropdown {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0; right: 0;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: 12px;
-  box-shadow: 0 -4px 18px -4px rgba(31,24,18,.14);
-  max-height: 220px;
-  overflow-y: auto;
-  z-index: 10;
-  padding: 6px 0;
+
+{# ── React + Babel CDN (matches the design's reference HTML) ──────────── #}
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="/static/dashboard/dashboard-shell.jsx"></script>
+<script type="text/babel" src="/static/dashboard/dashboard-w1234.jsx"></script>
+<script type="text/babel" src="/static/dashboard/dashboard-w5678.jsx"></script>
+
+{% raw %}
+<script type="text/babel" data-presets="react">
+function DashboardPage() {
+  const [range, setRange] = React.useState('24h');
+  const [autoRefresh, setAutoRefresh] = React.useState(true);
+  const [, forceTick] = React.useState(0);
+
+  // Subscribe to data updates pushed by the polling loop.
+  React.useEffect(() => {
+    const handler = () => forceTick(t => t + 1);
+    window.addEventListener('hive-data-updated', handler);
+    return () => window.removeEventListener('hive-data-updated', handler);
+  }, []);
+
+  // Mirror autoRefresh into a global so refresh.js can read it.
+  React.useEffect(() => {
+    window.HIVE_AUTO_REFRESH = autoRefresh;
+  }, [autoRefresh]);
+
+  return (
+    <div style={{
+      background: window.D.paper, color: window.D.ink,
+      fontFamily: window.dStyles.sans, position: 'relative',
+      minHeight: '100%',
+    }}>
+      <div style={{ padding: '18px 24px 28px' }}>
+        <window.D_PageHeader
+          range={range} setRange={setRange}
+          autoRefresh={autoRefresh} setAutoRefresh={setAutoRefresh}
+          lastUpdated={window.HIVE_DASH.lastUpdated}
+        />
+
+        {/* Row 1: cost ribbon (60) + health (40) */}
+        <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+          <div style={{ flex: '1 1 60%', display: 'flex' }}>
+            <window.W1_CostRibbon />
+          </div>
+          <div style={{ flex: '1 1 40%', display: 'flex' }}>
+            <window.W2_Health />
+          </div>
+        </div>
+
+        {/* Row 2: token burn */}
+        <div style={{ marginBottom: 14 }}>
+          <window.W4_TokenBurn range={range} />
+        </div>
+
+        {/* Row 3: bubble matrix + cache hit */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+          gap: 14, marginBottom: 14, alignItems: 'stretch',
+        }}>
+          <div style={{ minWidth: 0 }}><window.W5_BubbleMatrix /></div>
+          <div style={{ minWidth: 0 }}><window.W6_CacheHit /></div>
+        </div>
+
+        {/* Row 4: audit log */}
+        <div style={{ marginBottom: 14 }}><window.W7_AuditLog /></div>
+
+        {/* Row 5: failure scatter */}
+        <div style={{ marginBottom: 14 }}><window.W8_Failure /></div>
+
+        {/* Row 6: workload CFD */}
+        <div style={{ marginBottom: 4 }}><window.W3_CFD /></div>
+      </div>
+    </div>
+  );
 }
-.cmd-dropdown__item {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 7px 14px; cursor: pointer;
-}
-.cmd-dropdown__item:hover,
-.cmd-dropdown__item.is-active { background: var(--honey-soft); }
-.cmd-dropdown__usage {
-  color: var(--ink); font-weight: 700;
-  font-family: var(--font-mono); font-size: 11.5px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.cmd-dropdown__desc {
-  color: var(--ink-3);
-  font-family: var(--font-sans); font-size: 11px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-</style>
+
+ReactDOM.createRoot(document.getElementById('root')).render(<DashboardPage />);
+</script>
+{% endraw %}
+
+<script src="/static/dashboard/refresh.js"></script>
+
 </body>
 </html>

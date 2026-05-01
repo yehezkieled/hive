@@ -1,0 +1,33 @@
+/* Sprint 20: dashboard surface — minimal scaffolding around the JSX widget grid. */
+
+.dashboard-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #f0eee9;
+}
+
+#root {
+  min-height: 100%;
+}
+
+/* Range picker buttons in the JSX page header use class="d-btn" — give them
+   a baseline reset so the inline styles win without inheriting <button>'s ua
+   focus ring and padding. */
+.d-btn,
+.d-chip {
+  font: inherit;
+  outline: none;
+}
+
+/* Animation hooks consumed by the design palette (D_TopBar/D_TerminalBar
+   define matching keyframes inline; the bobbing bee + blinking sage dot in
+   D_PageHeader rely on these). */
+@keyframes d-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+@keyframes d-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}

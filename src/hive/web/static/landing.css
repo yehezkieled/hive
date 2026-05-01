@@ -146,6 +146,7 @@ body {
   cursor: pointer;
   border: 0;
   font-family: inherit;
+  text-decoration: none;
   transition: background 0.15s, color 0.15s;
 }
 .tab:hover { background: var(--paper-soft); }
