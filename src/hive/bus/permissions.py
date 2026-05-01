@@ -1,10 +1,18 @@
-"""Inter-agent messaging permission checks.
+"""Inter-agent messaging and lifecycle-action permission checks.
 
-Rules:
+Messaging rules:
 - Maestro can message any entity in its own org (shared name prefix)
 - Lead can message its own workers and its parent maestro
 - Worker can message its own lead only
 - Cross-org messaging is denied
+
+Lifecycle rules (Sprint 19 — autonomous spawn/kill):
+- Maestro can spawn teams in its own org and workers under any lead in
+  its own org. It can kill anything in its own org except itself and
+  the orchestrator-protected default maestro.
+- Lead can spawn workers under its own team only. It can kill workers
+  in its own team only.
+- Workers cannot spawn or kill anything.
 """
 
 from __future__ import annotations
@@ -38,4 +46,51 @@ def can_message(
         lead_name = ".".join(sender_name.split(".")[:-1])
         return recipient_name == lead_name
 
+    return False
+
+
+def can_spawn_team(actor_role: str, actor_name: str) -> bool:
+    """Maestros can spawn teams in their own org. The team name is scoped
+    automatically (lead becomes ``<actor>.<team_name>``), so org boundary
+    is enforced by construction — only the role check matters here.
+    """
+    return actor_role == "maestro"
+
+
+def can_spawn_worker(actor_role: str, actor_name: str, lead_name: str) -> bool:
+    """Maestros can spawn workers under any lead in their own org.
+    Leads can spawn workers only under themselves.
+    """
+    if actor_role == "maestro":
+        # Lead must live inside the maestro's org (e.g. dev.backend under dev)
+        return lead_name.startswith(f"{actor_name}.")
+    if actor_role == "lead":
+        return lead_name == actor_name
+    return False
+
+
+def can_kill(
+    actor_role: str,
+    actor_name: str,
+    target_name: str,
+    default_maestro: str,
+) -> bool:
+    """Lifecycle kill permission gate.
+
+    The default maestro and the actor itself are never killable through
+    autonomous actions — even by themselves — so a misbehaving entity
+    cannot disable the org head or self-terminate the orchestration loop.
+    """
+    if target_name == default_maestro or target_name == actor_name:
+        return False
+    if actor_role == "maestro":
+        return target_name.startswith(f"{actor_name}.")
+    if actor_role == "lead":
+        # Leads can kill only their own workers (one level below)
+        if not target_name.startswith(f"{actor_name}."):
+            return False
+        # Disallow killing across team boundaries: target must be a direct
+        # child (no further dots after the lead-name prefix)
+        suffix = target_name[len(actor_name) + 1 :]
+        return "." not in suffix
     return False

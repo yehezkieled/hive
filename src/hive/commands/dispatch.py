@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from hive.knowledge.blueprints import BlueprintStore
     from hive.models.task import Task
     from hive.process.manager import ProcessManager
+    from hive.process.scheduler import PriorityScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,8 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(
         "pr",
         "merge",
         "files",
+        "eval",
+        "budget",
     }
 )
 
@@ -116,6 +119,7 @@ class CommandDispatcher:
         mode_request_store: ModeRequestStore | None = None,
         blueprint_store: BlueprintStore | None = None,
         attachment_store: AttachmentStore | None = None,
+        scheduler: PriorityScheduler | None = None,
     ) -> None:
         self.process_manager = process_manager
         self.default_maestro = default_maestro
@@ -126,6 +130,7 @@ class CommandDispatcher:
         self.mode_request_store = mode_request_store
         self.blueprint_store = blueprint_store
         self.attachment_store = attachment_store
+        self.scheduler = scheduler
 
     async def dispatch(self, text: str, actor: str = "system") -> CommandResult:
         """Parse ``text`` then dispatch — convenience for callers without a Command."""
@@ -266,6 +271,12 @@ class CommandDispatcher:
 
         if cmd.name == "files":
             return CommandResult(text=await self._execute_files(cmd.args))
+
+        if cmd.name == "eval":
+            return CommandResult(text=await self._execute_eval(cmd.target))
+
+        if cmd.name == "budget":
+            return CommandResult(text=await self._execute_budget(cmd.target))
 
         return CommandResult(text=f"Unknown command: /{cmd.name}")
 
@@ -428,6 +439,40 @@ class CommandDispatcher:
         lines = [_format_audit_row(event) for event in events]
         header = f"Audit (last {len(events)}):"
         return header + "\n" + "\n".join(lines)
+
+    async def _execute_eval(self, maestro_name: str | None) -> str:
+        """Handle /eval [maestro] — fire one scheduler tick for a single maestro.
+
+        Without a target, defaults to ``self.default_maestro``. Returns
+        the facts prompt the maestro just received so the user can see
+        what input drove the autonomous decisions.
+        """
+        if self.scheduler is None:
+            return "Scheduler not configured."
+        target = (maestro_name or self.default_maestro).strip()
+        if target not in self.process_manager.entities:
+            return f"Maestro {target!r} not found."
+        try:
+            facts = await self.scheduler.run_once_for(target)
+        except Exception as e:
+            logger.exception("eval failed for %s", target)
+            return f"Error: {e}"
+        return f"Eval fired for {target}.\n\nFacts sent:\n{facts}"
+
+    async def _execute_budget(self, maestro_name: str | None) -> str:
+        """Handle /budget [maestro] — print the facts prompt without sending.
+
+        Debug aid so the user can see exactly what the scheduler would
+        feed the maestro. Does not consume a spawn-budget slot or trigger
+        the maestro.
+        """
+        if self.scheduler is None:
+            return "Scheduler not configured."
+        target = (maestro_name or self.default_maestro).strip()
+        if target not in self.process_manager.entities:
+            return f"Maestro {target!r} not found."
+        facts = await self.scheduler.build_facts_prompt(target)
+        return facts
 
     async def _execute_files(self, args: str) -> str:
         """Handle /files [N] — list the most recent uploads (default 20, max 100)."""

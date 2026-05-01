@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from hive.bus.vault_store import VaultStore
     from hive.knowledge.blueprints import BlueprintStore
     from hive.process.manager import ProcessManager
+    from hive.process.scheduler import PriorityScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class TelegramBridge:
         vault_store: VaultStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         attachment_store: AttachmentStore | None = None,
+        scheduler: PriorityScheduler | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -77,6 +79,7 @@ class TelegramBridge:
         self.vault_store = vault_store
         self.mode_request_store = mode_request_store
         self.attachment_store = attachment_store
+        self.scheduler = scheduler
         self._app: Application | None = None
 
         self.dispatcher = CommandDispatcher(
@@ -89,6 +92,7 @@ class TelegramBridge:
             mode_request_store=mode_request_store,
             blueprint_store=None,
             attachment_store=attachment_store,
+            scheduler=scheduler,
         )
 
         # Heartbeat (Sprint 13) — in-memory state, resets on restart

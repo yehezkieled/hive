@@ -120,3 +120,17 @@ ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "tru
 ADVISOR_COOLDOWN_SECONDS = int(os.environ.get("HIVE_ADVISOR_COOLDOWN_SECONDS", "300"))
 ADVISOR_DAILY_LIMIT = int(os.environ.get("HIVE_ADVISOR_DAILY_LIMIT", "20"))
 ADVISOR_CONTEXT_MESSAGES = int(os.environ.get("HIVE_ADVISOR_CONTEXT_MESSAGES", "5"))
+
+# Maestro autonomy / priority scheduler (Sprint 19). The scheduler pokes
+# each alive maestro every PRIORITY_EVAL_INTERVAL_MINUTES with a "facts"
+# prompt (free slots, pending tasks by priority, org snapshot, 24h cost).
+# The maestro decides allocation via spawn_team / spawn_worker /
+# kill_entity actions. AUTONOMOUS_SPAWN_LIMIT caps how many spawns each
+# maestro can do per eval window — runaway-loop guard.
+PRIORITY_EVAL_INTERVAL_MINUTES = int(
+    os.environ.get("HIVE_PRIORITY_EVAL_INTERVAL_MINUTES", "120")
+)
+AUTONOMOUS_SPAWN_LIMIT = int(os.environ.get("HIVE_AUTONOMOUS_SPAWN_LIMIT", "3"))
+PRIORITY_PREEMPT_ENABLED = (
+    os.environ.get("HIVE_PRIORITY_PREEMPT_ENABLED", "true").lower() == "true"
+)

@@ -210,15 +210,21 @@ class Entity:
         elif self.permission_mode != "default":
             args.extend(["--permission-mode", self.permission_mode])
 
-        from hive.process.loops import LOOP_PROMPTS, MESSAGING_PROMPT
+        from hive.process.loops import AUTONOMY_PROMPT, LOOP_PROMPTS, MESSAGING_PROMPT
 
         loop_text = LOOP_PROMPTS.get(self.loop_mode)
         if loop_text:
             args.extend(["--append-system-prompt", loop_text])
 
-        # Maestros and leads can send inter-agent messages
-        if self.role in ("maestro", "lead"):
+        # All hierarchy roles need the messaging protocol so workers can
+        # report back to their lead. Permission gates restrict who they can
+        # actually message (see bus/permissions.py).
+        if self.role in ("maestro", "lead", "worker"):
             args.extend(["--append-system-prompt", MESSAGING_PROMPT])
+
+        # Maestros and leads also drive org growth via spawn/kill actions.
+        if self.role in ("maestro", "lead"):
+            args.extend(["--append-system-prompt", AUTONOMY_PROMPT])
 
         from hive.config import ADVISOR_ENABLED
 

@@ -11,7 +11,7 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
-from hive.bus.permissions import can_message
+from hive.bus.permissions import can_kill, can_message, can_spawn_team, can_spawn_worker
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -23,6 +23,7 @@ from hive.config import (
     AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,
     AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
+    DEFAULT_MAESTRO,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import generate_mcp_config
@@ -70,7 +71,14 @@ class ProcessManager:
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
         self._last_failure_reports: list[int] = []
+        self._last_spawned_teams: list[str] = []
+        self._last_spawned_workers: list[str] = []
+        self._last_killed_entities: list[str] = []
         self._compacting: set[str] = set()
+        # Set after construction by __main__.py so the dispatch site can
+        # consult the rate limiter. Optional — tests construct managers
+        # without a scheduler and the spawn dispatch falls back to "allow".
+        self.scheduler: object | None = None
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -140,16 +148,20 @@ class ProcessManager:
         """Try to free a session slot by killing the lowest-priority running entity.
 
         Returns the name of the killed entity, or None if no preemption is
-        possible (either under capacity or all running entities are at equal
-        or higher priority).
+        possible (under capacity, or no RUNNING entity is strictly worse
+        than the requested priority). The default maestro is never
+        preempted — it's the org's root and killing it would break every
+        downstream entity. Only RUNNING entities are considered because
+        IDLE entities don't hold a session slot.
         """
         if self.active_count < self.max_sessions:
             return None
 
-        # Find the running entity with the worst (highest number) priority
         worst_name: str | None = None
         worst_priority = -1
         for name, entity in self._entities.items():
+            if name == DEFAULT_MAESTRO:
+                continue
             if entity.state == EntityState.RUNNING and entity.current_priority > worst_priority:
                 worst_priority = entity.current_priority
                 worst_name = name
@@ -158,6 +170,12 @@ class ProcessManager:
             return None
 
         await self.kill_entity(worst_name)
+        await self._audit(
+            "entity.kill",
+            target=worst_name,
+            details={"reason": "preempt", "preempted_priority": worst_priority},
+            actor="system",
+        )
         return worst_name
 
     async def register_maestro(
@@ -213,10 +231,28 @@ class ProcessManager:
         """Spawn a Claude Code subprocess for an entity.
 
         Loads personality, builds CLI args, creates session, and starts it.
+        Preemption is the last-resort safety net — the maestro is the
+        primary capacity manager via the priority scheduler. When at cap
+        and HIVE_PRIORITY_PREEMPT_ENABLED, try to free a slot by killing
+        the lowest-priority RUNNING entity worse than this one.
         """
         if self.active_count >= self.max_sessions:
-            raise RuntimeError(
-                f"Max concurrent sessions ({self.max_sessions}) reached. Kill an entity first."
+            from hive.config import PRIORITY_PREEMPT_ENABLED
+
+            preempted: str | None = None
+            if PRIORITY_PREEMPT_ENABLED:
+                preempted = await self._preempt_for_priority(entity.current_priority)
+            if preempted is None:
+                raise RuntimeError(
+                    f"Max concurrent sessions ({self.max_sessions}) reached. "
+                    "Kill an entity first."
+                )
+            logger.info(
+                "Preempted %s (p%s) to free a slot for %s (p%s)",
+                preempted,
+                "?",
+                entity.name,
+                entity.current_priority,
             )
 
         if entity.name in self._sessions and self._sessions[entity.name].is_alive:
@@ -411,6 +447,9 @@ class ProcessManager:
         self._last_routed_actions = []
         self._last_mode_requests = []
         self._last_failure_reports = []
+        self._last_spawned_teams = []
+        self._last_spawned_workers = []
+        self._last_killed_entities = []
         for action in actions:
             if action.type == "message":
                 recipient = self._entities.get(action.to) if action.to else None
@@ -456,6 +495,111 @@ class ProcessManager:
                     self._last_failure_reports.append(task_id)
                 except Exception:
                     logger.exception("handle_task_failure failed for task %s", task_id)
+            elif action.type == "spawn_team":
+                if not action.team_name:
+                    continue
+                if not can_spawn_team(entity.role, entity.name):
+                    logger.warning("spawn_team denied: %s (role=%s)", entity.name, entity.role)
+                    await self._audit(
+                        "entity.spawn_team_denied",
+                        target=action.team_name,
+                        details={"reason": "role_not_permitted", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    continue
+                if self.scheduler is not None and not self.scheduler.can_autospawn(entity_name):
+                    logger.warning("spawn_team rate-limited: %s", entity_name)
+                    await self._audit(
+                        "entity.spawn_rate_limited",
+                        target=action.team_name,
+                        details={"action_type": "spawn_team", "limit": self.scheduler.spawn_limit},
+                        actor=entity_name,
+                    )
+                    continue
+                try:
+                    lead = await self.create_team(
+                        entity_name,
+                        action.team_name,
+                        model=action.model or "sonnet",
+                    )
+                    self._last_spawned_teams.append(lead.name)
+                    if self.scheduler is not None:
+                        self.scheduler.record_autospawn(entity_name)
+                    await self._audit(
+                        "entity.spawn_team",
+                        target=lead.name,
+                        details={"team": action.team_name, "maestro": entity_name},
+                        actor=entity_name,
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    logger.warning("spawn_team from %s failed: %s", entity_name, exc)
+            elif action.type == "spawn_worker":
+                if not action.lead:
+                    continue
+                if not can_spawn_worker(entity.role, entity.name, action.lead):
+                    logger.warning("spawn_worker denied: %s -> %s", entity.name, action.lead)
+                    await self._audit(
+                        "entity.spawn_worker_denied",
+                        target=action.lead,
+                        details={"reason": "scope_violation", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    continue
+                if self.scheduler is not None and not self.scheduler.can_autospawn(entity_name):
+                    logger.warning("spawn_worker rate-limited: %s", entity_name)
+                    await self._audit(
+                        "entity.spawn_rate_limited",
+                        target=action.lead,
+                        details={
+                            "action_type": "spawn_worker",
+                            "limit": self.scheduler.spawn_limit,
+                        },
+                        actor=entity_name,
+                    )
+                    continue
+                try:
+                    worker = await self.spawn_worker(
+                        action.lead,
+                        worker_name=action.worker_name,
+                        task_id=action.task_id,
+                    )
+                    self._last_spawned_workers.append(worker.name)
+                    if self.scheduler is not None:
+                        self.scheduler.record_autospawn(entity_name)
+                    await self._audit(
+                        "entity.autonomous_spawn_worker",
+                        target=worker.name,
+                        details={"lead": action.lead, "task_id": action.task_id},
+                        actor=entity_name,
+                    )
+                except (KeyError, TypeError, RuntimeError) as exc:
+                    logger.warning("spawn_worker from %s failed: %s", entity_name, exc)
+            elif action.type == "kill_entity":
+                if not action.target:
+                    continue
+                if not can_kill(entity.role, entity.name, action.target, DEFAULT_MAESTRO):
+                    logger.warning("kill_entity denied: %s -> %s", entity.name, action.target)
+                    await self._audit(
+                        "entity.kill_denied",
+                        target=action.target,
+                        details={"reason": "permission_denied", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    continue
+                if action.target not in self._entities:
+                    logger.warning("kill_entity target not found: %s", action.target)
+                    continue
+                try:
+                    await self.kill_entity(action.target)
+                    self._last_killed_entities.append(action.target)
+                    await self._audit(
+                        "entity.autonomous_kill",
+                        target=action.target,
+                        details={"actor_role": entity.role},
+                        actor=entity_name,
+                    )
+                except Exception:
+                    logger.exception("kill_entity from %s failed", entity_name)
 
         return clean_text
 

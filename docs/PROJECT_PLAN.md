@@ -1562,6 +1562,101 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 19 — Maestro Autonomy (2026-04-30, DONE)
+
+**Status:** Complete
+**Branch:** `sprint-19-maestro-autonomy` → main
+**Totals:** 495 → 551 tests (+56). No migrations.
+
+**Goal**: graduate the maestro from a router-and-reporter into the org's
+CEO. Sprints 0–18 left the lead↔worker plumbing in place but the org
+never grew itself: the user typed `/team create` and `/worker spawn`
+manually, the priority field was decorative, and `_preempt_for_priority`
+was dead code. Sprint 19 closes those three gaps so the maestro
+auto-allocates teams/leads/workers within the `MAX_CONCURRENT_SESSIONS`
+cap based on pending tasks, priority, idle-time, and Claude Max usage.
+
+### Locked decisions
+- **Workers get the same `MESSAGING_PROMPT` as leads/maestros.** The
+  permission gates (`permissions.can_message`) already restrict who they
+  can talk to (worker → lead per dotted-name prefix); cleaner than
+  splitting prompts.
+- **Three new action types** in `<hive_actions>`:
+  - `spawn_team {team_name, lead_name, lead_personality?}` — maestro only.
+  - `spawn_worker {team_name, worker_name, task_id?, personality?}` —
+    maestro, or the lead of that team.
+  - `kill_entity {target}` — maestro for own org; lead for own-team
+    workers; never targets the default maestro.
+- **CEO mechanism = scheduler + facts pipe**. Every
+  `HIVE_PRIORITY_EVAL_INTERVAL_MINUTES` (default 120) the
+  `PriorityScheduler` builds a facts prompt — free slots, pending tasks
+  by priority, org snapshot with idle-time, 24h cost per entity — and
+  sends it to each alive maestro via `send_to_entity`. The maestro
+  decides allocation; the orchestrator stays a dumb facts pipe.
+- **Spawn rate limit**: per-maestro `HIVE_AUTONOMOUS_SPAWN_LIMIT`
+  (default 3) caps autonomous spawns per eval window. Over-the-limit
+  spawns are rejected and audited as `entity.spawn_rate_limited`. The
+  counter is keyed on the **root maestro** (`maestro_for_actor`) so a
+  chatty lead can't bypass the cap by spawning under multiple sub-teams.
+- **Preemption is a last-resort safety net**, not the primary capacity
+  manager. Only fires inside `spawn_entity` when at cap; picks the
+  lowest-priority **RUNNING** entity strictly worse than the new one.
+  The default maestro is exempt — killing the org root would cascade.
+  When `HIVE_PRIORITY_PREEMPT_ENABLED=false` the orchestrator hard-fails
+  at cap instead of preempting.
+- **`/eval [maestro]`** fires one tick on demand; **`/budget [maestro]`**
+  prints the facts prompt without sending so the user can audit exactly
+  what the maestro would receive.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/hive/models/entity.py` | `MESSAGING_PROMPT` injection now includes `worker` role. |
+| `src/hive/bus/actions.py` | Parser/validator extended for `spawn_team`, `spawn_worker`, `kill_entity`. |
+| `src/hive/bus/permissions.py` | `can_spawn(actor, target_role, scope)` and `can_kill(actor, target_name, default_maestro)` gates. |
+| `src/hive/process/manager.py` | Action dispatch routes the three new types; spawn dispatch consults `scheduler.can_autospawn`/`record_autospawn`; `_preempt_for_priority` skips the default maestro and audits `actor=system reason=preempt`; `spawn_entity` retries once after preempt when `PRIORITY_PREEMPT_ENABLED`. |
+| `src/hive/process/loops.py` | `MESSAGING_PROMPT` documents the spawn/kill action types alongside `message`. |
+| `src/hive/process/scheduler.py` (new) | `PriorityScheduler.build_facts_prompt`, `run_once`, `run_once_for`, `run(stop_event)`; per-maestro autonomous-spawn counter keyed on `maestro_for_actor`. |
+| `src/hive/commands/dispatch.py` | `/eval` and `/budget` handlers; `scheduler` constructor kwarg threaded through. |
+| `src/hive/telegram/commands.py` | `eval` and `budget` added to `targeted_commands`. |
+| `src/hive/telegram/bridge.py` | `scheduler` kwarg threaded through to the inner `CommandDispatcher`. |
+| `src/hive/telegram/help_text.py` | `/eval` and `/budget` help entries (Admin category). |
+| `src/hive/config.py` | `HIVE_PRIORITY_EVAL_INTERVAL_MINUTES`, `HIVE_AUTONOMOUS_SPAWN_LIMIT`, `HIVE_PRIORITY_PREEMPT_ENABLED`. |
+| `src/hive/__main__.py` | Constructs `PriorityScheduler`, sets `process_manager.scheduler`, runs `scheduler.run(stop_event)` as a background task; passes scheduler into `TelegramBridge` and the web `CommandDispatcher`. |
+| `tests/test_actions.py` | +4 tests — parser coverage for the three new action types + malformed-payload rejection. |
+| `tests/test_permissions.py` | +6 tests — spawn/kill gate matrix (maestro-can, lead-own-team-only, worker-cannot, never-default-maestro). |
+| `tests/test_process_manager.py` | +5 tests — spawn_team / spawn_worker / kill_entity dispatch outcomes; rate-limit audit; unauthorised kill rejected. |
+| `tests/test_scheduler.py` (new) | 11 tests — facts prompt structure (capacity, priority groups, own-tree filter, empty-state degradation), rate-limit window reset, run_once vs run_once_for distinction, run-loop clean shutdown + error swallowing. |
+| `tests/test_preempt.py` (new) | 7 tests — default-maestro exemption, audit `actor=system`, spawn_entity retry-after-preempt, `PRIORITY_PREEMPT_ENABLED=false` hard-fail, IDLE entities ignored. |
+| `tests/integration/test_lead_worker_roundtrip.py` (new, `@pytest.mark.integration`) | Real `claude -p` round-trip — lead delegates a task, worker emits `<hive_actions>`, lead's queue receives the reply. |
+
+### Verification
+- `pytest -m "not integration" -q` → **551 passing** (was 495).
+- `journalctl --user -u hive` clean across `systemctl --user restart`.
+- `/budget dev` from Telegram returns the facts prompt (capacity,
+  pending by priority, org snapshot, 24h cost) without sending.
+- `/eval dev` fires one tick; `/comms` shows the facts payload going
+  to dev; if pending tasks exist the maestro replies with at least one
+  autonomous action and `/audit` records the spawn/kill with `actor=dev`.
+- Worker round-trip smoke: `/team create teamA leadA` →
+  `/worker spawn teamA workerA` → `/a:dev.teamA.workerA "ping your lead"`
+  → `/comms` shows the worker's reply on the lead's queue within ~30s.
+- Preempt safety net: cap full of RUNNING entities, lowest-priority
+  one strictly worse than P0, then `/priority P0 "..."` triggers the
+  spawn — `/audit` shows `entity.kill actor=system reason=preempt`.
+
+### Out of scope (deferred to Sprint 20+)
+- Multi-LLM routing.
+- Web OAuth (still on bearer-token + Tailscale).
+- Vault completeness audit.
+- Async-job model for `/api/command`.
+- Codex CLI plugin.
+- JSON-mode fallback for `<hive_actions>` (Phase 1 integration test
+  showed natural-prompt emission is reliable enough for now).
+
+---
+
 ## Sprint 18 — File Embedding Integration (2026-04-30, DONE)
 
 **Status:** Complete

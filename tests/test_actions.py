@@ -160,3 +160,104 @@ class TestRequestModeChangeAction:
         assert len(actions) == 2
         assert actions[0].type == "message"
         assert actions[1].type == "request_mode_change"
+
+
+class TestSpawnTeamAction:
+    """Test parsing spawn_team actions (Sprint 19)."""
+
+    def test_spawn_team_minimal(self) -> None:
+        text = '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].type == "spawn_team"
+        assert actions[0].team_name == "backend"
+        assert actions[0].model is None
+
+    def test_spawn_team_with_model(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            '[{"type": "spawn_team", "team_name": "backend", "model": "opus"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert actions[0].model == "opus"
+
+    def test_spawn_team_missing_name_skipped(self) -> None:
+        text = '<hive_actions>\n[{"type": "spawn_team"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert actions == []
+
+
+class TestSpawnWorkerAction:
+    """Test parsing spawn_worker actions (Sprint 19)."""
+
+    def test_spawn_worker_minimal(self) -> None:
+        text = '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].type == "spawn_worker"
+        assert actions[0].lead == "dev.backend"
+        assert actions[0].worker_name is None
+        assert actions[0].task_id is None
+
+    def test_spawn_worker_with_optional_fields(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            "["
+            '{"type": "spawn_worker", "lead": "dev.backend", '
+            '"worker_name": "migrator", "task_id": 42}'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert actions[0].worker_name == "migrator"
+        assert actions[0].task_id == 42
+
+    def test_spawn_worker_missing_lead_skipped(self) -> None:
+        text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert actions == []
+
+    def test_spawn_worker_non_int_task_id_drops_it(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            '[{"type": "spawn_worker", "lead": "dev.backend", "task_id": "abc"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].task_id is None
+
+
+class TestKillEntityAction:
+    """Test parsing kill_entity actions (Sprint 19)."""
+
+    def test_kill_entity(self) -> None:
+        text = (
+            '<hive_actions>\n[{"type": "kill_entity", "target": "dev.backend.w1"}]\n</hive_actions>'
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].type == "kill_entity"
+        assert actions[0].target == "dev.backend.w1"
+
+    def test_kill_entity_missing_target_skipped(self) -> None:
+        text = '<hive_actions>\n[{"type": "kill_entity"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert actions == []
+
+    def test_mixed_autonomy_actions(self) -> None:
+        """All Sprint 19 action types parse together."""
+        text = (
+            "<hive_actions>\n"
+            "[\n"
+            '  {"type": "spawn_team", "team_name": "backend"},\n'
+            '  {"type": "spawn_worker", "lead": "dev.backend"},\n'
+            '  {"type": "kill_entity", "target": "dev.frontend.w1"}\n'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 3
+        types = [a.type for a in actions]
+        assert types == ["spawn_team", "spawn_worker", "kill_entity"]

@@ -18,6 +18,7 @@ from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.config import (
     AUTO_KILL_IDLE_ENABLED,
+    AUTONOMOUS_SPAWN_LIMIT,
     DAILY_SUMMARY_ENABLED,
     DAILY_SUMMARY_HOUR,
     DEFAULT_MAESTRO,
@@ -32,6 +33,7 @@ from hive.config import (
     MAX_CONCURRENT_SESSIONS,
     PERSONALITIES_DIR,
     POSTGRES_DSN,
+    PRIORITY_EVAL_INTERVAL_MINUTES,
     SMTP_HOST,
     SMTP_PASSWORD,
     SMTP_PORT,
@@ -45,6 +47,7 @@ from hive.config import (
 from hive.knowledge.blueprints import BlueprintStore
 from hive.notifications import EmailDigest, NotificationDispatcher
 from hive.process.manager import ProcessManager
+from hive.process.scheduler import PriorityScheduler
 
 logger = logging.getLogger("hive")
 
@@ -177,6 +180,20 @@ async def main() -> None:
         notification_dispatcher=notification_dispatcher,
     )
 
+    # Priority scheduler (Sprint 19). The scheduler pokes each alive
+    # maestro every PRIORITY_EVAL_INTERVAL_MINUTES with a facts prompt;
+    # the maestro decides allocation via spawn/kill actions. ProcessManager
+    # consults the scheduler's per-maestro rate limit when dispatching
+    # autonomous spawn actions.
+    scheduler = PriorityScheduler(
+        process_manager=process_manager,
+        task_store=task_store,
+        token_store=token_store,
+        eval_interval_minutes=PRIORITY_EVAL_INTERVAL_MINUTES,
+        spawn_limit=AUTONOMOUS_SPAWN_LIMIT,
+    )
+    process_manager.scheduler = scheduler
+
     # Restore persisted entities (organizational structure, not running procs)
     for persisted in await entity_store.all():
         process_manager.restore(persisted)
@@ -213,6 +230,7 @@ async def main() -> None:
             vault_store=vault_store,
             mode_request_store=mode_request_store,
             attachment_store=attachment_store,
+            scheduler=scheduler,
         )
         bridge.blueprint_store = blueprint_store
         await bridge.start()
@@ -240,6 +258,7 @@ async def main() -> None:
                 mode_request_store=mode_request_store,
                 blueprint_store=blueprint_store,
                 attachment_store=attachment_store,
+                scheduler=scheduler,
             )
 
             sse_broker = SSEBroker()
@@ -293,6 +312,12 @@ async def main() -> None:
         if HEARTBEAT_ENABLED and SUMMARY_CHAT_ID:
             background_tasks.append(asyncio.create_task(heartbeat_scheduler(bridge, stop_event)))
             logger.info("Heartbeat scheduler started (interval=%dm)", HEARTBEAT_INTERVAL_MINUTES)
+        background_tasks.append(asyncio.create_task(scheduler.run(stop_event)))
+        logger.info(
+            "Priority scheduler started (interval=%dm, spawn_limit=%d)",
+            PRIORITY_EVAL_INTERVAL_MINUTES,
+            AUTONOMOUS_SPAWN_LIMIT,
+        )
 
         await stop_event.wait()
 
