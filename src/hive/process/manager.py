@@ -148,16 +148,20 @@ class ProcessManager:
         """Try to free a session slot by killing the lowest-priority running entity.
 
         Returns the name of the killed entity, or None if no preemption is
-        possible (either under capacity or all running entities are at equal
-        or higher priority).
+        possible (under capacity, or no RUNNING entity is strictly worse
+        than the requested priority). The default maestro is never
+        preempted — it's the org's root and killing it would break every
+        downstream entity. Only RUNNING entities are considered because
+        IDLE entities don't hold a session slot.
         """
         if self.active_count < self.max_sessions:
             return None
 
-        # Find the running entity with the worst (highest number) priority
         worst_name: str | None = None
         worst_priority = -1
         for name, entity in self._entities.items():
+            if name == DEFAULT_MAESTRO:
+                continue
             if entity.state == EntityState.RUNNING and entity.current_priority > worst_priority:
                 worst_priority = entity.current_priority
                 worst_name = name
@@ -166,6 +170,12 @@ class ProcessManager:
             return None
 
         await self.kill_entity(worst_name)
+        await self._audit(
+            "entity.kill",
+            target=worst_name,
+            details={"reason": "preempt", "preempted_priority": worst_priority},
+            actor="system",
+        )
         return worst_name
 
     async def register_maestro(
@@ -221,10 +231,28 @@ class ProcessManager:
         """Spawn a Claude Code subprocess for an entity.
 
         Loads personality, builds CLI args, creates session, and starts it.
+        Preemption is the last-resort safety net — the maestro is the
+        primary capacity manager via the priority scheduler. When at cap
+        and HIVE_PRIORITY_PREEMPT_ENABLED, try to free a slot by killing
+        the lowest-priority RUNNING entity worse than this one.
         """
         if self.active_count >= self.max_sessions:
-            raise RuntimeError(
-                f"Max concurrent sessions ({self.max_sessions}) reached. Kill an entity first."
+            from hive.config import PRIORITY_PREEMPT_ENABLED
+
+            preempted: str | None = None
+            if PRIORITY_PREEMPT_ENABLED:
+                preempted = await self._preempt_for_priority(entity.current_priority)
+            if preempted is None:
+                raise RuntimeError(
+                    f"Max concurrent sessions ({self.max_sessions}) reached. "
+                    "Kill an entity first."
+                )
+            logger.info(
+                "Preempted %s (p%s) to free a slot for %s (p%s)",
+                preempted,
+                "?",
+                entity.name,
+                entity.current_priority,
             )
 
         if entity.name in self._sessions and self._sessions[entity.name].is_alive:
