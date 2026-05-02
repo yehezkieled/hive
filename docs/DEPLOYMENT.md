@@ -491,8 +491,8 @@ to `spawn_team`, `spawn_worker`, `kill_entity`, or do nothing, emitting
 its decision as a `<hive_actions>` block. The orchestrator is a dumb
 facts pipe; allocation policy lives in the maestro's prompt.
 
-Workers can now message their lead too — they get the same
-`MESSAGING_PROMPT` as leads/maestros and emit `<hive_actions>` to
+Workers can now message their lead too — they get a role JD loaded
+from `personalities/role-worker.md` and emit `<hive_actions>` to
 report progress or escalate. Permission gates already restrict who
 they can address.
 
