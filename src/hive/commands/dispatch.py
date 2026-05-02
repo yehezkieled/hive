@@ -93,11 +93,14 @@ class CommandResult:
 
     Surfaces read ``text`` for display. ``metadata`` is a free-form dict
     for transport-specific hints (e.g. a future web UI rendering
-    structured data instead of a string).
+    structured data instead of a string). ``routed`` is True when the
+    dispatcher already persisted the round-trip through the bus router,
+    so transport layers must not log it again.
     """
 
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    routed: bool = False
 
 
 class CommandDispatcher:
@@ -183,7 +186,10 @@ class CommandDispatcher:
         if cmd.name == "message":
             if not cmd.target:
                 return CommandResult(text="No target specified.")
-            return CommandResult(text=await self._send_to_entity(cmd.target, cmd.args))
+            return CommandResult(
+                text=await self._send_to_entity(cmd.target, cmd.args),
+                routed=True,
+            )
 
         if cmd.name == "cost":
             return CommandResult(text=await self._format_cost(cmd.args))
@@ -201,7 +207,10 @@ class CommandDispatcher:
             # /t:dev.backend <msg> routes to the lead entity directly;
             # /team create|list|kill is a structural subcommand.
             if cmd.target and "." in (cmd.target or ""):
-                return CommandResult(text=await self._send_to_entity(cmd.target, cmd.args))
+                return CommandResult(
+                    text=await self._send_to_entity(cmd.target, cmd.args),
+                    routed=True,
+                )
             return CommandResult(text=await self._execute_team(cmd.target, cmd.args))
 
         if cmd.name == "teams":
@@ -211,7 +220,10 @@ class CommandDispatcher:
             return CommandResult(text=await self._execute_worker(cmd.target, cmd.args))
 
         if cmd.name == "agent":
-            return CommandResult(text=await self._send_to_entity(cmd.target or "", cmd.args))
+            return CommandResult(
+                text=await self._send_to_entity(cmd.target or "", cmd.args),
+                routed=True,
+            )
 
         if cmd.name == "mode":
             return CommandResult(text=await self._execute_mode(cmd.target, cmd.args))
@@ -715,7 +727,7 @@ class CommandDispatcher:
             return "Usage: /new maestro <name> [model]"
 
         name = parts[0]
-        model = parts[1] if len(parts) > 1 else "sonnet"
+        model = parts[1] if len(parts) > 1 else "opus"
 
         try:
             maestro = await self.process_manager.register_maestro(name, model=model)

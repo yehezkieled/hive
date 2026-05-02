@@ -107,3 +107,62 @@ class TestSuccessPath:
         )
         assert resp.status_code == 200
         assert "not configured" in resp.json()["text"].lower()
+
+
+class TestDualWriteSuppression:
+    """The dispatcher already logs entity round-trips through the bus router.
+
+    When ``CommandResult.routed`` is True, the web endpoint must NOT call
+    ``log_message`` again — otherwise the chat shows a duplicate
+    ``user→hive`` / ``hive→user`` pair shadowing the real entity exchange.
+    """
+
+    def _store(self) -> MagicMock:
+        store = MagicMock()
+        store.log_message = AsyncMock()
+        return store
+
+    def test_routed_result_skips_log_message(self, monkeypatch) -> None:
+        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+        dispatcher = MagicMock()
+        dispatcher.dispatch = AsyncMock(
+            return_value=CommandResult(text="hi from dev", routed=True)
+        )
+        store = self._store()
+        client = TestClient(
+            create_app(
+                process_manager=_bare_pm(),
+                command_dispatcher=dispatcher,
+                message_store=store,
+            )
+        )
+        resp = client.post(
+            "/api/command",
+            json={"text": "/m:dev hello"},
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert resp.status_code == 200
+        store.log_message.assert_not_awaited()
+
+    def test_unrouted_result_still_logs(self, monkeypatch) -> None:
+        """Non-routing commands like /help have no entity round-trip — still log."""
+        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+        dispatcher = MagicMock()
+        dispatcher.dispatch = AsyncMock(
+            return_value=CommandResult(text="help text", routed=False)
+        )
+        store = self._store()
+        client = TestClient(
+            create_app(
+                process_manager=_bare_pm(),
+                command_dispatcher=dispatcher,
+                message_store=store,
+            )
+        )
+        resp = client.post(
+            "/api/command",
+            json={"text": "/help"},
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert resp.status_code == 200
+        assert store.log_message.await_count == 2

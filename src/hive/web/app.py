@@ -166,7 +166,9 @@ def create_app(
             return {"text": "Command surface not configured."}
         result = await command_dispatcher.dispatch(body.text, actor="web:user")
         # Persist the round-trip so chat history survives a page refresh.
-        if message_store is not None:
+        # Skip when the dispatcher already routed through the bus (avoids the
+        # duplicate user→hive / hive→user pair that shadows the entity round-trip).
+        if message_store is not None and not result.routed:
             try:
                 await message_store.log_message(sender="user", recipient="hive", content=body.text)
                 await message_store.log_message(
@@ -265,7 +267,7 @@ def create_app(
 
         result = await command_dispatcher.dispatch_command(enriched_cmd, actor="web:user")
 
-        if message_store is not None:
+        if message_store is not None and not result.routed:
             try:
                 user_log = f"[file #{attachment_id}: {original_name or filename}]"
                 if text:
