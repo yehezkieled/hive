@@ -41,6 +41,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Interactive `/new maestro` flow — multi-turn Q&A keyed by actor.
+# Pending state lives in-memory on the dispatcher; expires after this
+# inactivity window so abandoned flows don't block the actor's plain
+# text from routing to the default maestro.
+_PENDING_NEW_TIMEOUT = timedelta(minutes=10)
+_NEW_MAESTRO_QUESTIONS: tuple[str, ...] = (
+    "What's this maestro for? (e.g., 'manage my personal-assistant project')",
+    "Communication style — terse, verbose, formal, casual?",
+)
+
+
+@dataclass
+class _PendingNewMaestro:
+    """In-flight `/new maestro` flow for one actor."""
+
+    name: str
+    model: str
+    answers: list[str] = field(default_factory=list)
+    last_active: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
 # Every command the dispatcher executes. The Telegram bridge re-exports
 # this (plus its surface-only commands like /heartbeat) as
 # ``BRIDGE_COMMANDS`` for the /help drift guard. Keep in sync with the
@@ -123,6 +144,7 @@ class CommandDispatcher:
         blueprint_store: BlueprintStore | None = None,
         attachment_store: AttachmentStore | None = None,
         scheduler: PriorityScheduler | None = None,
+        personalities_dir: Path | None = None,
     ) -> None:
         self.process_manager = process_manager
         self.default_maestro = default_maestro
@@ -134,11 +156,37 @@ class CommandDispatcher:
         self.blueprint_store = blueprint_store
         self.attachment_store = attachment_store
         self.scheduler = scheduler
+        self.personalities_dir = personalities_dir or Path("personalities")
+        self._pending_new: dict[str, _PendingNewMaestro] = {}
 
     async def dispatch(self, text: str, actor: str = "system") -> CommandResult:
-        """Parse ``text`` then dispatch — convenience for callers without a Command."""
+        """Parse ``text`` then dispatch — convenience for callers without a Command.
+
+        Honors any pending `/new maestro` flow for the actor: plain text
+        advances the flow; a slash command cancels it and is then
+        executed normally (`/cancel` reports the abort and stops there).
+        """
+        pending = self._pending_new.get(actor)
+        if pending is not None and self._pending_expired(pending):
+            del self._pending_new[actor]
+            pending = None
+
+        if pending is not None:
+            stripped = text.strip()
+            if stripped.startswith("/"):
+                cancelled = self._pending_new.pop(actor)
+                cmd = parse_command(stripped, default_maestro=self.default_maestro)
+                if cmd.name == "cancel":
+                    return CommandResult(text=f"Cancelled /new maestro {cancelled.name}.")
+                return await self.dispatch_command(cmd, actor=actor)
+            return CommandResult(text=await self._advance_new_flow(actor, stripped))
+
         cmd = parse_command(text, default_maestro=self.default_maestro)
         return await self.dispatch_command(cmd, actor=actor)
+
+    @staticmethod
+    def _pending_expired(pending: _PendingNewMaestro) -> bool:
+        return datetime.now(UTC) - pending.last_active > _PENDING_NEW_TIMEOUT
 
     async def dispatch_command(self, cmd: Command, actor: str = "system") -> CommandResult:
         """Execute a parsed command and return a :class:`CommandResult`."""
@@ -246,7 +294,7 @@ class CommandDispatcher:
             return CommandResult(text=await self._execute_reset(cmd.target))
 
         if cmd.name == "new":
-            return CommandResult(text=await self._execute_new(cmd.target, cmd.args))
+            return CommandResult(text=await self._execute_new(cmd.target, cmd.args, actor=actor))
 
         if cmd.name == "personality":
             return CommandResult(text=await self._execute_personality(cmd.target, cmd.args))
@@ -717,8 +765,14 @@ class CommandDispatcher:
 
         return f"Swarm ({len(results)} workers):\n" + "\n".join(results)
 
-    async def _execute_new(self, entity_type: str | None, args: str) -> str:
-        """Handle /new maestro <name> [model]."""
+    async def _execute_new(self, entity_type: str | None, args: str, actor: str = "system") -> str:
+        """Handle /new maestro <name> [model].
+
+        With a personality file already at ``personalities_dir/<name>.md``,
+        register the maestro immediately. Otherwise kick off an
+        interactive Q&A keyed by ``actor`` — subsequent plain-text
+        messages from the same actor are interpreted as answers.
+        """
         if not entity_type or entity_type.lower() != "maestro":
             return "Usage: /new maestro <name> [model]"
 
@@ -729,11 +783,47 @@ class CommandDispatcher:
         name = parts[0]
         model = parts[1] if len(parts) > 1 else "opus"
 
+        path = self.personalities_dir / f"{name}.md"
+        if path.exists():
+            try:
+                maestro = await self.process_manager.register_maestro(
+                    name, model=model, personality_path=path
+                )
+                return f"Maestro {maestro.name!r} registered (model={maestro.model})."
+            except (ValueError, RuntimeError) as e:
+                return f"Error: {e}"
+
+        self._pending_new[actor] = _PendingNewMaestro(name=name, model=model)
+        return _NEW_MAESTRO_QUESTIONS[0]
+
+    async def _advance_new_flow(self, actor: str, answer: str) -> str:
+        """Record one answer; either ask the next question or finalize."""
+        pending = self._pending_new[actor]
+        pending.answers.append(answer)
+        pending.last_active = datetime.now(UTC)
+
+        if len(pending.answers) < len(_NEW_MAESTRO_QUESTIONS):
+            return _NEW_MAESTRO_QUESTIONS[len(pending.answers)]
+
+        del self._pending_new[actor]
+        return await self._finalize_new_maestro(pending)
+
+    async def _finalize_new_maestro(self, pending: _PendingNewMaestro) -> str:
+        """Render the personality MD, write it, and register the maestro."""
+        purpose, style = pending.answers
+        md = _render_personality_md(
+            name=pending.name, purpose=purpose, style=style, model=pending.model
+        )
+        self.personalities_dir.mkdir(parents=True, exist_ok=True)
+        path = self.personalities_dir / f"{pending.name}.md"
+        path.write_text(md)
         try:
-            maestro = await self.process_manager.register_maestro(name, model=model)
-            return f"Maestro {maestro.name!r} registered (model={model})."
+            maestro = await self.process_manager.register_maestro(
+                pending.name, model=pending.model, personality_path=path
+            )
         except (ValueError, RuntimeError) as e:
             return f"Error: {e}"
+        return f"Maestro {maestro.name!r} registered (model={pending.model})."
 
     async def _execute_personality(self, subcommand: str | None, args: str) -> str:
         """Handle /personality reload <entity>."""
@@ -1140,6 +1230,38 @@ def _format_audit_row(event: dict) -> str:
     action = event["action"]
     target = event["target"] or "-"
     return f"{ts:%H:%M:%S} {actor} {action} {target}"
+
+
+def _render_personality_md(name: str, purpose: str, style: str, model: str) -> str:
+    """Render a maestro personality markdown file from interactive answers.
+
+    Templated (deterministic) so the output is stable and testable; LLM
+    authoring is a Phase 2.5 follow-up. Format mirrors the existing
+    `personalities/_template.md` so :func:`parse_personality` reads it.
+    """
+    title = name[:1].upper() + name[1:] if name else name
+    return (
+        f"# Maestro: {title}\n\n"
+        "## Identity\n"
+        f"- **Name**: {name}\n"
+        "- **Role**: maestro\n"
+        f"- **Model**: {model}\n\n"
+        "## System Prompt\n"
+        f"{title} is a maestro for: {purpose}.\n"
+        f"Communication style: {style}.\n"
+        "Plain English, short sentences. Delegate eagerly and form\n"
+        "small focused teams rather than overloading one entity.\n"
+        "Report failures honestly — never narrate fictional success.\n\n"
+        "## Tools\n"
+        "- allowedTools: Bash Read Write Edit Grep Glob\n\n"
+        "## Constraints\n"
+        "- Ask for clarification rather than guessing on ambiguous requirements.\n"
+        "- Report errors honestly; do not hide failures.\n\n"
+        "## Permission modes\n"
+        "- Default mode is `edit` — safe for prompts and most code edits.\n"
+        "- Prefer `yotree` (elevated + sandboxed worktree) for code-heavy work.\n"
+        "- Use `yolo` only for trivial scripted tasks where a worktree is overhead.\n"
+    )
 
 
 def _format_bytes(n: int | None) -> str:

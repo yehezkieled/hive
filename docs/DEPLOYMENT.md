@@ -606,6 +606,11 @@ short-circuits when `dev` is already restored).
 `/kill <entity>`, `/team create|list|kill <name>`, `/teams`,
 `/worker spawn|kill <team> [name]`, `/new maestro <name> [model]`
 
+> If `personalities/<name>.md` already exists, `/new maestro` registers the
+> maestro and is done. If the file is missing, the dispatcher walks you
+> through a short Q&A (purpose, communication style), writes a templated
+> personality file, then registers. Send `/cancel` mid-flow to abort.
+
 **Tasks:**
 `/task add "<title>"`, `/task done|cancel <id>`, `/tasks`,
 `/priority <P0-P4> "<title>"`

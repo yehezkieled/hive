@@ -8,6 +8,8 @@ that future surfaces (web endpoints, MCP tools) can use it directly.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest_asyncio
 
@@ -42,6 +44,7 @@ async def dispatcher(
     mode_request_store: ModeRequestStore,
     blueprint_store: BlueprintStore,
     attachment_store: AttachmentStore,
+    tmp_path: Path,
 ) -> CommandDispatcher:
     return CommandDispatcher(
         process_manager=manager,
@@ -53,6 +56,7 @@ async def dispatcher(
         mode_request_store=mode_request_store,
         blueprint_store=blueprint_store,
         attachment_store=attachment_store,
+        personalities_dir=tmp_path,
     )
 
 
@@ -226,20 +230,168 @@ async def test_files_invalid_arg_returns_usage(dispatcher: CommandDispatcher) ->
 # ---------------------------------------------------------------------------
 
 
+def _write_min_personality(dir_path: Path, name: str, model: str = "opus") -> Path:
+    """Create a minimal personality file for tests of the file-exists branch."""
+    path = dir_path / f"{name}.md"
+    path.write_text(
+        f"# Maestro: {name}\n\n"
+        "## Identity\n"
+        f"- **Name**: {name}\n"
+        "- **Role**: maestro\n"
+        f"- **Model**: {model}\n\n"
+        "## System Prompt\nMinimal personality for tests.\n"
+    )
+    return path
+
+
 async def test_new_maestro_defaults_to_opus(
-    dispatcher: CommandDispatcher, manager: ProcessManager
+    dispatcher: CommandDispatcher, manager: ProcessManager, tmp_path: Path
 ) -> None:
-    """`/new maestro <name>` (no model arg) must register the maestro with model=opus."""
+    """`/new maestro <name>` with personality file present registers the maestro at model=opus."""
+    _write_min_personality(tmp_path, "testbot")
     result = await dispatcher.dispatch("/new maestro testbot", actor="test")
     assert "registered" in result.text.lower()
     assert "model=opus" in result.text
     assert manager.entities["testbot"].model == "opus"
 
 
-async def test_new_maestro_explicit_model_honored(
-    dispatcher: CommandDispatcher, manager: ProcessManager
+async def test_new_maestro_file_model_overrides_cli_arg(
+    dispatcher: CommandDispatcher, manager: ProcessManager, tmp_path: Path
 ) -> None:
-    """Caller can still override the model — defaults only kick in when omitted."""
-    result = await dispatcher.dispatch("/new maestro otherbot haiku", actor="test")
+    """When a personality file is present, its `**Model**` field is authoritative.
+
+    The CLI model arg is only honored when no file exists yet (the
+    interactive flow uses it for the freshly-written file). Documents
+    the behavior change introduced with the Phase 2 flow.
+    """
+    _write_min_personality(tmp_path, "otherbot", model="haiku")
+    result = await dispatcher.dispatch("/new maestro otherbot opus", actor="test")
+    # File says haiku; arg said opus — file wins.
     assert "model=haiku" in result.text
     assert manager.entities["otherbot"].model == "haiku"
+
+
+# ---------------------------------------------------------------------------
+# /new maestro — Phase 2 interactive flow (no personality file present)
+# ---------------------------------------------------------------------------
+
+
+class TestNewMaestroInteractiveFlow:
+    """`/new maestro <name>` with no personality file enters a multi-turn Q&A.
+
+    The dispatcher tracks pending state per actor; subsequent plain-text
+    messages from the same actor are interpreted as answers, not as
+    messages to the default maestro. Final answer writes a templated
+    personality file and registers the maestro.
+    """
+
+    async def test_no_personality_starts_flow_with_first_question(
+        self, dispatcher: CommandDispatcher, manager: ProcessManager
+    ) -> None:
+        result = await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        # Question text — purpose / "for?" — case-insensitive match
+        text = result.text.lower()
+        assert "for?" in text or "purpose" in text
+        # Maestro is NOT yet registered — flow must collect answers first
+        assert "pa" not in manager.entities
+
+    async def test_plain_text_advances_flow(
+        self, dispatcher: CommandDispatcher, manager: ProcessManager
+    ) -> None:
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        result = await dispatcher.dispatch("manage my projects", actor="user:42")
+        # Second question asks about communication style
+        text = result.text.lower()
+        assert "style" in text or "communicate" in text or "tone" in text
+        assert "pa" not in manager.entities
+
+    async def test_full_flow_writes_file_and_registers(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        tmp_path: Path,
+    ) -> None:
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        await dispatcher.dispatch("manage my projects", actor="user:42")
+        result = await dispatcher.dispatch("terse and direct", actor="user:42")
+        assert "registered" in result.text.lower()
+        # File written with the user's answers embedded
+        target = tmp_path / "pa.md"
+        assert target.exists()
+        content = target.read_text()
+        assert "**Name**: pa" in content
+        assert "manage my projects" in content
+        assert "terse and direct" in content
+        # Maestro registered in process manager
+        assert "pa" in manager.entities
+
+    async def test_full_flow_honors_explicit_model_arg(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        tmp_path: Path,
+    ) -> None:
+        """Model passed via `/new maestro <name> <model>` carries through the flow."""
+        await dispatcher.dispatch("/new maestro pa haiku", actor="user:42")
+        await dispatcher.dispatch("a purpose", actor="user:42")
+        result = await dispatcher.dispatch("casual", actor="user:42")
+        assert "model=haiku" in result.text
+        assert manager.entities["pa"].model == "haiku"
+        assert "**Model**: haiku" in (tmp_path / "pa.md").read_text()
+
+    async def test_cancel_command_aborts_flow(
+        self, dispatcher: CommandDispatcher, manager: ProcessManager
+    ) -> None:
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        result = await dispatcher.dispatch("/cancel", actor="user:42")
+        assert "cancel" in result.text.lower()
+        # No file written, no registration
+        assert "pa" not in manager.entities
+
+    async def test_other_command_cancels_pending_flow(self, dispatcher: CommandDispatcher) -> None:
+        """A different /command (not /cancel) interrupts the flow."""
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        # Send a different command — should cancel flow and execute the new command
+        result = await dispatcher.dispatch("/status", actor="user:42")
+        # Status response, not the next flow question
+        assert "for?" not in result.text.lower()
+        assert "purpose" not in result.text.lower()
+        # Subsequent plain text should NOT advance a (now-cancelled) flow
+        followup = await dispatcher.dispatch("manage projects", actor="user:42")
+        assert "style" not in followup.text.lower()
+
+    async def test_pending_state_isolated_per_actor(self, dispatcher: CommandDispatcher) -> None:
+        """Two actors can run /new maestro concurrently without crosstalk."""
+        await dispatcher.dispatch("/new maestro alpha", actor="user:1")
+        await dispatcher.dispatch("/new maestro beta", actor="user:2")
+        result_a = await dispatcher.dispatch("alpha purpose", actor="user:1")
+        result_b = await dispatcher.dispatch("beta purpose", actor="user:2")
+        # Each actor sees their own next-question advance
+        assert "style" in result_a.text.lower() or "communicate" in result_a.text.lower()
+        assert "style" in result_b.text.lower() or "communicate" in result_b.text.lower()
+
+    async def test_pending_state_times_out(self, dispatcher: CommandDispatcher) -> None:
+        """Pending flow expires after 10 minutes of inactivity."""
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        # Backdate the actor's pending state
+        pending = dispatcher._pending_new["user:42"]  # type: ignore[attr-defined]
+        pending.last_active = datetime.now(UTC) - timedelta(minutes=11)
+        # Plain text should NOT be interpreted as the answer anymore
+        result = await dispatcher.dispatch("an answer", actor="user:42")
+        assert "style" not in result.text.lower()
+        assert "communicate" not in result.text.lower()
+
+    async def test_flow_does_not_register_if_name_taken(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        tmp_path: Path,
+    ) -> None:
+        """If a maestro is registered mid-flow, finalization reports the error gracefully."""
+        # Register pa via another path before the flow finishes
+        await manager.register_maestro("pa", model="opus")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
+        await dispatcher.dispatch("a purpose", actor="user:42")
+        result = await dispatcher.dispatch("a style", actor="user:42")
+        # Final step surfaces the duplicate-name error from register_maestro
+        assert "error" in result.text.lower() or "already" in result.text.lower()

@@ -1562,12 +1562,12 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
-## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 + 1.5 DONE)
+## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 + 1.5 + 2 DONE)
 
-**Status:** Phase 1 + 1.5 complete — Phase 2 (interactive `/new maestro`) and
-Phase 3 (autonomous personality generation + cleanup-on-kill) pending.
+**Status:** Phase 1 + 1.5 + 2 complete — Phase 3 (autonomous personality
+generation + cleanup-on-kill) pending.
 **Branch:** `feat-entity-identity` → main
-**Totals:** 551 → 605 tests (+54). No migrations.
+**Totals:** 551 → 615 tests (+64). No migrations.
 
 **Goal**: fix the `dev.mdcount` bug where leads hallucinated worker
 names (emitting `{"lead": "maestro", ...}` because the prompt told them
@@ -1664,11 +1664,63 @@ same pattern to `spawn_worker`:
   qa workers now` should now register `dev.smoke.backend` and
   `dev.smoke.qa` (no more `denied: ... -> lead`).
 
-### Out of scope (deferred to Phase 2/3)
-- Phase 2: interactive `/new maestro` flow with conversation-state
-  handler that asks the user for purpose, repo, style, model,
-  generates the personality MD via a Claude call.
-- Phase 3: maestros/leads emit `display_name` + `personality` in
+### Phase 2 — Interactive `/new maestro` flow (2026-05-02)
+
+**Why this exists.** Before this change, `/new maestro <name>` failed
+loudly when the personality file was missing — users had to hand-author
+markdown before registering. Phase 2 turns the missing-file branch
+into a guided multi-turn Q&A: the dispatcher asks for purpose and
+communication style, then renders a templated `personalities/<name>.md`
+and registers the maestro.
+
+**Scope decision: templated, not LLM-authored (yet).** The original plan
+called for a Claude call ("personality-author" system prompt) to
+elaborate the user's answers into the markdown. We shipped the
+deterministic templated version instead: it's fully testable, ships
+faster, and the markdown structure already mirrors `_template.md` so
+`parse_personality` reads it. **LLM-authored generation is deferred to
+Phase 2.5** and can be added by replacing `_render_personality_md`
+with a Claude call without touching the conversation-state machine.
+
+**Locked decisions (Phase 2)**
+- **In-memory state on the dispatcher**, keyed by `actor`. No separate
+  module — it's a simple `dict[str, _PendingNewMaestro]` on the
+  CommandDispatcher instance. Per-actor isolation lets multiple users
+  run flows concurrently. (Single-process service, single-user Max
+  plan — survives restart isn't required for v1.)
+- **Hooked in `dispatch()` only** — the single chokepoint between
+  parsed-text surfaces (web + telegram) and `dispatch_command()`. No
+  changes needed to either bridge: both already go through `dispatch()`.
+- **Slash commands cancel the flow.** A pending flow + `/cancel` aborts
+  with no side effects; any other slash command cancels and then
+  executes the new command. Plain text is interpreted as the next
+  answer.
+- **10-minute inactivity timeout** so abandoned flows don't trap an
+  actor's plain text. Expiry is checked on each dispatch, not by a
+  background reaper.
+- **File model overrides CLI model.** When a personality file already
+  exists, its `**Model**` field is authoritative and the CLI arg is
+  ignored — matches the existing `/personality reload` semantics.
+  When the file doesn't exist (flow path), the CLI arg is the seed for
+  the freshly-written file.
+
+**Files changed (Phase 2)**
+
+| File | Change |
+|------|--------|
+| `src/hive/commands/dispatch.py` | `CommandDispatcher.__init__` accepts `personalities_dir` (default `Path("personalities")`). New `_pending_new` dict + `_PendingNewMaestro` dataclass + `_NEW_MAESTRO_QUESTIONS`. `dispatch()` intercepts plain text from actors with active pending state. `_execute_new` starts the flow when no file exists. New `_advance_new_flow`, `_finalize_new_maestro`, module-level `_render_personality_md`. |
+| `tests/test_command_dispatcher.py` | Existing /new tests adapted to pre-create personality files (file-exists branch). New `TestNewMaestroInteractiveFlow` (9 tests) covers first-question, plain-text-advances, full-flow-writes-and-registers, explicit-model-via-flow, /cancel, other-command-cancels, per-actor isolation, timeout, and graceful name-conflict. |
+
+**Verification (Phase 2)**
+- `pytest -q` → **615 passing** (+10 over Phase 1.5).
+- Live: `/new maestro pa` (no `personalities/pa.md`) → walks the user
+  through both questions, writes `personalities/pa.md`, registers `pa`.
+  `/api/org` shows the new maestro.
+
+### Out of scope (deferred)
+- **Phase 2.5**: replace `_render_personality_md` with a Claude call so
+  the generated MD is richer than the deterministic template.
+- **Phase 3**: maestros/leads emit `display_name` + `personality` in
   `<hive_actions>` spawn calls; `process_manager` writes
   `personalities/<dotted.name>.md` with `auto_generated: true`
   frontmatter; `kill_entity` deletes auto-generated files only.
