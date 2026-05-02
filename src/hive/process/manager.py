@@ -550,10 +550,7 @@ class ProcessManager:
                         await self._audit(
                             "entity.spawn_worker_denied",
                             target=None,
-                            details={
-                                "reason": "missing_lead_for_maestro",
-                                "role": entity.role,
-                            },
+                            details={"reason": "missing_lead", "role": entity.role},
                             actor=entity_name,
                         )
                         continue

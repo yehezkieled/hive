@@ -997,7 +997,7 @@ class TestAutonomousDispatch:
             denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
             assert len(denied) == 1
             assert denied[0]["actor"] == "dev"
-            assert denied[0]["details"]["reason"] == "missing_lead_for_maestro"
+            assert denied[0]["details"]["reason"] == "missing_lead"
         finally:
             await mgr.kill_all()
 

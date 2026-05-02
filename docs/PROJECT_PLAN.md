@@ -1562,12 +1562,12 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
-## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 DONE)
+## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 + 1.5 DONE)
 
-**Status:** Phase 1 complete — Phase 2 (interactive `/new maestro`) and
+**Status:** Phase 1 + 1.5 complete — Phase 2 (interactive `/new maestro`) and
 Phase 3 (autonomous personality generation + cleanup-on-kill) pending.
 **Branch:** `feat-entity-identity` → main
-**Totals:** 551 → 603 tests (+52). No migrations.
+**Totals:** 551 → 605 tests (+54). No migrations.
 
 **Goal**: fix the `dev.mdcount` bug where leads hallucinated worker
 names (emitting `{"lead": "maestro", ...}` because the prompt told them
@@ -1621,6 +1621,48 @@ personalities.
   `/t:dev.mdcount please spawn your backend and qa workers now` —
   expect journal to show `dev.mdcount.backend` and `dev.mdcount.qa`
   registered, no `denied: dev.mdcount -> maestro`.
+
+### Phase 1.5 — Protocol fix: drop required `lead` field (2026-05-02)
+
+**Why this exists.** Phase 1's identity preamble plus the
+placeholder-substitution warning *should* have been enough to fix the
+`{"lead": "maestro"}` bug. It wasn't. Live demo (`/t:dev.smoke …`)
+showed leads now emit `{"lead": "lead"}` — they pattern-match on the
+JSON field name **`lead`** itself, so whatever the prompt says about
+substitution gets overridden by the LLM picking the strongest nearby
+token (the field name).
+
+**The fix.** Stop asking the lead to repeat a value the orchestrator
+already knows. `spawn_team` already does this right — the maestro
+doesn't include its own name, the orchestrator infers it. Apply the
+same pattern to `spawn_worker`:
+
+- `lead` is now **optional** in the action protocol.
+- When omitted, the manager fills it from the actor: a lead spawns
+  under itself; a maestro is rejected (the orchestrator can't guess
+  which team the maestro means).
+- `role-lead.md` updated to explicitly tell leads **not** to include
+  the `lead` field.
+- `personalities/role-lead.md`'s spawn-action schema removes the
+  `<full.lead.name>` placeholder. Identity preamble drops the
+  placeholder-substitution warning (no placeholder to substitute).
+
+**Files changed (Phase 1.5)**
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/actions.py` | `_SPAWN_WORKER_REQUIRED` now empty; parser accepts `spawn_worker` with no `lead` field. Module docstring updated. |
+| `src/hive/process/manager.py` | Dispatch fills `action.lead = entity.name` for leads when missing; rejects + audits `entity.spawn_worker_denied{reason="missing_lead"}` for maestros that omit it. |
+| `src/hive/models/entity.py` | Identity preamble simplified — drops placeholder-substitution warning since `role-lead.md` no longer has one. |
+| `personalities/role-lead.md` | spawn_worker schema documents no `lead` field; explicit "do not include `lead`" instruction. |
+| `tests/test_actions.py` | Replaced `test_spawn_worker_missing_lead_skipped` with two tests asserting `lead` is optional and parses to `None`. |
+| `tests/test_process_manager.py` | Two new dispatch tests: lead-omits-lead spawns under self; maestro-omits-lead is denied + audited with reason `missing_lead`. |
+
+**Verification (Phase 1.5)**
+- `pytest -m "not integration" -q` → **605 passing** (+2).
+- Live demo (after deploy): `/t:dev.smoke please spawn your backend and
+  qa workers now` should now register `dev.smoke.backend` and
+  `dev.smoke.qa` (no more `denied: ... -> lead`).
 
 ### Out of scope (deferred to Phase 2/3)
 - Phase 2: interactive `/new maestro` flow with conversation-state
