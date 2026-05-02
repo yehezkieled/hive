@@ -1296,3 +1296,63 @@ class TestIdleKill:
         assert len(channel.messages) == 1
         assert "worker" in channel.messages[0]
         assert "inactive" in channel.messages[0]
+
+
+class TestIdleCheckerExemptsAllMaestros:
+    """Regression: idle_checker must dynamically exempt every live maestro,
+    not only the default one. Otherwise newly-spawned maestros (e.g. ``hive_dev``)
+    get reaped after 30 minutes idle even though the user has not asked.
+    """
+
+    async def test_all_maestros_in_exempt_set(self, manager: ProcessManager) -> None:
+        """Run one tick of idle_checker and assert every Maestro is exempt while
+        non-maestro entities are eligible for killing.
+        """
+        import asyncio as _asyncio
+
+        from hive.__main__ import idle_checker
+
+        idle_ts = datetime.now(UTC) - timedelta(minutes=60)
+
+        default_maestro = Maestro(name="dev", model="opus")
+        default_maestro.last_activity_at = idle_ts
+        manager._entities["dev"] = default_maestro
+        manager.router.register("dev")
+
+        new_maestro = Maestro(name="hive_dev", model="opus")
+        new_maestro.last_activity_at = idle_ts
+        manager._entities["hive_dev"] = new_maestro
+        manager.router.register("hive_dev")
+
+        worker = Entity(name="worker_1", role="worker")
+        worker.last_activity_at = idle_ts
+        manager._entities["worker_1"] = worker
+        manager.router.register("worker_1")
+
+        captured: dict[str, set[str]] = {}
+        stop_event = _asyncio.Event()
+
+        async def spy_kill(timeout, exempt_names=None):
+            captured["exempt"] = set(exempt_names or set())
+            stop_event.set()  # break out of the loop after one pass
+            return []
+
+        # Skip the 5-minute sleep — first wait_for raises TimeoutError so the kill
+        # branch fires, the spy stops the loop, and the second wait_for sees
+        # stop_event already set and returns normally so the loop exits cleanly.
+        async def fake_wait_for(coro, timeout):
+            t = _asyncio.create_task(coro)
+            t.cancel()
+            try:
+                await t
+            except _asyncio.CancelledError:
+                pass
+            if not stop_event.is_set():
+                raise TimeoutError
+            return True
+
+        with patch.object(manager, "kill_idle_entities", side_effect=spy_kill):
+            with patch("hive.__main__.asyncio.wait_for", side_effect=fake_wait_for):
+                await idle_checker(manager, "dev", stop_event)
+
+        assert captured["exempt"] == {"dev", "hive_dev"}

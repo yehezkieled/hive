@@ -45,6 +45,7 @@ from hive.config import (
     WEB_PORT,
 )
 from hive.knowledge.blueprints import BlueprintStore
+from hive.models.maestro import Maestro
 from hive.notifications import EmailDigest, NotificationDispatcher
 from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
@@ -57,7 +58,7 @@ async def idle_checker(
     default_maestro: str,
     stop_event: asyncio.Event,
 ) -> None:
-    """Background task: kill entities idle beyond the configured timeout."""
+    """Background task: kill idle workers/teams. Maestros are never auto-killed."""
     while not stop_event.is_set():
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=300)
@@ -65,9 +66,14 @@ async def idle_checker(
         except TimeoutError:
             pass  # 5 minutes elapsed, do the check
         try:
+            maestro_names = {
+                name
+                for name, entity in process_manager.entities.items()
+                if isinstance(entity, Maestro)
+            }
             killed = await process_manager.kill_idle_entities(
                 IDLE_TIMEOUT_MINUTES,
-                exempt_names={default_maestro},
+                exempt_names=maestro_names,
             )
             if killed:
                 logger.info("Auto-killed idle entities: %s", killed)
