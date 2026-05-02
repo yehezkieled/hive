@@ -228,8 +228,7 @@ class TestSpawnWorkerAction:
 
     def test_spawn_worker_lead_optional_with_worker_name(self) -> None:
         text = (
-            '<hive_actions>\n[{"type": "spawn_worker", "worker_name": "backend"}]\n'
-            "</hive_actions>"
+            '<hive_actions>\n[{"type": "spawn_worker", "worker_name": "backend"}]\n</hive_actions>'
         )
         _, actions = parse_actions(text)
         assert len(actions) == 1

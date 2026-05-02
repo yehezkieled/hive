@@ -950,9 +950,7 @@ class TestAutonomousDispatch:
 
         assert manager._last_spawned_workers == []
 
-    async def test_lead_spawn_worker_no_lead_field_uses_self(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_lead_spawn_worker_no_lead_field_uses_self(self, manager: ProcessManager) -> None:
         """Lead emits spawn_worker with no `lead` field → spawns under itself.
 
         The lead can't reliably emit its own dotted name as a JSON value
