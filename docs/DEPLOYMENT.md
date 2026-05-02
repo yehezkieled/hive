@@ -491,6 +491,14 @@ to `spawn_team`, `spawn_worker`, `kill_entity`, or do nothing, emitting
 its decision as a `<hive_actions>` block. The orchestrator is a dumb
 facts pipe; allocation policy lives in the maestro's prompt.
 
+> **Sprint 22 Phase 3:** maestros and leads can include `display_name`
+> and `personality` fields on `spawn_team`/`spawn_worker` actions.
+> When both are present, the orchestrator writes
+> `personalities/<dotted.name>.md` with `auto_generated: true` YAML
+> frontmatter so the freshly-spawned entity loads it on its next
+> eval. On `kill_entity`, only files carrying that frontmatter are
+> deleted — user-authored personality files are always preserved.
+
 Workers can now message their lead too — they get a role JD loaded
 from `personalities/role-worker.md` and emit `<hive_actions>` to
 report progress or escalate. Permission gates already restrict who

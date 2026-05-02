@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from hive.bus.actions import parse_actions
+from hive.bus.actions import Action, parse_actions
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
@@ -27,7 +27,12 @@ from hive.config import (
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import generate_mcp_config
-from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
+from hive.models.entity import (
+    DANGEROUS_MODES,
+    Entity,
+    EntityState,
+    is_auto_generated_personality,
+)
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import WorkerAgent
@@ -36,6 +41,35 @@ from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
 
 logger = logging.getLogger(__name__)
+
+
+def _render_auto_personality(
+    *,
+    entity_name: str,
+    role: str,
+    model: str,
+    display_name: str,
+    personality: str,
+) -> str:
+    """Render the markdown body for an auto-generated personality file.
+
+    Frontmatter ``auto_generated: true`` is the cleanup signal — only
+    files with this flag are deleted on kill. User-authored files (no
+    frontmatter) are always preserved.
+    """
+    return (
+        "---\n"
+        "auto_generated: true\n"
+        "---\n"
+        f"# Entity: {display_name}\n\n"
+        "## Identity\n"
+        f"- **Name**: {entity_name}\n"
+        f"- **Role**: {role}\n"
+        f"- **Model**: {model}\n\n"
+        "## System Prompt\n"
+        f"You are {display_name}.\n\n"
+        f"{personality}\n"
+    )
 
 
 class ProcessManager:
@@ -54,6 +88,7 @@ class ProcessManager:
         mode_request_store: ModeRequestStore | None = None,
         task_store: TaskStore | None = None,
         notification_dispatcher: NotificationDispatcher | None = None,
+        personalities_dir: Path | None = None,
     ) -> None:
         self.router = router
         self.worktree_mgr = worktree_mgr
@@ -66,6 +101,7 @@ class ProcessManager:
         self.mode_request_store = mode_request_store
         self.task_store = task_store
         self.notification_dispatcher = notification_dispatcher
+        self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
         self._last_routed_actions: list[str] = []
@@ -135,6 +171,61 @@ class ProcessManager:
             )
         except Exception:
             logger.exception("Failed to record token usage for %s", entity.name)
+
+    def _personality_path(self, entity_name: str) -> Path:
+        return self.personalities_dir / f"{entity_name}.md"
+
+    def _maybe_write_auto_personality(
+        self,
+        *,
+        entity_name: str,
+        role: str,
+        model: str,
+        display_name: str | None,
+        personality: str | None,
+    ) -> Path | None:
+        """Write an auto-generated personality file when both fields present.
+
+        Pair-or-nothing: missing either field skips the write entirely.
+        Existing files are never overwritten — user-authored files are
+        protected, and re-spawning under the same name is a no-op.
+
+        Returns the path that was written, or ``None`` if no file was
+        created (pair incomplete, file already existed, or write failed).
+        """
+        if not display_name or not personality:
+            return None
+        path = self._personality_path(entity_name)
+        if path.exists():
+            logger.info("Skipping auto personality write — file exists at %s", path)
+            return None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                _render_auto_personality(
+                    entity_name=entity_name,
+                    role=role,
+                    model=model,
+                    display_name=display_name,
+                    personality=personality,
+                )
+            )
+            logger.info("Wrote auto personality file: %s", path)
+            return path
+        except OSError:
+            logger.exception("Failed to write personality file %s", path)
+            return None
+
+    def _maybe_delete_auto_personality(self, entity_name: str) -> None:
+        """Delete the personality file if it exists and is auto-generated."""
+        path = self._personality_path(entity_name)
+        if not is_auto_generated_personality(path):
+            return
+        try:
+            path.unlink()
+            logger.info("Deleted auto personality file: %s", path)
+        except OSError:
+            logger.exception("Failed to delete personality file %s", path)
 
     @property
     def entities(self) -> dict[str, Entity]:
@@ -443,6 +534,21 @@ class ProcessManager:
 
         # --- Phase 3: parse and route actions from response ---
         clean_text, actions = parse_actions(response)
+        return await self._handle_actions(entity_name, clean_text, actions)
+
+    async def _handle_actions(
+        self, entity_name: str, clean_text: str, actions: list[Action]
+    ) -> str:
+        """Route parsed actions to the appropriate handlers.
+
+        Extracted from ``send_to_entity`` so tests can drive the
+        dispatch loop directly without going through a real Claude
+        subprocess.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            return clean_text
+
         self._last_routed_actions = []
         self._last_mode_requests = []
         self._last_failure_reports = []
@@ -520,6 +626,8 @@ class ProcessManager:
                         entity_name,
                         action.team_name,
                         model=action.model or "sonnet",
+                        display_name=action.display_name,
+                        personality=action.personality,
                     )
                     self._last_spawned_teams.append(lead.name)
                     if self.scheduler is not None:
@@ -580,6 +688,8 @@ class ProcessManager:
                         action.lead,
                         worker_name=action.worker_name,
                         task_id=action.task_id,
+                        display_name=action.display_name,
+                        personality=action.personality,
                     )
                     self._last_spawned_workers.append(worker.name)
                     if self.scheduler is not None:
@@ -622,13 +732,22 @@ class ProcessManager:
         return clean_text
 
     async def create_team(
-        self, maestro_name: str, team_name: str, model: str = "sonnet"
+        self,
+        maestro_name: str,
+        team_name: str,
+        model: str = "sonnet",
+        display_name: str | None = None,
+        personality: str | None = None,
     ) -> TeamLead:
         """Create a new team under a maestro.
 
         Registers a TeamLead entity named ``maestro.team``. The lead is
         not spawned as a subprocess — it stays IDLE until someone sends
         it a message via send_to_entity.
+
+        If both ``display_name`` and ``personality`` are provided and no
+        file exists at the target path, an auto-generated personality
+        file is written. Pair-or-nothing: either both fields or neither.
         """
         entity = self._entities.get(maestro_name)
         if entity is None:
@@ -650,6 +769,16 @@ class ProcessManager:
 
         self._entities[lead_name] = lead
         self.router.register(lead_name)
+        written_path = self._maybe_write_auto_personality(
+            entity_name=lead_name,
+            role="lead",
+            model=model,
+            display_name=display_name,
+            personality=personality,
+        )
+        if written_path is not None:
+            lead.personality_path = written_path
+            lead.load_personality()
         await self._persist(lead)
         await self._audit(
             "entity.create_team",
@@ -664,12 +793,18 @@ class ProcessManager:
         lead_name: str,
         worker_name: str | None = None,
         task_id: int | None = None,
+        display_name: str | None = None,
+        personality: str | None = None,
     ) -> WorkerAgent:
         """Spawn a worker under a team lead.
 
         If worker_name is None, auto-generates ``w1``, ``w2``, etc.
         The worker is registered but not spawned as a subprocess — it
         stays IDLE until work is assigned via send_to_entity.
+
+        If both ``display_name`` and ``personality`` are provided and no
+        file exists at the target path, an auto-generated personality
+        file is written. Pair-or-nothing: either both fields or neither.
         """
         lead = self._entities.get(lead_name)
         if lead is None:
@@ -720,6 +855,16 @@ class ProcessManager:
 
         self._entities[full_name] = worker
         self.router.register(full_name)
+        written_path = self._maybe_write_auto_personality(
+            entity_name=full_name,
+            role="worker",
+            model=lead.model,
+            display_name=display_name,
+            personality=personality,
+        )
+        if written_path is not None:
+            worker.personality_path = written_path
+            worker.load_personality()
         await self._persist(worker)
         await self._audit(
             "entity.spawn_worker",
@@ -749,7 +894,14 @@ class ProcessManager:
         logger.info("Killed team %s under maestro %s", team_name, maestro_name)
 
     async def kill_entity(self, name: str) -> None:
-        """Kill an entity's subprocess and clean up."""
+        """Kill an entity's subprocess and clean up.
+
+        If a personality file exists for this entity and was auto-generated
+        (frontmatter ``auto_generated: true``), it is deleted. User-authored
+        files are always preserved.
+        """
+        self._maybe_delete_auto_personality(name)
+
         session = self._sessions.get(name)
         if session:
             await session.kill()

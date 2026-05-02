@@ -108,6 +108,37 @@ def parse_personality(path: Path) -> PersonalityConfig:
     )
 
 
+_AUTO_GENERATED_FRONTMATTER = re.compile(
+    r"^---\s*\n(.*?)\n---\s*\n",
+    re.DOTALL,
+)
+
+
+def is_auto_generated_personality(path: Path) -> bool:
+    """True if the file has a YAML frontmatter block with auto_generated: true.
+
+    Used by ``kill_entity`` to decide whether the personality file at
+    this path was authored by the system (safe to delete) or by the
+    user (must be preserved). Missing files return False — there's
+    nothing to delete.
+    """
+    if not path.exists():
+        return False
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    match = _AUTO_GENERATED_FRONTMATTER.match(text)
+    if not match:
+        return False
+    body = match.group(1)
+    for line in body.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip().lower() == "auto_generated":
+            return value.strip().lower() == "true"
+    return False
+
+
 PERMISSION_MODES: dict[str, str] = {
     "plan": "plan",
     "edit": "default",

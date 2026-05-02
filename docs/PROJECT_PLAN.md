@@ -1562,12 +1562,12 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
-## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 + 1.5 + 2 DONE)
+## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 + 1.5 + 2 + 3 DONE)
 
-**Status:** Phase 1 + 1.5 + 2 complete — Phase 3 (autonomous personality
-generation + cleanup-on-kill) pending.
+**Status:** All four phases complete on the worktree branch
+`feat-entity-identity`; awaiting deploy + live verification.
 **Branch:** `feat-entity-identity` → main
-**Totals:** 551 → 615 tests (+64). No migrations.
+**Totals:** 551 → 638 tests (+87). No migrations.
 
 **Goal**: fix the `dev.mdcount` bug where leads hallucinated worker
 names (emitting `{"lead": "maestro", ...}` because the prompt told them
@@ -1717,13 +1717,79 @@ with a Claude call without touching the conversation-state machine.
   through both questions, writes `personalities/pa.md`, registers `pa`.
   `/api/org` shows the new maestro.
 
+### Phase 3 — Autonomous personality generation + cleanup-on-kill (2026-05-02)
+
+**Why this exists.** Phases 1–2 made identity reliable for human-named
+entities. Phase 3 closes the loop for entities the orchestrator spawns
+autonomously: the parent (maestro for teams, lead for workers) supplies
+a `display_name` + `personality` blurb in its `<hive_actions>` block,
+and the `ProcessManager` writes a personality file *and immediately
+loads it into the freshly-spawned entity*, so the very next CLI args
+include the personality `--system-prompt` (no manual reload needed).
+Files written by the system carry an `auto_generated: true` YAML
+frontmatter so `kill_entity` knows it can delete them on cleanup.
+User-authored files (no frontmatter) are always preserved.
+
+**Locked decisions (Phase 3)**
+- **Pair-or-nothing.** Both `display_name` AND `personality` must be
+  present for a file to be written; missing either is treated the same
+  as missing both (the entity still spawns, just without a generated
+  personality file). Rationale: writing a stub with only one of the
+  two yields a half-formed identity that's worse than no file. Diverges
+  from the original plan ("write a minimal stub when fields missing")
+  — locked to keep disk clean and behaviour predictable.
+- **Don't-clobber.** If a file already exists at the target path, the
+  spawn never overwrites it. First parent wins, and any user-authored
+  file at that path is permanently safe. Verified by a dedicated test
+  that pre-writes a user-authored file and asserts both spawn and kill
+  leave it untouched.
+- **Frontmatter format**: `---\nauto_generated: true\n---\n` at the
+  top of file, then standard `_template.md`-style sections. The
+  existing `parse_personality` regex matches `## ` section headers
+  and is unaffected by leading frontmatter (verified by test).
+- **Helper, not extension.** `is_auto_generated_personality(path)` is
+  a separate pure function in `entity.py`; `PersonalityConfig` does
+  not gain an `auto_generated` field because only `kill_entity` cares.
+- **Dispatch loop extraction.** The action-routing tail of
+  `send_to_entity` extracted into `_handle_actions(entity_name,
+  clean_text, actions)`, so lifecycle tests can drive the full
+  parser→dispatch→manager path without spawning a Claude subprocess.
+- **Load-after-write.** When `_maybe_write_auto_personality` writes a
+  file, `create_team`/`spawn_worker` set `entity.personality_path` to
+  the written path and call `entity.load_personality()` before
+  `_persist`, so the persisted row reflects the loaded state and the
+  next `build_cli_args()` injects the `--system-prompt` flag. Without
+  this, the file would sit on disk inert until a manual
+  `/personality reload` and the role JD's "identity from birth"
+  guarantee would be false.
+
+**Files changed (Phase 3)**
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/actions.py` | `Action` gains `display_name` and `personality` (both `str | None`). Parser populates them on `spawn_team` and `spawn_worker`. |
+| `src/hive/models/entity.py` | New `is_auto_generated_personality(path)` helper — returns True iff the file's first frontmatter block contains `auto_generated: true`. |
+| `src/hive/process/manager.py` | `__init__` accepts `personalities_dir` (default `Path("personalities")`). New `_render_auto_personality` (module-level), `_personality_path`, `_maybe_write_auto_personality` (returns the written `Path` or `None`), `_maybe_delete_auto_personality`. `create_team` and `spawn_worker` accept and forward the new fields, set `entity.personality_path` and call `entity.load_personality()` when a file was written, and persist after the load. `kill_entity` deletes the file iff auto-generated. Action dispatch loop extracted into `_handle_actions(entity_name, clean_text, actions: list[Action])` and forwards `action.display_name`/`action.personality`. |
+| `personalities/role-maestro.md` | Added a fully worked `spawn_team` example with concrete `display_name`/`personality` values and an explicit pair-or-nothing note. |
+| `personalities/role-lead.md` | Same for `spawn_worker`. |
+| `tests/test_actions.py` | Four new parser tests across `spawn_team` and `spawn_worker`. |
+| `tests/test_personality_lifecycle.py` (new) | 19 tests covering the helper, frontmatter compatibility with `parse_personality`, write-on-spawn (pair-or-nothing + don't-clobber), in-memory load-after-write for both `create_team` and `spawn_worker` (and the no-load case when the pair is incomplete), kill cleanup, cascading kill via `kill_team`, and wire-through from parsed action to manager call (file write **and** in-memory load). |
+
+**Verification (Phase 3)**
+- `pytest -q` → **638 passing** (+23 over Phase 2).
+- Live: kill `dev.mdcount` (no auto file). Send Dev a fresh task;
+  Dev's reply emits `spawn_team` with `display_name`/`personality`;
+  confirm `personalities/dev.<team>.md` written with frontmatter.
+  Then kill the lead and confirm the file is removed. Spawn another
+  team and pre-write a user file at the target path; confirm both
+  the spawn and a subsequent kill leave it intact.
+
 ### Out of scope (deferred)
 - **Phase 2.5**: replace `_render_personality_md` with a Claude call so
-  the generated MD is richer than the deterministic template.
-- **Phase 3**: maestros/leads emit `display_name` + `personality` in
-  `<hive_actions>` spawn calls; `process_manager` writes
-  `personalities/<dotted.name>.md` with `auto_generated: true`
-  frontmatter; `kill_entity` deletes auto-generated files only.
+  the generated MD is richer than the deterministic template. Same
+  hook applies to Phase 3's `_render_auto_personality` — both can be
+  upgraded later by swapping the renderer without touching action
+  parsing or the manager's lifecycle bookkeeping.
 
 ---
 

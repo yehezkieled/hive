@@ -187,6 +187,34 @@ class TestSpawnTeamAction:
         _, actions = parse_actions(text)
         assert actions == []
 
+    def test_spawn_team_with_display_name_and_personality(self) -> None:
+        """Phase 3: maestros pass display_name + personality blurb when spawning.
+
+        These fields drive the auto-generated personality file written
+        by the manager. Both are optional; default behavior unchanged
+        when missing.
+        """
+        text = (
+            "<hive_actions>\n"
+            "["
+            '{"type": "spawn_team", "team_name": "backend", '
+            '"display_name": "Backend Eve", '
+            '"personality": "Methodical, prefers TDD, runs tight ship."}'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].display_name == "Backend Eve"
+        assert actions[0].personality == "Methodical, prefers TDD, runs tight ship."
+
+    def test_spawn_team_default_display_name_and_personality_none(self) -> None:
+        """When omitted, both fields default to None (same as model)."""
+        text = '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert actions[0].display_name is None
+        assert actions[0].personality is None
+
 
 class TestSpawnWorkerAction:
     """Test parsing spawn_worker actions (Sprint 19)."""
@@ -244,6 +272,29 @@ class TestSpawnWorkerAction:
         _, actions = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].task_id is None
+
+    def test_spawn_worker_with_display_name_and_personality(self) -> None:
+        """Phase 3: leads pass display_name + personality blurb when spawning workers."""
+        text = (
+            "<hive_actions>\n"
+            "["
+            '{"type": "spawn_worker", '
+            '"display_name": "Migrator Mig", '
+            '"personality": "Cautious, never drops a column."}'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].display_name == "Migrator Mig"
+        assert actions[0].personality == "Cautious, never drops a column."
+
+    def test_spawn_worker_default_display_name_and_personality_none(self) -> None:
+        """When omitted, both fields default to None."""
+        text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
+        _, actions = parse_actions(text)
+        assert actions[0].display_name is None
+        assert actions[0].personality is None
 
 
 class TestKillEntityAction:

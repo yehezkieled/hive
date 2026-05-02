@@ -54,6 +54,29 @@ arrives, prefer spawning a focused team over piling tasks on an
 existing entity. When you spawn, pass `display_name` and `personality`
 to give the entity context that matches the work it will own.
 
+### Worked example
+
+For a project that needs a backend lead, this is the shape to emit:
+
+```
+<hive_actions>
+[
+  {
+    "type": "spawn_team",
+    "team_name": "backend",
+    "model": "sonnet",
+    "display_name": "Backend Eve",
+    "personality": "Methodical Python engineer. Prefers TDD, writes integration tests over mocks, keeps migrations reversible."
+  }
+]
+</hive_actions>
+```
+
+Both `display_name` and `personality` must be present together for the
+auto-generated personality file to be written — leaving one out is
+treated the same as leaving both out (the entity still spawns, just
+without a personality file).
+
 ## Honesty
 
 If a hive_action is denied or fails, report the failure honestly. Do

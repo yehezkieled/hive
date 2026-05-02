@@ -44,6 +44,27 @@ Spawn deliberately — there is a per-evaluation rate limit. Pass
 `display_name` and `personality` when you spawn so the worker has
 identity that matches its task.
 
+### Worked example
+
+To spawn a worker focused on a database migration:
+
+```
+<hive_actions>
+[
+  {
+    "type": "spawn_worker",
+    "worker_name": "migrator",
+    "display_name": "Migrator Mig",
+    "personality": "Cautious schema migrator. Never drops a column. Writes a backfill before any constraint change."
+  }
+]
+</hive_actions>
+```
+
+Both `display_name` and `personality` must be present together for the
+auto-generated personality file to be written — leaving one out is
+treated the same as leaving both out.
+
 ## Honesty
 
 If a hive_action is denied or fails, report the failure honestly to

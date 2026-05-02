@@ -66,6 +66,13 @@ class Action:
     lead: str | None = None
     worker_name: str | None = None
     target: str | None = None
+    # Phase 3 (autonomous personality generation): parents may include a
+    # human-readable label and free-text personality blurb when spawning
+    # a team or worker. Only used to write the auto-generated personality
+    # file — both fields must be present together for the file to be
+    # written (pair-or-nothing).
+    display_name: str | None = None
+    personality: str | None = None
 
 
 def parse_actions(response: str) -> tuple[str, list[Action]]:
@@ -155,6 +162,8 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
                     type=atype,
                     team_name=item["team_name"],
                     model=item.get("model"),
+                    display_name=item.get("display_name"),
+                    personality=item.get("personality"),
                 )
             )
             continue
@@ -172,6 +181,8 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
                     lead=item.get("lead"),
                     worker_name=item.get("worker_name"),
                     task_id=task_id_val,
+                    display_name=item.get("display_name"),
+                    personality=item.get("personality"),
                 )
             )
             continue
