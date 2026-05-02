@@ -125,9 +125,7 @@ class TestDualWriteSuppression:
     def test_routed_result_skips_log_message(self, monkeypatch) -> None:
         monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
         dispatcher = MagicMock()
-        dispatcher.dispatch = AsyncMock(
-            return_value=CommandResult(text="hi from dev", routed=True)
-        )
+        dispatcher.dispatch = AsyncMock(return_value=CommandResult(text="hi from dev", routed=True))
         store = self._store()
         client = TestClient(
             create_app(
@@ -148,9 +146,7 @@ class TestDualWriteSuppression:
         """Non-routing commands like /help have no entity round-trip — still log."""
         monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
         dispatcher = MagicMock()
-        dispatcher.dispatch = AsyncMock(
-            return_value=CommandResult(text="help text", routed=False)
-        )
+        dispatcher.dispatch = AsyncMock(return_value=CommandResult(text="help text", routed=False))
         store = self._store()
         client = TestClient(
             create_app(
