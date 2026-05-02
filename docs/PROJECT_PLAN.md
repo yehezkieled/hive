@@ -1562,6 +1562,57 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 21 — Restart Persistence (planned)
+
+**Status:** Planned
+**Branch:** `sprint-21-restart-persistence` (not yet cut)
+**Builds on:** Sprint 19 (autonomous spawn/kill, entity store), Sprint 20 (dashboard read paths).
+
+**Goal**: every entity that exists before `systemctl restart hive.service` comes back after restart with the same role, model, hierarchy, and session id, in IDLE state ready to accept the next message. `/kill foo` continues to hard-delete (intentional user action); shutdown does not.
+
+### Why
+
+The plumbing is 90% there:
+
+- `entity_store.all()` already restores entities on boot (`__main__.py:204-209`).
+- `process_manager.rebuild_hierarchy()` reconnects maestro → lead → worker links (`manager.py:1169-1206`).
+- `entity.session_id` already persists, so multi-turn Claude conversations resume on the next message via `claude --resume <session_id>`.
+- All other tabs already persist (DB-backed): Tasks, Audit, Vault, Blueprints, Attachments, Mode requests, Token usage, Dashboard widgets (derived from those tables).
+
+The break: `__main__.py:347` calls `process_manager.kill_all()` on shutdown, which calls `kill_entity()` per entity, which deletes the row from `entities` (`manager.py:771`). So every restart wipes the registry; only `dev` re-appears because `__main__.py:213-220` re-registers it from scratch. This sprint splits "shutdown" from "kill" so the row is preserved across a restart.
+
+### Phases (planned)
+
+**Phase 1. Split shutdown from kill.** Add `process_manager.stop_all()` that terminates subprocesses and marks each entity `STOPPED` but does NOT delete from `entity_store`. `kill_entity()` keeps its current hard-delete semantics. `__main__.py:347` switches from `kill_all()` to `stop_all()`. Factor a private `_stop_subprocess(name)` helper so `stop_all` and `kill_entity` share the subprocess-teardown half but only `kill_entity` deletes the DB row.
+
+**Phase 2. Boot path: idle, not running.** Restored entities come back as IDLE (`process_manager.restore` at `manager.py:1151-1167` already does this). Subprocess re-spawn stays lazy — first message routed to the entity triggers `_send_to_entity` → `_ensure_session()` → `claude --resume <session_id>` using the persisted session id. No eager spawn; saves cost when a maestro is idle through a deploy.
+
+**Phase 3. Edge cases.** Stale session id → fall back to fresh session, log a warning, audit `entity.session_reset`. Worker worktree gone but row exists → recreate on first message. Audit log: shutdown emits `entity.stop` (vs. today's `entity.kill`); restart emits `entity.restore`.
+
+### Critical files
+
+**Created**: none.
+**Edited**:
+- `src/hive/process/manager.py` — add `stop_all()` and `_stop_subprocess()`, refactor `kill_entity` to delegate.
+- `src/hive/__main__.py` — line 347 `kill_all()` → `stop_all()`.
+- `tests/test_process_manager.py` — restart-persistence integration tests (see below).
+
+### Verification
+
+1. `pytest tests/ -q` — all passing including new restart-persistence tests:
+   - register dev + maestro `foo`. `stop_all()`. Confirm both rows still in DB. Re-instantiate the manager from `entity_store.all()`. Confirm both back as IDLE with their original models and session ids.
+   - Full hierarchy: maestro + lead + worker. `stop_all()`, restore, `rebuild_hierarchy()`. Confirm hierarchy intact.
+   - Regression: `/kill foo` still deletes the row.
+2. End-to-end: `/new maestro testbot` → `/status` shows `testbot, dev` → `systemctl --user restart hive.service` → `/status` still shows `testbot, dev` → send `testbot ping`, reply uses the resumed session → `/kill testbot` → restart → `/status` shows `dev` only.
+3. Other tabs (Projects, Dashboard, Knowledge, Tasks, Vault) remain populated across the restart. These already persist; this sprint adds a regression test confirming so.
+
+### Out of scope (deferred to Sprint 22+)
+
+- In-flight messages in `router.MessageQueue` (volatile `asyncio.Queue`) — dropped on shutdown today; a restart-persistent message queue is its own sprint.
+- Hot reattach of an actively-running Claude subprocess. The subprocess exits on stop; conversation context resumes via `--resume` on the next message. Live attach (no re-spawn) would need IPC + PID handoff and is not required for the user's "2 maestros come back as 2 maestros" goal.
+
+---
+
 ## Sprint 20 — Dashboard Tab (2026-05-01, DONE)
 
 **Status:** Complete
