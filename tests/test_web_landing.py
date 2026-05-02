@@ -41,6 +41,14 @@ class TestLandingPage:
         assert resp.status_code == 200
         assert "text/css" in resp.headers["content-type"]
 
+    def test_help_rail_markup_present(self) -> None:
+        client = _client()
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert 'id="help-toggle"' in resp.text
+        assert 'id="help-rail"' in resp.text
+        assert 'id="help-rail-body"' in resp.text
+
 
 class TestFragmentEndpoints:
     def test_hero_fragment(self) -> None:

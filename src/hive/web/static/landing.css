@@ -274,6 +274,28 @@ body {
   color: var(--ink);
   letter-spacing: -0.2px;
 }
+.chat-rail__help-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink-3);
+  border: 1px solid var(--rule-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.chat-rail__help-btn:hover {
+  background: var(--honey-soft);
+  color: var(--ink);
+  border-color: var(--honey);
+}
 .chat-rail__meta {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -705,6 +727,98 @@ body {
   padding: 0 2px;
 }
 .composer__attach-chip button:hover { color: var(--ink); }
+
+/* ─── Help rail (commands panel) ─────────────────────────── */
+.help-rail {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-right: 1px solid var(--rule-soft);
+  min-height: 0;
+}
+.help-rail[hidden] { display: none; }
+.help-rail__head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper-soft);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.help-rail__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.2px;
+}
+.help-rail__close {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  border: 1px solid var(--rule-soft);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.help-rail__close:hover {
+  background: var(--honey-soft);
+  color: var(--ink);
+}
+.help-rail__body {
+  overflow-y: auto;
+  padding: 6px 0 12px;
+  flex: 1;
+  min-height: 0;
+}
+.help-rail__category {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--ink-3);
+  padding: 12px 14px 4px;
+}
+.help-rail__cmd {
+  display: grid;
+  grid-template-columns: minmax(0, auto) 1fr;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  padding: 6px 14px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.help-rail__cmd:hover {
+  background: var(--honey-soft);
+}
+.help-rail__usage {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.help-rail__desc {
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.help-rail__cmd:hover .help-rail__desc { color: var(--ink-2); }
 
 /* ─── Hero strip ────────────────────────────────────────── */
 .hero {

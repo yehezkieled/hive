@@ -51,6 +51,8 @@
       <div class="chat-rail__resizer" id="chat-rail-resizer" title="Drag to resize"></div>
       <div class="chat-rail__head">
         <span class="chat-rail__title">Chat</span>
+        <button type="button" class="chat-rail__help-btn" id="help-toggle"
+                aria-label="Toggle help panel" title="Commands">?</button>
         <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
         <span class="chat-rail__head-actions">
           <button class="btn">History</button>
@@ -103,7 +105,7 @@
           </div>
           <div class="composer__row">
             <div class="composer__hints">
-              {% for cmd in ['/help', '/m:dev', '/task', '/status'] %}
+              {% for cmd in ['/m:dev', '/task', '/status'] %}
               <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
               {% endfor %}
             </div>
@@ -126,6 +128,16 @@
           </div>
         </div>
       </form>
+    </aside>
+
+    {# ── Help rail (toggled by ? button) ───────────────────────────────── #}
+    <aside class="help-rail" id="help-rail" hidden>
+      <div class="help-rail__head">
+        <span class="help-rail__title">Commands</span>
+        <button type="button" class="help-rail__close" id="help-close"
+                aria-label="Close help panel">×</button>
+      </div>
+      <div class="help-rail__body" id="help-rail-body"></div>
     </aside>
 
     {# ── Main content ─────────────────────────────────────────────────── #}
@@ -660,6 +672,93 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   document.addEventListener('mousedown', e => {
     if (dropdownOpen && !dropdown.contains(e.target) && e.target !== input)
       closeDropdown();
+  });
+})();
+
+(function initHelpPanel() {
+  const toggleBtn = document.getElementById('help-toggle');
+  const panel     = document.getElementById('help-rail');
+  const body      = document.getElementById('help-rail-body');
+  const closeBtn  = document.getElementById('help-close');
+  const input     = document.getElementById('chat-input');
+  if (!toggleBtn || !panel || !body || !input) return;
+
+  const ALIASES = [
+    {name:'m:', usage:'/m:<maestro> <text>',                  description:'Message a maestro',  category:'Messaging'},
+    {name:'t:', usage:'/t:<maestro>.<team> <text>',           description:'Message a team',     category:'Messaging'},
+    {name:'a:', usage:'/a:<maestro>.<team>.<worker> <text>',  description:'Message a worker',   category:'Messaging'},
+  ];
+  const HELP_DATA = [...HIVE_COMMANDS, ...ALIASES];
+  const CATEGORY_ORDER = [
+    'Status', 'Organization', 'Messaging', 'Tasks', 'Session',
+    'Resources', 'Security', 'Knowledge', 'Git', 'Admin',
+  ];
+
+  let rendered = false;
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => (
+      {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+    ));
+  }
+
+  function renderPanel() {
+    const groups = {};
+    HELP_DATA.forEach(cmd => {
+      const cat = cmd.category || 'Other';
+      (groups[cat] = groups[cat] || []).push(cmd);
+    });
+    const orderedCats = [
+      ...CATEGORY_ORDER.filter(c => groups[c]),
+      ...Object.keys(groups).filter(c => !CATEGORY_ORDER.includes(c)),
+    ];
+    let html = '';
+    orderedCats.forEach(cat => {
+      html += '<div class="help-rail__category">' + escapeHtml(cat) + '</div>';
+      groups[cat].forEach(cmd => {
+        const usage = cmd.usage || ('/' + cmd.name);
+        html +=
+          '<button type="button" class="help-rail__cmd" data-name="' + escapeHtml(cmd.name) + '">' +
+            '<span class="help-rail__usage">' + escapeHtml(usage) + '</span>' +
+            '<span class="help-rail__desc">'  + escapeHtml(cmd.description) + '</span>' +
+          '</button>';
+      });
+    });
+    body.innerHTML = html;
+    body.querySelectorAll('.help-rail__cmd').forEach(btn => {
+      btn.addEventListener('click', () => insertCommand(btn.dataset.name));
+    });
+  }
+
+  function openPanel() {
+    if (!rendered) { renderPanel(); rendered = true; }
+    panel.removeAttribute('hidden');
+  }
+
+  function closePanel() {
+    panel.setAttribute('hidden', '');
+  }
+
+  function togglePanel() {
+    panel.hasAttribute('hidden') ? openPanel() : closePanel();
+  }
+
+  function insertCommand(name) {
+    input.value = '/' + name + (name.endsWith(':') ? '' : ' ');
+    input.dispatchEvent(new Event('input'));
+    closePanel();
+    input.focus();
+  }
+
+  toggleBtn.addEventListener('click', togglePanel);
+  closeBtn.addEventListener('click', closePanel);
+
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !panel.hasAttribute('hidden')) {
+      const dropdown = document.getElementById('cmd-dropdown');
+      if (dropdown && !dropdown.hasAttribute('hidden')) return;
+      closePanel();
+    }
   });
 })();
 </script>
