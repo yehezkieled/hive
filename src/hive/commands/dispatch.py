@@ -90,6 +90,7 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(
         "compact",
         "reset",
         "new",
+        "cancel",
         "personality",
         "broadcast",
         "model",
@@ -292,6 +293,9 @@ class CommandDispatcher:
 
         if cmd.name == "reset":
             return CommandResult(text=await self._execute_reset(cmd.target))
+
+        if cmd.name == "cancel":
+            return CommandResult(text="Nothing to cancel.")
 
         if cmd.name == "new":
             return CommandResult(text=await self._execute_new(cmd.target, cmd.args, actor=actor))

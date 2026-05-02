@@ -348,6 +348,15 @@ class TestNewMaestroInteractiveFlow:
         # No file written, no registration
         assert "pa" not in manager.entities
 
+    async def test_cancel_command_outside_flow_returns_friendly_message(
+        self, dispatcher: CommandDispatcher
+    ) -> None:
+        """`/cancel` with no pending flow should not return 'Unknown command'."""
+        result = await dispatcher.dispatch("/cancel", actor="user:42")
+        text = result.text.lower()
+        assert "unknown command" not in text
+        assert "nothing to cancel" in text
+
     async def test_other_command_cancels_pending_flow(self, dispatcher: CommandDispatcher) -> None:
         """A different /command (not /cancel) interrupts the flow."""
         await dispatcher.dispatch("/new maestro pa", actor="user:42")

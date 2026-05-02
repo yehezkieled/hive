@@ -95,7 +95,9 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "team": HelpEntry(
         category="Organization",
         usage="/team create|list|kill [args]",
-        description="Create, list, or kill a team under a maestro.",
+        description=(
+            "Create/list/kill a team. Autonomous spawn_team takes display_name+personality."
+        ),
         examples=(
             "/team create dev.backend",
             "/team list dev",
@@ -111,7 +113,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "worker": HelpEntry(
         category="Organization",
         usage="/worker spawn|kill <team> [task_id]",
-        description="Spawn or kill a worker in a team. Workers run in an isolated git worktree.",
+        description="Spawn/kill a worker. Autonomous spawn_worker takes display_name+personality.",
         examples=(
             "/worker spawn dev.backend",
             "/worker kill dev.backend.w1",
@@ -280,12 +282,20 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Push the entity's branch and open a pull request with gh pr create.",
         examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
     ),
-    # Admin — alphabetical: budget, eval, help, personality
+    # Admin — alphabetical: budget, cancel, eval, help, personality
     "budget": HelpEntry(
         category="Admin",
         usage="/budget [maestro]",
         description="Show the facts prompt the scheduler would send to a maestro.",
         examples=("/budget", "/budget dev"),
+    ),
+    "cancel": HelpEntry(
+        category="Admin",
+        usage="/cancel",
+        description=(
+            "Abort an in-flight /new maestro question flow. Outside a flow this is a no-op."
+        ),
+        examples=("/cancel",),
     ),
     "eval": HelpEntry(
         category="Admin",
