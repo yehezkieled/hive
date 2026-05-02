@@ -39,7 +39,12 @@ class TestDashboardPage:
         assert "/static/dashboard/dashboard-shell.jsx" in resp.text
         assert "/static/dashboard/dashboard-w1234.jsx" in resp.text
         assert "/static/dashboard/dashboard-w5678.jsx" in resp.text
+        assert "/static/dashboard/dashboard-mount.jsx" in resp.text
         assert "/static/dashboard/refresh.js" in resp.text
+        # Babel-standalone needs `data-presets="react"` on every text/babel
+        # script tag, otherwise JSX never compiles and the React mount silently
+        # produces an empty page. Counted: one per JSX file (4 total).
+        assert resp.text.count('data-presets="react"') == 4
 
     def test_static_jsx_served(self) -> None:
         resp = _client().get("/static/dashboard/dashboard-shell.jsx")
