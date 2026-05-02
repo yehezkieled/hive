@@ -1816,7 +1816,9 @@ The break: `__main__.py:347` calls `process_manager.kill_all()` on shutdown, whi
 
 **Phase 1. Split shutdown from kill.** Add `process_manager.stop_all()` that terminates subprocesses and marks each entity `STOPPED` but does NOT delete from `entity_store`. `kill_entity()` keeps its current hard-delete semantics. `__main__.py:347` switches from `kill_all()` to `stop_all()`. Factor a private `_stop_subprocess(name)` helper so `stop_all` and `kill_entity` share the subprocess-teardown half but only `kill_entity` deletes the DB row.
 
-**Phase 2. Boot path: idle, not running.** Restored entities come back as IDLE (`process_manager.restore` at `manager.py:1151-1167` already does this). Subprocess re-spawn stays lazy — first message routed to the entity triggers `_send_to_entity` → `_ensure_session()` → `claude --resume <session_id>` using the persisted session id. No eager spawn; saves cost when a maestro is idle through a deploy.
+**Phase 2. Boot path: idle, not running.** Restored entities come back as IDLE (`process_manager.restore` at `manager.py:1322` already does this). Subprocess re-spawn stays lazy — first message routed to the entity triggers `_send_to_entity` → `_ensure_session()` → `claude --resume <session_id>` using the persisted session id. No eager spawn; saves cost when a maestro is idle through a deploy.
+
+  **Forward dependency from Sprint 22 Phase 3 — load personality on restore.** The auto-personality contract is *path-set ⇔ personality-loaded-in-memory* (the spawn path calls `entity.load_personality()` immediately after writing the file, so the next `build_cli_args()` injects `--system-prompt`). `restore()` today re-registers the entity but does not load. Add: when restoring an entity with a non-None `personality_path` that exists on disk, call `entity.load_personality()` before `register`. Without this, restarted auto-spawned leads will have the file on disk but an empty `system_prompt`, breaking "identity from birth" silently across restarts. Add a regression test: spawn lead with `display_name`+`personality`, simulate restart by re-instantiating manager from `entity_store.all()`, assert `system_prompt` non-empty on the restored lead.
 
 **Phase 3. Edge cases.** Stale session id → fall back to fresh session, log a warning, audit `entity.session_reset`. Worker worktree gone but row exists → recreate on first message. Audit log: shutdown emits `entity.stop` (vs. today's `entity.kill`); restart emits `entity.restore`.
 
@@ -1833,6 +1835,7 @@ The break: `__main__.py:347` calls `process_manager.kill_all()` on shutdown, whi
 1. `pytest tests/ -q` — all passing including new restart-persistence tests:
    - register dev + maestro `foo`. `stop_all()`. Confirm both rows still in DB. Re-instantiate the manager from `entity_store.all()`. Confirm both back as IDLE with their original models and session ids.
    - Full hierarchy: maestro + lead + worker. `stop_all()`, restore, `rebuild_hierarchy()`. Confirm hierarchy intact.
+   - **Restored auto-personality is loaded into `system_prompt`** (Sprint 22 Phase 3 forward-dep). Spawn a lead with `display_name`+`personality`, `stop_all()`, restore from DB, assert restored lead's `system_prompt` is non-empty and contains the personality blurb.
    - Regression: `/kill foo` still deletes the row.
 2. End-to-end: `/new maestro testbot` → `/status` shows `testbot, dev` → `systemctl --user restart hive.service` → `/status` still shows `testbot, dev` → send `testbot ping`, reply uses the resumed session → `/kill testbot` → restart → `/status` shows `dev` only.
 3. Other tabs (Projects, Dashboard, Knowledge, Tasks, Vault) remain populated across the restart. These already persist; this sprint adds a regression test confirming so.
