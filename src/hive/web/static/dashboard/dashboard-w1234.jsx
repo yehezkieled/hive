@@ -241,7 +241,8 @@ function W3_CFD() {
 
   const pts = cfd.points;
   const N = pts.length;
-  const yMax = Math.max(...pts.map(p => p.total)) * 1.04;
+  const rawMax = pts.length ? Math.max(...pts.map(p => p.total)) : 0;
+  const yMax = rawMax > 0 ? rawMax * 1.04 : 1;
   const x = i => padL + (i / (N - 1)) * innerW;
   const y = v => padT + innerH - (v / yMax) * innerH;
 

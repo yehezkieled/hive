@@ -605,7 +605,7 @@ function W8_Failure() {
           <g key={e}>
             <line x1={padL} x2={W - padR} y1={y(e)} y2={y(e)} stroke={D58.ruleFaint} strokeDasharray="2 4" />
             <text x={padL - 8} y={y(e) + 4} fontSize="11" fontFamily={dS58.mono} fontWeight="700"
-              fill={e === sumr.longestStreak.entity ? D58.accent : D58.ink2} textAnchor="end">
+              fill={e === sumr.longestStreak?.entity ? D58.accent : D58.ink2} textAnchor="end">
               /m:{e}
             </text>
           </g>
