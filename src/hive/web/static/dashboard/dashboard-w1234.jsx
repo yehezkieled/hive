@@ -355,8 +355,10 @@ function W3_CFD() {
           const yI0 = y(completedTop[i]),    yI1 = y(inProgTop[i]);
           const yP0 = y(inProgTop[i]),       yP1 = y(pendingTop[i]);
           const isHover = hov && hov.i === pts[i].i;
-          const inAnomIP = i >= cfd.anomalies[0].from && i <= cfd.anomalies[0].to;
-          const inAnomP  = i >= cfd.anomalies[1].from && i <= cfd.anomalies[1].to;
+          const a0 = cfd.anomalies[0];
+          const a1 = cfd.anomalies[1];
+          const inAnomIP = a0 ? (i >= a0.from && i <= a0.to) : false;
+          const inAnomP  = a1 ? (i >= a1.from && i <= a1.to) : false;
           return (
             <g key={i} opacity={hov && !isHover ? 0.55 : 1}>
               {p.completed > 0 && (

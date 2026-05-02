@@ -127,7 +127,12 @@ function W5_BubbleMatrix() {
                   share of $ spend · last 7d
                 </span>
                 <span style={{ marginLeft: 'auto', fontFamily: dS58.mono, fontSize: 10, color: D58.ink3, fontWeight: 600 }}>
-                  opusplan = {(modelTotals.find(x => x.mod === 'opusplan').total / grand * 100).toFixed(0)}% of spend, 1 entity
+                  {(() => {
+                    if (!modelTotals.length || grand <= 0) return null;
+                    const top = modelTotals.reduce((a, b) => (b.total > a.total ? b : a));
+                    const entityCount = m.entities.filter(e => (m.cells[e]?.[top.mod] || 0) > 0).length;
+                    return `${top.mod} = ${((top.total / grand) * 100).toFixed(0)}% of spend, ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}`;
+                  })()}
                 </span>
               </div>
               <div style={{ display: 'flex', height: 22, borderRadius: 4, overflow: 'hidden', border: `1px solid ${D58.ruleSoft}` }}>
@@ -153,7 +158,18 @@ function W5_BubbleMatrix() {
                 fontFamily: dS58.mono, fontSize: 9.5, color: D58.ink3, fontWeight: 600,
               }}>
                 <span>{m.entities.length} entities · {m.models.length} models · {m.entities.reduce((s, e) => s + m.models.filter(mod => m.cells[e][mod] > 0).length, 0)} active cells</span>
-                <span>biggest line: /m:dev × opusplan · ${m.cells.dev.opusplan.toFixed(2)}</span>
+                <span>{(() => {
+                  let best = null;
+                  for (const e of m.entities) {
+                    for (const mod of m.models) {
+                      const v = m.cells[e]?.[mod] || 0;
+                      if (!best || v > best.v) best = { e, mod, v };
+                    }
+                  }
+                  return best && best.v > 0
+                    ? `biggest line: /m:${best.e} × ${best.mod} · $${best.v.toFixed(2)}`
+                    : 'biggest line: —';
+                })()}</span>
               </div>
             </div>
           );
@@ -568,7 +584,11 @@ function W8_Failure() {
           <b style={{ color: D58.honey, fontSize: 14 }}>{sumr.pendingEscalations}</b> escalation pending
         </span>
         <span style={{ color: D58.ink4 }}>·</span>
-        <span>longest streak: <b style={{ color: D58.accent }}>/m:{sumr.longestStreak.entity}</b> ({sumr.longestStreak.count} in {sumr.longestStreak.window})</span>
+        {sumr.longestStreak ? (
+          <span>longest streak: <b style={{ color: D58.accent }}>/m:{sumr.longestStreak.entity}</b> ({sumr.longestStreak.count} in {sumr.longestStreak.window})</span>
+        ) : (
+          <span style={{ color: D58.ink4 }}>longest streak: <b style={{ color: D58.ink3 }}>none</b></span>
+        )}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
           {Object.entries(typeColor).map(([k, c]) => (
             <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10 }}>
