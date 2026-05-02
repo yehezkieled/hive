@@ -210,21 +210,37 @@ class Entity:
         elif self.permission_mode != "default":
             args.extend(["--permission-mode", self.permission_mode])
 
-        from hive.process.loops import AUTONOMY_PROMPT, LOOP_PROMPTS, MESSAGING_PROMPT
+        from hive.process.loops import LOOP_PROMPTS, load_role_jd
+
+        # Identity preamble must be the first appended block so the model
+        # reads its own name before any guidance that references it. Without
+        # this, leads asked to spawn workers fill the placeholder
+        # `<full.lead.name>` with whatever string they can pattern-match in
+        # their prompt — which produced the `dev.mdcount` → "lead": "maestro"
+        # bug.
+        identity_lines = [
+            f"You are {self.name}. Your role is {self.role}.",
+        ]
+        if self.role in ("maestro", "lead"):
+            identity_lines.append(
+                f'When emitting <hive_actions> that reference yourself, use "{self.name}" '
+                f"wherever the role guidance shows <full.lead.name> or similar placeholders."
+            )
+        identity_lines.append(
+            "If a hive_action is denied or fails, report the failure honestly. "
+            "Do not narrate fictional success."
+        )
+        args.extend(["--append-system-prompt", "\n".join(identity_lines)])
 
         loop_text = LOOP_PROMPTS.get(self.loop_mode)
         if loop_text:
             args.extend(["--append-system-prompt", loop_text])
 
-        # All hierarchy roles need the messaging protocol so workers can
-        # report back to their lead. Permission gates restrict who they can
-        # actually message (see bus/permissions.py).
+        # Role JD encodes the messaging protocol and any role-specific
+        # autonomy actions. Loaded from personalities/role-<role>.md so it
+        # can be edited without code changes.
         if self.role in ("maestro", "lead", "worker"):
-            args.extend(["--append-system-prompt", MESSAGING_PROMPT])
-
-        # Maestros and leads also drive org growth via spawn/kill actions.
-        if self.role in ("maestro", "lead"):
-            args.extend(["--append-system-prompt", AUTONOMY_PROMPT])
+            args.extend(["--append-system-prompt", load_role_jd(self.role)])
 
         from hive.config import ADVISOR_ENABLED
 

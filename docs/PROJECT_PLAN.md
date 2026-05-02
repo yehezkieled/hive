@@ -1562,6 +1562,77 @@ query_cache(id, query_text, query_embedding vector(1536), response, hit_count, c
 
 ---
 
+## Sprint 22 — Identity & Role JDs (2026-05-02, Phase 1 DONE)
+
+**Status:** Phase 1 complete — Phase 2 (interactive `/new maestro`) and
+Phase 3 (autonomous personality generation + cleanup-on-kill) pending.
+**Branch:** `feat-entity-identity` → main
+**Totals:** 551 → 603 tests (+52). No migrations.
+
+**Goal**: fix the `dev.mdcount` bug where leads hallucinated worker
+names (emitting `{"lead": "maestro", ...}` because the prompt told them
+the literal placeholder `<full.lead.name>` and they had no other name
+to substitute), and lay the scaffolding for autonomous, well-named
+personalities.
+
+### Locked decisions (Phase 1)
+- **Identity preamble first**: every entity, every role, gets an
+  identity block as the *first* `--append-system-prompt`:
+  `You are <name>. Your role is <role>.` Maestros and leads also get a
+  placeholder-substitution warning ("use `<self.name>` wherever the
+  guidance shows `<full.lead.name>`"). All roles get a closing honesty
+  clause. Workers don't need the placeholder warning so they don't get
+  one — keeps `role-worker.md` from including spawn-action vocabulary.
+- **Role JDs are markdown, not constants**: `MESSAGING_PROMPT` and
+  `AUTONOMY_PROMPT` deleted from `src/hive/process/loops.py`. Replaced
+  by `load_role_jd(role)` which reads from
+  `personalities/role-<role>.md` and caches per-process via
+  `lru_cache`. Three role files committed: `role-maestro.md`,
+  `role-lead.md`, `role-worker.md`.
+- **Per-entity personality file naming**: `personalities/dev.md`
+  (matches dotted name) replaces `personalities/maestro-dev.md`. The
+  `maestro-` prefix added nothing — leads will be `personalities/dev.backend.md`
+  not `personalities/lead-dev.backend.md`.
+- **System Prompt section is personality-only**: role JD is loaded
+  separately, so `personalities/dev.md`'s System Prompt now describes
+  *who Dev is* (direct, opinionated, web-focused) not *what a maestro
+  does*. No duplication across maestros.
+
+### Files changed (Phase 1)
+
+| File | Change |
+|------|--------|
+| `src/hive/models/entity.py` | `build_cli_args()` — identity preamble emitted first; role JD loaded via `load_role_jd(self.role)` instead of two static constants. |
+| `src/hive/process/loops.py` | `MESSAGING_PROMPT` and `AUTONOMY_PROMPT` removed. New `load_role_jd(role, base_dir=None)` with `lru_cache`-backed reader; resolves `personalities/role-<role>.md` relative to repo root by default. |
+| `src/hive/__main__.py` | Default-maestro path looks for `personalities/dev.md` instead of `personalities/maestro-dev.md`. |
+| `personalities/role-maestro.md` (new) | Maestro JD: project management, team formation with `display_name`/`personality`, delegation, reporting; `spawn_team`/`spawn_worker`/`kill_entity` action vocabulary; honesty clause. |
+| `personalities/role-lead.md` (new) | Lead JD: scope ownership, worker formation, delegation; `spawn_worker` (under self only) + `kill_entity` (own workers only); explicit instruction to substitute own dotted name where `<full.lead.name>` appears. |
+| `personalities/role-worker.md` (new) | Worker JD: focused subtask, report back, stay in scope; messaging-only protocol; honesty clause. Deliberately omits spawn vocabulary. |
+| `personalities/dev.md` (renamed from `maestro-dev.md`) | System Prompt slimmed to personality (Dev voice). Role JD now comes from `role-maestro.md`. |
+| `tests/test_entity.py` | `TestMessagingPromptInjection` replaced — counts now 3 appended prompts for every role (identity + loop + role JD). New `TestIdentityPreamble` (4 tests) verifying preamble is first and contains the entity's name. |
+| `tests/test_role_jd.py` (new) | 10 tests — happy-path loads, unknown-role rejection, missing-file error, caching behaviour, repo-level role files exist with expected vocabulary. |
+
+### Verification (Phase 1)
+- `pytest -m "not integration" -q` → **602 passing** (was 551).
+- Path resolution under editable install: `_DEFAULT_BASE_DIR` resolves
+  to `/.../personalities` correctly; `load_role_jd("maestro")` returns
+  the maestro JD.
+- Live demo (after `git push` + `systemctl --user restart hive.service`):
+  `/t:dev.mdcount please spawn your backend and qa workers now` —
+  expect journal to show `dev.mdcount.backend` and `dev.mdcount.qa`
+  registered, no `denied: dev.mdcount -> maestro`.
+
+### Out of scope (deferred to Phase 2/3)
+- Phase 2: interactive `/new maestro` flow with conversation-state
+  handler that asks the user for purpose, repo, style, model,
+  generates the personality MD via a Claude call.
+- Phase 3: maestros/leads emit `display_name` + `personality` in
+  `<hive_actions>` spawn calls; `process_manager` writes
+  `personalities/<dotted.name>.md` with `auto_generated: true`
+  frontmatter; `kill_entity` deletes auto-generated files only.
+
+---
+
 ## Sprint 21 — Restart Persistence (planned)
 
 **Status:** Planned

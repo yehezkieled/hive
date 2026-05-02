@@ -295,16 +295,14 @@ class TestLoopMode:
     def test_build_cli_args_includes_append_system_prompt(self) -> None:
         e = Entity(name="test", role="worker", loop_mode="ship-it")
         args = e.build_cli_args()
-        assert "--append-system-prompt" in args
-        idx = args.index("--append-system-prompt")
-        assert "Execute immediately" in args[idx + 1]
+        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert any("Execute immediately" in a for a in appended)
 
     def test_build_cli_args_includes_ralph_by_default(self) -> None:
         e = Entity(name="test", role="worker")
         args = e.build_cli_args()
-        assert "--append-system-prompt" in args
-        idx = args.index("--append-system-prompt")
-        assert "RALPH" in args[idx + 1]
+        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert any("RALPH" in a for a in appended)
 
 
 class TestCurrentPriority:
@@ -316,21 +314,23 @@ class TestCurrentPriority:
 
 
 class TestMessagingPromptInjection:
-    """MESSAGING_PROMPT is injected for every hierarchy role; AUTONOMY_PROMPT
-    only for maestro/lead (workers cannot spawn or kill).
+    """Every entity gets identity + loop + role JD as appended prompts.
+    The role JD encodes the messaging protocol and any role-specific
+    autonomy actions (e.g. spawn_team for maestros, spawn_worker for leads,
+    no autonomy for workers).
     """
 
-    def test_maestro_includes_messaging_and_autonomy_prompts(self) -> None:
+    def test_maestro_includes_role_jd_with_spawn_team(self) -> None:
         m = Maestro(name="dev")
         args = m.build_cli_args()
-        # loop + messaging + autonomy = 3 --append-system-prompt entries
+        # identity + loop + role JD = 3 --append-system-prompt entries
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert len(indices) == 3
         appended = [args[i + 1] for i in indices]
         assert any("hive_actions" in a for a in appended)
         assert any("spawn_team" in a for a in appended)
 
-    def test_lead_includes_messaging_and_autonomy_prompts(self) -> None:
+    def test_lead_includes_role_jd_with_spawn_worker(self) -> None:
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
         args = lead.build_cli_args()
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
@@ -339,15 +339,49 @@ class TestMessagingPromptInjection:
         assert any("hive_actions" in a for a in appended)
         assert any("spawn_worker" in a for a in appended)
 
-    def test_worker_includes_messaging_only(self) -> None:
+    def test_worker_includes_role_jd_no_spawn(self) -> None:
         w = WorkerAgent(name="dev.backend.w1")
         args = w.build_cli_args()
-        # Workers get loop + messaging but NOT autonomy (no spawn/kill power).
+        # Workers get identity + loop + role JD = 3 (worker JD has no autonomy actions)
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 2
+        assert len(indices) == 3
         appended = [args[i + 1] for i in indices]
         assert any("hive_actions" in a for a in appended)
-        assert not any("spawn_team" in a or "kill_entity" in a for a in appended)
+        assert not any("spawn_team" in a or "spawn_worker" in a for a in appended)
+
+
+class TestIdentityPreamble:
+    """Every entity must know its own name and role. Without this, a lead
+    asked to spawn workers fills the placeholder ``<full.lead.name>`` with
+    whatever string it can pattern-match in its prompt — which led to the
+    real bug where ``dev.mdcount`` emitted ``"lead": "maestro"``.
+    """
+
+    def test_maestro_identity_preamble_includes_name(self) -> None:
+        m = Maestro(name="dev")
+        args = m.build_cli_args()
+        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert any("dev" in a and "maestro" in a.lower() for a in appended)
+
+    def test_lead_identity_preamble_includes_dotted_name(self) -> None:
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        args = lead.build_cli_args()
+        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert any("dev.backend" in a and "lead" in a.lower() for a in appended)
+
+    def test_worker_identity_preamble_includes_dotted_name(self) -> None:
+        w = WorkerAgent(name="dev.backend.w1")
+        args = w.build_cli_args()
+        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
+        assert any("dev.backend.w1" in a and "worker" in a.lower() for a in appended)
+
+    def test_identity_preamble_is_first_append(self) -> None:
+        """Identity comes before loop/messaging/autonomy so the model reads
+        its own name before any guidance that references it."""
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        args = lead.build_cli_args()
+        first_idx = next(i for i, a in enumerate(args) if a == "--append-system-prompt")
+        assert "dev.backend" in args[first_idx + 1]
 
 
 class TestSubclasses:

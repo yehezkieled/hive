@@ -211,7 +211,7 @@ async def main() -> None:
     # Ensure default maestro exists — register fresh on first run, skip if
     # already restored from a previous session.
     if DEFAULT_MAESTRO not in process_manager.entities:
-        personality_path = PERSONALITIES_DIR / f"maestro-{DEFAULT_MAESTRO}.md"
+        personality_path = PERSONALITIES_DIR / f"{DEFAULT_MAESTRO}.md"
         await process_manager.register_maestro(
             DEFAULT_MAESTRO,
             model=DEFAULT_MODEL,
