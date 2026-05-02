@@ -1,3 +1,4 @@
+(function () {
 // Hive Dashboard tab — Paper Ops translation.
 // Same warm palette as the Hive landing (A.2 / A3), but adapted for an
 // observability/SRE surface: dense charts, anomaly-aware visuals, scrollable.
@@ -365,3 +366,4 @@ Object.assign(window, {
   D, dStyles, D_Bee, D_Hex, D_StateDot, D_PriorityPill, D_NSPill,
   D_Card, D_TopBar, D_TerminalBar, D_PageHeader, D_Backdrop,
 });
+})();

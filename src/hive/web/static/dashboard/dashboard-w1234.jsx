@@ -1,3 +1,4 @@
+(function () {
 // Widgets 1–4: Cost ribbon, Health strip, Sankey, Token burn
 
 const { D, dStyles, D_Card, D_StateDot, D_PriorityPill, D_Hex } = window;
@@ -737,3 +738,4 @@ window.W2_Health = W2_Health;
 window.W3_Sankey = W3_CFD;
 window.W3_CFD = W3_CFD;
 window.W4_TokenBurn = W4_TokenBurn;
+})();

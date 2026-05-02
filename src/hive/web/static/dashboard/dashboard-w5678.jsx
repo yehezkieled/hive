@@ -1,3 +1,4 @@
+(function () {
 // Widgets 5–8: Bubble matrix, Cache hit bars, Audit log, Failure scatter
 
 const { D: D58, dStyles: dS58, D_Card: DC58, D_NSPill, D_PriorityPill: D_PP58, D_StateDot: D_SD58 } = window;
@@ -656,3 +657,4 @@ window.W5_BubbleMatrix = W5_BubbleMatrix;
 window.W6_CacheHit = W6_CacheHit;
 window.W7_AuditLog = W7_AuditLog;
 window.W8_Failure = W8_Failure;
+})();

@@ -1,3 +1,4 @@
+(function () {
 // Top-level page composition + React mount.
 // Loaded as the LAST external `<script type="text/babel">` so the previous
 // three (shell, w1234, w5678) have finished assigning their exports onto
@@ -73,3 +74,4 @@ function DashboardPage() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<DashboardPage />);
+})();
