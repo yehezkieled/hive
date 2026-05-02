@@ -44,7 +44,7 @@ TELEGRAM_ALLOWED_USER_IDS: list[int] = [
 ]
 
 # Claude CLI defaults
-DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "sonnet")
+DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "opus")
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 
 # Default maestro

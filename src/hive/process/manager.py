@@ -181,7 +181,7 @@ class ProcessManager:
     async def register_maestro(
         self,
         name: str,
-        model: str = "sonnet",
+        model: str = "opus",
         personality_path: Path | None = None,
     ) -> Maestro:
         """Create and register a new maestro entity.

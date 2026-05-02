@@ -219,3 +219,27 @@ async def test_files_respects_limit(
 async def test_files_invalid_arg_returns_usage(dispatcher: CommandDispatcher) -> None:
     result = await dispatcher.dispatch("/files notanumber", actor="test")
     assert "Usage" in result.text
+
+
+# ---------------------------------------------------------------------------
+# /new maestro — default model and routed flag
+# ---------------------------------------------------------------------------
+
+
+async def test_new_maestro_defaults_to_opus(
+    dispatcher: CommandDispatcher, manager: ProcessManager
+) -> None:
+    """`/new maestro <name>` (no model arg) must register the maestro with model=opus."""
+    result = await dispatcher.dispatch("/new maestro testbot", actor="test")
+    assert "registered" in result.text.lower()
+    assert "model=opus" in result.text
+    assert manager.entities["testbot"].model == "opus"
+
+
+async def test_new_maestro_explicit_model_honored(
+    dispatcher: CommandDispatcher, manager: ProcessManager
+) -> None:
+    """Caller can still override the model — defaults only kick in when omitted."""
+    result = await dispatcher.dispatch("/new maestro otherbot haiku", actor="test")
+    assert "model=haiku" in result.text
+    assert manager.entities["otherbot"].model == "haiku"
