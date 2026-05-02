@@ -533,8 +533,30 @@ class ProcessManager:
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("spawn_team from %s failed: %s", entity_name, exc)
             elif action.type == "spawn_worker":
+                # `lead` is optional in the protocol — leads pattern-match
+                # the field name "lead" instead of substituting the
+                # placeholder, so requiring it produces `{"lead": "lead"}`.
+                # Infer it from the actor: a lead spawns under itself; a
+                # maestro must specify (we can't guess which team).
                 if not action.lead:
-                    continue
+                    if entity.role == "lead":
+                        action.lead = entity.name
+                    else:
+                        logger.warning(
+                            "spawn_worker from %s missing `lead` field (role=%s)",
+                            entity.name,
+                            entity.role,
+                        )
+                        await self._audit(
+                            "entity.spawn_worker_denied",
+                            target=None,
+                            details={
+                                "reason": "missing_lead_for_maestro",
+                                "role": entity.role,
+                            },
+                            actor=entity_name,
+                        )
+                        continue
                 if not can_spawn_worker(entity.role, entity.name, action.lead):
                     logger.warning("spawn_worker denied: %s -> %s", entity.name, action.lead)
                     await self._audit(

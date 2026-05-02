@@ -32,10 +32,10 @@ and your own workers. Permission gates enforce this.
 ## Org-growth actions
 
 - **spawn_worker** (under yourself only):
-  `{"type": "spawn_worker", "lead": "<your-own-full-name>", "worker_name": "<optional>", "task_id": <optional-int>, "display_name": "<optional>", "personality": "<optional>"}`.
-  Use **your own full dotted name** as `lead` — not the literal string
-  `<full.lead.name>`, not `maestro`. Auto-names workers `w1`, `w2`, ...
-  if `worker_name` is omitted.
+  `{"type": "spawn_worker", "worker_name": "<optional>", "task_id": <optional-int>, "display_name": "<optional>", "personality": "<optional>"}`.
+  Do **not** include a `lead` field — the orchestrator fills it in with
+  your own name automatically. Auto-names workers `w1`, `w2`, ... if
+  `worker_name` is omitted.
 - **kill_entity** (own workers only):
   `{"type": "kill_entity", "target": "<full.worker.name>"}`. Removes a
   worker from your team.

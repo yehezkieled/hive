@@ -14,8 +14,10 @@ Supported action types:
 - ``spawn_team``: maestro creates a new team in its own org. Fields:
   ``team_name``; optional ``model`` (default sonnet).
 - ``spawn_worker``: maestro or lead spawns a worker under a team.
-  Fields: ``lead`` (full lead name like ``dev.backend``); optional
-  ``worker_name``, ``task_id``.
+  Fields: optional ``lead`` (full lead name like ``dev.backend``);
+  optional ``worker_name``, ``task_id``. When ``lead`` is omitted, the
+  manager infers it from the actor: a lead spawns under itself; a
+  maestro is rejected (must specify which team).
 - ``kill_entity``: maestro or lead kills an entity in its scope.
   Fields: ``target``.
 """
@@ -38,7 +40,7 @@ _MESSAGE_REQUIRED = {"to", "text"}
 _MODE_REQUEST_REQUIRED = {"requested_mode"}
 _FAILURE_REQUIRED = {"reason"}
 _SPAWN_TEAM_REQUIRED = {"team_name"}
-_SPAWN_WORKER_REQUIRED = {"lead"}
+_SPAWN_WORKER_REQUIRED: set[str] = set()
 _KILL_ENTITY_REQUIRED = {"target"}
 
 
@@ -158,10 +160,6 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
             continue
 
         if atype == "spawn_worker":
-            missing = _SPAWN_WORKER_REQUIRED - item.keys()
-            if missing:
-                logger.warning("spawn_worker missing fields %s: %s", missing, item)
-                continue
             raw_task_id = item.get("task_id")
             try:
                 task_id_val = int(raw_task_id) if raw_task_id is not None else None
@@ -171,7 +169,7 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
             actions.append(
                 Action(
                     type=atype,
-                    lead=item["lead"],
+                    lead=item.get("lead"),
                     worker_name=item.get("worker_name"),
                     task_id=task_id_val,
                 )

@@ -213,23 +213,14 @@ class Entity:
         from hive.process.loops import LOOP_PROMPTS, load_role_jd
 
         # Identity preamble must be the first appended block so the model
-        # reads its own name before any guidance that references it. Without
-        # this, leads asked to spawn workers fill the placeholder
-        # `<full.lead.name>` with whatever string they can pattern-match in
-        # their prompt — which produced the `dev.mdcount` → "lead": "maestro"
-        # bug.
+        # reads its own name before any guidance that references it. The
+        # role JD avoids placeholders the entity must substitute with its
+        # own name (the orchestrator infers `lead` from the actor instead).
         identity_lines = [
             f"You are {self.name}. Your role is {self.role}.",
-        ]
-        if self.role in ("maestro", "lead"):
-            identity_lines.append(
-                f'When emitting <hive_actions> that reference yourself, use "{self.name}" '
-                f"wherever the role guidance shows <full.lead.name> or similar placeholders."
-            )
-        identity_lines.append(
             "If a hive_action is denied or fails, report the failure honestly. "
-            "Do not narrate fictional success."
-        )
+            "Do not narrate fictional success.",
+        ]
         args.extend(["--append-system-prompt", "\n".join(identity_lines)])
 
         loop_text = LOOP_PROMPTS.get(self.loop_mode)

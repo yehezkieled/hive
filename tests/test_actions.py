@@ -213,10 +213,28 @@ class TestSpawnWorkerAction:
         assert actions[0].worker_name == "migrator"
         assert actions[0].task_id == 42
 
-    def test_spawn_worker_missing_lead_skipped(self) -> None:
+    def test_spawn_worker_lead_optional(self) -> None:
+        """Lead omitted: action is parsed with lead=None.
+
+        The manager fills in `lead` from the actor (a lead spawning under
+        itself). Leads can't reliably emit their own dotted name, so the
+        protocol no longer requires it.
+        """
         text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
         _, actions = parse_actions(text)
-        assert actions == []
+        assert len(actions) == 1
+        assert actions[0].type == "spawn_worker"
+        assert actions[0].lead is None
+
+    def test_spawn_worker_lead_optional_with_worker_name(self) -> None:
+        text = (
+            '<hive_actions>\n[{"type": "spawn_worker", "worker_name": "backend"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].lead is None
+        assert actions[0].worker_name == "backend"
 
     def test_spawn_worker_non_int_task_id_drops_it(self) -> None:
         text = (

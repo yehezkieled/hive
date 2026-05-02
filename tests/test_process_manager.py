@@ -950,6 +950,57 @@ class TestAutonomousDispatch:
 
         assert manager._last_spawned_workers == []
 
+    async def test_lead_spawn_worker_no_lead_field_uses_self(
+        self, manager: ProcessManager
+    ) -> None:
+        """Lead emits spawn_worker with no `lead` field → spawns under itself.
+
+        The lead can't reliably emit its own dotted name as a JSON value
+        (it pattern-matches on the field name "lead" instead). The manager
+        fills `lead` from `entity.name` so the lead never has to repeat itself.
+        """
+        maestro = Maestro(name="dev", model="sonnet")
+        await manager.register_entity(maestro)
+        await manager.create_team("dev", "backend")
+
+        response = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
+        await self._send(manager, "dev.backend", response)
+
+        assert manager._last_spawned_workers == ["dev.backend.w1"]
+        assert "dev.backend.w1" in manager.entities
+
+    async def test_maestro_spawn_worker_no_lead_field_audited(
+        self, router: MessageRouter, audit_log: AuditLog
+    ) -> None:
+        """Maestro emits spawn_worker without `lead` → reject + audit.
+
+        Maestros can spawn under any of their teams, so they must specify
+        which one. Inferring `lead = entity.name` (the maestro's own name)
+        would be wrong — the maestro is not a lead.
+        """
+        mgr = ProcessManager(
+            router=router,
+            audit_log=audit_log,
+            max_sessions=2,
+            notification_dispatcher=NotificationDispatcher(),
+        )
+        maestro = Maestro(name="dev", model="sonnet")
+        await mgr.register_entity(maestro)
+        await mgr.create_team("dev", "backend")
+
+        response = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
+        try:
+            await self._send(mgr, "dev", response)
+
+            assert mgr._last_spawned_workers == []
+            events = await audit_log.recent(action_prefix="entity.")
+            denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
+            assert len(denied) == 1
+            assert denied[0]["actor"] == "dev"
+            assert denied[0]["details"]["reason"] == "missing_lead_for_maestro"
+        finally:
+            await mgr.kill_all()
+
     async def test_worker_spawn_actions_denied(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
