@@ -504,6 +504,36 @@ composer.addEventListener('input', () => { autosize(); refreshSendState(); });
       refreshSendState();
     });
   }
+
+  // Paste a screenshot / image from the clipboard → stage it like a picked file.
+  // Reuses #composer-attach via DataTransfer so the existing change handler
+  // runs (size check, chip render, send-button enable, submit pickup).
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    chatInput.addEventListener('paste', (ev) => {
+      const items = ev.clipboardData && ev.clipboardData.items;
+      if (!items) return;
+      let imgFile = null;
+      for (const item of items) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          imgFile = item.getAsFile();
+          break;  // first image only — matches single-file picker UX
+        }
+      }
+      if (!imgFile) return;          // no image → let textarea handle text paste
+      ev.preventDefault();           // image found → don't also paste base64 text
+
+      // Friendlier filename for the chip and to avoid collisions on multi-paste.
+      const ext = (imgFile.type.split('/')[1] || 'png').split('+')[0];
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const named = new File([imgFile], `pasted-${ts}.${ext}`, { type: imgFile.type });
+
+      const dt = new DataTransfer();
+      dt.items.add(named);
+      fileInput.files = dt.files;
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
 })();
 composer.addEventListener('keydown', (ev) => {
   if (dropdownOpen) return;
