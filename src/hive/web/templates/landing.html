@@ -106,9 +106,6 @@
               <button type="button" class="composer__chip composer__chip--help"
                       id="help-toggle"
                       aria-label="Browse all commands">?</button>
-              {% for cmd in ['/task', '/status'] %}
-              <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
-              {% endfor %}
             </div>
             <input type="file" id="composer-attach" hidden>
             <button type="button" class="composer__attach" id="composer-attach-btn"
