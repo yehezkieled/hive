@@ -104,7 +104,7 @@
           <div class="composer__row">
             <div class="composer__hints">
               <button type="button" class="composer__chip composer__chip--help"
-                      id="help-toggle" data-tooltip="Browse all commands"
+                      id="help-toggle"
                       aria-label="Browse all commands">?</button>
               {% for cmd in ['/task', '/status'] %}
               <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
@@ -131,15 +131,7 @@
       </form>
     </aside>
 
-    {# ── Help rail (toggled by ? button) ───────────────────────────────── #}
-    <aside class="help-rail" id="help-rail" hidden>
-      <div class="help-rail__head">
-        <span class="help-rail__title">Commands</span>
-        <button type="button" class="help-rail__close" id="help-close"
-                aria-label="Close help panel">×</button>
-      </div>
-      <div class="help-rail__body" id="help-rail-body"></div>
-    </aside>
+    {# Help popup is rendered after .main-row so it floats above content. #}
 
     {# ── Main content ─────────────────────────────────────────────────── #}
     <main class="content">
@@ -208,6 +200,17 @@
   </footer>
 
 </div>
+
+{# ── Help popup (floating, anchored to ? button) ─────────────────────── #}
+<div class="help-popup" id="help-rail" hidden role="dialog" aria-label="Commands">
+  <div class="help-popup__head">
+    <span class="help-popup__title">Commands</span>
+    <button type="button" class="help-popup__close" id="help-close"
+            aria-label="Close commands">×</button>
+  </div>
+  <div class="help-popup__body" id="help-rail-body"></div>
+</div>
+<div class="help-tooltip" id="help-tooltip" hidden>Browse all commands</div>
 
 <script>
 function ensureToken() {
@@ -683,11 +686,12 @@ const HIVE_COMMANDS = {{ commands|tojson }};
 
 (function initHelpPanel() {
   const toggleBtn = document.getElementById('help-toggle');
-  const panel     = document.getElementById('help-rail');
+  const popup     = document.getElementById('help-rail');
   const body      = document.getElementById('help-rail-body');
   const closeBtn  = document.getElementById('help-close');
+  const tooltip   = document.getElementById('help-tooltip');
   const input     = document.getElementById('chat-input');
-  if (!toggleBtn || !panel || !body || !input) return;
+  if (!toggleBtn || !popup || !body || !input) return;
 
   const CATEGORY_ORDER = [
     'Status', 'Organization', 'Messaging', 'Tasks', 'Session',
@@ -714,34 +718,53 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     ];
     let html = '';
     orderedCats.forEach(cat => {
-      html += '<div class="help-rail__category">' + escapeHtml(cat) + '</div>';
+      html += '<div class="help-popup__category">' + escapeHtml(cat) + '</div>';
       groups[cat].forEach(cmd => {
         const shown = '/' + (cmd.display || cmd.name);
         html +=
-          '<button type="button" class="help-rail__cmd"' +
+          '<button type="button" class="help-popup__cmd"' +
                   ' data-usage="' + escapeHtml(cmd.usage) + '">' +
-            '<span class="help-rail__usage">' + escapeHtml(shown) + '</span>' +
-            '<span class="help-rail__desc">'  + escapeHtml(cmd.description) + '</span>' +
+            '<span class="help-popup__usage">' + escapeHtml(shown) + '</span>' +
+            '<span class="help-popup__desc">'  + escapeHtml(cmd.description) + '</span>' +
           '</button>';
       });
     });
     body.innerHTML = html;
-    body.querySelectorAll('.help-rail__cmd').forEach(btn => {
+    body.querySelectorAll('.help-popup__cmd').forEach(btn => {
       btn.addEventListener('click', () => insertUsage(btn.dataset.usage));
     });
   }
 
+  // Anchor popup near the trigger button. Default: opens upward (popup
+  // sits above the chip, growing toward the top of the viewport) since
+  // the chip is at the bottom of the chat rail.
+  function positionPopup() {
+    const r = toggleBtn.getBoundingClientRect();
+    const margin = 8;
+    const maxH = Math.min(480, window.innerHeight - 24);
+    popup.style.maxHeight = maxH + 'px';
+    let left = r.left;
+    if (left + 340 > window.innerWidth - 12) {
+      left = window.innerWidth - 340 - 12;
+    }
+    popup.style.left = Math.max(12, left) + 'px';
+    popup.style.bottom = (window.innerHeight - r.top + margin) + 'px';
+    popup.style.top = 'auto';
+  }
+
   function openPanel() {
     if (!rendered) { renderPanel(); rendered = true; }
-    panel.removeAttribute('hidden');
+    hideTooltip();
+    popup.removeAttribute('hidden');
+    positionPopup();
   }
 
   function closePanel() {
-    panel.setAttribute('hidden', '');
+    popup.setAttribute('hidden', '');
   }
 
   function togglePanel() {
-    panel.hasAttribute('hidden') ? openPanel() : closePanel();
+    popup.hasAttribute('hidden') ? openPanel() : closePanel();
   }
 
   // Insert the full usage template (e.g. `/m:<maestro> <text>`) and select
@@ -760,15 +783,49 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     }
   }
 
-  toggleBtn.addEventListener('click', togglePanel);
-  closeBtn.addEventListener('click', closePanel);
+  // ── Hover tooltip (real DOM, JS-positioned — robust against parent
+  // overflow clipping that pseudo-elements suffer from) ───────────────
+  let hoverTimer = null;
+  function showTooltip() {
+    if (!tooltip) return;
+    if (!popup.hasAttribute('hidden')) return; // popup open — don't double up
+    const r = toggleBtn.getBoundingClientRect();
+    tooltip.removeAttribute('hidden');
+    const tw = tooltip.offsetWidth;
+    tooltip.style.left = (r.left + r.width / 2 - tw / 2) + 'px';
+    tooltip.style.top  = (r.top - tooltip.offsetHeight - 6) + 'px';
+  }
+  function hideTooltip() {
+    if (!tooltip) return;
+    tooltip.setAttribute('hidden', '');
+  }
+  toggleBtn.addEventListener('mouseenter', () => {
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(showTooltip, 250);
+  });
+  toggleBtn.addEventListener('mouseleave', () => {
+    clearTimeout(hoverTimer);
+    hideTooltip();
+  });
 
+  toggleBtn.addEventListener('click', togglePanel);
+  if (closeBtn) closeBtn.addEventListener('click', closePanel);
+
+  // Close on outside click / Esc; reposition on resize/scroll.
+  document.addEventListener('mousedown', e => {
+    if (popup.hasAttribute('hidden')) return;
+    if (popup.contains(e.target) || toggleBtn.contains(e.target)) return;
+    closePanel();
+  });
   document.addEventListener('keydown', ev => {
-    if (ev.key === 'Escape' && !panel.hasAttribute('hidden')) {
+    if (ev.key === 'Escape' && !popup.hasAttribute('hidden')) {
       const dropdown = document.getElementById('cmd-dropdown');
       if (dropdown && !dropdown.hasAttribute('hidden')) return;
       closePanel();
     }
+  });
+  window.addEventListener('resize', () => {
+    if (!popup.hasAttribute('hidden')) positionPopup();
   });
 })();
 </script>
