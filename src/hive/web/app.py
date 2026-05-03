@@ -386,14 +386,15 @@ def create_app(
         from hive.telegram.help_text import HELP_TEXT
 
         view = await _build_view()
-        # Entries with `display` set are aliases (e.g. message → m:); the
-        # composer already lists them via its ALIASES array, so skip here
-        # to avoid a confusing duplicate row that inserts the unparseable
-        # internal name.
         commands = [
-            {"name": name, "usage": entry.usage, "description": entry.description}
+            {
+                "name": name,
+                "usage": entry.usage,
+                "description": entry.description,
+                "category": entry.category,
+                "display": entry.display,
+            }
             for name, entry in sorted(HELP_TEXT.items())
-            if entry.display is None
         ]
         return templates.TemplateResponse(
             request, "landing.html", {"view": view, "commands": commands}

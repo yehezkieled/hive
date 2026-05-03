@@ -51,8 +51,6 @@
       <div class="chat-rail__resizer" id="chat-rail-resizer" title="Drag to resize"></div>
       <div class="chat-rail__head">
         <span class="chat-rail__title">Chat</span>
-        <button type="button" class="chat-rail__help-btn" id="help-toggle"
-                aria-label="Toggle help panel" title="Commands">?</button>
         <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
         <span class="chat-rail__head-actions">
           <button class="btn">History</button>
@@ -105,7 +103,10 @@
           </div>
           <div class="composer__row">
             <div class="composer__hints">
-              {% for cmd in ['/m:dev', '/task', '/status'] %}
+              <button type="button" class="composer__chip composer__chip--help"
+                      id="help-toggle" data-tooltip="Browse all commands"
+                      aria-label="Browse all commands">?</button>
+              {% for cmd in ['/task', '/status'] %}
               <button type="button" class="composer__chip" data-cmd="{{ cmd }}">{{ cmd }}</button>
               {% endfor %}
             </div>
@@ -512,6 +513,7 @@ composer.addEventListener('keydown', (ev) => {
   }
 });
 document.querySelectorAll('.composer__chip').forEach(chip => {
+  if (!chip.dataset.cmd) return;
   chip.addEventListener('click', () => {
     composer.value = chip.dataset.cmd + ' ';
     composer.focus();
@@ -598,7 +600,11 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     {name:'a:', usage:'/a:<maestro>.<team>.<worker> <text>',  description:'Message a worker'},
   ];
 
-  let commands = [...HIVE_COMMANDS, ...ALIASES], filtered = [], activeIndex = -1;
+  // Hide entries that have an alias display form (e.g. `message`→`m:`); the
+  // hardcoded ALIASES below already cover those, and dispatching the
+  // internal name (`/message ...`) wouldn't actually route correctly.
+  let commands = [...HIVE_COMMANDS.filter(c => !c.display), ...ALIASES];
+  let filtered = [], activeIndex = -1;
 
   function render() {
     dropdown.innerHTML = '';
@@ -683,12 +689,6 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   const input     = document.getElementById('chat-input');
   if (!toggleBtn || !panel || !body || !input) return;
 
-  const ALIASES = [
-    {name:'m:', usage:'/m:<maestro> <text>',                  description:'Message a maestro',  category:'Messaging'},
-    {name:'t:', usage:'/t:<maestro>.<team> <text>',           description:'Message a team',     category:'Messaging'},
-    {name:'a:', usage:'/a:<maestro>.<team>.<worker> <text>',  description:'Message a worker',   category:'Messaging'},
-  ];
-  const HELP_DATA = [...HIVE_COMMANDS, ...ALIASES];
   const CATEGORY_ORDER = [
     'Status', 'Organization', 'Messaging', 'Tasks', 'Session',
     'Resources', 'Security', 'Knowledge', 'Git', 'Admin',
@@ -704,7 +704,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
 
   function renderPanel() {
     const groups = {};
-    HELP_DATA.forEach(cmd => {
+    HIVE_COMMANDS.forEach(cmd => {
       const cat = cmd.category || 'Other';
       (groups[cat] = groups[cat] || []).push(cmd);
     });
@@ -716,17 +716,18 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     orderedCats.forEach(cat => {
       html += '<div class="help-rail__category">' + escapeHtml(cat) + '</div>';
       groups[cat].forEach(cmd => {
-        const usage = cmd.usage || ('/' + cmd.name);
+        const shown = '/' + (cmd.display || cmd.name);
         html +=
-          '<button type="button" class="help-rail__cmd" data-name="' + escapeHtml(cmd.name) + '">' +
-            '<span class="help-rail__usage">' + escapeHtml(usage) + '</span>' +
+          '<button type="button" class="help-rail__cmd"' +
+                  ' data-usage="' + escapeHtml(cmd.usage) + '">' +
+            '<span class="help-rail__usage">' + escapeHtml(shown) + '</span>' +
             '<span class="help-rail__desc">'  + escapeHtml(cmd.description) + '</span>' +
           '</button>';
       });
     });
     body.innerHTML = html;
     body.querySelectorAll('.help-rail__cmd').forEach(btn => {
-      btn.addEventListener('click', () => insertCommand(btn.dataset.name));
+      btn.addEventListener('click', () => insertUsage(btn.dataset.usage));
     });
   }
 
@@ -743,11 +744,20 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     panel.hasAttribute('hidden') ? openPanel() : closePanel();
   }
 
-  function insertCommand(name) {
-    input.value = '/' + name + (name.endsWith(':') ? '' : ' ');
+  // Insert the full usage template (e.g. `/m:<maestro> <text>`) and select
+  // the first <placeholder> so the user can immediately type to replace it.
+  function insertUsage(usage) {
+    input.value = usage;
     input.dispatchEvent(new Event('input'));
     closePanel();
     input.focus();
+    const match = usage.match(/<[^>]+>|\[[^\]]+\]/);
+    if (match) {
+      const start = match.index;
+      input.setSelectionRange(start, start + match[0].length);
+    } else {
+      input.setSelectionRange(usage.length, usage.length);
+    }
   }
 
   toggleBtn.addEventListener('click', togglePanel);
