@@ -329,3 +329,42 @@ class TestKillEntityAction:
         assert len(actions) == 3
         types = [a.type for a in actions]
         assert types == ["spawn_team", "spawn_worker", "kill_entity"]
+
+
+class TestRequestDecisionAction:
+    """Test parsing request_decision actions (Sprint 22 — peer messaging)."""
+
+    def test_parse_request_decision_action(self) -> None:
+        response = (
+            "Some text.\n\n"
+            "<hive_actions>\n"
+            "["
+            '{"type": "request_decision", "to": "dev.backend", '
+            '"text": "Should I use JWT or sessions?"}'
+            "]\n"
+            "</hive_actions>"
+        )
+        clean, actions = parse_actions(response)
+        assert clean == "Some text."
+        assert len(actions) == 1
+        assert actions[0].type == "request_decision"
+        assert actions[0].to == "dev.backend"
+        assert actions[0].text == "Should I use JWT or sessions?"
+
+    def test_parse_request_decision_missing_text(self) -> None:
+        response = (
+            "<hive_actions>\n"
+            '[{"type": "request_decision", "to": "dev.backend"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(response)
+        assert actions == []  # missing `text` is rejected
+
+    def test_parse_request_decision_missing_to(self) -> None:
+        response = (
+            "<hive_actions>\n"
+            '[{"type": "request_decision", "text": "Decide?"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(response)
+        assert actions == []  # missing `to` is rejected

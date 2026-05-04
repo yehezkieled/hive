@@ -11,7 +11,14 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
-from hive.bus.permissions import can_kill, can_message, can_spawn_team, can_spawn_worker
+from hive.bus.permissions import (
+    can_kill,
+    can_message,
+    can_request_decision,
+    can_spawn_team,
+    can_spawn_worker,
+    cc_targets_for,
+)
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -150,6 +157,69 @@ class ProcessManager:
         if self.audit_log is None:
             return
         await self.audit_log.record(actor=actor, action=action, target=target, details=details)
+
+    def _peer_directory_for(self, entity_name: str) -> str:
+        """Build a 'peers you can message' block for an entity's prompt.
+
+        Lists peers grouped by reach (same-parent direct, cross-parent
+        with CC) plus the entity's direct parent for request_decision.
+        Returns empty string if the entity is unknown.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            return ""
+
+        same_parent: list[str] = []
+        cross_parent: list[str] = []
+        parent: str | None = None
+        scope_label = ""
+
+        if entity.role == "maestro":
+            for name, e in self._entities.items():
+                if e.role == "maestro" and name != entity_name:
+                    same_parent.append(f"{name} (peer maestro — direct)")
+            scope_label = "maestro peer-to-peer"
+        elif entity.role == "lead":
+            sender_maestro = entity_name.split(".")[0]
+            parent = sender_maestro
+            for name, e in self._entities.items():
+                if e.role != "lead" or name == entity_name:
+                    continue
+                their_maestro = name.split(".")[0]
+                if their_maestro == sender_maestro:
+                    same_parent.append(f"{name} (same maestro — direct)")
+                else:
+                    cross_parent.append(f"{name} (cross-maestro — both maestros CC'd)")
+            scope_label = "lead peer-to-peer"
+        elif entity.role == "worker":
+            sender_lead = ".".join(entity_name.split(".")[:-1])
+            sender_maestro = entity_name.split(".")[0]
+            parent = sender_lead
+            for name, e in self._entities.items():
+                if e.role != "worker" or name == entity_name:
+                    continue
+                their_lead = ".".join(name.split(".")[:-1])
+                their_maestro = name.split(".")[0]
+                if their_lead == sender_lead:
+                    same_parent.append(f"{name} (same team — direct)")
+                elif their_maestro == sender_maestro:
+                    cross_parent.append(f"{name} (cross-team — both leads CC'd)")
+            scope_label = "worker peer-to-peer"
+
+        lines = [f"## Peers you can message ({scope_label})"]
+        if same_parent:
+            lines.extend(f"- {p}" for p in sorted(same_parent))
+        if cross_parent:
+            lines.extend(f"- {p}" for p in sorted(cross_parent))
+        if not same_parent and not cross_parent:
+            lines.append("- (none registered yet)")
+
+        if parent:
+            lines.append("")
+            lines.append("## Direct parent (use request_decision for escalations)")
+            lines.append(f"- {parent}")
+
+        return "\n".join(lines)
 
     async def _record_usage(self, entity: Entity, session: ClaudeSession) -> None:
         """Record token usage from a completed session, if a store is configured.
@@ -438,6 +508,10 @@ class ProcessManager:
         # rendered as a separate block listing paths so the agent's first
         # move is a `Read` on the path it cares about.
         prepended_blocks: list[str] = []
+        directory_block = self._peer_directory_for(entity_name)
+        if directory_block:
+            prepended_blocks.append(directory_block)
+
         if AUTO_RETRIEVE_ENABLED and prompt.strip():
             if self.blueprint_store is not None:
                 try:
@@ -563,11 +637,63 @@ class ProcessManager:
                     continue
                 if not can_message(entity.role, entity.name, recipient.role, recipient.name):
                     logger.warning("Permission denied: %s -> %s", entity.name, action.to)
+                    await self._audit(
+                        "peer_message_blocked",
+                        target=action.to,
+                        details={"sender": entity_name, "reason": "permission_denied"},
+                        actor=entity_name,
+                    )
                     continue
-                await self.router.route(entity_name, action.to, action.text or "")
+                body = action.text or ""
+                await self.router.route(entity_name, action.to, body)
                 self._last_routed_actions.append(action.to)
                 await self._audit(
-                    "message.autonomous",
+                    "peer_message_sent",
+                    target=action.to,
+                    details={"sender": entity_name, "text": body[:200]},
+                    actor=entity_name,
+                )
+                cc_targets = cc_targets_for(
+                    entity.role, entity.name, recipient.role, recipient.name
+                )
+                cc_body = f"[CC: {entity.name} -> {action.to}] {body}"
+                for cc_name in cc_targets:
+                    if cc_name not in self._entities:
+                        continue
+                    await self.router.route(entity_name, cc_name, cc_body)
+                    await self._audit(
+                        "peer_message_cc_inserted",
+                        target=cc_name,
+                        details={
+                            "sender": entity_name,
+                            "recipient": action.to,
+                            "text": body[:200],
+                        },
+                        actor=entity_name,
+                    )
+            elif action.type == "request_decision":
+                if not action.to:
+                    continue
+                recipient = self._entities.get(action.to)
+                if not recipient:
+                    logger.warning("Unknown request_decision recipient: %s", action.to)
+                    continue
+                if not can_request_decision(entity.role, entity.name, action.to):
+                    logger.warning(
+                        "request_decision denied: %s -> %s", entity.name, action.to
+                    )
+                    await self._audit(
+                        "request_decision_blocked",
+                        target=action.to,
+                        details={"sender": entity_name, "reason": "permission_denied"},
+                        actor=entity_name,
+                    )
+                    continue
+                body = f"[DECISION REQUEST] {action.text or ''}"
+                await self.router.route(entity_name, action.to, body)
+                self._last_routed_actions.append(action.to)
+                await self._audit(
+                    "request_decision_sent",
                     target=action.to,
                     details={"sender": entity_name, "text": (action.text or "")[:200]},
                     actor=entity_name,

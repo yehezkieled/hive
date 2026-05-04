@@ -504,6 +504,19 @@ from `personalities/role-worker.md` and emit `<hive_actions>` to
 report progress or escalate. Permission gates already restrict who
 they can address.
 
+> **Sprint 23 — Peer Messaging (2026-05-04):** every entity now sees a
+> live "Peers you can message" block at the head of its prompt and can
+> DM peers in scope (workers within the same maestro org, leads
+> globally, maestros globally). Cross-parent peer routes auto-CC each
+> peer's direct parent so leads/maestros retain visibility. A new
+> `request_decision` action routes only to the sender's direct parent
+> for explicit escalations. **No new env vars; no migration.** New
+> audit events: `peer_message_sent`, `peer_message_cc_inserted`,
+> `peer_message_blocked`, `request_decision_sent`,
+> `request_decision_blocked`. The legacy `message.autonomous` event is
+> replaced by `peer_message_sent` (only consumers were the test
+> suite).
+
 **New env vars** (all optional — sensible defaults):
 
 ```

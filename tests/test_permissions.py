@@ -27,8 +27,10 @@ class TestPermissions:
     def test_worker_cannot_message_other_lead(self) -> None:
         assert can_message("worker", "dev.backend.w1", "lead", "dev.frontend") is False
 
-    def test_worker_cannot_message_other_worker(self) -> None:
-        assert can_message("worker", "dev.backend.w1", "worker", "dev.backend.w2") is False
+    def test_worker_cannot_message_cross_maestro_worker(self) -> None:
+        # Sprint 22: same-maestro worker peer messaging is now allowed.
+        # Cross-maestro is still denied (must escalate via the chain).
+        assert can_message("worker", "dev.backend.w1", "worker", "ops.deploy.w1") is False
 
 
 class TestSpawnTeamPermissions:
