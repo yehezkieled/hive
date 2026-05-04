@@ -686,7 +686,9 @@ class TestPendingMessageInjection:
         assert "How's the project?" in captured_prompts[0]
 
     async def test_no_pending_prompt_unchanged(self, manager: ProcessManager) -> None:
-        """Without pending messages, the prompt should be passed through unchanged."""
+        """Without pending messages, the user's prompt is preserved verbatim
+        (Sprint 22 prepends a peer directory block — the user prompt itself
+        is still passed through unchanged at the tail)."""
         maestro = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
@@ -704,7 +706,8 @@ class TestPendingMessageInjection:
             mock_cls.side_effect = lambda args, **kw: instance
             await manager.send_to_entity("dev", "Hello")
 
-        assert captured_prompts[0] == "Hello"
+        assert captured_prompts[0].endswith("Hello")
+        assert "[Message from" not in captured_prompts[0]
 
     async def test_multiple_pending_all_included(self, manager: ProcessManager) -> None:
         """Multiple pending messages should all appear in the prompt."""

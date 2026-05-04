@@ -207,3 +207,91 @@ class TestRequestDecision:
         await manager._handle_actions("dev.backend", "", [action])
 
         assert manager.router.has_pending("dev")
+
+
+class TestPeerDirectory:
+    async def test_worker_directory_lists_peers_and_parent(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.create_team("dev", "payments")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+        await manager.spawn_worker("dev.backend", worker_name="w2")
+        await manager.spawn_worker("dev.payments", worker_name="w1")
+
+        directory = manager._peer_directory_for("dev.backend.w1")
+
+        assert "dev.backend.w2" in directory
+        assert "same team" in directory
+        assert "dev.payments.w1" in directory
+        assert "cross-team" in directory
+        assert "dev.backend" in directory  # parent for request_decision
+
+    async def test_lead_directory_lists_other_leads(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.create_team("dev", "payments")
+
+        directory = manager._peer_directory_for("dev.backend")
+        assert "dev.payments" in directory
+        assert "same maestro" in directory
+
+    async def test_maestro_directory_lists_other_maestros(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.register_maestro("ops")
+
+        directory = manager._peer_directory_for("dev")
+        assert "ops" in directory
+
+    async def test_directory_empty_when_alone(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+
+        directory = manager._peer_directory_for("dev.backend.w1")
+        # No other workers — should still mention parent, not bomb out.
+        assert "dev.backend" in directory
+
+
+async def test_send_to_entity_prepends_peer_directory(
+    manager: ProcessManager,
+    monkeypatch,
+) -> None:
+    await manager.register_maestro("dev")
+    await manager.create_team("dev", "backend")
+    await manager.spawn_worker("dev.backend", worker_name="w1")
+    await manager.spawn_worker("dev.backend", worker_name="w2")
+
+    captured: dict[str, str] = {}
+
+    class FakeSession:
+        session_id = None
+        last_usage = None
+        pid = 12345
+
+        def __init__(self, args, cwd=None):
+            self.is_alive = True
+
+        async def start(self):
+            return None
+
+        async def send_prompt(self, prompt):
+            captured["prompt"] = prompt
+            return ""
+
+        async def kill(self):
+            self.is_alive = False
+
+    monkeypatch.setattr("hive.process.manager.ClaudeSession", FakeSession)
+
+    await manager.send_to_entity("dev.backend.w1", "do work")
+
+    assert "dev.backend.w2" in captured["prompt"]
+    assert "Peers you can message" in captured["prompt"]

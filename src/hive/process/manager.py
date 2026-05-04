@@ -158,6 +158,69 @@ class ProcessManager:
             return
         await self.audit_log.record(actor=actor, action=action, target=target, details=details)
 
+    def _peer_directory_for(self, entity_name: str) -> str:
+        """Build a 'peers you can message' block for an entity's prompt.
+
+        Lists peers grouped by reach (same-parent direct, cross-parent
+        with CC) plus the entity's direct parent for request_decision.
+        Returns empty string if the entity is unknown.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            return ""
+
+        same_parent: list[str] = []
+        cross_parent: list[str] = []
+        parent: str | None = None
+        scope_label = ""
+
+        if entity.role == "maestro":
+            for name, e in self._entities.items():
+                if e.role == "maestro" and name != entity_name:
+                    same_parent.append(f"{name} (peer maestro — direct)")
+            scope_label = "maestro peer-to-peer"
+        elif entity.role == "lead":
+            sender_maestro = entity_name.split(".")[0]
+            parent = sender_maestro
+            for name, e in self._entities.items():
+                if e.role != "lead" or name == entity_name:
+                    continue
+                their_maestro = name.split(".")[0]
+                if their_maestro == sender_maestro:
+                    same_parent.append(f"{name} (same maestro — direct)")
+                else:
+                    cross_parent.append(f"{name} (cross-maestro — both maestros CC'd)")
+            scope_label = "lead peer-to-peer"
+        elif entity.role == "worker":
+            sender_lead = ".".join(entity_name.split(".")[:-1])
+            sender_maestro = entity_name.split(".")[0]
+            parent = sender_lead
+            for name, e in self._entities.items():
+                if e.role != "worker" or name == entity_name:
+                    continue
+                their_lead = ".".join(name.split(".")[:-1])
+                their_maestro = name.split(".")[0]
+                if their_lead == sender_lead:
+                    same_parent.append(f"{name} (same team — direct)")
+                elif their_maestro == sender_maestro:
+                    cross_parent.append(f"{name} (cross-team — both leads CC'd)")
+            scope_label = "worker peer-to-peer"
+
+        lines = [f"## Peers you can message ({scope_label})"]
+        if same_parent:
+            lines.extend(f"- {p}" for p in sorted(same_parent))
+        if cross_parent:
+            lines.extend(f"- {p}" for p in sorted(cross_parent))
+        if not same_parent and not cross_parent:
+            lines.append("- (none registered yet)")
+
+        if parent:
+            lines.append("")
+            lines.append("## Direct parent (use request_decision for escalations)")
+            lines.append(f"- {parent}")
+
+        return "\n".join(lines)
+
     async def _record_usage(self, entity: Entity, session: ClaudeSession) -> None:
         """Record token usage from a completed session, if a store is configured.
 
@@ -445,6 +508,10 @@ class ProcessManager:
         # rendered as a separate block listing paths so the agent's first
         # move is a `Read` on the path it cares about.
         prepended_blocks: list[str] = []
+        directory_block = self._peer_directory_for(entity_name)
+        if directory_block:
+            prepended_blocks.append(directory_block)
+
         if AUTO_RETRIEVE_ENABLED and prompt.strip():
             if self.blueprint_store is not None:
                 try:
