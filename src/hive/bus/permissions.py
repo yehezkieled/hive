@@ -104,6 +104,27 @@ def cc_targets_for(
     return []
 
 
+def can_request_decision(
+    sender_role: str,
+    sender_name: str,
+    target_name: str,
+) -> bool:
+    """Strict parent-only escalation gate.
+
+    Workers can only request_decision from their direct lead; leads only
+    from their direct maestro; maestros have no parent to escalate to.
+    """
+    if sender_role == "worker":
+        sender_lead = ".".join(sender_name.split(".")[:-1])
+        return target_name == sender_lead
+
+    if sender_role == "lead":
+        sender_maestro = sender_name.split(".")[0]
+        return target_name == sender_maestro
+
+    return False
+
+
 def can_spawn_team(actor_role: str, actor_name: str) -> bool:
     """Maestros can spawn teams in their own org. The team name is scoped
     automatically (lead becomes ``<actor>.<team_name>``), so org boundary

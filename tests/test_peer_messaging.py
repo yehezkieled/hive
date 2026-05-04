@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hive.bus.permissions import can_message, cc_targets_for
+from hive.bus.permissions import can_message, can_request_decision, cc_targets_for
 
 
 # ---- can_message peer rules ----
@@ -70,3 +70,28 @@ class TestCcTargetsFor:
         # Existing parent-child routes carry no CC.
         assert cc_targets_for("worker", "dev.backend.w1", "lead", "dev.backend") == []
         assert cc_targets_for("lead", "dev.backend", "maestro", "dev") == []
+
+
+# ---- can_request_decision gate ----
+
+
+class TestCanRequestDecision:
+    def test_worker_to_own_lead_allowed(self) -> None:
+        assert can_request_decision("worker", "dev.backend.w1", "dev.backend") is True
+
+    def test_lead_to_own_maestro_allowed(self) -> None:
+        assert can_request_decision("lead", "dev.backend", "dev") is True
+
+    def test_worker_to_other_lead_denied(self) -> None:
+        assert can_request_decision("worker", "dev.backend.w1", "dev.payments") is False
+
+    def test_worker_skipping_lead_to_maestro_denied(self) -> None:
+        assert can_request_decision("worker", "dev.backend.w1", "dev") is False
+
+    def test_lead_to_other_maestro_denied(self) -> None:
+        assert can_request_decision("lead", "dev.backend", "ops") is False
+
+    def test_maestro_cannot_request_decision(self) -> None:
+        # Maestros are top-tier — no parent to escalate to.
+        assert can_request_decision("maestro", "dev", "user") is False
+        assert can_request_decision("maestro", "dev", "ops") is False
