@@ -81,12 +81,12 @@ async def test_worker_replies_to_lead_via_hive_actions(
         assert delivered.sender == worker.name
         assert "complete" in delivered.content.lower()
 
-        events = await audit_log.recent(action_prefix="message.")
+        events = await audit_log.recent(action_prefix="peer_message_")
         assert any(
-            e["action"] == "message.autonomous"
+            e["action"] == "peer_message_sent"
             and e["actor"] == worker.name
             and e["target"] == lead.name
             for e in events
-        ), "Expected message.autonomous audit entry for worker → lead."
+        ), "Expected peer_message_sent audit entry for worker → lead."
     finally:
         await mgr.kill_all()

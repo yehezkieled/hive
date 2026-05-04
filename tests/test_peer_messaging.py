@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
+import pytest_asyncio
+
+from hive.bus.actions import Action
+from hive.bus.audit_log import AuditLog
 from hive.bus.permissions import can_message, can_request_decision, cc_targets_for
+from hive.bus.router import MessageRouter
+from hive.process.manager import ProcessManager
 
 
 # ---- can_message peer rules ----
@@ -95,3 +103,66 @@ class TestCanRequestDecision:
         # Maestros are top-tier — no parent to escalate to.
         assert can_request_decision("maestro", "dev", "user") is False
         assert can_request_decision("maestro", "dev", "ops") is False
+
+
+# ---- Routing integration tests (peer message + CC) ----
+
+
+@pytest_asyncio.fixture
+async def manager(
+    router: MessageRouter,
+    audit_log: AuditLog,
+) -> AsyncIterator[ProcessManager]:
+    """Process manager backed by the conftest router + audit_log."""
+    mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
+    try:
+        yield mgr
+    finally:
+        await mgr.kill_all()
+
+
+class TestPeerMessageRouting:
+    async def test_same_team_worker_message_no_cc(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+        await manager.spawn_worker("dev.backend", worker_name="w2")
+
+        action = Action(type="message", to="dev.backend.w2", text="hello peer")
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert manager.router.has_pending("dev.backend.w2")
+        assert not manager.router.has_pending("dev.backend")
+
+    async def test_cross_team_worker_message_ccs_both_leads(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.create_team("dev", "payments")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+        await manager.spawn_worker("dev.payments", worker_name="w1")
+
+        action = Action(type="message", to="dev.payments.w1", text="cross-team")
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert manager.router.has_pending("dev.payments.w1")
+        assert manager.router.has_pending("dev.backend")
+        assert manager.router.has_pending("dev.payments")
+
+    async def test_cross_maestro_worker_blocked(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.register_maestro("ops")
+        await manager.create_team("dev", "backend")
+        await manager.create_team("ops", "deploy")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+        await manager.spawn_worker("ops.deploy", worker_name="w1")
+
+        action = Action(type="message", to="ops.deploy.w1", text="leak")
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert not manager.router.has_pending("ops.deploy.w1")

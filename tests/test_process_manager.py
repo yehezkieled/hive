@@ -894,7 +894,7 @@ class TestActionRouting:
         router: MessageRouter,
         audit_log: AuditLog,
     ) -> None:
-        """Routed messages should emit a message.autonomous audit event."""
+        """Routed messages should emit a peer_message_sent audit event."""
         mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
         maestro = Maestro(name="dev", model="sonnet")
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
@@ -920,9 +920,9 @@ class TestActionRouting:
             mock_cls.side_effect = lambda args, **kw: instance
             await mgr.send_to_entity("dev", "Go")
 
-        events = await audit_log.recent(action_prefix="message.")
+        events = await audit_log.recent(action_prefix="peer_message_")
         assert len(events) == 1
-        assert events[0]["action"] == "message.autonomous"
+        assert events[0]["action"] == "peer_message_sent"
         assert events[0]["target"] == "dev.backend"
         assert events[0]["actor"] == "dev"
 

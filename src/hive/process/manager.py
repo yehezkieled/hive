@@ -11,7 +11,14 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
-from hive.bus.permissions import can_kill, can_message, can_spawn_team, can_spawn_worker
+from hive.bus.permissions import (
+    can_kill,
+    can_message,
+    can_request_decision,
+    can_spawn_team,
+    can_spawn_worker,
+    cc_targets_for,
+)
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -563,15 +570,40 @@ class ProcessManager:
                     continue
                 if not can_message(entity.role, entity.name, recipient.role, recipient.name):
                     logger.warning("Permission denied: %s -> %s", entity.name, action.to)
+                    await self._audit(
+                        "peer_message_blocked",
+                        target=action.to,
+                        details={"sender": entity_name, "reason": "permission_denied"},
+                        actor=entity_name,
+                    )
                     continue
-                await self.router.route(entity_name, action.to, action.text or "")
+                body = action.text or ""
+                await self.router.route(entity_name, action.to, body)
                 self._last_routed_actions.append(action.to)
                 await self._audit(
-                    "message.autonomous",
+                    "peer_message_sent",
                     target=action.to,
-                    details={"sender": entity_name, "text": (action.text or "")[:200]},
+                    details={"sender": entity_name, "text": body[:200]},
                     actor=entity_name,
                 )
+                cc_targets = cc_targets_for(
+                    entity.role, entity.name, recipient.role, recipient.name
+                )
+                cc_body = f"[CC: {entity.name} -> {action.to}] {body}"
+                for cc_name in cc_targets:
+                    if cc_name not in self._entities:
+                        continue
+                    await self.router.route(entity_name, cc_name, cc_body)
+                    await self._audit(
+                        "peer_message_cc_inserted",
+                        target=cc_name,
+                        details={
+                            "sender": entity_name,
+                            "recipient": action.to,
+                            "text": body[:200],
+                        },
+                        actor=entity_name,
+                    )
             elif action.type == "request_mode_change":
                 if not action.requested_mode:
                     continue
