@@ -343,8 +343,8 @@ async def main() -> None:
         )
         await cli.run()
 
-    # Cleanup
-    await process_manager.kill_all()
+    # Cleanup — graceful stop preserves DB rows so entities restore on next boot
+    await process_manager.stop_all()
     await store.close()
     logger.info("Hive stopped.")
 

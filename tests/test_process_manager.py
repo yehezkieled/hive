@@ -468,6 +468,79 @@ class TestHierarchyRestore:
         manager.rebuild_hierarchy()  # should not raise
 
 
+class TestStopAll:
+    """Test graceful stop_all — kills subprocesses but preserves DB rows."""
+
+    async def test_stop_all_preserves_db_rows(
+        self,
+        router: MessageRouter,
+        entity_store: EntityStore,
+    ) -> None:
+        """stop_all should leave entity rows + session_id intact in the DB."""
+        mgr = ProcessManager(router=router, entity_store=entity_store)
+
+        dev = Maestro(name="dev", model="sonnet", session_id="sess-dev")
+        pa = Maestro(name="pa", model="sonnet", session_id="sess-pa")
+        await entity_store.upsert(dev)
+        await entity_store.upsert(pa)
+        mgr._entities["dev"] = dev
+        mgr._entities["pa"] = pa
+        mgr.router.register("dev")
+        mgr.router.register("pa")
+
+        await mgr.stop_all()
+
+        rows = await entity_store.all()
+        names = {r.name for r in rows}
+        assert names == {"dev", "pa"}
+        by_name = {r.name: r for r in rows}
+        assert by_name["dev"].session_id == "sess-dev"
+        assert by_name["pa"].session_id == "sess-pa"
+
+    async def test_stop_all_kills_subprocesses(
+        self,
+        router: MessageRouter,
+        entity_store: EntityStore,
+    ) -> None:
+        """stop_all should call session.kill() on every active session and clear the dict."""
+        mgr = ProcessManager(router=router, entity_store=entity_store)
+
+        entity = Maestro(name="dev", model="sonnet")
+        mgr._entities["dev"] = entity
+        mgr.router.register("dev")
+
+        fake_session = AsyncMock()
+        mgr._sessions["dev"] = fake_session
+
+        await mgr.stop_all()
+
+        fake_session.kill.assert_awaited_once()
+        assert mgr._sessions == {}
+
+    async def test_stop_all_then_restore_round_trip(
+        self,
+        router: MessageRouter,
+        entity_store: EntityStore,
+    ) -> None:
+        """After stop_all, a fresh manager can restore the same entities with session_ids."""
+        mgr1 = ProcessManager(router=router, entity_store=entity_store)
+        dev = Maestro(name="dev", model="sonnet", session_id="sess-dev")
+        await entity_store.upsert(dev)
+        mgr1._entities["dev"] = dev
+        mgr1.router.register("dev")
+
+        await mgr1.stop_all()
+
+        mgr2 = ProcessManager(router=router, entity_store=entity_store)
+        for restored in await entity_store.all():
+            mgr2.restore(restored)
+
+        assert "dev" in mgr2.entities
+        restored_dev = mgr2.entities["dev"]
+        assert restored_dev.session_id == "sess-dev"
+        assert restored_dev.state == EntityState.IDLE
+
+
 class TestMaxWorkersEnforcement:
     """Test that spawn_worker respects lead.max_workers."""
 

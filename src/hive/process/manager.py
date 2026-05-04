@@ -953,6 +953,21 @@ class ProcessManager:
         for name in names:
             await self.kill_entity(name)
 
+    async def stop_all(self) -> None:
+        """Stop all entity subprocesses without deleting DB rows.
+
+        Used on graceful shutdown so entities can be restored on next boot
+        via restore() + rebuild_hierarchy(). Preserves session_id so the
+        next spawn can --resume the prior conversation.
+        """
+        for name, session in list(self._sessions.items()):
+            try:
+                await session.kill()
+            except Exception:
+                logger.exception("Failed to kill session for %s on shutdown", name)
+        self._sessions.clear()
+        logger.info("Stopped %d entity sessions for restart", len(self._entities))
+
     # -----------------------------------------------------------------
     # Mode-change approval flow (Sprint 12 Phase 2C)
     # -----------------------------------------------------------------

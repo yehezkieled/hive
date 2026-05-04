@@ -574,9 +574,14 @@ kill $(pgrep -f 'python -m hive' | tail -1)
 ```
 
 Send **SIGTERM** (`kill`, not `kill -9`). The orchestrator installs a
-signal handler that runs `bridge.stop()`, `process_manager.kill_all()`,
+signal handler that runs `bridge.stop()`, `process_manager.stop_all()`,
 and `store.close()` so the asyncpg pool closes cleanly. SIGKILL strands
 connections.
+
+Since Sprint 21 Phase 1 (2026-05-04), shutdown calls `stop_all()` instead
+of `kill_all()`: subprocesses are terminated but entity rows + session_ids
+are preserved in the DB so they restore on the next boot. `/kill <entity>`
+keeps its hard-delete semantics for explicit removal.
 
 Expected shutdown log tail:
 
@@ -584,7 +589,7 @@ Expected shutdown log tail:
 Shutting down...
 Application.stop() complete
 Telegram bridge stopped
-Killed entity: dev
+Stopped 1 entity sessions for restart
 Hive stopped.
 ```
 

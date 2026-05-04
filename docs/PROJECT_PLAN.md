@@ -1793,11 +1793,15 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
-## Sprint 21 — Restart Persistence (planned)
+## Sprint 21 — Restart Persistence (Phase 1 DONE)
 
-**Status:** Planned
-**Branch:** `sprint-21-restart-persistence` (not yet cut)
+**Status:** Phase 1 shipped 2026-05-04. Phases 2 (forward-dep `load_personality` on restore) and 3 (edge cases, audit) outstanding.
+**Branch:** main
 **Builds on:** Sprint 19 (autonomous spawn/kill, entity store), Sprint 20 (dashboard read paths).
+
+### Phase 1 — split shutdown from kill (DONE 2026-05-04)
+
+Added `ProcessManager.stop_all()` in `manager.py` which terminates every active session via `session.kill()` and clears the `_sessions` dict, but does NOT delete entity rows or touch worktrees. `__main__.py:347` switched from `kill_all()` to `stop_all()`. `kill_entity()` keeps its hard-delete semantics for explicit `/kill` actions. Three new tests (`TestStopAll` in `tests/test_process_manager.py`): preserves DB rows + session_ids, kills subprocesses, round-trips with `restore()`. 643 tests passing (was 640).
 
 **Goal**: every entity that exists before `systemctl restart hive.service` comes back after restart with the same role, model, hierarchy, and session id, in IDLE state ready to accept the next message. `/kill foo` continues to hard-delete (intentional user action); shutdown does not.
 
