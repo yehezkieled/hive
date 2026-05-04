@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hive.bus.permissions import can_message
+from hive.bus.permissions import can_message, cc_targets_for
 
 
 # ---- can_message peer rules ----
@@ -43,3 +43,30 @@ class TestPeerMessagingPermissions:
     def test_worker_to_worker_self_denied(self) -> None:
         # Self-message is disallowed.
         assert can_message("worker", "dev.backend.w1", "worker", "dev.backend.w1") is False
+
+
+# ---- cc_targets_for resolver ----
+
+
+class TestCcTargetsFor:
+    def test_no_cc_for_same_team_workers(self) -> None:
+        assert cc_targets_for("worker", "dev.backend.w1", "worker", "dev.backend.w2") == []
+
+    def test_cross_team_workers_cc_both_leads(self) -> None:
+        result = cc_targets_for("worker", "dev.backend.w1", "worker", "dev.payments.w1")
+        assert sorted(result) == ["dev.backend", "dev.payments"]
+
+    def test_no_cc_for_same_maestro_leads(self) -> None:
+        assert cc_targets_for("lead", "dev.backend", "lead", "dev.payments") == []
+
+    def test_cross_maestro_leads_cc_both_maestros(self) -> None:
+        result = cc_targets_for("lead", "dev.backend", "lead", "ops.deploy")
+        assert sorted(result) == ["dev", "ops"]
+
+    def test_no_cc_for_maestro_peers(self) -> None:
+        assert cc_targets_for("maestro", "dev", "maestro", "ops") == []
+
+    def test_no_cc_for_parent_child_routes(self) -> None:
+        # Existing parent-child routes carry no CC.
+        assert cc_targets_for("worker", "dev.backend.w1", "lead", "dev.backend") == []
+        assert cc_targets_for("lead", "dev.backend", "maestro", "dev") == []
