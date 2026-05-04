@@ -1793,6 +1793,70 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 23 — Peer Messaging (2026-05-04, DONE on branch)
+
+**Status:** All 9 plan tasks shipped on branch `feat/peer-messaging`;
+awaiting deploy + Telegram smoke test.
+**Branch:** `feat/peer-messaging` → main
+**Totals:** 645 → 676 unit tests (+31). No migrations. No env vars.
+**Plan:** `docs/plans/2026-05-04-peer-messaging.md`
+
+### Why this exists
+Hive's three tiers could only message along the parent-child axis.
+Every cross-cutting question — "what schema are you using?", "are you
+done with X?" — had to bubble through the lead/maestro layer, wasting
+tokens and turning the leads into mandatory routers. The fix is a
+hybrid model: peer messaging is allowed within scope, with automatic
+CC to each peer's parent when peers cross a parent boundary, so leads
+and maestros keep visibility without sitting in the path of every
+tactical exchange.
+
+### Locked decisions
+- **Peer rules.** Maestros can DM any maestro. Leads can DM any lead;
+  cross-maestro lead routes get both maestros CC'd. Workers can DM
+  any worker in the same maestro org; cross-team routes CC both
+  leads. Cross-maestro worker DMs are still denied — those must
+  escalate via the chain.
+- **Two action types.** The single `message` action gains a sibling,
+  `request_decision`, that routes only to the sender's direct parent.
+  Workers `request_decision` from their lead; leads from their maestro.
+  Peer chatter goes via `message`, escalations via `request_decision`.
+- **Audit-event family rename.** The single `message.autonomous` event
+  is replaced by a peer-aware family: `peer_message_sent`,
+  `peer_message_cc_inserted`, `peer_message_blocked`,
+  `request_decision_sent`, `request_decision_blocked`. The two
+  internal tests asserting on `message.autonomous` were updated in the
+  same commit (no external dashboards/SSE/notifications consumed it).
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/permissions.py` | `can_message` extended with same-role peer rules and a self-message guard. New `cc_targets_for(...)` returns each peer's direct parent for cross-parent peer routes (and `[]` otherwise). New `can_request_decision(...)` is a strict parent-only escalation gate. |
+| `src/hive/bus/actions.py` | New `request_decision` action type with `to`/`text` fields. Module docstring updated. |
+| `src/hive/process/manager.py` | `_handle_actions` `message` branch rewritten: emits `peer_message_blocked` on denial, `peer_message_sent` on route, and `peer_message_cc_inserted` per CC copy (CC body prefixed `[CC: <sender> -> <recipient>]`). New `request_decision` branch with parent-only routing and `[DECISION REQUEST]` body tag. New `_peer_directory_for(entity_name)` helper builds a per-entity "Peers you can message" markdown block; `send_to_entity` prepends it for every entity. |
+| `tests/test_peer_messaging.py` (new) | 31 tests: permission matrix, `cc_targets_for` resolver, `can_request_decision` gate, integration tests for routing + CC + denial, request_decision routing, peer-directory builder for each role, and an end-to-end test that `send_to_entity` injects the directory at the head of the prompt. |
+| `tests/test_permissions.py` | Old `test_worker_cannot_message_other_worker` replaced by `test_worker_cannot_message_cross_maestro_worker` (same-maestro is now allowed; cross-maestro is the only worker-to-worker denial). |
+| `tests/test_actions.py` | `TestRequestDecisionAction` class (3 tests) for the new action parser. |
+| `tests/test_process_manager.py` | `test_action_routing_writes_audit_event` updated to assert the new `peer_message_sent` event. `test_no_pending_prompt_unchanged` updated to tolerate the prepended peer-directory block (still asserts the user prompt is preserved at the tail). |
+| `tests/integration/test_lead_worker_roundtrip.py` | Audit assertion updated from `message.autonomous` to `peer_message_sent`. |
+
+### Audit events introduced
+- `peer_message_sent` — every successful `message` route (peer + parent-child).
+- `peer_message_cc_inserted` — one per CC copy (cross-parent peer routes only).
+- `peer_message_blocked` — emitted when `can_message` denies a route (previously silent).
+- `request_decision_sent` — every successful `request_decision` route.
+- `request_decision_blocked` — `request_decision` to a non-parent target.
+
+### Verification
+- `pytest tests/ --ignore=tests/integration` → **676 passing** (was 645).
+- `pytest tests/test_peer_messaging.py -v` → 31/31 PASS.
+- Live (pending): `/m:hive_maestro` instructs cross-team peer message,
+  audit log shows one `peer_message_sent` + two `peer_message_cc_inserted`,
+  next-spawn prompts contain the CC line.
+
+---
+
 ## Sprint 21 — Restart Persistence (Phase 1 DONE)
 
 **Status:** Phase 1 shipped 2026-05-04. Phases 2 (forward-dep `load_personality` on restore) and 3 (edge cases, audit) outstanding.
