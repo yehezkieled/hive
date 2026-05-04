@@ -6,6 +6,10 @@ validates permissions, and routes messages accordingly.
 
 Supported action types:
 - ``message``: send text to another entity. Fields: ``to``, ``text``.
+  Peer routing applies (see ``hive.bus.permissions.can_message``).
+- ``request_decision``: escalate a directional decision to the direct
+  parent (worker → own lead, lead → own maestro). Fields: ``to``,
+  ``text``. Strict parent-only routing.
 - ``request_mode_change``: ask for an elevated permission mode. Fields:
   ``requested_mode`` (yolo|yotree), ``reason`` (optional).
 - ``report_failure``: a task-bound entity tells the orchestrator the
@@ -42,6 +46,7 @@ _FAILURE_REQUIRED = {"reason"}
 _SPAWN_TEAM_REQUIRED = {"team_name"}
 _SPAWN_WORKER_REQUIRED: set[str] = set()
 _KILL_ENTITY_REQUIRED = {"target"}
+_REQUEST_DECISION_REQUIRED = {"to", "text"}
 
 
 @dataclass
@@ -193,6 +198,14 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
                 logger.warning("kill_entity missing fields %s: %s", missing, item)
                 continue
             actions.append(Action(type=atype, target=item["target"]))
+            continue
+
+        if atype == "request_decision":
+            missing = _REQUEST_DECISION_REQUIRED - item.keys()
+            if missing:
+                logger.warning("request_decision missing fields %s: %s", missing, item)
+                continue
+            actions.append(Action(type=atype, to=item["to"], text=item["text"]))
             continue
 
         logger.warning("Unknown action type %r, skipping", atype)
