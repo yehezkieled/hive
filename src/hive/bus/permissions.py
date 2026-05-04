@@ -28,21 +28,40 @@ def can_message(
 
     Uses the dotted naming convention to determine org membership:
     dev.backend.w1 belongs to lead dev.backend, which belongs to maestro dev.
+
+    Peer-to-peer rules (Sprint 22):
+    - Maestros can message any other maestro.
+    - Leads can message any other lead (cross-maestro routes are CC'd).
+    - Workers can message workers within the same maestro org. Cross-team
+      routes within the same maestro are CC'd to both leads.
+    - Cross-maestro worker-to-worker is denied; must escalate via the chain.
     """
+    # Self-message is never allowed.
+    if sender_name == recipient_name:
+        return False
+
+    sender_maestro = sender_name.split(".")[0]
+    recipient_maestro = recipient_name.split(".")[0]
+
+    # ---- Peer-to-peer rules (same role on both ends) ----
+    if sender_role == recipient_role:
+        if sender_role == "maestro":
+            return True
+        if sender_role == "lead":
+            return True
+        if sender_role == "worker":
+            return sender_maestro == recipient_maestro
+
+    # ---- Existing parent-child rules ----
     if sender_role == "maestro":
-        # Maestro can message any entity in its org (name starts with maestro name)
         return recipient_name.startswith(f"{sender_name}.")
 
     if sender_role == "lead":
-        # Lead can message its own workers (name starts with lead name)
         if recipient_name.startswith(f"{sender_name}."):
             return True
-        # Lead can message its parent maestro
-        maestro_name = sender_name.split(".")[0]
-        return recipient_name == maestro_name
+        return recipient_name == sender_maestro
 
     if sender_role == "worker":
-        # Worker can message its own lead only
         lead_name = ".".join(sender_name.split(".")[:-1])
         return recipient_name == lead_name
 
