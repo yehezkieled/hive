@@ -604,6 +604,33 @@ class ProcessManager:
                         },
                         actor=entity_name,
                     )
+            elif action.type == "request_decision":
+                if not action.to:
+                    continue
+                recipient = self._entities.get(action.to)
+                if not recipient:
+                    logger.warning("Unknown request_decision recipient: %s", action.to)
+                    continue
+                if not can_request_decision(entity.role, entity.name, action.to):
+                    logger.warning(
+                        "request_decision denied: %s -> %s", entity.name, action.to
+                    )
+                    await self._audit(
+                        "request_decision_blocked",
+                        target=action.to,
+                        details={"sender": entity_name, "reason": "permission_denied"},
+                        actor=entity_name,
+                    )
+                    continue
+                body = f"[DECISION REQUEST] {action.text or ''}"
+                await self.router.route(entity_name, action.to, body)
+                self._last_routed_actions.append(action.to)
+                await self._audit(
+                    "request_decision_sent",
+                    target=action.to,
+                    details={"sender": entity_name, "text": (action.text or "")[:200]},
+                    actor=entity_name,
+                )
             elif action.type == "request_mode_change":
                 if not action.requested_mode:
                     continue

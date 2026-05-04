@@ -166,3 +166,44 @@ class TestPeerMessageRouting:
         await manager._handle_actions("dev.backend.w1", "", [action])
 
         assert not manager.router.has_pending("ops.deploy.w1")
+
+
+class TestRequestDecision:
+    async def test_worker_to_own_lead_allowed(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+
+        action = Action(
+            type="request_decision",
+            to="dev.backend",
+            text="JWT or sessions?",
+        )
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert manager.router.has_pending("dev.backend")
+
+    async def test_worker_skipping_to_maestro_blocked(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+
+        action = Action(type="request_decision", to="dev", text="bypass attempt")
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert not manager.router.has_pending("dev")
+
+    async def test_lead_to_own_maestro_allowed(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+
+        action = Action(type="request_decision", to="dev", text="add new team?")
+        await manager._handle_actions("dev.backend", "", [action])
+
+        assert manager.router.has_pending("dev")
