@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -111,6 +112,13 @@ class ProcessManager:
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
+        # Single asyncio.Lock guards mutations to _entities / _sessions when
+        # those mutations need to be consistent (e.g. entity + session
+        # registered together on spawn). Single-key reads do not acquire
+        # this lock — CPython dict get/set on a single key is atomic under
+        # the GIL. asyncio.Lock is NOT re-entrant; never hold it across an
+        # await that calls back into ProcessManager (deadlock).
+        self._state_lock: asyncio.Lock = asyncio.Lock()
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
         self._last_failure_reports: list[int] = []
@@ -365,7 +373,8 @@ class ProcessManager:
         if personality_path and personality_path.exists():
             maestro.load_personality()
 
-        self._entities[name] = maestro
+        async with self._state_lock:
+            self._entities[name] = maestro
         self.router.register(name)
         await self._persist(maestro)
         await self._audit(
@@ -384,7 +393,8 @@ class ProcessManager:
         """
         if entity.name in self._entities:
             raise ValueError(f"Entity {entity.name!r} already exists.")
-        self._entities[entity.name] = entity
+        async with self._state_lock:
+            self._entities[entity.name] = entity
         self.router.register(entity.name)
         logger.info("Registered entity: %s (role=%s)", entity.name, entity.role)
 
@@ -454,9 +464,11 @@ class ProcessManager:
         # Register in router for message delivery
         self.router.register(entity.name)
 
-        # Track
-        self._entities[entity.name] = entity
-        self._sessions[entity.name] = session
+        # Track — entity + session must appear together so callers don't
+        # observe an entity in RUNNING state without its session.
+        async with self._state_lock:
+            self._entities[entity.name] = entity
+            self._sessions[entity.name] = session
 
         await self._persist(entity)
         await self._audit(
@@ -893,7 +905,8 @@ class ProcessManager:
         )
         team.lead = lead_name
 
-        self._entities[lead_name] = lead
+        async with self._state_lock:
+            self._entities[lead_name] = lead
         self.router.register(lead_name)
         written_path = self._maybe_write_auto_personality(
             entity_name=lead_name,
@@ -979,7 +992,8 @@ class ProcessManager:
             if team:
                 team.workers.append(full_name)
 
-        self._entities[full_name] = worker
+        async with self._state_lock:
+            self._entities[full_name] = worker
         self.router.register(full_name)
         written_path = self._maybe_write_auto_personality(
             entity_name=full_name,
@@ -1031,7 +1045,8 @@ class ProcessManager:
         session = self._sessions.get(name)
         if session:
             await session.kill()
-            del self._sessions[name]
+            async with self._state_lock:
+                self._sessions.pop(name, None)
 
         entity = self._entities.get(name)
         if entity:
@@ -1060,7 +1075,8 @@ class ProcessManager:
 
             if entity.state == EntityState.RUNNING:
                 entity.transition_to(EntityState.STOPPED)
-            del self._entities[name]
+            async with self._state_lock:
+                self._entities.pop(name, None)
 
         # Remove from DB so dead entities don't reappear on restart
         if self.entity_store is not None:
@@ -1091,7 +1107,8 @@ class ProcessManager:
                 await session.kill()
             except Exception:
                 logger.exception("Failed to kill session for %s on shutdown", name)
-        self._sessions.clear()
+        async with self._state_lock:
+            self._sessions.clear()
         logger.info("Stopped %d entity sessions for restart", len(self._entities))
 
     # -----------------------------------------------------------------
@@ -1332,7 +1349,10 @@ class ProcessManager:
     def get_status(self) -> list[dict]:
         """Return status of all tracked entities."""
         statuses = []
-        for name, entity in self._entities.items():
+        # Snapshot via list() — sync method can't use the async _state_lock,
+        # but a snapshot prevents "dictionary changed size during iteration"
+        # if another coroutine mutates _entities while we iterate.
+        for name, entity in list(self._entities.items()):
             session = self._sessions.get(name)
             statuses.append(
                 {
@@ -1353,7 +1373,11 @@ class ProcessManager:
         Returns list of entity names that need attention.
         """
         unhealthy: list[str] = []
-        for name, entity in self._entities.items():
+        # Snapshot to avoid iteration-during-mutation. Don't hold the lock
+        # across the awaits below.
+        async with self._state_lock:
+            entries = list(self._entities.items())
+        for name, entity in entries:
             session = self._sessions.get(name)
             if entity.state == EntityState.RUNNING and (session is None or not session.is_alive):
                 unhealthy.append(name)
@@ -1403,7 +1427,8 @@ class ProcessManager:
         await self.kill_entity(entity_name)
 
         # Step 3: Re-register entity in IDLE state
-        self._entities[entity_name] = entity
+        async with self._state_lock:
+            self._entities[entity_name] = entity
         self.router.register(entity_name)
         entity.session_id = None
         entity.state = EntityState.IDLE
