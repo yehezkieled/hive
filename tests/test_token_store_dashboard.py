@@ -284,3 +284,71 @@ async def test_cache_overall_daily_today(token_store: TokenStore) -> None:
     # Last entry is today, others zero
     assert out[-1] == 90.0
     assert all(v == 0.0 for v in out[:-1])
+
+
+# --- cache_baseline_7d ---
+
+
+async def test_cache_baseline_7d_empty_input(token_store: TokenStore) -> None:
+    assert await token_store.cache_baseline_7d([]) == {}
+
+
+async def test_cache_baseline_7d_no_history(token_store: TokenStore) -> None:
+    # Entity is requested but has zero rows in the 7-day window — omitted from
+    # the result so the view-model falls back to the current-window hit rate.
+    assert await token_store.cache_baseline_7d(["dev"]) == {}
+
+
+async def test_cache_baseline_7d_averages_window(token_store: TokenStore) -> None:
+    pool = token_store.pool
+    # 7 days of usage at a stable 80% hit rate (cached=400, fresh=100 per day).
+    for d in range(7):
+        await pool.execute(
+            """INSERT INTO token_usage (entity_name, model, input_tokens,
+               cache_read_input_tokens, recorded_at) VALUES ($1, $2, $3, $4, $5)""",
+            "dev",
+            "sonnet",
+            100,
+            400,
+            datetime.now(UTC) - timedelta(days=d, hours=2),
+        )
+
+    out = await token_store.cache_baseline_7d(["dev"])
+    assert out == {"dev": 80.0}
+
+
+async def test_cache_baseline_7d_filters_to_requested_entities(
+    token_store: TokenStore,
+) -> None:
+    pool = token_store.pool
+    for entity, ip, cr in [("dev", 100, 400), ("pa", 200, 0)]:
+        await pool.execute(
+            """INSERT INTO token_usage (entity_name, model, input_tokens,
+               cache_read_input_tokens) VALUES ($1, $2, $3, $4)""",
+            entity,
+            "sonnet",
+            ip,
+            cr,
+        )
+
+    out = await token_store.cache_baseline_7d(["dev"])
+    assert out == {"dev": 80.0}
+    assert "pa" not in out
+
+
+async def test_cache_baseline_7d_excludes_outside_window(
+    token_store: TokenStore,
+) -> None:
+    pool = token_store.pool
+    # 8-day-old usage falls outside the 7-day window.
+    await pool.execute(
+        """INSERT INTO token_usage (entity_name, model, input_tokens,
+           cache_read_input_tokens, recorded_at) VALUES ($1, $2, $3, $4, $5)""",
+        "dev",
+        "sonnet",
+        100,
+        400,
+        datetime.now(UTC) - timedelta(days=8),
+    )
+
+    assert await token_store.cache_baseline_7d(["dev"]) == {}

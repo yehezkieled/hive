@@ -230,6 +230,36 @@ class TokenStore:
             )
         return out
 
+    async def cache_baseline_7d(self, entity_names: list[str]) -> dict[str, float]:
+        """Per-entity 7-day rolling cache-hit % baseline for ``entity_names``.
+
+        Returns ``{name: baseline_pct}``. Entities listed but absent from
+        ``token_usage`` over the past 7 days are omitted — callers fall back to
+        the current-window hit rate so a brand-new entity doesn't render a
+        misleading delta arrow against a synthetic zero baseline.
+        """
+        if not entity_names:
+            return {}
+        rows = await self.pool.fetch(
+            """
+            SELECT
+                entity_name AS name,
+                COALESCE(SUM(cache_read_input_tokens), 0)::bigint AS cached,
+                COALESCE(SUM(input_tokens), 0)::bigint AS fresh
+            FROM token_usage
+            WHERE recorded_at >= NOW() - INTERVAL '7 days'
+              AND entity_name = ANY($1::text[])
+            GROUP BY entity_name
+            """,
+            entity_names,
+        )
+        out: dict[str, float] = {}
+        for r in rows:
+            total = r["cached"] + r["fresh"]
+            if total > 0:
+                out[r["name"]] = round(r["cached"] / total * 100.0, 1)
+        return out
+
     async def cache_overall_daily(self, days: int = 7) -> list[float]:
         """Daily overall cache-hit-rate series, length ``days`` (0.0 on empty days)."""
         rows = await self.pool.fetch(

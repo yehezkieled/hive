@@ -1793,6 +1793,28 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 24 — Dashboard Polish (in progress)
+
+**Status:** Phase 3 (cache baseline) shipped 2026-05-05. Phases 1 (W2 health probes), 2 (W3 CFD anomalies), 4 (W8 failure scatter) pending.
+**Plan:** `~/.claude/plans/so-whats-next-in-inherited-boot.md`
+**Totals so far:** 677 → 685 unit tests (+8). No migrations. No env vars.
+
+### Why this exists
+Sprint 20 shipped the dashboard with 5 of 8 widgets wired to real telemetry; the rest were mocked with `# TODO Sprint 21` markers. Sprint 24 finishes that thread — replace the 4 mock paths in `web/view_model.py` with real data so all 8 widgets reflect actual system state. JSX wire-shapes from Sprint 20 are kept, so this is fill-in work, not redesign.
+
+### Phase 3 — W6 cache hit baseline (DONE 2026-05-05)
+
+`view_model.py:552` was setting `baseline = hit_pct` — a self-reference that always rendered a zero delta. Replaced with `TokenStore.cache_baseline_7d(entity_names)`, a 7-day rolling per-entity hit %. Brand-new entities (no 7-day history) fall back to current hit so the JSX `>10pt drop` red-row alert doesn't fire on a synthetic zero baseline.
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/token_store.py` | New `cache_baseline_7d(entity_names)` — same hit-rate math as `cache_stats` but window = `NOW() - INTERVAL '7 days'`, filtered by `entity_name = ANY($1)`. Returns `{name: pct}`; entities with zero 7-day rows are omitted. |
+| `src/hive/web/view_model.py` | `_build_cache` now fetches the baseline dict and threads `baseline.get(name, hit_pct)` into each row. Drops the `# TODO Sprint 21` self-reference. |
+| `tests/test_token_store_dashboard.py` | 5 new `cache_baseline_7d` tests (empty input, no history, 7-day average, entity filter, outside-window exclusion). |
+| `tests/test_web_dashboard.py` | 2 new view-model tests (7-day baseline differs from 24h current; brand-new entity baseline equals current). |
+
+---
+
 ## Sprint 23 — Peer Messaging (2026-05-04, DONE on branch)
 
 **Status:** All 9 plan tasks shipped on branch `feat/peer-messaging`;

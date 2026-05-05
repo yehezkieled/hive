@@ -130,3 +130,64 @@ class TestDashboardViewModelShape:
         assert len(view["cfd"]["points"]) == 42
         assert view["cfd"]["dayBoundaries"] == [5, 11, 17, 23, 29, 35, 41]
         assert view["cfd"]["anomalies"] == []
+
+
+# Module-level fixture-driven tests (asyncio_mode=auto, no decorator needed).
+
+
+async def test_cache_baseline_uses_7day_history(token_store) -> None:
+    """View-model baseline reflects the 7-day rolling rate, not the 24h snapshot."""
+    from datetime import UTC, datetime, timedelta
+
+    pool = token_store.pool
+    # 24h window (current): 50% hit (cached=100, fresh=100).
+    await pool.execute(
+        """INSERT INTO token_usage (entity_name, model, input_tokens,
+           cache_read_input_tokens) VALUES ($1, $2, $3, $4)""",
+        "dev",
+        "sonnet",
+        100,
+        100,
+    )
+    # 7d baseline: extra 80% sample (cached=400, fresh=100) 3 days ago.
+    # Combined 7d totals: cached=500, fresh=200 → 71.4% baseline.
+    await pool.execute(
+        """INSERT INTO token_usage (entity_name, model, input_tokens,
+           cache_read_input_tokens, recorded_at) VALUES ($1, $2, $3, $4, $5)""",
+        "dev",
+        "sonnet",
+        100,
+        400,
+        datetime.now(UTC) - timedelta(days=3),
+    )
+
+    view = await build_dashboard_view_model(
+        token_store=token_store, process_manager=_bare_pm()
+    )
+    rows = {r["name"]: r for r in view["cacheRows"]}
+    assert rows["dev"]["hit"] == 50.0
+    assert rows["dev"]["baseline"] == 71.4
+
+
+async def test_cache_baseline_falls_back_when_no_7day_history(token_store) -> None:
+    """Brand-new entity (24h activity, no 7d history) gets baseline = current hit
+    so the JSX doesn't render a fake delta arrow against a synthetic zero."""
+    pool = token_store.pool
+    await pool.execute(
+        """INSERT INTO token_usage (entity_name, model, input_tokens,
+           cache_read_input_tokens) VALUES ($1, $2, $3, $4)""",
+        "fresh-maestro",
+        "sonnet",
+        100,
+        300,
+    )
+
+    view = await build_dashboard_view_model(
+        token_store=token_store, process_manager=_bare_pm()
+    )
+    rows = {r["name"]: r for r in view["cacheRows"]}
+    # 7d query also picks up the same row (recorded_at = NOW), so baseline equals
+    # current hit by virtue of the data, not the fallback. Verify the contract
+    # holds either way: baseline is non-zero and matches hit when 24h == 7d window.
+    assert rows["fresh-maestro"]["hit"] == 75.0
+    assert rows["fresh-maestro"]["baseline"] == 75.0

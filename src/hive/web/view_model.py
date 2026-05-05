@@ -545,11 +545,13 @@ async def _build_cache(token_store: TokenStore | None, since: datetime) -> tuple
     if token_store is None:
         return [], {"hit": 0, "sparkline": [0.0] * 7}
     rows = await token_store.cache_stats(since)
+    names = [r["name"] for r in rows]
+    baseline = await token_store.cache_baseline_7d(names) if names else {}
     cache_rows = [
         {
             "name": r["name"],
             "hit": r["hit_pct"],
-            "baseline": r["hit_pct"],  # TODO Sprint 21: 7-day rolling baseline
+            "baseline": baseline.get(r["name"], r["hit_pct"]),
             "tokens": {
                 "cached": int(r["cached_tokens"]),
                 "fresh": int(r["fresh_tokens"]),
