@@ -121,9 +121,7 @@ async def manager(
 
 
 class TestPeerMessageRouting:
-    async def test_same_team_worker_message_no_cc(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_same_team_worker_message_no_cc(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.spawn_worker("dev.backend", worker_name="w1")
@@ -135,9 +133,7 @@ class TestPeerMessageRouting:
         assert manager.router.has_pending("dev.backend.w2")
         assert not manager.router.has_pending("dev.backend")
 
-    async def test_cross_team_worker_message_ccs_both_leads(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_cross_team_worker_message_ccs_both_leads(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.create_team("dev", "payments")
@@ -151,9 +147,7 @@ class TestPeerMessageRouting:
         assert manager.router.has_pending("dev.backend")
         assert manager.router.has_pending("dev.payments")
 
-    async def test_cross_maestro_worker_blocked(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_cross_maestro_worker_blocked(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.register_maestro("ops")
         await manager.create_team("dev", "backend")
@@ -168,9 +162,7 @@ class TestPeerMessageRouting:
 
 
 class TestRequestDecision:
-    async def test_worker_to_own_lead_allowed(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_worker_to_own_lead_allowed(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.spawn_worker("dev.backend", worker_name="w1")
@@ -184,9 +176,7 @@ class TestRequestDecision:
 
         assert manager.router.has_pending("dev.backend")
 
-    async def test_worker_skipping_to_maestro_blocked(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_worker_skipping_to_maestro_blocked(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.spawn_worker("dev.backend", worker_name="w1")
@@ -196,9 +186,7 @@ class TestRequestDecision:
 
         assert not manager.router.has_pending("dev")
 
-    async def test_lead_to_own_maestro_allowed(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_lead_to_own_maestro_allowed(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
 
@@ -209,9 +197,7 @@ class TestRequestDecision:
 
 
 class TestPeerDirectory:
-    async def test_worker_directory_lists_peers_and_parent(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_worker_directory_lists_peers_and_parent(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.create_team("dev", "payments")
@@ -227,9 +213,7 @@ class TestPeerDirectory:
         assert "cross-team" in directory
         assert "dev.backend" in directory  # parent for request_decision
 
-    async def test_lead_directory_lists_other_leads(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_lead_directory_lists_other_leads(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.create_team("dev", "payments")
@@ -238,18 +222,14 @@ class TestPeerDirectory:
         assert "dev.payments" in directory
         assert "same maestro" in directory
 
-    async def test_maestro_directory_lists_other_maestros(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_maestro_directory_lists_other_maestros(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.register_maestro("ops")
 
         directory = manager._peer_directory_for("dev")
         assert "ops" in directory
 
-    async def test_directory_empty_when_alone(
-        self, manager: ProcessManager
-    ) -> None:
+    async def test_directory_empty_when_alone(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         await manager.create_team("dev", "backend")
         await manager.spawn_worker("dev.backend", worker_name="w1")

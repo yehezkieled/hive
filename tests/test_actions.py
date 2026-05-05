@@ -353,18 +353,14 @@ class TestRequestDecisionAction:
 
     def test_parse_request_decision_missing_text(self) -> None:
         response = (
-            "<hive_actions>\n"
-            '[{"type": "request_decision", "to": "dev.backend"}]\n'
-            "</hive_actions>"
+            '<hive_actions>\n[{"type": "request_decision", "to": "dev.backend"}]\n</hive_actions>'
         )
         _, actions = parse_actions(response)
         assert actions == []  # missing `text` is rejected
 
     def test_parse_request_decision_missing_to(self) -> None:
         response = (
-            "<hive_actions>\n"
-            '[{"type": "request_decision", "text": "Decide?"}]\n'
-            "</hive_actions>"
+            '<hive_actions>\n[{"type": "request_decision", "text": "Decide?"}]\n</hive_actions>'
         )
         _, actions = parse_actions(response)
         assert actions == []  # missing `to` is rejected

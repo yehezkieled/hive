@@ -691,9 +691,7 @@ class ProcessManager:
                     logger.warning("Unknown request_decision recipient: %s", action.to)
                     continue
                 if not can_request_decision(entity.role, entity.name, action.to):
-                    logger.warning(
-                        "request_decision denied: %s -> %s", entity.name, action.to
-                    )
+                    logger.warning("request_decision denied: %s -> %s", entity.name, action.to)
                     await self._audit(
                         "request_decision_blocked",
                         target=action.to,

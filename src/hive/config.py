@@ -47,6 +47,7 @@ class _MaskedDSN(str):
     def __format__(self, format_spec: str) -> str:
         return format(_mask_dsn(str.__str__(self)), format_spec)
 
+
 # Load .env file (must happen before reading env vars)
 load_dotenv()
 
