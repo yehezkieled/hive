@@ -130,32 +130,27 @@ class TaskStore:
     async def claim_next(self, entity_name: str) -> Task | None:
         """Atomically claim the highest-priority pending task.
 
-        Uses SELECT ... FOR UPDATE SKIP LOCKED so concurrent workers
-        never claim the same task. Returns None if the queue is empty.
+        Uses ``UPDATE ... WHERE id = (SELECT ... FOR UPDATE SKIP LOCKED)
+        RETURNING *`` so the claim and the row read happen in a single
+        statement — no race window between locking and reading. Concurrent
+        workers never claim the same task. Returns None if the queue is empty.
         """
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                row = await conn.fetchrow(
-                    """
-                    SELECT * FROM tasks
-                    WHERE status = 'pending'
-                    ORDER BY priority ASC, created_at ASC
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
-                    """,
-                )
-                if row is None:
-                    return None
-
-                await conn.execute(
-                    "UPDATE tasks SET status = 'in_progress', assigned_to = $1 WHERE id = $2",
-                    entity_name,
-                    row["id"],
-                )
-
-        # Re-fetch to get the updated row
-        updated = await self.pool.fetchrow("SELECT * FROM tasks WHERE id = $1", row["id"])
-        return _row_to_task(updated)
+        row = await self.pool.fetchrow(
+            """
+            UPDATE tasks
+            SET status = 'in_progress', assigned_to = $1
+            WHERE id = (
+                SELECT id FROM tasks
+                WHERE status = 'pending'
+                ORDER BY priority ASC, created_at ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *
+            """,
+            entity_name,
+        )
+        return _row_to_task(row) if row else None
 
 
 def _row_to_task(row: asyncpg.Record) -> Task:
