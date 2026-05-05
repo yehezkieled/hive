@@ -180,6 +180,7 @@ def create_app(
 
     @app.post("/api/upload")
     async def api_upload(
+        request: Request,
         file: UploadFile = File(...),
         text: str = Form(""),
         _: None = Depends(require_token),
@@ -194,6 +195,24 @@ def create_app(
         """
         if attachment_store is None:
             raise HTTPException(status_code=503, detail="Attachments not configured")
+
+        # Pre-flight size check (audit C7): reject oversized uploads via the
+        # Content-Length header before opening any file. The streaming check
+        # below remains as defence-in-depth for missing/wrong headers.
+        content_length_raw = request.headers.get("content-length")
+        if content_length_raw is not None:
+            try:
+                declared_size = int(content_length_raw)
+            except ValueError:
+                declared_size = -1
+            if declared_size > UPLOAD_MAX_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"File too large; max {UPLOAD_MAX_BYTES} bytes "
+                        f"({UPLOAD_MAX_BYTES // (1024 * 1024)} MB)."
+                    ),
+                )
 
         original_name = file.filename
         mime_type = file.content_type

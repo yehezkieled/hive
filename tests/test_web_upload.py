@@ -164,6 +164,37 @@ def test_upload_oversize_returns_413(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert list(target_dir.iterdir()) == []
 
 
+def test_upload_oversize_content_length_rejected_pre_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit C7: Content-Length > UPLOAD_MAX_BYTES → 413 before any file is opened."""
+    monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+    target_dir = tmp_path / "uploads"
+    target_dir.mkdir()
+    monkeypatch.setattr("hive.web.app.UPLOADS_DIR", target_dir)
+    monkeypatch.setattr("hive.web.app.UPLOAD_MAX_BYTES", 100)
+
+    store = _attachment_store()
+    client = TestClient(
+        create_app(
+            process_manager=_bare_pm(),
+            command_dispatcher=_dispatcher_returning(),
+            attachment_store=store,
+        )
+    )
+    payload = b"x" * 1024
+    resp = client.post(
+        "/api/upload",
+        files={"file": ("big.bin", payload, "application/octet-stream")},
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert resp.status_code == 413
+    store.save.assert_not_awaited()
+    # No file should have been created — the pre-flight header check fired
+    # before ``target.open("wb")``.
+    assert list(target_dir.iterdir()) == []
+
+
 def test_upload_embedder_failure_still_persists_file(
     uploads_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
