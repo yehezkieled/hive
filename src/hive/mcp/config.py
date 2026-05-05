@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,4 +27,6 @@ def generate_mcp_config(entity_name: str, config_path: str | Path) -> None:
             }
         }
     }
-    Path(config_path).write_text(json.dumps(config, indent=2))
+    fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(config, f, indent=2)

@@ -11,6 +11,8 @@ disabled-open. Configure the env var to opt in.
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import Header, HTTPException, status
 
 from hive.config import WEB_TOKEN
@@ -32,9 +34,9 @@ def require_token(
             detail="Web write surface disabled: set HIVE_WEB_TOKEN",
         )
     expected_header = f"Bearer {WEB_TOKEN}"
-    if authorization == expected_header:
+    if authorization is not None and hmac.compare_digest(authorization, expected_header):
         return
-    if token is not None and token == WEB_TOKEN:
+    if token is not None and hmac.compare_digest(token, WEB_TOKEN):
         return
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
