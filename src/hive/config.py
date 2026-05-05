@@ -4,8 +4,48 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
+
+
+def _mask_dsn(dsn: str) -> str:
+    """Return *dsn* with any password component replaced by ``***``.
+
+    Keeps scheme/user/host/port/path intact so the masked form is still
+    readable in logs. Robust to weird passwords because ``urlparse`` does
+    the splitting.
+    """
+    parsed = urlparse(dsn)
+    if parsed.password is None:
+        return dsn
+    user = parsed.username or ""
+    host = parsed.hostname or ""
+    netloc = f"{user}:***@{host}"
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+class _MaskedDSN(str):
+    """``str`` subclass whose ``repr``/``str``/``format`` mask any password.
+
+    asyncpg / psycopg consume the underlying char data directly, so the
+    real DSN still works for connections. Any code path that logs or
+    formats the value (``print``, ``%s``, ``%r``, ``f"{dsn}"``) sees the
+    masked form.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return repr(_mask_dsn(str.__str__(self)))
+
+    def __str__(self) -> str:
+        return _mask_dsn(str.__str__(self))
+
+    def __format__(self, format_spec: str) -> str:
+        return format(_mask_dsn(str.__str__(self)), format_spec)
 
 # Load .env file (must happen before reading env vars)
 load_dotenv()
@@ -30,7 +70,7 @@ POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5433"))
 POSTGRES_DB = os.environ.get("POSTGRES_DB", "hive")
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "hive")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "hive")
-POSTGRES_DSN = (
+POSTGRES_DSN = _MaskedDSN(
     f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
     f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 )

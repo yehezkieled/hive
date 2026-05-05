@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from telegram import Update
+from telegram.error import TelegramError
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
@@ -145,7 +146,7 @@ class TelegramBridge:
             return
         try:
             await self._app.bot.send_message(chat_id=int(SUMMARY_CHAT_ID), text=message)
-        except Exception:
+        except TelegramError:
             logger.exception("Failed to send notification")
 
     async def format_daily_summary(self) -> str:
@@ -293,7 +294,7 @@ class TelegramBridge:
         try:
             tg_obj = await context.bot.get_file(tg_file.file_id)
             await tg_obj.download_to_drive(target)
-        except Exception:
+        except (TelegramError, OSError):
             logger.exception("Failed to download Telegram attachment")
             await update.message.reply_text("Failed to download the file. Try again.")
             return

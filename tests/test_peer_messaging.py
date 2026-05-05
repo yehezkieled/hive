@@ -12,7 +12,6 @@ from hive.bus.permissions import can_message, can_request_decision, cc_targets_f
 from hive.bus.router import MessageRouter
 from hive.process.manager import ProcessManager
 
-
 # ---- can_message peer rules ----
 
 
