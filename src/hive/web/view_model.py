@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from hive.bus.token_store import TokenStore
     from hive.bus.vault_store import VaultStore
     from hive.models.entity import Entity
+    from hive.observability.health_monitor import HealthMonitor
     from hive.process.manager import ProcessManager
 
 
@@ -283,18 +284,20 @@ async def build_dashboard_view_model(
     audit_log: AuditLog | None = None,
     task_store: TaskStore | None = None,
     process_manager: ProcessManager | None = None,
+    health_monitor: HealthMonitor | None = None,
 ) -> dict:
     """Assemble the ``window.HIVE_DASH`` payload for ``templates/dashboard.html``.
 
-    Five widgets are wired to real Postgres telemetry (cost ribbon, token
-    burn, bubble matrix, cache hit, audit log). Three are mocked with
-    ``# TODO Sprint 21:`` markers (system health, workload CFD, failure
-    scatter) until the upstream instrumentation lands.
+    Six widgets are wired to real Postgres/in-memory telemetry (cost
+    ribbon, system health, token burn, bubble matrix, cache hit,
+    audit log). Two are mocked with ``# TODO Sprint 21:`` markers
+    (workload CFD anomalies, failure scatter) until the upstream
+    instrumentation lands.
     """
     last_24h = datetime.now(UTC) - timedelta(hours=24)
 
     cost30 = await _build_cost30(token_store)
-    health = _mock_health()
+    health = health_monitor.snapshot() if health_monitor is not None else _empty_health()
     cfd, sankey, p0p1_backlog = await _build_cfd(task_store)
     burn = await _build_burn(token_store)
     burn_events = {key: [] for key in _BURN_RANGES}
@@ -304,12 +307,7 @@ async def build_dashboard_view_model(
     audit_feed = await _build_audit_feed(audit_log)
 
     entities_y = _entity_names(process_manager)
-    failures: list[dict] = []  # TODO Sprint 21: classify task.failure_reason
-    failures_summary = {
-        "lastHour": 0,
-        "pendingEscalations": 0,
-        "longestStreak": None,
-    }
+    failures, failures_summary = await _build_failures(task_store, entities_y)
 
     return {
         "cost30": cost30,
@@ -365,8 +363,8 @@ async def _build_cost30(token_store: TokenStore | None) -> list[dict]:
     return out
 
 
-def _mock_health() -> list[dict]:
-    """W2 placeholder. TODO Sprint 21: real subsystem probes."""
+def _empty_health() -> list[dict]:
+    """W2 cold-start fallback when no HealthMonitor is wired in (tests, CLI mode)."""
     bars_ok = ["ok"] * 60
     return [
         {"name": "orchestrator", "summary": "—", "bars": list(bars_ok), "lit": 0},
@@ -378,13 +376,7 @@ def _mock_health() -> list[dict]:
 
 
 async def _build_cfd(task_store: TaskStore | None) -> tuple[dict, dict, dict]:
-    """W3 + sankey: basic counts ramped across 42 points.
-
-    TODO Sprint 21: real per-bucket cumulative counts + anomaly heuristics
-    once we track status-transition timestamps. For now the curve linearly
-    interpolates from zero to the current snapshot so the band fills the
-    chart instead of leaving it blank.
-    """
+    """W3 + sankey: per-bucket cumulative counts with anomaly heuristic."""
     n = 42
     day_boundaries = [(d + 1) * 6 - 1 for d in range(7)]
     empty_points = [
@@ -424,32 +416,33 @@ async def _build_cfd(task_store: TaskStore | None) -> tuple[dict, dict, dict]:
             p0p1_zero,
         )
 
-    pending = await task_store.list(status=TaskStatus.PENDING, limit=1000)
-    in_progress = await task_store.list(status=TaskStatus.IN_PROGRESS, limit=1000)
-    completed = await task_store.list(status=TaskStatus.COMPLETED, limit=1000)
-    cancelled = await task_store.list(status=TaskStatus.CANCELLED, limit=1000)
-
-    fp, fi, fc = len(pending), len(in_progress), len(completed)
+    buckets = await task_store.cfd_buckets(buckets=n, hours_per_bucket=4)
     points: list[dict] = []
-    for i in range(n):
-        progress = i / (n - 1) if n > 1 else 1.0
-        c = round(progress * fc)
-        ip = round(progress * fi)
-        p = round(progress * fp)
+    for bucket in buckets:
+        i = bucket["i"]
         points.append(
             {
                 "i": i,
                 "day": i // 6,
                 "hour": (i % 6) * 4,
                 "label": f"D{i // 6 + 1} {(i % 6) * 4:02d}:00",
-                "completed": c,
-                "inProgress": ip,
-                "pending": p,
-                "total": c + ip + p,
+                "completed": bucket["completed"],
+                "inProgress": bucket["inProgress"],
+                "pending": bucket["pending"],
+                "total": bucket["total"],
             }
         )
+    anomalies = _cfd_anomalies(points)
 
+    pending = await task_store.list(status=TaskStatus.PENDING, limit=1000)
+    in_progress = await task_store.list(status=TaskStatus.IN_PROGRESS, limit=1000)
+    completed = await task_store.list(status=TaskStatus.COMPLETED, limit=1000)
+    cancelled = await task_store.list(status=TaskStatus.CANCELLED, limit=1000)
+
+    fp, fi, fc = len(pending), len(in_progress), len(completed)
     p0p1_count = sum(1 for t in pending + in_progress if t.priority <= 1)
+    p0p1_yesterday = await _p0p1_24h_ago(task_store)
+    p0p1_delta = p0p1_count - p0p1_yesterday
     sankey_now = {
         **sankey_zero,
         "pending_now": fp,
@@ -457,18 +450,67 @@ async def _build_cfd(task_store: TaskStore | None) -> tuple[dict, dict, dict]:
         "completed_now": fc,
         "cancelled_now": len(cancelled),
     }
-    p0p1 = {"count": p0p1_count, "deltaYesterday": 0}
+    p0p1 = {"count": p0p1_count, "deltaYesterday": p0p1_delta}
 
     return (
         {
             "points": points,
             "cancelled7d": len(cancelled),
-            "anomalies": [],
+            "anomalies": anomalies,
             "dayBoundaries": day_boundaries,
         },
         sankey_now,
         p0p1,
     )
+
+
+def _cfd_anomalies(points: list[dict]) -> list[dict]:
+    """Flag buckets where the completion rate dips far below the median.
+
+    Computes per-bucket completion-rate (delta of cumulative ``completed``)
+    over the window. If a bucket's rate < median - 1.5*stdev, mark it as
+    an anomaly. ``severity = "crit"`` if rate is exactly zero amid steady
+    flow, otherwise ``"warn"``.
+    """
+    if len(points) < 4:
+        return []
+    rates = [
+        max(0, points[i]["completed"] - points[i - 1]["completed"])
+        for i in range(1, len(points))
+    ]
+    if not rates or max(rates) == 0:
+        return []
+    median = statistics.median(rates)
+    stdev = statistics.pstdev(rates)
+    if stdev == 0:
+        return []
+    threshold = median - 1.5 * stdev
+    anomalies: list[dict] = []
+    for offset, rate in enumerate(rates):
+        if rate < threshold and rate < median:
+            i = offset + 1
+            severity = "crit" if rate == 0 and median > 0 else "warn"
+            anomalies.append({"i": i, "type": "drop", "severity": severity})
+    return anomalies
+
+
+async def _p0p1_24h_ago(task_store: TaskStore) -> int:
+    """Count of P0+P1 tasks that were pending or in-progress 24h ago.
+
+    A task qualifies if it was created before the cutoff and either
+    hadn't completed by then or completed after it.
+    """
+    cutoff = datetime.now(UTC) - timedelta(hours=24)
+    row = await task_store.pool.fetchrow(
+        """
+        SELECT COUNT(*) AS c FROM tasks
+        WHERE priority <= 1
+          AND created_at <= $1
+          AND (completed_at IS NULL OR completed_at > $1)
+        """,
+        cutoff,
+    )
+    return int(row["c"]) if row else 0
 
 
 async def _build_burn(token_store: TokenStore | None) -> dict[str, list[dict]]:
@@ -610,3 +652,94 @@ def _entity_names(process_manager: ProcessManager | None) -> list[str]:
     if process_manager is None:
         return []
     return sorted(process_manager.entities.keys())
+
+
+async def _build_failures(
+    task_store: TaskStore | None,
+    entities_y: list[str],
+) -> tuple[list[dict], dict]:
+    """W8: failure scatter + summary counters.
+
+    Pulls tasks with a non-null ``failure_reason`` from the last hour
+    for the scatter and the last 24 hours for the ``lastHour`` /
+    ``pendingEscalations`` summary tiles. The classifier maps each
+    free-text reason to a coarse category that drives the dot colour.
+    """
+    empty_summary = {"lastHour": 0, "pendingEscalations": 0, "longestStreak": None}
+    if task_store is None:
+        return [], empty_summary
+
+    from hive.observability.failure_classifier import classify
+
+    now = datetime.now(UTC)
+    window_start = now - timedelta(hours=1)
+    rows = await task_store.pool.fetch(
+        """
+        SELECT id, assigned_to, failure_reason, retry_count, max_retries,
+               status, completed_at, created_at
+        FROM tasks
+        WHERE failure_reason IS NOT NULL
+          AND COALESCE(completed_at, created_at) >= $1
+        ORDER BY COALESCE(completed_at, created_at) DESC
+        LIMIT 500
+        """,
+        window_start,
+    )
+    entity_index = {name: i for i, name in enumerate(entities_y)}
+    scatter: list[dict] = []
+    for r in rows:
+        ts = r["completed_at"] or r["created_at"]
+        if ts is None:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        minutes_ago = max(0, int((now - ts).total_seconds() // 60))
+        scatter.append(
+            {
+                "x": entity_index.get(r["assigned_to"] or "", -1),
+                "y": minutes_ago,
+                "category": classify(r["failure_reason"]),
+                "task_id": r["id"],
+            }
+        )
+
+    last_hour = await task_store.pool.fetchval(
+        """
+        SELECT COUNT(*) FROM tasks
+        WHERE failure_reason IS NOT NULL
+          AND COALESCE(completed_at, created_at) >= $1
+        """,
+        window_start,
+    )
+    pending_escalations = await task_store.pool.fetchval(
+        """
+        SELECT COUNT(*) FROM tasks
+        WHERE failure_reason IS NOT NULL
+          AND retry_count >= max_retries
+          AND status != 'completed'
+        """
+    )
+    streak_row = await task_store.pool.fetchrow(
+        """
+        SELECT MAX(streak_len) AS longest FROM (
+            SELECT COUNT(*) AS streak_len
+            FROM (
+                SELECT
+                    assigned_to,
+                    failure_reason IS NOT NULL AS is_fail,
+                    SUM(CASE WHEN failure_reason IS NULL THEN 1 ELSE 0 END)
+                        OVER (PARTITION BY assigned_to ORDER BY created_at) AS grp
+                FROM tasks
+                WHERE assigned_to IS NOT NULL
+            ) labelled
+            WHERE is_fail
+            GROUP BY assigned_to, grp
+        ) streaks
+        """
+    )
+    longest = streak_row["longest"] if streak_row else None
+    return scatter, {
+        "lastHour": int(last_hour or 0),
+        "pendingEscalations": int(pending_escalations or 0),
+        "longestStreak": int(longest) if longest else None,
+    }

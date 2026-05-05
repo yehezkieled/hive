@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from hive.bus.token_store import TokenStore
     from hive.bus.vault_store import VaultStore
     from hive.commands.dispatch import CommandDispatcher
+    from hive.observability.health_monitor import HealthMonitor
     from hive.process.manager import ProcessManager
     from hive.web.sse import SSEBroker
 
@@ -64,6 +65,7 @@ def create_app(
     message_store: MessageStore | None = None,
     sse_broker: SSEBroker | None = None,
     attachment_store: AttachmentStore | None = None,
+    health_monitor: HealthMonitor | None = None,
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
     from hive.web.view_model import build_dashboard_view_model, build_landing_view_model
@@ -426,6 +428,7 @@ def create_app(
             audit_log=audit_log,
             task_store=task_store,
             process_manager=process_manager,
+            health_monitor=health_monitor,
         )
 
     @app.get("/dashboard", response_class=HTMLResponse)

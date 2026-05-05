@@ -1793,16 +1793,40 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
-## Sprint 24 — Dashboard Polish (in progress)
+## Sprint 24 — Dashboard Polish (DONE 2026-05-05)
 
-**Status:** Phase 3 (cache baseline) shipped 2026-05-05. Phases 1 (W2 health probes), 2 (W3 CFD anomalies), 4 (W8 failure scatter) pending.
+**Status:** All 4 phases shipped 2026-05-05. Dashboard widgets W2 (health), W3 (CFD anomalies), W6 (cache baseline), W8 (failure scatter) all wired to real data — `_mock_health` retired, no `# TODO Sprint 21` markers remain in `view_model.py`.
 **Plan:** `~/.claude/plans/so-whats-next-in-inherited-boot.md`
-**Totals so far:** 677 → 685 unit tests (+8). No migrations. No env vars.
+**Totals:** 677 → ~720 unit tests (+8 cache baseline, +13 health monitor, +18 failure classifier, +6 CFD). 2 new migrations (020 health_log, 021 tasks_started_at). No new env vars.
 
 ### Why this exists
 Sprint 20 shipped the dashboard with 5 of 8 widgets wired to real telemetry; the rest were mocked with `# TODO Sprint 21` markers. Sprint 24 finishes that thread — replace the 4 mock paths in `web/view_model.py` with real data so all 8 widgets reflect actual system state. JSX wire-shapes from Sprint 20 are kept, so this is fill-in work, not redesign.
 
-### Phase 3 — W6 cache hit baseline (DONE 2026-05-05)
+### Phase 1 — W2 system health probes
+
+New `HealthMonitor` runs every 60s, persists 5 subsystem probes to `health_log`, exposes an in-memory `snapshot()` so dashboard requests don't round-trip through Postgres. Probes: orchestrator (entity count), postgres (`SELECT 1`), claude_api (audit-log activity within 5/30 min), heartbeat (bridge `_last_heartbeat_at` vs `2× interval`), disk (`shutil.disk_usage` thresholds 80/90%).
+
+| File | Change |
+|------|--------|
+| `src/hive/observability/health_monitor.py` | `HealthMonitor` class — 60s tick loop, ring-buffer cache (60 samples × 5 subsystems), `_hydrate_cache` rebuilds bars on restart, prunes >2h rows. |
+| `src/hive/bus/migrations/020_health_log.sql` | New `health_log(id, subsystem, status, summary, ts)` + `idx_health_log_subsystem_ts`. |
+| `src/hive/__main__.py` | Instantiates `HealthMonitor` after `bridge.start()`, adds it to `background_tasks` when web port > 0, hooks `bridge._last_heartbeat_at = NOW()` into `heartbeat_scheduler`. |
+| `src/hive/web/view_model.py` | New `health_monitor` param; `_mock_health` renamed `_empty_health` (cold-start fallback only). |
+| `src/hive/web/app.py` | `create_app` accepts and threads `health_monitor` through `_build_dashboard`. |
+| `tests/test_health_monitor.py` | 13 tests — probe-by-probe (orchestrator, postgres, disk, heartbeat states, claude_api), tick persistence, cache pad/lit math, run-loop stop event, hydrate-on-restart. |
+
+### Phase 2 — W3 CFD anomalies + p0p1 deltaYesterday
+
+Replaces the `_build_cfd` linear interpolation with real per-bucket cumulative status counts driven by `tasks.created_at / started_at / completed_at`. The 42-bucket window (4h × 42 = 7d) is reconstructed from a single SELECT in Python — small enough for a few thousand tasks, no SQL window-function complexity. Anomalies fire when a bucket's completion-rate (delta of cumulative `completed`) drops below `median - 1.5·stdev`; severity is `crit` for full zeros amid steady flow, else `warn`.
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/migrations/021_tasks_started_at.sql` | `ALTER TABLE tasks ADD COLUMN started_at TIMESTAMPTZ` + best-effort backfill from `created_at` for non-pending rows. |
+| `src/hive/bus/task_store.py` | `claim_next` now writes `started_at = NOW()`. New `cfd_buckets(buckets, hours_per_bucket)` returns per-bucket status counts. |
+| `src/hive/web/view_model.py` | `_build_cfd` calls `cfd_buckets(42, 4)`, computes anomalies via `_cfd_anomalies`, computes `p0p1Backlog.deltaYesterday` via new `_p0p1_24h_ago` query (priority ≤ 1, created ≤ cutoff, not completed by cutoff). |
+| `tests/test_task_store_cfd.py` | 6 tests — bucket math through completion lifecycle, zero-rate-drop anomaly, no-completion safety, perfectly-uniform safety, p0p1 24h delta, claim_next sets started_at. |
+
+### Phase 3 — W6 cache hit baseline
 
 `view_model.py:552` was setting `baseline = hit_pct` — a self-reference that always rendered a zero delta. Replaced with `TokenStore.cache_baseline_7d(entity_names)`, a 7-day rolling per-entity hit %. Brand-new entities (no 7-day history) fall back to current hit so the JSX `>10pt drop` red-row alert doesn't fire on a synthetic zero baseline.
 
@@ -1812,6 +1836,17 @@ Sprint 20 shipped the dashboard with 5 of 8 widgets wired to real telemetry; the
 | `src/hive/web/view_model.py` | `_build_cache` now fetches the baseline dict and threads `baseline.get(name, hit_pct)` into each row. Drops the `# TODO Sprint 21` self-reference. |
 | `tests/test_token_store_dashboard.py` | 5 new `cache_baseline_7d` tests (empty input, no history, 7-day average, entity filter, outside-window exclusion). |
 | `tests/test_web_dashboard.py` | 2 new view-model tests (7-day baseline differs from 24h current; brand-new entity baseline equals current). |
+
+### Phase 4 — W8 failure scatter
+
+New regex-based classifier maps a free-text `failure_reason` to one of 6 coarse categories (timeout, rate_limit, syntax, permission, network, unknown) so the scatter dot colour is meaningful. View-model pulls last-hour failures for the chart, last-24h for the `lastHour` tile, and computes `pendingEscalations` (`retry_count >= max_retries AND status != 'completed'`) plus a SQL window-function `longestStreak` of consecutive failures per entity.
+
+| File | Change |
+|------|--------|
+| `src/hive/observability/failure_classifier.py` | `classify(reason)` — 5 ordered regex patterns plus `unknown` fallback. `CATEGORIES` constant exposed for callers. |
+| `src/hive/web/view_model.py` | New `_build_failures(task_store, entities_y)` — scatter rows `{x, y minutes-ago, category, task_id}`, summary `{lastHour, pendingEscalations, longestStreak}`. |
+| `tests/test_failure_classifier.py` | 18 tests — 17 parametrised category cases + categories-constant sanity. |
+| `tests/test_web_dashboard.py` | 2 new view-model tests (3 recent failures across categories; pending escalation counts only `status != 'completed'`). |
 
 ---
 

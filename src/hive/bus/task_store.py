@@ -138,7 +138,7 @@ class TaskStore:
         row = await self.pool.fetchrow(
             """
             UPDATE tasks
-            SET status = 'in_progress', assigned_to = $1
+            SET status = 'in_progress', assigned_to = $1, started_at = NOW()
             WHERE id = (
                 SELECT id FROM tasks
                 WHERE status = 'pending'
@@ -151,6 +151,63 @@ class TaskStore:
             entity_name,
         )
         return _row_to_task(row) if row else None
+
+    async def cfd_buckets(
+        self,
+        buckets: int = 42,
+        hours_per_bucket: int = 4,
+    ) -> list[dict]:
+        """Per-bucket cumulative status counts for the W3 CFD chart.
+
+        Walks ``buckets`` time slices ending at ``now`` (oldest → newest).
+        For each slice ``i`` returns the counts of tasks that were already
+        in each state at that bucket's right edge — pending, in_progress,
+        completed — so the rendered curve shows the cumulative funnel
+        rather than per-bucket deltas.
+        """
+        if buckets <= 0:
+            return []
+        now_row = await self.pool.fetchrow("SELECT NOW() AS now")
+        now = now_row["now"]
+        rows = await self.pool.fetch(
+            """
+            SELECT created_at, started_at, completed_at, status
+            FROM tasks
+            """
+        )
+        from datetime import timedelta
+
+        slot = timedelta(hours=hours_per_bucket)
+        out: list[dict] = []
+        for i in range(buckets):
+            edge = now - slot * (buckets - 1 - i)
+            completed = 0
+            in_progress = 0
+            pending = 0
+            for r in rows:
+                if r["created_at"] > edge:
+                    continue
+                if r["completed_at"] is not None and r["completed_at"] <= edge:
+                    if r["status"] in ("completed", "cancelled"):
+                        completed += 1
+                        continue
+                if r["started_at"] is not None and r["started_at"] <= edge:
+                    if r["status"] != "completed" or (
+                        r["completed_at"] is not None and r["completed_at"] > edge
+                    ):
+                        in_progress += 1
+                        continue
+                pending += 1
+            out.append(
+                {
+                    "i": i,
+                    "completed": completed,
+                    "inProgress": in_progress,
+                    "pending": pending,
+                    "total": completed + in_progress + pending,
+                }
+            )
+        return out
 
 
 def _row_to_task(row: asyncpg.Record) -> Task:

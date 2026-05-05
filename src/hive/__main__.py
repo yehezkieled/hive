@@ -47,6 +47,7 @@ from hive.config import (
 from hive.knowledge.blueprints import BlueprintStore
 from hive.models.maestro import Maestro
 from hive.notifications import EmailDigest, NotificationDispatcher
+from hive.observability.health_monitor import HealthMonitor
 from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
 
@@ -122,6 +123,7 @@ async def heartbeat_scheduler(
         try:
             message = bridge.format_heartbeat()  # type: ignore[attr-defined]
             await bridge._send_notification(message)  # type: ignore[attr-defined]
+            bridge._last_heartbeat_at = datetime.now(UTC)  # type: ignore[attr-defined]
             logger.info("Heartbeat sent")
         except Exception:
             logger.exception("Error sending heartbeat")
@@ -274,6 +276,12 @@ async def main() -> None:
                 notification_dispatcher.channel_count,
             )
 
+            health_monitor = HealthMonitor(
+                pool=store.pool,
+                bridge=bridge,
+                process_manager=process_manager,
+            )
+
             web_app = create_app(
                 process_manager=process_manager,
                 token_store=token_store,
@@ -287,6 +295,7 @@ async def main() -> None:
                 message_store=store,
                 sse_broker=sse_broker,
                 attachment_store=attachment_store,
+                health_monitor=health_monitor,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)
@@ -324,6 +333,9 @@ async def main() -> None:
             PRIORITY_EVAL_INTERVAL_MINUTES,
             AUTONOMOUS_SPAWN_LIMIT,
         )
+        if WEB_PORT > 0:
+            background_tasks.append(asyncio.create_task(health_monitor.run(stop_event)))
+            logger.info("Health monitor started (tick=%ds)", health_monitor.tick_seconds)
 
         await stop_event.wait()
 

@@ -191,3 +191,65 @@ async def test_cache_baseline_falls_back_when_no_7day_history(token_store) -> No
     # holds either way: baseline is non-zero and matches hit when 24h == 7d window.
     assert rows["fresh-maestro"]["hit"] == 75.0
     assert rows["fresh-maestro"]["baseline"] == 75.0
+
+
+async def test_failure_scatter_classifies_recent_failures(task_store) -> None:
+    """View-model surfaces recent failed tasks classified by reason category."""
+    pool = task_store.pool
+    pm = MagicMock()
+    pm.entities = {"dev": object(), "ops": object()}
+
+    # 3 recent failures across 2 entities, 3 distinct categories.
+    for assigned_to, reason in (
+        ("dev", "Request timed out after 30s"),
+        ("ops", "HTTP 429 Too Many Requests"),
+        ("dev", "Connection refused"),
+    ):
+        await pool.execute(
+            """
+            INSERT INTO tasks (title, assigned_to, status, failure_reason,
+                               created_by, retry_count, max_retries, completed_at)
+            VALUES ($1, $2, 'failed', $3, 'system', 1, 3, NOW())
+            """,
+            f"task for {assigned_to}",
+            assigned_to,
+            reason,
+        )
+
+    view = await build_dashboard_view_model(
+        task_store=task_store, process_manager=pm
+    )
+    assert len(view["failures"]) == 3
+    cats = sorted(f["category"] for f in view["failures"])
+    assert cats == ["network", "rate_limit", "timeout"]
+    assert view["failuresSummary"]["lastHour"] == 3
+    assert view["failuresSummary"]["pendingEscalations"] == 0
+
+
+async def test_failure_summary_counts_pending_escalations(task_store) -> None:
+    """Tasks past max_retries that haven't completed are counted as escalations."""
+    pool = task_store.pool
+    pm = MagicMock()
+    pm.entities = {"dev": object()}
+
+    # Past max retries, not completed → pending escalation.
+    await pool.execute(
+        """
+        INSERT INTO tasks (title, assigned_to, status, failure_reason,
+                           created_by, retry_count, max_retries, completed_at)
+        VALUES ('escalating', 'dev', 'in_progress', 'syntax error', 'system', 3, 3, NOW())
+        """
+    )
+    # Same retry math but already completed → not counted.
+    await pool.execute(
+        """
+        INSERT INTO tasks (title, assigned_to, status, failure_reason,
+                           created_by, retry_count, max_retries, completed_at)
+        VALUES ('settled', 'dev', 'completed', 'syntax error', 'system', 3, 3, NOW())
+        """
+    )
+
+    view = await build_dashboard_view_model(
+        task_store=task_store, process_manager=pm
+    )
+    assert view["failuresSummary"]["pendingEscalations"] == 1
