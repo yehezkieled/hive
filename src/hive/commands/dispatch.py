@@ -894,16 +894,37 @@ class CommandDispatcher:
             action_id = _parse_task_id(args)
             if action_id is None:
                 return "Usage: /vault approve <id>"
-            result = await self.vault_store.approve(action_id)
+            result = await self.process_manager.approve_vault_action(action_id)
             if result is None:
-                return f"Action #{action_id} not found or already resolved."
-            return f"Action #{action_id} approved."
+                return f"Action #{action_id} not found."
+            status = result["status"]
+            if status == "completed":
+                ref = (
+                    (result.get("execution_result") or {}).get("reference")
+                    if isinstance(result.get("execution_result"), dict)
+                    else None
+                )
+                tail = f" (ref {ref})" if ref else ""
+                return f"Action #{action_id} executed{tail}."
+            if status == "failed":
+                reason = result.get("denial_reason") or "provider failure"
+                return f"Action #{action_id} failed: {reason}"
+            if status == "denied":
+                reason = result.get("denial_reason") or "denied"
+                return f"Action #{action_id} denied: {reason}"
+            if status == "approved":
+                return f"Action #{action_id} approved."
+            return f"Action #{action_id} {status}."
 
         if sub == "deny":
             action_id = _parse_task_id(args)
             if action_id is None:
                 return "Usage: /vault deny <id>"
-            result = await self.vault_store.deny(action_id)
+            reason = None
+            parts = args.strip().split(None, 1)
+            if len(parts) > 1:
+                reason = parts[1].strip() or None
+            result = await self.process_manager.deny_vault_action(action_id, reason=reason)
             if result is None:
                 return f"Action #{action_id} not found or already resolved."
             return f"Action #{action_id} denied."

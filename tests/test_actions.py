@@ -364,3 +364,64 @@ class TestRequestDecisionAction:
         )
         _, actions = parse_actions(response)
         assert actions == []  # missing `to` is rejected
+
+
+class TestRequestPaymentAction:
+    """Test parsing request_payment actions (Sprint 25 — vault build-out)."""
+
+    def test_parse_request_payment_action(self) -> None:
+        response = (
+            "Need to pay vendor.\n\n"
+            "<hive_actions>\n"
+            "["
+            '{"type": "request_payment", '
+            '"amount_cents": 5000, '
+            '"currency": "usd", '
+            '"recipient": "vendor@example.com", '
+            '"idempotency_key": "abc-123", '
+            '"reason": "October hosting"}'
+            "]\n"
+            "</hive_actions>"
+        )
+        clean, actions = parse_actions(response)
+        assert clean == "Need to pay vendor."
+        assert len(actions) == 1
+        a = actions[0]
+        assert a.type == "request_payment"
+        assert a.amount_cents == 5000
+        assert a.currency == "USD"  # normalised to upper
+        assert a.recipient == "vendor@example.com"
+        assert a.idempotency_key == "abc-123"
+        assert a.reason == "October hosting"
+
+    def test_parse_request_payment_missing_amount_skipped(self) -> None:
+        response = (
+            "<hive_actions>\n"
+            '[{"type": "request_payment", "currency": "USD", '
+            '"recipient": "r", "idempotency_key": "k", "reason": "x"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(response)
+        assert actions == []
+
+    def test_parse_request_payment_negative_amount_skipped(self) -> None:
+        response = (
+            "<hive_actions>\n"
+            '[{"type": "request_payment", "amount_cents": -100, '
+            '"currency": "USD", "recipient": "r", "idempotency_key": "k", '
+            '"reason": "x"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(response)
+        assert actions == []
+
+    def test_parse_request_payment_invalid_currency_skipped(self) -> None:
+        response = (
+            "<hive_actions>\n"
+            '[{"type": "request_payment", "amount_cents": 100, '
+            '"currency": "DOLLARS", "recipient": "r", "idempotency_key": "k", '
+            '"reason": "x"}]\n'
+            "</hive_actions>"
+        )
+        _, actions = parse_actions(response)
+        assert actions == []

@@ -41,15 +41,21 @@ from hive.config import (
     SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
+    VAULT_DAILY_CAP_CENTS,
+    VAULT_ENABLED,
+    VAULT_MONTHLY_CAP_CENTS,
+    VAULT_PROVIDER,
     WEB_HOST,
     WEB_PORT,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.models.maestro import Maestro
+from hive.models.vault import Vault
 from hive.notifications import EmailDigest, NotificationDispatcher
 from hive.observability.health_monitor import HealthMonitor
 from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
+from hive.vault.provider import build_provider
 
 logger = logging.getLogger("hive")
 
@@ -175,6 +181,7 @@ async def main() -> None:
             mode = "console" if digest.console_mode else "smtp"
             logger.info("Email digest channel registered (mode=%s, to=%s)", mode, EMAIL_TO)
 
+    payment_provider = build_provider(VAULT_PROVIDER) if VAULT_ENABLED else None
     process_manager = ProcessManager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
@@ -185,6 +192,10 @@ async def main() -> None:
         attachment_store=attachment_store,
         mode_request_store=mode_request_store,
         task_store=task_store,
+        vault_store=vault_store,
+        payment_provider=payment_provider,
+        vault_daily_cap_cents=VAULT_DAILY_CAP_CENTS,
+        vault_monthly_cap_cents=VAULT_MONTHLY_CAP_CENTS,
         notification_dispatcher=notification_dispatcher,
     )
 
@@ -220,6 +231,22 @@ async def main() -> None:
             personality_path=personality_path if personality_path.exists() else None,
         )
         logger.info("Registered default maestro: %s", DEFAULT_MAESTRO)
+
+    # Ensure default vault exists when the Vault subsystem is enabled.
+    # Opt-in until a real provider ships; the role-vault personality
+    # provides the locked-down JD.
+    if VAULT_ENABLED and "vault" not in process_manager.entities:
+        vault_personality = PERSONALITIES_DIR / "role-vault.md"
+        vault = Vault(
+            name="vault",
+            model=DEFAULT_MODEL,
+            personality_path=vault_personality if vault_personality.exists() else None,
+        )
+        if vault.personality_path and vault.personality_path.exists():
+            vault.load_personality()
+        await process_manager.register_entity(vault)
+        await process_manager._persist(vault)
+        logger.info("Registered default vault entity (provider=%s)", VAULT_PROVIDER)
 
     # Determine mode: Telegram or local CLI
     use_telegram = bool(TELEGRAM_BOT_TOKEN)

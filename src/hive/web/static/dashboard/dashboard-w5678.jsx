@@ -376,22 +376,25 @@ function W6_CacheHit() {
 function W7_AuditLog() {
   const hist = window.HIVE_DASH.histogram;
   const feed = window.HIVE_DASH.auditFeed;
-  const [filters, setFilters] = React.useState(new Set(['command','entity','task','git']));
+  const NS_LIST = ['command','entity','task','git','vault'];
+  const [filters, setFilters] = React.useState(new Set(NS_LIST));
   const [hoverBucket, setHoverBucket] = React.useState(null);
   const [expanded, setExpanded] = React.useState(null);
 
   const nsColors = {
-    command: D58.ink3, entity: D58.honey, task: D58.sage, git: D58.vault,
+    command: D58.ink3, entity: D58.honey, task: D58.sage,
+    git: D58.accent, vault: D58.vault,
   };
   const nsLabel = {
-    all: 'all', command: 'command', entity: 'entity', task: 'task', git: 'git',
+    all: 'all', command: 'command', entity: 'entity', task: 'task',
+    git: 'git', vault: 'vault',
   };
 
   function toggle(ns) {
     const next = new Set(filters);
     if (ns === 'all') {
-      if (next.size === 4) next.clear();
-      else { next.clear(); ['command','entity','task','git'].forEach(x => next.add(x)); }
+      if (next.size === NS_LIST.length) next.clear();
+      else { next.clear(); NS_LIST.forEach(x => next.add(x)); }
     } else {
       if (next.has(ns)) next.delete(ns); else next.add(ns);
     }
@@ -414,11 +417,11 @@ function W7_AuditLog() {
       }}>
         <button className="d-chip" onClick={() => toggle('all')} style={{
           padding: '3px 10px', borderRadius: 999, border: `1px solid ${D58.ruleSoft}`,
-          background: filters.size === 4 ? D58.ink : D58.paper,
-          color: filters.size === 4 ? D58.paper : D58.ink2,
+          background: filters.size === NS_LIST.length ? D58.ink : D58.paper,
+          color: filters.size === NS_LIST.length ? D58.paper : D58.ink2,
           fontFamily: dS58.mono, fontSize: 11, fontWeight: 700, cursor: 'pointer',
         }}>all</button>
-        {['command','entity','task','git'].map(ns => (
+        {NS_LIST.map(ns => (
           <button key={ns} className="d-chip" onClick={() => toggle(ns)} style={{
             padding: '3px 10px', borderRadius: 999,
             border: `1px solid ${filters.has(ns) ? nsColors[ns] : D58.ruleSoft}`,

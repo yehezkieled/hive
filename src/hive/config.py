@@ -171,3 +171,13 @@ ADVISOR_CONTEXT_MESSAGES = int(os.environ.get("HIVE_ADVISOR_CONTEXT_MESSAGES", "
 PRIORITY_EVAL_INTERVAL_MINUTES = int(os.environ.get("HIVE_PRIORITY_EVAL_INTERVAL_MINUTES", "120"))
 AUTONOMOUS_SPAWN_LIMIT = int(os.environ.get("HIVE_AUTONOMOUS_SPAWN_LIMIT", "3"))
 PRIORITY_PREEMPT_ENABLED = os.environ.get("HIVE_PRIORITY_PREEMPT_ENABLED", "true").lower() == "true"
+
+# Vault / payment lead (Sprint 25). The default vault is opt-in until a
+# real provider ships — flip HIVE_VAULT_ENABLED=true to register the
+# default vault entity on startup. Caps are USD cents; 0 disables that
+# window's cap. Provider names: ``stub`` (no real money). A future
+# sprint adds ``stripe`` etc. behind the same Protocol.
+VAULT_ENABLED = os.environ.get("HIVE_VAULT_ENABLED", "false").lower() == "true"
+VAULT_DAILY_CAP_CENTS = int(os.environ.get("HIVE_VAULT_DAILY_CAP_CENTS", "5000"))
+VAULT_MONTHLY_CAP_CENTS = int(os.environ.get("HIVE_VAULT_MONTHLY_CAP_CENTS", "50000"))
+VAULT_PROVIDER = os.environ.get("HIVE_VAULT_PROVIDER", "stub")

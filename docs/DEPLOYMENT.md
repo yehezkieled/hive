@@ -671,6 +671,17 @@ short-circuits when `dev` is already restored).
 
 **Vault:** `/vault approve|deny|status|log <id>`
 
+> Sprint 25: `/vault approve <id>` no longer just flips a status flag —
+> it routes through `process_manager.approve_vault_action`, which runs
+> the daily/monthly spend-cap check and (on cap pass) executes the
+> action against the configured `PaymentProvider`. The reply tells you
+> the terminal status: `executed`, `failed`, `denied` (cap exceeded),
+> or `approved` (legacy generic actions from Sprint 6 that don't have
+> payment fields). `/vault deny <id> [reason]` records the optional
+> reason and audits `vault.denied`. The web chat surfaces a
+> `vault_action_pending` Allow/Deny bubble for every `vault.requested`
+> event, mirroring the Sprint 22 mode-request UX.
+
 **Git workflow (Sprint 12):**
 `/commit <entity> "<message>"` — stage + commit in the entity's worktree.
 `/pr <entity> ["<title>"]` — push branch + `gh pr create`.
@@ -908,6 +919,10 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_UPLOAD_MAX_BYTES` | `20971520` (20 MB) | Cap for Telegram + web file uploads (Sprint 17). Mirrors Telegram's 20 MB Bot API limit. |
 | `HIVE_ATTACHMENT_EMBED_MAX_CHARS` | `8000` | Head-truncation cap for PDF and text-file extracts before sending to Voyage (Sprint 18). |
 | `HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS` | `true` | Prepend the "Relevant uploaded files" block alongside blueprints in auto-retrieve (Sprint 18). |
+| `HIVE_VAULT_ENABLED` | `false` | Auto-register a default `vault` entity on startup and wire the Vault payment pipeline (Sprint 25). Off by default — no real provider yet. |
+| `HIVE_VAULT_DAILY_CAP_CENTS` | `5000` ($50) | Daily spend cap (rolling 24h) enforced when approving a `request_payment` action. Set to `0` to disable. |
+| `HIVE_VAULT_MONTHLY_CAP_CENTS` | `50000` ($500) | Monthly spend cap (rolling 30d). Set to `0` to disable. |
+| `HIVE_VAULT_PROVIDER` | `stub` | Payment provider name. Sprint 25 ships only `stub`. Unknown names fall back to stub with a warning. |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.

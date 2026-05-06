@@ -1793,6 +1793,83 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 25 — Vault Build-out (DONE 2026-05-06)
+
+**Status:** All 4 phases shipped 2026-05-06. Vault entity now drives a full request → cap-check → approve → execute → audit pipeline against a `StubPaymentProvider`. No real provider yet — the `PaymentProvider` Protocol means swapping Stripe/Plaid in is a one-class change in a future sprint.
+**Plan:** `~/.claude/plans/what-is-next-on-warm-lerdorf.md`
+**Totals:** ~720 → ~770 unit tests (+4 manager request_payment, +9 vault_store extensions, +7 stub provider, +8 spend caps, +7 approval flow, +9 web endpoints, +5 role JD, +2 audit histogram). 1 new migration (022 vault_actions_payment_fields). 4 new env vars.
+
+### Why this exists
+Sprint 6 (2026-04-16) shipped Vault as a locked-down `Entity` with a `vault_actions(id, vault_name, description, requester, status, …)` table and `/vault approve|deny|status|log` Telegram commands — but the schema had only a free-text `description`, no `request_payment` action type existed, no provider abstraction was wired, no Vault personality file shipped, and no spend caps gated approvals. The audit's accepted-drift table noted "scaffold-only is safer than a half-built financial integration" — Sprint 25 closes the gap **without** wiring a real provider, on the rails-first principle: get the request → cap → approve → execute → audit pipeline solid against a stub provider, so a future sprint can swap a real provider in behind a clean interface.
+
+### Phase 1 — Structured schema + `request_payment` action
+
+Adds the payment-shaped columns to `vault_actions`, a `request_payment` action parser branch, and a manager-level `request_payment(...)` method that creates the row, audits `vault.requested`, and notifies the user. Permission gate: only Vault entities can emit the action — anything else gets `vault.unauthorized` and a `PermissionError`. Idempotency-key collisions raise `asyncpg.UniqueViolationError` which the manager catches and audits as `vault.duplicate_idempotency_key`.
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/migrations/022_vault_actions_payment_fields.sql` | Adds `action_type, amount_cents, currency, recipient, idempotency_key, payload, executed_at, execution_result, denial_reason`. Partial unique index on `idempotency_key` (NULL allowed for legacy rows). Index on `(status, created_at)` for the dashboard. |
+| `src/hive/bus/vault_store.py` | Extended `create_action(...)` with structured fields. New `get(action_id)`, `mark_executed(...)`, `mark_failed(...)`, `spend_total_cents(...)`. `deny(...)` now stores an optional reason. |
+| `src/hive/bus/actions.py` | New `request_payment` parser branch with field validation (positive `amount_cents`, 3-letter `currency`, non-empty `recipient`/`idempotency_key`/`reason`). |
+| `src/hive/process/manager.py` | Constructor accepts `vault_store`, `payment_provider`. `_handle_actions` `request_payment` branch + `request_payment(...)` method (permission gate, row creation, audit, user notify with `kind="vault_action_pending"`). |
+| `tests/test_actions.py` | `TestRequestPaymentAction` class — happy path, validation failures, currency normalisation. |
+| `tests/test_vault_store.py` | 9 new tests — structured-field round-trip, idempotency uniqueness, `mark_executed` / `mark_failed` state transitions, `spend_total_cents` window math. |
+| `tests/test_vault_payment_request.py` (new) | 4 manager tests — only-Vault-can-emit, audit `vault.unauthorized` for non-vault callers, audit `vault.duplicate_idempotency_key` on key collision, user notification dispatched with the new kind. |
+
+### Phase 2 — Spend caps + stub provider execution
+
+Daily/monthly spend caps gate approvals. The cap query is currency-strict: a non-USD action raises `ValueError`, which the manager translates into a `vault.cap_exceeded` audit + denial. `cap_cents=0` means "disabled" so dev/test envs aren't blocked. `StubPaymentProvider` is the default — it returns success unless the description or payload reason contains `"FORCE_FAIL"` (case-insensitive substring), giving tests a deterministic failure path. **No auto-retry** on provider failure: a failed payment is a human-look event.
+
+| File | Change |
+|------|--------|
+| `src/hive/config.py` | New env vars: `HIVE_VAULT_ENABLED` (default `false`), `HIVE_VAULT_DAILY_CAP_CENTS` (5000), `HIVE_VAULT_MONTHLY_CAP_CENTS` (50000), `HIVE_VAULT_PROVIDER` (`stub`). |
+| `src/hive/vault/__init__.py` (new) | Exposes `CapCheck`, `ExecutionResult`, `PaymentProvider`, `StubPaymentProvider`, `build_provider`, `check_caps`. |
+| `src/hive/vault/provider.py` (new) | `ExecutionResult` dataclass with `to_payload()`. `PaymentProvider` Protocol. `StubPaymentProvider.execute(action)` returns `(ok=False, reason="forced failure")` if FORCE_FAIL is in description/reason; else `(ok=True, provider="stub", external_id=…)`. `build_provider(name)` factory falls back to stub on unknown names. |
+| `src/hive/vault/spend_caps.py` (new) | `CapCheck(ok, reason, daily_used_cents, monthly_used_cents)`. `check_caps(...)` queries 24h and 30d windows; raises `ValueError` for non-USD. |
+| `src/hive/process/manager.py` | New `approve_vault_action(action_id)` (~140 lines): legacy generic-action fallback, cap check (ValueError → `vault.cap_exceeded`), missing-provider guard, exception-during-execute → `vault.failed`, `ExecutionResult.ok=False` → `vault.failed`, success → `vault.executed`. New `deny_vault_action(action_id, reason)` audits `vault.denied`. |
+| `src/hive/commands/dispatch.py` | `_execute_vault` `/vault approve` now routes through `process_manager.approve_vault_action` (returns status-aware messages: executed / failed / denied / approved). `/vault deny` extracts an optional reason from args after the id. |
+| `tests/test_vault_provider.py` (new) | 7 tests — stub success path, FORCE_FAIL in description, FORCE_FAIL in payload reason, case-insensitive matching, payload round-trip, factory default, factory unknown name fallback. |
+| `tests/test_vault_spend_caps.py` (new) | 8 tests — cap arithmetic across 24h/30d, currency-mismatch raises ValueError, cap=0 disabled, daily-only / monthly-only triggers, multi-vault isolation. |
+| `tests/test_vault_approval_flow.py` (new) | 7 end-to-end tests — request → approve → execute happy path, FORCE_FAIL → `vault.failed`, cap exceeded → `vault.cap_exceeded` denial, deny path, idempotent re-approve, missing provider, audit-event sequencing. |
+
+### Phase 3 — Web approval bubbles + Vault personality + default registration
+
+Web chat surfaces the approval flow via the same Allow/Deny bubble pattern as the Sprint 22 mode requests. The Vault personality file is the security boundary in prose form — the JD forbids inventing recipients, splitting payments to dodge caps, or reusing idempotency keys. Default-Vault registration is opt-in via `HIVE_VAULT_ENABLED=true` so production envs without a real provider can't accidentally run live.
+
+| File | Change |
+|------|--------|
+| `src/hive/__main__.py` | Builds `payment_provider` when `VAULT_ENABLED=true`. Wires `vault_store`, `payment_provider`, daily/monthly caps into `ProcessManager`. Auto-registers a default `vault` entity on startup if none exists, loading `personalities/role-vault.md` as the system prompt. |
+| `src/hive/web/app.py` | New `POST /api/vault-action/{id}/approve` (token-gated, returns `{ok, id, status, executed_at, denial_reason}`) and `POST /api/vault-action/{id}/deny` (accepts optional JSON `{reason}` body). |
+| `src/hive/web/templates/landing.html` | New `appendVaultRequestBubble(data)` renders the Allow/Deny chat bubble (amount + currency + recipient + reason). SSE handler dispatches `vault_action_pending` to the bubble; `vault_action_resolved` to a system chat line so the user sees the outcome live. |
+| `src/hive/process/loops.py` | `_VALID_ROLES` extended from `("maestro", "lead", "worker")` to include `"vault"`. |
+| `personalities/role-vault.md` (new) | Locked-down JD: never invent recipients, always include reason, fresh idempotency key per request, never split payments to dodge caps. Documents the `request_payment` action shape with all fields. Inherits the identity preamble (Sprint 22 phase 1). |
+| `tests/test_web_vault_endpoints.py` (new) | 9 tests — auth gating on both endpoints, approve happy path, deny path, deny with reason, executed-status payload shape, failed-status payload, denial reason in response, 404 for unknown id. |
+| `tests/test_role_jd.py` | Extended with `test_loads_vault_jd`, `test_vault_jd_documents_request_payment`, `test_vault_jd_omits_spawn_actions`, plus extending the role-files-exist sanity check to include vault. |
+
+### Phase 4 — Audit family + W7 dashboard widget + docs
+
+Five vault audit-event names land in the namespace: `vault.requested`, `vault.approved`, `vault.denied`, `vault.executed`, `vault.failed`, `vault.cap_exceeded` (plus the two error-path events `vault.unauthorized` and `vault.duplicate_idempotency_key`). The W7 audit timeline widget on the dashboard now stripes vault events as their own colour; the histogram SQL gains a `vault` column so per-minute counts join the existing `command/entity/task/git` quartet.
+
+| File | Change |
+|------|--------|
+| `src/hive/web/view_model.py` | `_AUDIT_NAMESPACES` extended from `("command","entity","task","git")` to add `"vault"`. `_build_histogram` empty-row fallback now includes `"vault": 0`. |
+| `src/hive/bus/audit_log.py` | `histogram()` SQL adds `COUNT(*) FILTER (WHERE split_part(a.action,'.',1) = 'vault')::int AS vault`. |
+| `src/hive/web/static/dashboard/dashboard-w5678.jsx` | W7_AuditLog: `NS_LIST = ['command','entity','task','git','vault']`, `nsColors.vault = D58.vault`, hardcoded namespace lists replaced with `NS_LIST`. |
+| `tests/test_audit_log.py` | New `test_histogram_buckets_vault_namespace` (records 8 vault.* events, asserts histogram vault sum equals 8) and `test_vault_audit_namespace_covers_six_terminal_events` (the six core events round-trip via `recent(action_prefix="vault.")`). |
+| `docs/PROJECT_PLAN.md` | This entry. |
+| `docs/DEPLOYMENT.md` | Four new env vars documented; `/vault approve` updated to mention auto-execution; smoke-test path added. |
+
+### Out of scope (deferred, captured here so they aren't re-flagged)
+- Real provider (Stripe/Plaid). Next Vault sprint, behind the same `PaymentProvider` Protocol — test-mode keys first.
+- Multi-currency. USD-only; cap query rejects mismatches.
+- Refunds / voids. Not modelled; failed/completed is terminal.
+- Vault → vault peer messaging. Sprint 23 peer rules don't include vaults; deferred until there's a second one.
+- Recurring payments / subscriptions.
+- External notification channels (email, SMS) — Telegram + web SSE only.
+- Per-recipient allowlist — sensible Phase 5 in the next Vault sprint.
+
+---
+
 ## Sprint 24 — Dashboard Polish (DONE 2026-05-05)
 
 **Status:** All 4 phases shipped 2026-05-05. Dashboard widgets W2 (health), W3 (CFD anomalies), W6 (cache baseline), W8 (failure scatter) all wired to real data — `_mock_health` retired, no `# TODO Sprint 21` markers remain in `view_model.py`.

@@ -24,6 +24,10 @@ Supported action types:
   maestro is rejected (must specify which team).
 - ``kill_entity``: maestro or lead kills an entity in its scope.
   Fields: ``target``.
+- ``request_payment``: vault entity requests a structured payment.
+  Fields: ``amount_cents`` (positive int), ``currency`` (e.g. "USD"),
+  ``recipient``, ``idempotency_key`` (unique per request), ``reason``.
+  Only ``vault`` role may emit this; manager rejects + audits otherwise.
 """
 
 from __future__ import annotations
@@ -47,6 +51,13 @@ _SPAWN_TEAM_REQUIRED = {"team_name"}
 _SPAWN_WORKER_REQUIRED: set[str] = set()
 _KILL_ENTITY_REQUIRED = {"target"}
 _REQUEST_DECISION_REQUIRED = {"to", "text"}
+_REQUEST_PAYMENT_REQUIRED = {
+    "amount_cents",
+    "currency",
+    "recipient",
+    "idempotency_key",
+    "reason",
+}
 
 
 @dataclass
@@ -78,6 +89,11 @@ class Action:
     # written (pair-or-nothing).
     display_name: str | None = None
     personality: str | None = None
+    # request_payment fields (Sprint 25)
+    amount_cents: int | None = None
+    currency: str | None = None
+    recipient: str | None = None
+    idempotency_key: str | None = None
 
 
 def parse_actions(response: str) -> tuple[str, list[Action]]:
@@ -206,6 +222,38 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
                 logger.warning("request_decision missing fields %s: %s", missing, item)
                 continue
             actions.append(Action(type=atype, to=item["to"], text=item["text"]))
+            continue
+
+        if atype == "request_payment":
+            missing = _REQUEST_PAYMENT_REQUIRED - item.keys()
+            if missing:
+                logger.warning("request_payment missing fields %s: %s", missing, item)
+                continue
+            try:
+                amount = int(item["amount_cents"])
+            except (TypeError, ValueError):
+                logger.warning(
+                    "request_payment has non-integer amount_cents: %r",
+                    item.get("amount_cents"),
+                )
+                continue
+            if amount <= 0:
+                logger.warning("request_payment has non-positive amount_cents: %r", amount)
+                continue
+            currency = item["currency"]
+            if not isinstance(currency, str) or len(currency) != 3:
+                logger.warning("request_payment has invalid currency: %r", currency)
+                continue
+            actions.append(
+                Action(
+                    type=atype,
+                    amount_cents=amount,
+                    currency=currency.upper(),
+                    recipient=str(item["recipient"]),
+                    idempotency_key=str(item["idempotency_key"]),
+                    reason=str(item["reason"]),
+                )
+            )
             continue
 
         logger.warning("Unknown action type %r, skipping", atype)
