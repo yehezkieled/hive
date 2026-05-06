@@ -475,8 +475,7 @@ def _cfd_anomalies(points: list[dict]) -> list[dict]:
     if len(points) < 4:
         return []
     rates = [
-        max(0, points[i]["completed"] - points[i - 1]["completed"])
-        for i in range(1, len(points))
+        max(0, points[i]["completed"] - points[i - 1]["completed"]) for i in range(1, len(points))
     ]
     if not rates or max(rates) == 0:
         return []

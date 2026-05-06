@@ -182,9 +182,7 @@ class HealthMonitor:
         )
 
     async def _prune(self) -> None:
-        await self.pool.execute(
-            "DELETE FROM health_log WHERE ts < NOW() - INTERVAL '2 hours'"
-        )
+        await self.pool.execute("DELETE FROM health_log WHERE ts < NOW() - INTERVAL '2 hours'")
 
     async def _hydrate_cache(self) -> None:
         rows = await self.pool.fetch(

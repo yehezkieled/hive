@@ -161,9 +161,7 @@ async def test_cache_baseline_uses_7day_history(token_store) -> None:
         datetime.now(UTC) - timedelta(days=3),
     )
 
-    view = await build_dashboard_view_model(
-        token_store=token_store, process_manager=_bare_pm()
-    )
+    view = await build_dashboard_view_model(token_store=token_store, process_manager=_bare_pm())
     rows = {r["name"]: r for r in view["cacheRows"]}
     assert rows["dev"]["hit"] == 50.0
     assert rows["dev"]["baseline"] == 71.4
@@ -182,9 +180,7 @@ async def test_cache_baseline_falls_back_when_no_7day_history(token_store) -> No
         300,
     )
 
-    view = await build_dashboard_view_model(
-        token_store=token_store, process_manager=_bare_pm()
-    )
+    view = await build_dashboard_view_model(token_store=token_store, process_manager=_bare_pm())
     rows = {r["name"]: r for r in view["cacheRows"]}
     # 7d query also picks up the same row (recorded_at = NOW), so baseline equals
     # current hit by virtue of the data, not the fallback. Verify the contract
@@ -216,9 +212,7 @@ async def test_failure_scatter_classifies_recent_failures(task_store) -> None:
             reason,
         )
 
-    view = await build_dashboard_view_model(
-        task_store=task_store, process_manager=pm
-    )
+    view = await build_dashboard_view_model(task_store=task_store, process_manager=pm)
     assert len(view["failures"]) == 3
     cats = sorted(f["category"] for f in view["failures"])
     assert cats == ["network", "rate_limit", "timeout"]
@@ -249,7 +243,5 @@ async def test_failure_summary_counts_pending_escalations(task_store) -> None:
         """
     )
 
-    view = await build_dashboard_view_model(
-        task_store=task_store, process_manager=pm
-    )
+    view = await build_dashboard_view_model(task_store=task_store, process_manager=pm)
     assert view["failuresSummary"]["pendingEscalations"] == 1

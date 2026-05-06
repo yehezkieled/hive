@@ -75,8 +75,7 @@ def test_cfd_anomalies_flag_zero_drop_amid_steady_flow() -> None:
 
 def test_cfd_anomalies_empty_when_no_completion() -> None:
     points = [
-        {"i": i, "completed": 0, "inProgress": 0, "pending": 0, "total": 0}
-        for i in range(20)
+        {"i": i, "completed": 0, "inProgress": 0, "pending": 0, "total": 0} for i in range(20)
     ]
     assert _cfd_anomalies(points) == []
 
@@ -117,9 +116,7 @@ async def test_p0p1_delta_yesterday(task_store) -> None:
             now - timedelta(hours=1),
         )
 
-    view = await build_dashboard_view_model(
-        task_store=task_store, process_manager=_bare_pm()
-    )
+    view = await build_dashboard_view_model(task_store=task_store, process_manager=_bare_pm())
     assert view["p0p1Backlog"]["count"] == 3
     assert view["p0p1Backlog"]["deltaYesterday"] == 3
 
