@@ -1266,9 +1266,7 @@ class ProcessManager:
                 f"request_payment requires role=vault; {requester!r} is {entity.role!r}"
             )
 
-        description = (
-            f"Pay {amount_cents/100:.2f} {currency_norm} to {recipient}: {reason}"
-        )
+        description = f"Pay {amount_cents / 100:.2f} {currency_norm} to {recipient}: {reason}"
         try:
             row = await self.vault_store.create_action(
                 vault_name=requester,
@@ -1304,7 +1302,7 @@ class ProcessManager:
         )
         await self._notify(
             f"[vault request #{row['id']}] {requester}: pay "
-            f"{amount_cents/100:.2f} {currency_norm} to {recipient}. "
+            f"{amount_cents / 100:.2f} {currency_norm} to {recipient}. "
             f"Reason: {reason}\n"
             f"Approve: /vault approve {row['id']}   "
             f"Deny: /vault deny {row['id']}",
@@ -1466,7 +1464,7 @@ class ProcessManager:
             },
         )
         await self._notify(
-            f"[vault executed #{action_id}] {amount/100:.2f} {currency} → {recipient} "
+            f"[vault executed #{action_id}] {amount / 100:.2f} {currency} → {recipient} "
             f"(ref {result.reference})",
             kind="vault_action_resolved",
             data={

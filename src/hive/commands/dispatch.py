@@ -899,9 +899,11 @@ class CommandDispatcher:
                 return f"Action #{action_id} not found."
             status = result["status"]
             if status == "completed":
-                ref = (result.get("execution_result") or {}).get("reference") if isinstance(
-                    result.get("execution_result"), dict
-                ) else None
+                ref = (
+                    (result.get("execution_result") or {}).get("reference")
+                    if isinstance(result.get("execution_result"), dict)
+                    else None
+                )
                 tail = f" (ref {ref})" if ref else ""
                 return f"Action #{action_id} executed{tail}."
             if status == "failed":

@@ -83,9 +83,7 @@ async def test_create_payment_action_persists_structured_fields(
 
 
 async def test_get_returns_row(vault_store: VaultStore) -> None:
-    row = await vault_store.create_action(
-        vault_name="vault", description="x", requester="vault"
-    )
+    row = await vault_store.create_action(vault_name="vault", description="x", requester="vault")
     fetched = await vault_store.get(row["id"])
     assert fetched is not None
     assert fetched["id"] == row["id"]
@@ -135,8 +133,7 @@ async def test_mark_executed_sets_completed(vault_store: VaultStore) -> None:
     assert result["status"] == "completed"
     assert result["executed_at"] is not None
     assert result["execution_result"] == '{"provider": "stub", "ref": "abc"}' or (
-        isinstance(result["execution_result"], dict)
-        and result["execution_result"]["ref"] == "abc"
+        isinstance(result["execution_result"], dict) and result["execution_result"]["ref"] == "abc"
     )
 
 
@@ -237,9 +234,7 @@ async def test_spend_total_cents_sums_only_completed_payments(
 
 
 async def test_deny_records_reason(vault_store: VaultStore) -> None:
-    row = await vault_store.create_action(
-        vault_name="vault", description="x", requester="vault"
-    )
+    row = await vault_store.create_action(vault_name="vault", description="x", requester="vault")
     result = await vault_store.deny(row["id"], reason="not authorised")
     assert result is not None
     assert result["denial_reason"] == "not authorised"

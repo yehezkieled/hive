@@ -339,9 +339,7 @@ def create_app(
             "ok": True,
             "id": row["id"],
             "status": row.get("status"),
-            "executed_at": row.get("executed_at").isoformat()
-            if row.get("executed_at")
-            else None,
+            "executed_at": row.get("executed_at").isoformat() if row.get("executed_at") else None,
             "denial_reason": row.get("denial_reason"),
         }
 
