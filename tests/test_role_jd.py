@@ -77,7 +77,7 @@ class TestRepoLevelRoleFiles:
 
     def test_role_files_exist(self) -> None:
         repo_root = Path(__file__).parent.parent
-        for role in ("maestro", "lead", "worker"):
+        for role in ("maestro", "lead", "worker", "vault"):
             f = repo_root / "personalities" / f"role-{role}.md"
             assert f.exists(), f"missing {f}"
 
@@ -99,3 +99,26 @@ class TestRepoLevelRoleFiles:
         assert "hive_actions" in text
         assert "spawn_team" not in text
         assert "spawn_worker" not in text
+
+    def test_vault_jd_documents_request_payment(self) -> None:
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-vault.md").read_text()
+        assert "request_payment" in text
+        assert "idempotency_key" in text
+        assert "hive_actions" in text
+
+    def test_vault_jd_omits_spawn_actions(self) -> None:
+        """Vault is locked-down: no spawn / kill autonomy."""
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-vault.md").read_text()
+        assert "spawn_team" not in text
+        assert "spawn_worker" not in text
+        assert "kill_entity" not in text
+
+    def test_loads_vault_jd(self, tmp_path: Path) -> None:
+        (tmp_path / "role-vault.md").write_text("# Vault role\nrequest_payment only.")
+        from hive.process.loops import load_role_jd
+
+        text = load_role_jd("vault", base_dir=tmp_path)
+        assert "Vault role" in text
+        assert "request_payment" in text

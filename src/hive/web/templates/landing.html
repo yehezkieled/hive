@@ -315,6 +315,66 @@ function appendTypingBubble(name) {
   return wrap;
 }
 
+function appendVaultRequestBubble(data) {
+  const rail = document.querySelector('.chat-rail__messages');
+  if (!rail) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'msg msg--agent msg--mode-req msg--vault-req';
+  const dollars = (data.amount_cents / 100).toFixed(2);
+  const reasonText = data.reason ? escapeHtml(data.reason) : '<em>(no reason given)</em>';
+  wrap.innerHTML =
+    '<div class="msg__avatar">$</div>'
+    + '<div class="msg__body"><span class="msg__from">vault request #' + data.id + '</span>'
+    + '<div class="msg__bubble mode-req__bubble">'
+    + '<div class="mode-req__head"><strong>' + escapeHtml(data.requester) + '</strong> '
+    + '→ pay <code>' + dollars + ' ' + escapeHtml(data.currency) + '</code> to '
+    + '<code>' + escapeHtml(data.recipient) + '</code></div>'
+    + '<div class="mode-req__reason">' + reasonText + '</div>'
+    + '<div class="mode-req__actions">'
+    + '<button class="mode-req__btn mode-req__btn--allow" data-action="approve">Allow</button>'
+    + '<button class="mode-req__btn mode-req__btn--deny" data-action="deny">Deny</button>'
+    + '</div></div></div>';
+  rail.appendChild(wrap);
+  rail.scrollTop = rail.scrollHeight;
+
+  wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const action = btn.dataset.action;
+      const token = sessionStorage.getItem('hive_web_token');
+      if (!token) {
+        appendChatLine('system', 'No auth token — send a message first to set it.');
+        return;
+      }
+      wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = true);
+      try {
+        const resp = await fetch('/api/vault-action/' + data.id + '/' + action, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+        if (!resp.ok) {
+          wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
+          wrap.classList.add('mode-req--error');
+          setTimeout(() => wrap.classList.remove('mode-req--error'), 1500);
+          appendChatLine('system', 'Vault action failed: ' + resp.status);
+          return;
+        }
+        const body = await resp.json().catch(() => ({}));
+        const status = body.status || (action === 'approve' ? 'approved' : 'denied');
+        let label = status.charAt(0).toUpperCase() + status.slice(1);
+        if (status === 'denied' && body.denial_reason) {
+          label += ': ' + body.denial_reason;
+        }
+        wrap.querySelector('.mode-req__actions').innerHTML =
+          '<span class="mode-req__resolved">' + escapeHtml(label) + '</span>';
+      } catch (err) {
+        wrap.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
+        appendChatLine('system', 'Network error: ' + err.message);
+      }
+    });
+  });
+  return wrap;
+}
+
 function appendModeRequestBubble(data) {
   const rail = document.querySelector('.chat-rail__messages');
   if (!rail) return null;
@@ -605,6 +665,10 @@ function startNotificationStream() {
       const evt = JSON.parse(ev.data);
       if (evt.kind === 'mode_request' && evt.data) {
         appendModeRequestBubble(evt.data);
+      } else if (evt.kind === 'vault_action_pending' && evt.data) {
+        appendVaultRequestBubble(evt.data);
+      } else if (evt.kind === 'vault_action_resolved' && evt.data) {
+        appendChatLine('system', '[vault #' + evt.data.id + '] ' + evt.text);
       } else {
         appendChatLine('system', '[' + (evt.kind || 'info') + '] ' + evt.text);
       }

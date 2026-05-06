@@ -327,6 +327,50 @@ def create_app(
             raise HTTPException(status_code=404, detail="Request not found or already resolved")
         return {"ok": True, "id": row["id"], "status": row.get("status", "denied")}
 
+    @app.post("/api/vault-action/{action_id}/approve")
+    async def api_vault_approve(
+        action_id: int,
+        _: None = Depends(require_token),
+    ):
+        row = await process_manager.approve_vault_action(action_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Action not found")
+        return {
+            "ok": True,
+            "id": row["id"],
+            "status": row.get("status"),
+            "executed_at": row.get("executed_at").isoformat()
+            if row.get("executed_at")
+            else None,
+            "denial_reason": row.get("denial_reason"),
+        }
+
+    @app.post("/api/vault-action/{action_id}/deny")
+    async def api_vault_deny(
+        action_id: int,
+        request: Request,
+        _: None = Depends(require_token),
+    ):
+        reason: str | None = None
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                raw = body.get("reason")
+                reason = str(raw).strip() if raw is not None else None
+                if reason == "":
+                    reason = None
+        except Exception:
+            reason = None
+        row = await process_manager.deny_vault_action(action_id, reason=reason)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Action not found or already resolved")
+        return {
+            "ok": True,
+            "id": row["id"],
+            "status": row.get("status", "denied"),
+            "denial_reason": row.get("denial_reason"),
+        }
+
     @app.get("/sse/notifications")
     async def sse_notifications(_: None = Depends(require_token)):
         if sse_broker is None:

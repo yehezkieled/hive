@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-_VALID_ROLES = ("maestro", "lead", "worker")
+_VALID_ROLES = ("maestro", "lead", "worker", "vault")
 
 # Default location: personalities/ at the repo root, two levels up from this file
 # (src/hive/process/loops.py → src/hive → src → repo).
