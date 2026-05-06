@@ -1,22 +1,23 @@
 """Spend-cap policy for the Vault approval flow.
 
-Daily and monthly caps are configured per-process (``HIVE_VAULT_*_CAP_CENTS``).
-Both windows must allow the new payment for it to clear; whichever cap
-is hit first becomes the rejection reason. USD-only for Sprint 25 —
-non-USD requests raise ``ValueError`` so caller surfaces are forced to
-think about it explicitly rather than silently bypassing the check.
+Caps are applied per-currency independently: the same daily / monthly
+cap (in minor units / cents) applies to each currency in the
+allow-list separately. So a $50/day cap with allow-list
+``[AUD, USD]`` means $50 AUD/day AND $50 USD/day, not a combined
+total. No FX conversion — actions whose currency isn't in the
+allow-list raise ``ValueError`` so callers think about it explicitly
+rather than silently bypassing the check.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from hive.bus.vault_store import VaultStore
-
-_SUPPORTED_CURRENCIES = frozenset({"USD"})
 
 
 @dataclass(frozen=True)
@@ -29,8 +30,12 @@ class CapCheck:
     monthly_used_cents: int = 0
 
 
-def _format_dollars(cents: int) -> str:
-    return f"${cents / 100:.2f}"
+def _format_money(cents: int, currency: str) -> str:
+    return f"{currency} {cents / 100:.2f}"
+
+
+def _normalise_currencies(currencies: Iterable[str]) -> frozenset[str]:
+    return frozenset(c.upper() for c in currencies if c)
 
 
 async def check_caps(
@@ -41,34 +46,39 @@ async def check_caps(
     currency: str,
     daily_cap_cents: int,
     monthly_cap_cents: int,
+    cap_currencies: Iterable[str] = ("AUD", "USD"),
     now: datetime | None = None,
 ) -> CapCheck:
     """Decide whether ``amount_cents`` clears the daily and monthly caps.
 
-    Counts only ``status='completed'`` rows in the same currency window.
-    Pending/failed/denied requests are not deducted — only money that
-    has actually moved counts against the cap.
+    The same cap value applies to each currency in ``cap_currencies``
+    independently. Counts only ``status='completed'`` rows in the
+    action's currency window — pending / failed / denied requests
+    are not deducted, and other currencies don't pollute this
+    currency's tally.
     """
-    if currency.upper() not in _SUPPORTED_CURRENCIES:
+    action_currency = currency.upper()
+    allowed = _normalise_currencies(cap_currencies)
+    if action_currency not in allowed:
         raise ValueError(
-            f"Unsupported currency for spend caps: {currency!r}. "
-            f"Supported: {sorted(_SUPPORTED_CURRENCIES)}"
+            f"Currency {action_currency!r} not in cap allow-list "
+            f"{sorted(allowed)}. Add it to HIVE_VAULT_CAP_CURRENCIES "
+            f"or reject the request."
         )
-    cap_currency = currency.upper()
     now = now or datetime.now(UTC)
     daily_since = now - timedelta(hours=24)
     monthly_since = now - timedelta(days=30)
 
-    daily_used = await vault_store.spend_total_cents(vault_name, cap_currency, daily_since)
-    monthly_used = await vault_store.spend_total_cents(vault_name, cap_currency, monthly_since)
+    daily_used = await vault_store.spend_total_cents(vault_name, action_currency, daily_since)
+    monthly_used = await vault_store.spend_total_cents(vault_name, action_currency, monthly_since)
 
     if daily_cap_cents > 0 and daily_used + amount_cents > daily_cap_cents:
         return CapCheck(
             ok=False,
             reason=(
-                f"daily cap exceeded: {_format_dollars(daily_used)} used "
-                f"+ {_format_dollars(amount_cents)} requested > "
-                f"{_format_dollars(daily_cap_cents)} cap"
+                f"daily cap exceeded: {_format_money(daily_used, action_currency)} used "
+                f"+ {_format_money(amount_cents, action_currency)} requested > "
+                f"{_format_money(daily_cap_cents, action_currency)} cap"
             ),
             daily_used_cents=daily_used,
             monthly_used_cents=monthly_used,
@@ -78,9 +88,9 @@ async def check_caps(
         return CapCheck(
             ok=False,
             reason=(
-                f"monthly cap exceeded: {_format_dollars(monthly_used)} used "
-                f"+ {_format_dollars(amount_cents)} requested > "
-                f"{_format_dollars(monthly_cap_cents)} cap"
+                f"monthly cap exceeded: {_format_money(monthly_used, action_currency)} used "
+                f"+ {_format_money(amount_cents, action_currency)} requested > "
+                f"{_format_money(monthly_cap_cents, action_currency)} cap"
             ),
             daily_used_cents=daily_used,
             monthly_used_cents=monthly_used,

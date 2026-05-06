@@ -174,10 +174,25 @@ PRIORITY_PREEMPT_ENABLED = os.environ.get("HIVE_PRIORITY_PREEMPT_ENABLED", "true
 
 # Vault / payment lead (Sprint 25). The default vault is opt-in until a
 # real provider ships — flip HIVE_VAULT_ENABLED=true to register the
-# default vault entity on startup. Caps are USD cents; 0 disables that
-# window's cap. Provider names: ``stub`` (no real money). A future
-# sprint adds ``stripe`` etc. behind the same Protocol.
+# default vault entity on startup. Caps are applied per-currency
+# independently: ``HIVE_VAULT_CAP_CURRENCIES`` is the comma-separated
+# allow-list (default ``AUD,USD``); the same daily/monthly cap (in
+# minor units / cents) applies to each currency separately, so a
+# $50/day cap means $50 AUD/day AND $50 USD/day. Action currencies
+# outside the allow-list are rejected at cap-check time. No FX
+# conversion — that's a future-sprint concern. Provider names:
+# ``stub`` (no real money). A future sprint adds ``stripe`` etc.
+# behind the same Protocol.
 VAULT_ENABLED = os.environ.get("HIVE_VAULT_ENABLED", "false").lower() == "true"
+VAULT_CAP_CURRENCIES = tuple(
+    sorted(
+        {
+            c.strip().upper()
+            for c in os.environ.get("HIVE_VAULT_CAP_CURRENCIES", "AUD,USD").split(",")
+            if c.strip()
+        }
+    )
+)
 VAULT_DAILY_CAP_CENTS = int(os.environ.get("HIVE_VAULT_DAILY_CAP_CENTS", "5000"))
 VAULT_MONTHLY_CAP_CENTS = int(os.environ.get("HIVE_VAULT_MONTHLY_CAP_CENTS", "50000"))
 VAULT_PROVIDER = os.environ.get("HIVE_VAULT_PROVIDER", "stub")

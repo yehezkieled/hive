@@ -12,7 +12,7 @@ async def _completed_payment(
     vault_store: VaultStore,
     *,
     amount_cents: int,
-    currency: str = "USD",
+    currency: str = "AUD",
     idempotency_key: str,
 ) -> int:
     row = await vault_store.create_action(
@@ -35,7 +35,7 @@ async def test_check_caps_allows_under_both_caps(vault_store: VaultStore) -> Non
         vault_store,
         vault_name="vault",
         amount_cents=200,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=1000,
         monthly_cap_cents=5000,
     )
@@ -49,7 +49,7 @@ async def test_check_caps_blocks_when_daily_exceeded(vault_store: VaultStore) ->
         vault_store,
         vault_name="vault",
         amount_cents=200,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=1000,
         monthly_cap_cents=10000,
     )
@@ -65,7 +65,7 @@ async def test_check_caps_blocks_when_monthly_exceeded(vault_store: VaultStore) 
         vault_store,
         vault_name="vault",
         amount_cents=2000,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=10000,
         monthly_cap_cents=5000,
     )
@@ -81,7 +81,7 @@ async def test_check_caps_zero_caps_means_disabled(vault_store: VaultStore) -> N
         vault_store,
         vault_name="vault",
         amount_cents=10_000_00,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=0,
         monthly_cap_cents=0,
     )
@@ -97,7 +97,7 @@ async def test_check_caps_pending_rows_dont_count(vault_store: VaultStore) -> No
         requester="vault",
         action_type="payment",
         amount_cents=900,
-        currency="USD",
+        currency="AUD",
         recipient="r",
         idempotency_key="pend-cap-1",
     )
@@ -105,7 +105,7 @@ async def test_check_caps_pending_rows_dont_count(vault_store: VaultStore) -> No
         vault_store,
         vault_name="vault",
         amount_cents=200,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=1000,
         monthly_cap_cents=10000,
     )
@@ -119,7 +119,7 @@ async def test_check_caps_failed_rows_dont_count(vault_store: VaultStore) -> Non
         requester="vault",
         action_type="payment",
         amount_cents=900,
-        currency="USD",
+        currency="AUD",
         recipient="r",
         idempotency_key="fail-cap-1",
     )
@@ -128,7 +128,7 @@ async def test_check_caps_failed_rows_dont_count(vault_store: VaultStore) -> Non
         vault_store,
         vault_name="vault",
         amount_cents=200,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=1000,
         monthly_cap_cents=10000,
     )
@@ -144,7 +144,7 @@ async def test_check_caps_other_currency_excluded(vault_store: VaultStore) -> No
         vault_store,
         vault_name="vault",
         amount_cents=200,
-        currency="USD",
+        currency="AUD",
         daily_cap_cents=1000,
         monthly_cap_cents=10000,
     )
@@ -162,3 +162,34 @@ async def test_check_caps_unsupported_currency_raises(vault_store: VaultStore) -
             daily_cap_cents=1000,
             monthly_cap_cents=10000,
         )
+
+
+async def test_check_caps_per_currency_independent(vault_store: VaultStore) -> None:
+    """A near-cap AUD spend must not block a USD action (caps are per-currency)."""
+    await _completed_payment(
+        vault_store, amount_cents=900, currency="AUD", idempotency_key="aud-indep-1"
+    )
+    cap = await check_caps(
+        vault_store,
+        vault_name="vault",
+        amount_cents=900,
+        currency="USD",
+        daily_cap_cents=1000,
+        monthly_cap_cents=10000,
+    )
+    assert cap.ok is True
+    assert cap.daily_used_cents == 0  # USD tally is 0; AUD's $9 doesn't pollute it
+
+
+async def test_check_caps_custom_allow_list(vault_store: VaultStore) -> None:
+    """Caller can override the default ``(AUD, USD)`` allow-list."""
+    cap = await check_caps(
+        vault_store,
+        vault_name="vault",
+        amount_cents=100,
+        currency="GBP",
+        daily_cap_cents=1000,
+        monthly_cap_cents=10000,
+        cap_currencies=("GBP",),
+    )
+    assert cap.ok is True
