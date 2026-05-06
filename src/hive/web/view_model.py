@@ -275,7 +275,7 @@ _BURN_RANGES: dict[str, tuple[timedelta, int]] = {
     "30d": (timedelta(days=30), 30),
 }
 
-_AUDIT_NAMESPACES = ("command", "entity", "task", "git")
+_AUDIT_NAMESPACES = ("command", "entity", "task", "git", "vault")
 
 
 async def build_dashboard_view_model(
@@ -608,7 +608,10 @@ async def _build_cache(token_store: TokenStore | None, since: datetime) -> tuple
 async def _build_histogram(audit_log: AuditLog | None) -> list[dict]:
     """W7 timeline: 60 1-min buckets with per-namespace counts."""
     if audit_log is None:
-        return [{"i": i, "command": 0, "entity": 0, "task": 0, "git": 0} for i in range(60)]
+        return [
+            {"i": i, "command": 0, "entity": 0, "task": 0, "git": 0, "vault": 0}
+            for i in range(60)
+        ]
     return await audit_log.histogram(window_minutes=60)
 
 

@@ -93,3 +93,43 @@ async def test_record_ignores_dberror(audit_log: AuditLog) -> None:
     broken = AuditLog(pool=_BrokenPool())  # type: ignore[arg-type]
     # Should NOT raise, even though the pool raises.
     await broken.record(actor="system", action="entity.spawn", target="x")
+
+
+async def test_histogram_buckets_vault_namespace(audit_log: AuditLog) -> None:
+    """Sprint 25 — histogram counts vault.* events under the new column."""
+    for action in (
+        "vault.requested",
+        "vault.executed",
+        "vault.failed",
+        "vault.cap_exceeded",
+        "vault.denied",
+        "vault.approved",
+        "vault.unauthorized",
+        "vault.duplicate_idempotency_key",
+    ):
+        await audit_log.record(actor="vault", action=action, target="vault")
+
+    buckets = await audit_log.histogram(window_minutes=60)
+    assert buckets, "histogram must always return at least one row"
+    # The latest bucket holds all events recorded just now.
+    total_vault = sum(b.get("vault", 0) for b in buckets)
+    assert total_vault == 8
+
+
+async def test_vault_audit_namespace_covers_six_terminal_events(
+    audit_log: AuditLog,
+) -> None:
+    """The Sprint 25 plan requires the six core vault.* events to round-trip."""
+    expected = {
+        "vault.requested",
+        "vault.approved",
+        "vault.denied",
+        "vault.executed",
+        "vault.failed",
+        "vault.cap_exceeded",
+    }
+    for action in expected:
+        await audit_log.record(actor="vault", action=action, target="vault")
+
+    rows = await audit_log.recent(action_prefix="vault.")
+    assert {r["action"] for r in rows} >= expected

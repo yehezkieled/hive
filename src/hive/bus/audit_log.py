@@ -81,11 +81,13 @@ class AuditLog:
         return [_row_to_dict(row) for row in rows]
 
     async def histogram(self, window_minutes: int = 60) -> list[dict[str, Any]]:
-        """Per-minute event counts split by namespace prefix (command/entity/task/git).
+        """Per-minute event counts split by namespace prefix.
 
-        Returns ``window_minutes`` rows ``{i, command, entity, task, git}``,
-        oldest→newest. The ``i`` index lets the caller render bars without
-        joining timestamps client-side.
+        Returns ``window_minutes`` rows
+        ``{i, command, entity, task, git, vault}``, oldest→newest. The
+        ``i`` index lets the caller render bars without joining
+        timestamps client-side. ``vault`` was added in Sprint 25 for the
+        payment-lead audit family.
         """
         rows = await self.pool.fetch(
             """
@@ -113,7 +115,10 @@ class AuditLog:
                 )::int AS task,
                 COUNT(*) FILTER (
                     WHERE split_part(a.action, '.', 1) = 'git'
-                )::int AS git
+                )::int AS git,
+                COUNT(*) FILTER (
+                    WHERE split_part(a.action, '.', 1) = 'vault'
+                )::int AS vault
             FROM buckets b
             LEFT JOIN audit_log a
                 ON a.timestamp >= b.bucket_start
