@@ -51,6 +51,8 @@ from hive.models.worker import WorkerAgent
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
+from hive.vault.provider import ExecutionResult, PaymentProvider
+from hive.vault.spend_caps import check_caps
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +102,9 @@ class ProcessManager:
         mode_request_store: ModeRequestStore | None = None,
         task_store: TaskStore | None = None,
         vault_store: VaultStore | None = None,
-        payment_provider: object | None = None,
+        payment_provider: PaymentProvider | None = None,
+        vault_daily_cap_cents: int = 0,
+        vault_monthly_cap_cents: int = 0,
         notification_dispatcher: NotificationDispatcher | None = None,
         personalities_dir: Path | None = None,
     ) -> None:
@@ -116,6 +120,8 @@ class ProcessManager:
         self.task_store = task_store
         self.vault_store = vault_store
         self.payment_provider = payment_provider
+        self.vault_daily_cap_cents = vault_daily_cap_cents
+        self.vault_monthly_cap_cents = vault_monthly_cap_cents
         self.notification_dispatcher = notification_dispatcher
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
@@ -1313,6 +1319,184 @@ class ProcessManager:
             },
         )
         return row["id"]
+
+    async def approve_vault_action(self, action_id: int) -> dict | None:
+        """Run the full payment lifecycle for a pending vault action.
+
+        Sequence: load → cap check → execute → mark completed/failed →
+        audit + notify. Idempotent: repeated calls on a non-pending row
+        return that row unchanged. Generic Sprint 6 actions (action_type
+        != 'payment') fall through to the legacy ``vault_store.approve``
+        path so the historical free-text approval surface still works.
+        """
+        if self.vault_store is None:
+            return None
+        row = await self.vault_store.get(action_id)
+        if row is None:
+            return None
+        if row["status"] != "pending":
+            return row
+
+        # Legacy generic action — keep the Sprint 6 free-text path alive.
+        if row.get("action_type") != "payment":
+            approved = await self.vault_store.approve(action_id)
+            if approved is not None:
+                await self._audit(
+                    "vault.approved",
+                    target=approved["vault_name"],
+                    details={"id": action_id, "action_type": "generic"},
+                )
+            return approved
+
+        amount = int(row["amount_cents"])
+        currency = row["currency"]
+        recipient = row["recipient"]
+        vault_name = row["vault_name"]
+
+        try:
+            cap = await check_caps(
+                self.vault_store,
+                vault_name=vault_name,
+                amount_cents=amount,
+                currency=currency,
+                daily_cap_cents=self.vault_daily_cap_cents,
+                monthly_cap_cents=self.vault_monthly_cap_cents,
+            )
+        except ValueError as exc:
+            cap_reason = str(exc)
+            denied = await self.vault_store.deny(action_id, reason=cap_reason)
+            await self._audit(
+                "vault.cap_exceeded",
+                target=vault_name,
+                details={"id": action_id, "reason": cap_reason},
+            )
+            await self._notify(
+                f"[vault denied #{action_id}] {cap_reason}",
+                kind="vault_action_resolved",
+                data={"id": action_id, "status": "denied", "reason": cap_reason},
+            )
+            return denied
+
+        if not cap.ok:
+            denied = await self.vault_store.deny(action_id, reason=cap.reason)
+            await self._audit(
+                "vault.cap_exceeded",
+                target=vault_name,
+                details={
+                    "id": action_id,
+                    "reason": cap.reason,
+                    "amount_cents": amount,
+                    "currency": currency,
+                    "daily_used_cents": cap.daily_used_cents,
+                    "monthly_used_cents": cap.monthly_used_cents,
+                },
+            )
+            await self._notify(
+                f"[vault denied #{action_id}] {cap.reason}",
+                kind="vault_action_resolved",
+                data={"id": action_id, "status": "denied", "reason": cap.reason},
+            )
+            return denied
+
+        provider = self.payment_provider
+        if provider is None:
+            err = "no payment provider configured"
+            failed = await self.vault_store.mark_failed(action_id, err)
+            await self._audit(
+                "vault.failed",
+                target=vault_name,
+                details={"id": action_id, "reason": err},
+            )
+            return failed
+
+        try:
+            result = await provider.execute(dict(row))
+        except Exception as exc:
+            err = f"provider raised: {exc!r}"
+            logger.exception("payment provider raised for action %s", action_id)
+            failed = await self.vault_store.mark_failed(action_id, err)
+            await self._audit(
+                "vault.failed",
+                target=vault_name,
+                details={"id": action_id, "reason": err},
+            )
+            await self._notify(
+                f"[vault failed #{action_id}] {err}",
+                kind="vault_action_resolved",
+                data={"id": action_id, "status": "failed", "reason": err},
+            )
+            return failed
+
+        if not result.ok:
+            failed = await self.vault_store.mark_failed(
+                action_id,
+                result.error or "provider reported failure",
+                result.to_payload(),
+            )
+            await self._audit(
+                "vault.failed",
+                target=vault_name,
+                details={
+                    "id": action_id,
+                    "reason": result.error,
+                    "provider": result.provider,
+                    "amount_cents": amount,
+                    "currency": currency,
+                    "recipient": recipient,
+                },
+            )
+            await self._notify(
+                f"[vault failed #{action_id}] {result.error or 'provider failure'}",
+                kind="vault_action_resolved",
+                data={"id": action_id, "status": "failed", "reason": result.error},
+            )
+            return failed
+
+        completed = await self.vault_store.mark_executed(action_id, result.to_payload())
+        await self._audit(
+            "vault.executed",
+            target=vault_name,
+            details={
+                "id": action_id,
+                "provider": result.provider,
+                "reference": result.reference,
+                "amount_cents": amount,
+                "currency": currency,
+                "recipient": recipient,
+            },
+        )
+        await self._notify(
+            f"[vault executed #{action_id}] {amount/100:.2f} {currency} → {recipient} "
+            f"(ref {result.reference})",
+            kind="vault_action_resolved",
+            data={
+                "id": action_id,
+                "status": "completed",
+                "reference": result.reference,
+                "amount_cents": amount,
+                "currency": currency,
+            },
+        )
+        return completed
+
+    async def deny_vault_action(self, action_id: int, reason: str | None = None) -> dict | None:
+        """Deny a pending vault action (any action_type) and audit the event."""
+        if self.vault_store is None:
+            return None
+        denied = await self.vault_store.deny(action_id, reason=reason)
+        if denied is None:
+            return None
+        await self._audit(
+            "vault.denied",
+            target=denied["vault_name"],
+            details={"id": action_id, "reason": reason},
+        )
+        await self._notify(
+            f"[vault denied #{action_id}] {reason or 'no reason given'}",
+            kind="vault_action_resolved",
+            data={"id": action_id, "status": "denied", "reason": reason},
+        )
+        return denied
 
     async def approve_mode_request(self, request_id: int) -> dict | None:
         """Approve a pending mode request and update the requester's mode.
