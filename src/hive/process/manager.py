@@ -51,7 +51,7 @@ from hive.models.worker import WorkerAgent
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
-from hive.vault.provider import ExecutionResult, PaymentProvider
+from hive.vault.provider import PaymentProvider
 from hive.vault.spend_caps import check_caps
 
 logger = logging.getLogger(__name__)

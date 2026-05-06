@@ -122,7 +122,12 @@ class VaultStore:
         )
         return dict(row) if row else None
 
-    async def mark_failed(self, action_id: int, reason: str, result: dict | None = None) -> dict | None:
+    async def mark_failed(
+        self,
+        action_id: int,
+        reason: str,
+        result: dict | None = None,
+    ) -> dict | None:
         """Mark an action failed (provider error). Records the reason and any result body."""
         result_json = json.dumps(result) if result is not None else None
         row = await self.pool.fetchrow(

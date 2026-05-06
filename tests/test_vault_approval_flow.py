@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-import pytest
 import pytest_asyncio
 
 from hive.bus.audit_log import AuditLog
