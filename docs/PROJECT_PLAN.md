@@ -1818,14 +1818,14 @@ Adds the payment-shaped columns to `vault_actions`, a `request_payment` action p
 
 ### Phase 2 — Spend caps + stub provider execution
 
-Daily/monthly spend caps gate approvals. The cap query is currency-strict: a non-USD action raises `ValueError`, which the manager translates into a `vault.cap_exceeded` audit + denial. `cap_cents=0` means "disabled" so dev/test envs aren't blocked. `StubPaymentProvider` is the default — it returns success unless the description or payload reason contains `"FORCE_FAIL"` (case-insensitive substring), giving tests a deterministic failure path. **No auto-retry** on provider failure: a failed payment is a human-look event.
+Daily/monthly spend caps gate approvals. The cap is currency-strict against an allow-list (default `(AUD, USD)`) and applied **per-currency independently** — a $50/day cap means $50 AUD/day AND $50 USD/day with no FX, no shared balance. Action currencies outside the allow-list raise `ValueError`, which the manager translates into a `vault.cap_exceeded` audit + denial. `cap_cents=0` means "disabled" so dev/test envs aren't blocked. `StubPaymentProvider` is the default — it returns success unless the description or payload reason contains `"FORCE_FAIL"` (case-insensitive substring), giving tests a deterministic failure path. **No auto-retry** on provider failure: a failed payment is a human-look event.
 
 | File | Change |
 |------|--------|
-| `src/hive/config.py` | New env vars: `HIVE_VAULT_ENABLED` (default `false`), `HIVE_VAULT_DAILY_CAP_CENTS` (5000), `HIVE_VAULT_MONTHLY_CAP_CENTS` (50000), `HIVE_VAULT_PROVIDER` (`stub`). |
+| `src/hive/config.py` | New env vars: `HIVE_VAULT_ENABLED` (default `false`), `HIVE_VAULT_CAP_CURRENCIES` (`AUD,USD`), `HIVE_VAULT_DAILY_CAP_CENTS` (5000), `HIVE_VAULT_MONTHLY_CAP_CENTS` (50000), `HIVE_VAULT_PROVIDER` (`stub`). |
 | `src/hive/vault/__init__.py` (new) | Exposes `CapCheck`, `ExecutionResult`, `PaymentProvider`, `StubPaymentProvider`, `build_provider`, `check_caps`. |
 | `src/hive/vault/provider.py` (new) | `ExecutionResult` dataclass with `to_payload()`. `PaymentProvider` Protocol. `StubPaymentProvider.execute(action)` returns `(ok=False, reason="forced failure")` if FORCE_FAIL is in description/reason; else `(ok=True, provider="stub", external_id=…)`. `build_provider(name)` factory falls back to stub on unknown names. |
-| `src/hive/vault/spend_caps.py` (new) | `CapCheck(ok, reason, daily_used_cents, monthly_used_cents)`. `check_caps(...)` queries 24h and 30d windows; raises `ValueError` for non-USD. |
+| `src/hive/vault/spend_caps.py` (new) | `CapCheck(ok, reason, daily_used_cents, monthly_used_cents)`. `check_caps(...)` queries 24h and 30d windows per-currency; raises `ValueError` if the action's currency is outside the allow-list. |
 | `src/hive/process/manager.py` | New `approve_vault_action(action_id)` (~140 lines): legacy generic-action fallback, cap check (ValueError → `vault.cap_exceeded`), missing-provider guard, exception-during-execute → `vault.failed`, `ExecutionResult.ok=False` → `vault.failed`, success → `vault.executed`. New `deny_vault_action(action_id, reason)` audits `vault.denied`. |
 | `src/hive/commands/dispatch.py` | `_execute_vault` `/vault approve` now routes through `process_manager.approve_vault_action` (returns status-aware messages: executed / failed / denied / approved). `/vault deny` extracts an optional reason from args after the id. |
 | `tests/test_vault_provider.py` (new) | 7 tests — stub success path, FORCE_FAIL in description, FORCE_FAIL in payload reason, case-insensitive matching, payload round-trip, factory default, factory unknown name fallback. |
@@ -1861,7 +1861,7 @@ Five vault audit-event names land in the namespace: `vault.requested`, `vault.ap
 
 ### Out of scope (deferred, captured here so they aren't re-flagged)
 - Real provider (Stripe/Plaid). Next Vault sprint, behind the same `PaymentProvider` Protocol — test-mode keys first.
-- Multi-currency. USD-only; cap query rejects mismatches.
+- FX conversion / shared multi-currency balance. Caps apply per currency independently against an allow-list (default `AUD,USD`); a future sprint can add FX-aware totals if needed.
 - Refunds / voids. Not modelled; failed/completed is terminal.
 - Vault → vault peer messaging. Sprint 23 peer rules don't include vaults; deferred until there's a second one.
 - Recurring payments / subscriptions.

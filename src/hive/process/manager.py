@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -105,6 +106,7 @@ class ProcessManager:
         payment_provider: PaymentProvider | None = None,
         vault_daily_cap_cents: int = 0,
         vault_monthly_cap_cents: int = 0,
+        vault_cap_currencies: Iterable[str] = ("AUD", "USD"),
         notification_dispatcher: NotificationDispatcher | None = None,
         personalities_dir: Path | None = None,
     ) -> None:
@@ -122,6 +124,7 @@ class ProcessManager:
         self.payment_provider = payment_provider
         self.vault_daily_cap_cents = vault_daily_cap_cents
         self.vault_monthly_cap_cents = vault_monthly_cap_cents
+        self.vault_cap_currencies = tuple(sorted({c.upper() for c in vault_cap_currencies if c}))
         self.notification_dispatcher = notification_dispatcher
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
@@ -1359,6 +1362,7 @@ class ProcessManager:
                 currency=currency,
                 daily_cap_cents=self.vault_daily_cap_cents,
                 monthly_cap_cents=self.vault_monthly_cap_cents,
+                cap_currencies=self.vault_cap_currencies,
             )
         except ValueError as exc:
             cap_reason = str(exc)

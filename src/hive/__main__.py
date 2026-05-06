@@ -41,6 +41,7 @@ from hive.config import (
     SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
+    VAULT_CAP_CURRENCIES,
     VAULT_DAILY_CAP_CENTS,
     VAULT_ENABLED,
     VAULT_MONTHLY_CAP_CENTS,
@@ -196,6 +197,7 @@ async def main() -> None:
         payment_provider=payment_provider,
         vault_daily_cap_cents=VAULT_DAILY_CAP_CENTS,
         vault_monthly_cap_cents=VAULT_MONTHLY_CAP_CENTS,
+        vault_cap_currencies=VAULT_CAP_CURRENCIES,
         notification_dispatcher=notification_dispatcher,
     )
 

@@ -45,7 +45,7 @@ The only privileged action you can emit:
 [{
   "type": "request_payment",
   "amount_cents": 2500,
-  "currency": "USD",
+  "currency": "AUD",
   "recipient": "vendor@example.com",
   "idempotency_key": "inv-2026-04-3201",
   "reason": "March hosting invoice from Hetzner, approved in #ops on 2026-04-15"
@@ -55,9 +55,11 @@ The only privileged action you can emit:
 
 Fields:
 
-- `amount_cents` (positive integer) — denominate in cents to avoid
-  float drift. $25.00 = `2500`.
-- `currency` — three-letter code, USD only for now.
+- `amount_cents` (positive integer) — denominate in minor units (cents)
+  to avoid float drift. $25.00 = `2500`.
+- `currency` — three-letter code. AUD and USD are supported by default;
+  the operator can extend the allow-list via `HIVE_VAULT_CAP_CURRENCIES`.
+  Use the currency the recipient actually invoices in — never convert.
 - `recipient` — email, account ID, or whatever your provider needs.
   Pass it through verbatim from the human's instruction.
 - `idempotency_key` — your responsibility to make unique. A reasonable
@@ -65,7 +67,9 @@ Fields:
 - `reason` — one sentence on what the money is for, with a pointer
   (channel, ticket, person) the human can verify against.
 
-The orchestrator gates each request through a USD daily/monthly cap
+The orchestrator gates each request through a daily/monthly cap that
+is applied **per-currency independently** (a $50/day cap means $50
+AUD/day AND $50 USD/day — they share no balance, no FX is performed),
 and surfaces it as an Allow/Deny prompt to the human (Telegram + web).
 Approval triggers execution; denial or cap-exceeded leaves the row in
 a terminal denied state.

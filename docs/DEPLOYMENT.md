@@ -920,8 +920,9 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_ATTACHMENT_EMBED_MAX_CHARS` | `8000` | Head-truncation cap for PDF and text-file extracts before sending to Voyage (Sprint 18). |
 | `HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS` | `true` | Prepend the "Relevant uploaded files" block alongside blueprints in auto-retrieve (Sprint 18). |
 | `HIVE_VAULT_ENABLED` | `false` | Auto-register a default `vault` entity on startup and wire the Vault payment pipeline (Sprint 25). Off by default — no real provider yet. |
-| `HIVE_VAULT_DAILY_CAP_CENTS` | `5000` ($50) | Daily spend cap (rolling 24h) enforced when approving a `request_payment` action. Set to `0` to disable. |
-| `HIVE_VAULT_MONTHLY_CAP_CENTS` | `50000` ($500) | Monthly spend cap (rolling 30d). Set to `0` to disable. |
+| `HIVE_VAULT_CAP_CURRENCIES` | `AUD,USD` | Comma-separated allow-list of currencies the cap accepts. Caps are applied **per currency independently** — a $50/day cap means $50 AUD/day AND $50 USD/day, no FX. Action currencies outside this list are rejected at cap-check time. |
+| `HIVE_VAULT_DAILY_CAP_CENTS` | `5000` ($50) | Daily spend cap (rolling 24h) enforced when approving a `request_payment` action. Applies to each currency in the allow-list separately. Set to `0` to disable. |
+| `HIVE_VAULT_MONTHLY_CAP_CENTS` | `50000` ($500) | Monthly spend cap (rolling 30d). Same per-currency-independent semantics as the daily cap. Set to `0` to disable. |
 | `HIVE_VAULT_PROVIDER` | `stub` | Payment provider name. Sprint 25 ships only `stub`. Unknown names fall back to stub with a warning. |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
