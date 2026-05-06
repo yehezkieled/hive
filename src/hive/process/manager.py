@@ -7,6 +7,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import asyncpg
+
 from hive.bus.actions import Action, parse_actions
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
@@ -23,6 +25,7 @@ from hive.bus.permissions import (
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
+from hive.bus.vault_store import VaultStore
 from hive.config import (
     ADVISOR_ENABLED,
     AUTO_COMPACT_ENABLED,
@@ -43,6 +46,7 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 from hive.models.worker import WorkerAgent
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
@@ -95,6 +99,8 @@ class ProcessManager:
         attachment_store: AttachmentStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         task_store: TaskStore | None = None,
+        vault_store: VaultStore | None = None,
+        payment_provider: object | None = None,
         notification_dispatcher: NotificationDispatcher | None = None,
         personalities_dir: Path | None = None,
     ) -> None:
@@ -108,6 +114,8 @@ class ProcessManager:
         self.attachment_store = attachment_store
         self.mode_request_store = mode_request_store
         self.task_store = task_store
+        self.vault_store = vault_store
+        self.payment_provider = payment_provider
         self.notification_dispatcher = notification_dispatcher
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
@@ -125,6 +133,7 @@ class ProcessManager:
         self._last_spawned_teams: list[str] = []
         self._last_spawned_workers: list[str] = []
         self._last_killed_entities: list[str] = []
+        self._last_vault_requests: list[int] = []
         self._compacting: set[str] = set()
         # Set after construction by __main__.py so the dispatch site can
         # consult the rate limiter. Optional — tests construct managers
@@ -641,6 +650,7 @@ class ProcessManager:
         self._last_spawned_teams = []
         self._last_spawned_workers = []
         self._last_killed_entities = []
+        self._last_vault_requests = []
         for action in actions:
             if action.type == "message":
                 recipient = self._entities.get(action.to) if action.to else None
@@ -720,6 +730,20 @@ class ProcessManager:
                     self._last_mode_requests.append(req_id)
                 except (KeyError, ValueError) as exc:
                     logger.warning("request_mode_change from %s failed: %s", entity_name, exc)
+            elif action.type == "request_payment":
+                try:
+                    action_id = await self.request_payment(
+                        entity_name,
+                        amount_cents=action.amount_cents or 0,
+                        currency=action.currency or "USD",
+                        recipient=action.recipient or "",
+                        idempotency_key=action.idempotency_key or "",
+                        reason=action.reason or "",
+                    )
+                    if action_id is not None:
+                        self._last_vault_requests.append(action_id)
+                except (KeyError, ValueError, PermissionError) as exc:
+                    logger.warning("request_payment from %s rejected: %s", entity_name, exc)
             elif action.type == "report_failure":
                 reason = action.reason or "(no reason given)"
                 task_id = action.task_id
@@ -1184,6 +1208,110 @@ class ProcessManager:
                     "reason": reason,
                 },
             )
+        return row["id"]
+
+    async def request_payment(
+        self,
+        requester: str,
+        *,
+        amount_cents: int,
+        currency: str,
+        recipient: str,
+        idempotency_key: str,
+        reason: str,
+    ) -> int | None:
+        """Record a pending payment request from a Vault entity.
+
+        Only entities with role=='vault' may request payments. Returns the
+        new vault_actions row id, or None when the store is not configured.
+        Raises ``PermissionError`` for non-Vault requesters,
+        ``KeyError`` for unknown requesters, and ``ValueError`` for
+        invalid inputs. Duplicate ``idempotency_key`` is caught and audited
+        as ``vault.duplicate_idempotency_key``; the method returns None.
+        """
+        if self.vault_store is None:
+            return None
+        if amount_cents <= 0:
+            raise ValueError(f"amount_cents must be positive, got {amount_cents}")
+        if not idempotency_key:
+            raise ValueError("idempotency_key is required")
+        if not recipient:
+            raise ValueError("recipient is required")
+        currency_norm = currency.upper()
+        if len(currency_norm) != 3:
+            raise ValueError(f"currency must be a 3-letter code, got {currency!r}")
+
+        entity = self._entities.get(requester)
+        if entity is None:
+            raise KeyError(f"Unknown requester {requester!r}")
+        if not isinstance(entity, Vault):
+            await self._audit(
+                "vault.unauthorized",
+                target=requester,
+                details={
+                    "role": entity.role,
+                    "amount_cents": amount_cents,
+                    "currency": currency_norm,
+                    "recipient": recipient,
+                },
+                actor=requester,
+            )
+            raise PermissionError(
+                f"request_payment requires role=vault; {requester!r} is {entity.role!r}"
+            )
+
+        description = (
+            f"Pay {amount_cents/100:.2f} {currency_norm} to {recipient}: {reason}"
+        )
+        try:
+            row = await self.vault_store.create_action(
+                vault_name=requester,
+                description=description,
+                requester=requester,
+                action_type="payment",
+                amount_cents=amount_cents,
+                currency=currency_norm,
+                recipient=recipient,
+                idempotency_key=idempotency_key,
+                payload={"reason": reason},
+            )
+        except asyncpg.UniqueViolationError:
+            await self._audit(
+                "vault.duplicate_idempotency_key",
+                target=requester,
+                details={"idempotency_key": idempotency_key, "recipient": recipient},
+                actor=requester,
+            )
+            return None
+
+        await self._audit(
+            "vault.requested",
+            target=requester,
+            details={
+                "id": row["id"],
+                "amount_cents": amount_cents,
+                "currency": currency_norm,
+                "recipient": recipient,
+                "idempotency_key": idempotency_key,
+            },
+            actor=requester,
+        )
+        await self._notify(
+            f"[vault request #{row['id']}] {requester}: pay "
+            f"{amount_cents/100:.2f} {currency_norm} to {recipient}. "
+            f"Reason: {reason}\n"
+            f"Approve: /vault approve {row['id']}   "
+            f"Deny: /vault deny {row['id']}",
+            kind="vault_action_pending",
+            data={
+                "id": row["id"],
+                "requester": requester,
+                "amount_cents": amount_cents,
+                "currency": currency_norm,
+                "recipient": recipient,
+                "reason": reason,
+            },
+        )
         return row["id"]
 
     async def approve_mode_request(self, request_id: int) -> dict | None:
