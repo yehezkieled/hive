@@ -59,12 +59,14 @@ def _format_attachments(hits: list[dict]) -> list[str]:
         return []
     lines = ["## Attachments"]
     for h in hits:
-        snippet = (h.get("embed_text") or "")[:200].replace("\n", " ")
+        # Sprint 28: render the matching chunk text directly. The chunk is
+        # already chunk-sized, so no truncation needed.
+        chunk = (h.get("chunk_text") or "").replace("\n", " ").strip()
         name = h.get("original_name") or h["file_path"]
         mime = h.get("mime_type") or "unknown"
         lines.append(
             f"- {h['file_path']} ({mime}, original: {name}, distance={h['distance']:.3f})"
-            + (f' — snippet: "{snippet}"' if snippet else "")
+            + (f' — snippet: "{chunk}"' if chunk else "")
         )
     return lines
 

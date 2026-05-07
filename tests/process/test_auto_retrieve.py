@@ -171,7 +171,7 @@ async def _seed_attachment(
         source="web",
         actor=None,
     )
-    await store.update_embedding(aid, embedding, embed_text)
+    await store.save_chunks(aid, [(embed_text, embedding)])
     return aid
 
 

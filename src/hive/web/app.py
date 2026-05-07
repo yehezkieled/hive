@@ -267,10 +267,9 @@ def create_app(
         )
 
         try:
-            embedded = await embed_attachment(str(target), mime_type)
-            if embedded is not None:
-                vector, embed_text = embedded
-                await attachment_store.update_embedding(attachment_id, vector, embed_text)
+            chunks = await embed_attachment(str(target), mime_type)
+            if chunks:
+                await attachment_store.save_chunks(attachment_id, chunks)
         except Exception:
             logger.exception("Failed to embed web upload %s", target)
 

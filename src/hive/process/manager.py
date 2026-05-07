@@ -58,6 +58,13 @@ from hive.vault.spend_caps import check_caps
 
 logger = logging.getLogger(__name__)
 
+_SPAWN_KICKOFF_TEXT = (
+    "You've been spawned. Your contract is your system prompt — "
+    "read it, plan, and begin executing. Spawn workers if the work "
+    "warrants subdivision; report back when validation passes or "
+    "you hit a blocker."
+)
+
 
 def _render_auto_personality(
     *,
@@ -169,6 +176,8 @@ class ProcessManager:
         self._last_spawned_workers: list[str] = []
         self._last_killed_entities: list[str] = []
         self._last_vault_requests: list[int] = []
+        self._last_kickoffs: list[str] = []
+        self._kickoff_tasks: set[asyncio.Task] = set()
         self._compacting: set[str] = set()
         # Set after construction by __main__.py so the dispatch site can
         # consult the rate limiter. Optional — tests construct managers
@@ -611,12 +620,14 @@ class ProcessManager:
                 if attachment_hits:
                     file_lines = ["Relevant uploaded files (retrieved automatically):"]
                     for h in attachment_hits:
-                        snippet = (h.get("embed_text") or "")[:200].replace("\n", " ")
+                        # Sprint 28: render the matching chunk text instead
+                        # of a 200-char prefix of the whole embed_text.
+                        chunk = (h.get("chunk_text") or "").replace("\n", " ").strip()
                         name = h.get("original_name") or h["file_path"]
                         mime = h.get("mime_type") or "unknown"
                         file_lines.append(
                             f"- {h['file_path']} ({mime}, original: {name})"
-                            + (f' — snippet: "{snippet}"' if snippet else "")
+                            + (f' — snippet: "{chunk}"' if chunk else "")
                         )
                     knowledge_blocks.append("\n".join(file_lines))
 
@@ -708,6 +719,8 @@ class ProcessManager:
         self._last_spawned_workers = []
         self._last_killed_entities = []
         self._last_vault_requests = []
+        self._last_kickoffs = []
+        pending_kickoffs: list[str] = []
         for action in actions:
             if action.type == "message":
                 recipient = self._entities.get(action.to) if action.to else None
@@ -855,6 +868,7 @@ class ProcessManager:
                         details={"team": action.team_name, "maestro": entity_name},
                         actor=entity_name,
                     )
+                    pending_kickoffs.append(lead.name)
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("spawn_team from %s failed: %s", entity_name, exc)
             elif action.type == "spawn_worker":
@@ -917,6 +931,7 @@ class ProcessManager:
                         details={"lead": action.lead, "task_id": action.task_id},
                         actor=entity_name,
                     )
+                    pending_kickoffs.append(worker.name)
                 except (KeyError, TypeError, RuntimeError) as exc:
                     logger.warning("spawn_worker from %s failed: %s", entity_name, exc)
             elif action.type == "kill_entity":
@@ -946,7 +961,35 @@ class ProcessManager:
                 except Exception:
                     logger.exception("kill_entity from %s failed", entity_name)
 
+        if pending_kickoffs:
+            self._last_kickoffs = list(pending_kickoffs)
+            for target in pending_kickoffs:
+                task = asyncio.create_task(self._auto_kickoff(target))
+                self._kickoff_tasks.add(task)
+                task.add_done_callback(self._kickoff_tasks.discard)
+
         return clean_text
+
+    async def _auto_kickoff(self, target: str) -> None:
+        """Wake a freshly spawned lead/worker by sending the generic kickoff prompt.
+
+        Runs as a detached task after ``_handle_actions`` returns so the
+        parent dispatch's ``_last_*`` tracking isn't reset by the recursive
+        send. Failures are logged + audited but never propagate.
+        """
+        try:
+            await self.send_to_entity(target, _SPAWN_KICKOFF_TEXT)
+        except Exception as exc:
+            logger.warning("auto-kickoff for %s failed: %s", target, exc)
+            try:
+                await self._audit(
+                    "entity.kickoff_failed",
+                    target=target,
+                    details={"reason": str(exc)},
+                    actor="system",
+                )
+            except Exception:
+                logger.exception("audit of kickoff_failed for %s also failed", target)
 
     async def create_team(
         self,

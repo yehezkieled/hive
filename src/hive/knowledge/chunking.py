@@ -1,5 +1,9 @@
 """Markdown-aware splitter for blueprint bodies.
 
+Reused by the attachment pipeline (Sprint 28) for text/PDF uploads —
+PDF text without H2/H3 headings falls into the paragraph-cascade path
+naturally, so the same splitter covers both sources.
+
 Embedding a whole long blueprint as one vector loses precision: a 5-page
 spec gets ranked against a 1-paragraph note in the same space. This
 splitter cuts a blueprint into ~target_tokens chunks so each chunk
