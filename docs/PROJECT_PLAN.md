@@ -1793,6 +1793,51 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 27 — Knowledge as a Skill (DONE 2026-05-07)
+
+**Status:** All 3 phases shipped 2026-05-07. Auto-retrieve is now a thin first-turn safety net (top_k=1, max_distance=0.5, fires once per activation) and entities get a `search_knowledge(query, kind, limit)` MCP tool they can call mid-conversation when the auto-context misses.
+**Plan:** `~/.claude/plans/what-is-next-on-warm-lerdorf.md`
+**Totals:** ~789 → ~803 unit tests (+9 knowledge MCP server tests, +4 dialed-down auto-retrieve tests, +1 personality template assertion). 1 new MCP server (`hive-knowledge`). 3 env-var changes (`AUTO_RETRIEVE_TOP_K` default 3 → 1, `AUTO_RETRIEVE_MAX_DISTANCE` default 0.6 → 0.5, new `AUTO_RETRIEVE_FIRST_TURN_ONLY` default true) + new `HIVE_KNOWLEDGE_MCP_ENABLED` (default true).
+
+### Why this exists
+Sprint 11/18 hard-wired auto-retrieve into `manager.py`: every prompt sent to an entity got the top-K blueprint hits + attachment hits prepended, regardless of whether the agent wanted them. Two real problems: (1) **forced noise** — the agent had no way to say "skip retrieval this turn" or "search with different keywords"; (2) **no mid-conversation search** — first-turn results were all the agent ever got. Sprint 27 turns retrieval into a callable skill: agents reach for `search_knowledge` themselves when they realise they need more or different context, and the auto-block stays only as a safety net for the opening prompt.
+
+### Phase 1 — `search_knowledge` MCP tool
+
+New stdio MCP server mirroring `advisor_server.py` shape. Registered alongside the advisor in the per-entity MCP config so every entity sees both tools. `search_knowledge` is read-only so maestros and leads (already restricted to `Read Grep Glob`) can use it without role drift.
+
+| File | Change |
+|------|--------|
+| `src/hive/mcp/knowledge_server.py` (new) | FastMCP stdio server exposing `search_knowledge(query, kind="both", limit=3)`. Routes to `BlueprintStore.search` and/or `AttachmentStore.search` based on `kind`. Empty results return `"No matching knowledge found."` (not an error). Failures in one store don't break the other (isolated try/except). Lazy asyncpg pool, registered for cleanup at process exit. |
+| `src/hive/mcp/config.py` | Adds `hive-knowledge` server alongside `hive` (advisor) in `mcpServers`. Gated by `HIVE_KNOWLEDGE_MCP_ENABLED` (default true). |
+| `tests/mcp/test_knowledge_server.py` (new) | 9 tests — 3 validation (invalid kind/empty query/zero limit), 5 routing (blueprints-only, attachments-only, both, empty results, isolated failure), 1 registration (knowledge server appears in MCP config JSON). Plus an env-disabled assertion. |
+
+### Phase 2 — Dial down auto-retrieve, add personality guidance
+
+Auto-retrieve now fires only on the first turn of an activation (signalled by `entity.session_id is None`) and only pulls 1 result per kind under a tighter 0.5 cosine threshold. The auto-personality renderer gains a "Knowledge search" section so agents know the tool exists and how to use it well.
+
+| File | Change |
+|------|--------|
+| `src/hive/config.py` | `AUTO_RETRIEVE_TOP_K` default 3 → 1; `AUTO_RETRIEVE_MAX_DISTANCE` default 0.6 → 0.5; new `AUTO_RETRIEVE_FIRST_TURN_ONLY` env var (default true). |
+| `src/hive/process/manager.py` | Auto-retrieve gated by `is_first_turn or not AUTO_RETRIEVE_FIRST_TURN_ONLY`. Auto-block now ends with a one-line nudge: `"(Need different context? Call the search_knowledge MCP tool with your own query.)"`. `_render_auto_personality` appends a "Knowledge search" section listing when to call the tool, query phrasing tips, and distance heuristics. |
+| `tests/process/test_auto_retrieve.py` | 3 new behavioural tests — first-turn block ends with the search hint, subsequent turns skip auto-retrieve when `FIRST_TURN_ONLY=true`, and `FIRST_TURN_ONLY=false` keeps the legacy every-turn behaviour. Plus 1 unit test verifying the auto-personality template includes the Knowledge search section. |
+
+### Phase 3 — Docs + deployment
+
+| File | Change |
+|------|--------|
+| `docs/PROJECT_PLAN.md` | This entry. |
+| `docs/DEPLOYMENT.md` | New `HIVE_KNOWLEDGE_MCP_ENABLED` and `AUTO_RETRIEVE_FIRST_TURN_ONLY` env vars added; auto-retrieve prose updated for top_k=1 + first-turn-only behaviour; new "Knowledge MCP" subsection under MCP servers. |
+
+### Out of scope (deferred — decision record)
+- **PageRank / GraphRAG / HippoRAG** — not justified at Hive's scale. Vector retrieval is right for hundreds-to-thousands of short-to-medium notes; graph approaches win on multi-hop reasoning + global synthesis, neither of which is Hive's hot path. Indexing cost (LLM entity extraction per document) is the real blocker. Trigger to revisit: agents systematically miss context they should find, or user starts asking cross-document reasoning queries.
+- **Per-tool token budget** — capping how much auto-retrieve + `search_knowledge` results can add to a prompt. Bounded today by `top_k=1` and `limit=3`.
+- **Re-ranking** (cross-encoder over candidate chunks) — defer until vector cosine actually fails.
+- **Hybrid keyword + vector (BM25 + cosine)** — Postgres `tsvector`/`pg_trgm` available if exact-keyword queries underperform. Not yet.
+- **Caching** of frequent queries — premature; volume too low.
+
+---
+
 ## Sprint 26 — Blueprint Chunking (DONE 2026-05-07)
 
 **Status:** All 3 phases shipped 2026-05-07. Long blueprints are now split into ~500-token markdown-aware chunks before embedding; auto-retrieve injects only the matching chunk under the parent title instead of the whole body.

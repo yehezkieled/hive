@@ -288,3 +288,98 @@ async def test_auto_retrieve_attachment_search_failure_isolated(
     await mgr.send_to_entity("dev", "add rate limiting")
     assert "OAuth redirect pattern" in captured["prompt"]
     assert "Relevant uploaded files" not in captured["prompt"]
+
+
+# -----------------------------------------------------------------------------
+# Sprint 27 — agent-callable knowledge tool + dialed-down auto-retrieve
+# -----------------------------------------------------------------------------
+
+
+async def test_auto_retrieve_includes_search_hint_on_first_turn(
+    blueprint_store: BlueprintStore, router: MessageRouter, monkeypatch
+):
+    """First-turn auto-block ends with the search_knowledge nudge line."""
+
+    async def fake_embed(texts):
+        return [[0.5] + [0.0] * 1023 for _ in texts]
+
+    monkeypatch.setattr("hive.knowledge.blueprints.embed_texts", fake_embed)
+
+    await blueprint_store.save("auth fix", "OAuth redirect pattern", ["auth"])
+
+    mgr = ProcessManager(router=router, blueprint_store=blueprint_store)
+    maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
+    await mgr.register_entity(maestro)
+
+    captured: dict = {}
+    _patch_session(monkeypatch, captured)
+
+    await mgr.send_to_entity("dev", "add rate limiting")
+    assert "search_knowledge" in captured["prompt"]
+
+
+async def test_auto_retrieve_skips_after_first_turn(
+    blueprint_store: BlueprintStore, router: MessageRouter, monkeypatch
+):
+    """Subsequent turns (entity already has session_id) skip auto-retrieve."""
+
+    async def fake_embed(texts):
+        return [[0.5] + [0.0] * 1023 for _ in texts]
+
+    monkeypatch.setattr("hive.knowledge.blueprints.embed_texts", fake_embed)
+
+    await blueprint_store.save("auth fix", "OAuth redirect pattern", ["auth"])
+
+    mgr = ProcessManager(router=router, blueprint_store=blueprint_store)
+    maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
+    # Pre-set session_id so this looks like a continuation, not a fresh activation.
+    maestro.session_id = "abc-resume-id"
+    await mgr.register_entity(maestro)
+
+    captured: dict = {}
+    _patch_session(monkeypatch, captured)
+
+    await mgr.send_to_entity("dev", "follow-up question")
+    assert "OAuth redirect" not in captured["prompt"]
+    assert "Relevant past blueprints" not in captured["prompt"]
+
+
+async def test_auto_retrieve_first_turn_only_disabled_runs_every_turn(
+    blueprint_store: BlueprintStore, router: MessageRouter, monkeypatch
+):
+    """With AUTO_RETRIEVE_FIRST_TURN_ONLY=False, auto-retrieve runs even after first turn."""
+
+    async def fake_embed(texts):
+        return [[0.5] + [0.0] * 1023 for _ in texts]
+
+    monkeypatch.setattr("hive.knowledge.blueprints.embed_texts", fake_embed)
+    monkeypatch.setattr("hive.process.manager.AUTO_RETRIEVE_FIRST_TURN_ONLY", False)
+
+    await blueprint_store.save("auth fix", "OAuth redirect pattern", ["auth"])
+
+    mgr = ProcessManager(router=router, blueprint_store=blueprint_store)
+    maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
+    maestro.session_id = "abc-resume-id"  # not first turn
+    await mgr.register_entity(maestro)
+
+    captured: dict = {}
+    _patch_session(monkeypatch, captured)
+
+    await mgr.send_to_entity("dev", "another question")
+    assert "OAuth redirect pattern" in captured["prompt"]
+
+
+def test_auto_personality_includes_knowledge_search_section() -> None:
+    """The auto-personality template must teach agents about search_knowledge."""
+    from hive.process.manager import _render_auto_personality
+
+    body = _render_auto_personality(
+        entity_name="dev",
+        role="maestro",
+        model="sonnet",
+        display_name="Dev",
+        personality="You build things.",
+    )
+    assert "Knowledge search" in body
+    assert "search_knowledge" in body
+    assert "MCP tool" in body

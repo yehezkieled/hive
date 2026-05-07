@@ -696,6 +696,13 @@ When `AUTO_RETRIEVE_ENABLED=true` (default), the top-K semantically-similar
 blueprints are also prepended as context to every prompt sent to any entity
 (maestro, team lead, or worker) — no role gating.
 
+**Sprint 27 — knowledge as a skill.** Auto-retrieve is now a thin safety
+net: top_k=1, max_distance=0.5 (tighter than the prior 0.6), and (with
+`AUTO_RETRIEVE_FIRST_TURN_ONLY=true`, the default) it fires only on the
+first prompt of a fresh entity activation. Subsequent turns rely on the
+agent calling the new `search_knowledge` MCP tool itself. The auto-block
+also ends with a one-line nudge so agents know the tool exists.
+
 **Blueprint chunking (Sprint 26):** Blueprint bodies are split into
 ~`HIVE_BLUEPRINT_CHUNK_TOKENS`-sized chunks (default 500) at save time;
 each chunk gets its own Voyage embedding row in `blueprint_chunks`.
@@ -920,9 +927,11 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `EMBEDDING_DIM` | `1024` | Embedding vector dimension (must match model). Changed from 1536 → 1024 in Sprint 16 |
 | `HIVE_BLUEPRINT_CHUNK_TOKENS` | `500` | Target tokens per chunk when splitting a blueprint body before embedding (Sprint 26). ~4 chars/token heuristic. Long bodies fan out; bodies under `tokens × 1.6` chars stay as one chunk. |
 | `HIVE_BLUEPRINT_CHUNK_OVERLAP_TOKENS` | `50` | Tail of chunk N prepended to chunk N+1 so a fact straddling a boundary still appears in one full chunk (Sprint 26). |
-| `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
-| `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
-| `AUTO_RETRIEVE_MAX_DISTANCE` | `0.6` | Maximum cosine distance for an auto-retrieved blueprint (Sprint 16). 0=identical, 1=orthogonal. Lower = stricter relevance gate; suppresses lone-blueprint noise when the store is small |
+| `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to entity prompts. Sprint 27 dialled this into a thin safety net (see below). |
+| `AUTO_RETRIEVE_TOP_K` | `1` | Number of blueprints (and attachments) to retrieve per kind. Default lowered from 3 → 1 in Sprint 27 — agents call `search_knowledge` for more. |
+| `AUTO_RETRIEVE_MAX_DISTANCE` | `0.5` | Maximum cosine distance for an auto-retrieved blueprint. 0=identical, 1=orthogonal. Default tightened from 0.6 → 0.5 in Sprint 27. |
+| `AUTO_RETRIEVE_FIRST_TURN_ONLY` | `true` | When true (default), auto-retrieve only fires on the first prompt of a fresh entity activation (signalled by `entity.session_id is None`). Subsequent turns rely on the agent calling `search_knowledge` itself (Sprint 27). |
+| `HIVE_KNOWLEDGE_MCP_ENABLED` | `true` | When true (default), spawns the per-entity `hive-knowledge` MCP server alongside the advisor, exposing `search_knowledge(query, kind, limit)` to entities (Sprint 27). Set to `false` to ship advisor-only. |
 | `HIVE_ALLOW_AUTO_MERGE` | `0` | When `1`, enables `/merge <entity>`. Off by default so a fat-fingered Telegram message can't ship code. |
 | `HIVE_HEARTBEAT_ENABLED` | `false` | `true` to enable periodic status pings to Telegram. |
 | `HIVE_HEARTBEAT_INTERVAL_MINUTES` | `30` | Ping interval in minutes. |
