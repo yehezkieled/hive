@@ -696,6 +696,26 @@ When `AUTO_RETRIEVE_ENABLED=true` (default), the top-K semantically-similar
 blueprints are also prepended as context to every prompt sent to any entity
 (maestro, team lead, or worker) — no role gating.
 
+**Blueprint chunking (Sprint 26):** Blueprint bodies are split into
+~`HIVE_BLUEPRINT_CHUNK_TOKENS`-sized chunks (default 500) at save time;
+each chunk gets its own Voyage embedding row in `blueprint_chunks`.
+Auto-retrieve ranks against the chunk vectors and prepends only the
+matching chunk under `### {title}` instead of the full body — sharper
+context, less prompt bloat. Short bodies (under `tokens × 1.6` chars)
+stay as a single chunk so personal notes don't get fragmented.
+
+If you bump `HIVE_BLUEPRINT_CHUNK_TOKENS` (or `EMBEDDING_MODEL`), run the
+idempotent rechunker to re-align existing rows:
+
+```bash
+.venv/bin/python -m scripts.rechunk_blueprints
+# or
+.venv/bin/python scripts/rechunk_blueprints.py
+```
+
+It deletes each blueprint's chunks, re-splits via current settings,
+re-embeds, and bulk-inserts under one transaction per blueprint.
+
 ---
 
 ## 6. Verification commands
@@ -898,6 +918,8 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `VOYAGE_API_KEY` | *(none)* | Voyage AI API key — required for blueprint embeddings + semantic search + auto-retrieve. Get one at https://dash.voyageai.com/ |
 | `EMBEDDING_MODEL` | `voyage-multimodal-3` | Voyage embedding model name. Multimodal-only model — pure text inputs are wrapped as single-segment docs internally |
 | `EMBEDDING_DIM` | `1024` | Embedding vector dimension (must match model). Changed from 1536 → 1024 in Sprint 16 |
+| `HIVE_BLUEPRINT_CHUNK_TOKENS` | `500` | Target tokens per chunk when splitting a blueprint body before embedding (Sprint 26). ~4 chars/token heuristic. Long bodies fan out; bodies under `tokens × 1.6` chars stay as one chunk. |
+| `HIVE_BLUEPRINT_CHUNK_OVERLAP_TOKENS` | `50` | Tail of chunk N prepended to chunk N+1 so a fact straddling a boundary still appears in one full chunk (Sprint 26). |
 | `AUTO_RETRIEVE_ENABLED` | `true` | Prepend top-K blueprints to every `send_to_entity` prompt |
 | `AUTO_RETRIEVE_TOP_K` | `3` | Number of blueprints to retrieve per prompt |
 | `AUTO_RETRIEVE_MAX_DISTANCE` | `0.6` | Maximum cosine distance for an auto-retrieved blueprint (Sprint 16). 0=identical, 1=orthogonal. Lower = stricter relevance gate; suppresses lone-blueprint noise when the store is small |

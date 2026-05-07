@@ -1793,6 +1793,55 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 26 — Blueprint Chunking (DONE 2026-05-07)
+
+**Status:** All 3 phases shipped 2026-05-07. Long blueprints are now split into ~500-token markdown-aware chunks before embedding; auto-retrieve injects only the matching chunk under the parent title instead of the whole body.
+**Plan:** `~/.claude/plans/what-is-next-on-warm-lerdorf.md`
+**Totals:** 779 → ~789 unit tests (+6 chunking unit tests, +3 chunked store integration tests). 1 new migration (023 blueprint_chunks). 2 new env vars (`HIVE_BLUEPRINT_CHUNK_TOKENS`, `HIVE_BLUEPRINT_CHUNK_OVERLAP_TOKENS`).
+
+### Why this exists
+Sprint 11 (semantic blueprints) saved one 1024d Voyage vector per blueprint regardless of body length. Sprint 16 swapped OpenAI for Voyage and bumped to 1024d, but the granularity stayed whole-body. Two problems compounded as blueprints grew: (1) **coarse ranking** — a 5-page architecture spec gets one vector summarising "everything," so it wins on cosine distance against fine-grained queries by being *kind of* about every topic, then dumps pages of irrelevant prose into the agent prompt; (2) **token waste** — `AUTO_RETRIEVE_TOP_K=3` × full bodies bloats the prompt and hits the auto-compact threshold (50K input tokens) early. Sprint 26 cuts blueprints into chunks before embedding and prepends only the best-matching chunk under the parent blueprint title.
+
+### Phase 1 — Chunking utility + chunks table
+
+Markdown-aware splitter (H2/H3 → paragraph → sentence cascade) with code-fence safety and per-chunk overlap. New `blueprint_chunks` table owns embeddings; `blueprints.embedding` is dropped (corpus was empty — 0 rows). Two new env vars tune chunk size + overlap without code change.
+
+| File | Change |
+|------|--------|
+| `src/hive/knowledge/chunking.py` (new) | `split_blueprint(body, *, target_tokens, overlap_tokens)` pure-function splitter. Short-body fast path returns `[body]` unchanged for bodies under `target_tokens × 1.6` chars. Long bodies split first on H2/H3 headings, sub-split sections above 1.5× target on paragraphs, glue chunks with prev-tail overlap. Code fences tracked across split boundaries so a `` ``` `` block never gets cut mid-fence. |
+| `src/hive/bus/migrations/023_blueprint_chunks.sql` (new) | `CREATE TABLE blueprint_chunks (id, blueprint_id REFS blueprints ON DELETE CASCADE, chunk_index, text, embedding vector(1024), created_at, UNIQUE(blueprint_id, chunk_index))`. HNSW cosine index on `embedding`. Partial null-embedding index `WHERE embedding IS NULL` for the future rechunk path. `ALTER TABLE blueprints DROP COLUMN embedding` — the corpus was empty so no data migration. |
+| `src/hive/config.py` | `BLUEPRINT_CHUNK_TOKENS` (default 500), `BLUEPRINT_CHUNK_OVERLAP_TOKENS` (default 50). |
+| `tests/knowledge/test_blueprint_chunking.py` (new) | 6 unit tests — short-body fast-path returns single chunk unchanged, empty body returns `[]`, long markdown splits at `##`, oversized section sub-splits on paragraphs, code fence stays intact across splits, overlap tail appears verbatim at start of next chunk. |
+
+### Phase 2 — Chunked store + auto-retrieve render
+
+`BlueprintStore.save` now splits → embeds chunks in one Voyage call → inserts row + chunks in one transaction. `search` returns each parent blueprint at most once via inner `DISTINCT ON (b.id)` + outer ORDER BY, attaching the best-matching chunk's text as `chunk_text`. Auto-retrieve in `process/manager.py` renders `### {title}\n{chunk_text}` instead of the full body.
+
+| File | Change |
+|------|--------|
+| `src/hive/knowledge/blueprints.py` | `save` calls `split_blueprint` → `embed_texts(chunks)` → INSERT blueprint → `executemany` chunks under one transaction. `search` queries chunks joined to blueprints, `DISTINCT ON (b.id)` keeps the best chunk per parent, outer `ORDER BY distance, id ASC` ranks parents. Result rows include `chunk_text` and `chunk_index` alongside the legacy `body` field. |
+| `src/hive/process/manager.py` | Auto-retrieve render switches from `### {title}\n{body}` to `### {title}\n{chunk_text}` — sharper context, less prompt bloat. |
+| `tests/knowledge/test_blueprints_pgvector.py` | 3 new tests — search exposes `chunk_text` field, long body fans out to ≥3 chunks in `blueprint_chunks`, search groups by blueprint (each parent surfaces at most once even if many chunks match). |
+
+### Phase 3 — Backfill script + docs
+
+Idempotent script that mirrors `scripts/backfill_attachment_embeddings.py` — for each blueprint, delete its existing chunks, re-split via current settings, re-embed, bulk-insert. Today's corpus is empty so it's a no-op; future-proofs the path for chunk-knob tweaks or embedding-provider swaps.
+
+| File | Change |
+|------|--------|
+| `scripts/rechunk_blueprints.py` (new) | Iterates over `SELECT id, title, body FROM blueprints`, calls `split_blueprint` with current `BLUEPRINT_CHUNK_*` env values, deletes old chunks, embeds new chunks, bulk-inserts under one transaction per blueprint. Logs per-blueprint outcome + final tally. |
+| `docs/PROJECT_PLAN.md` | This entry. |
+| `docs/DEPLOYMENT.md` | Two new env vars added to the embedding env table; Sprint 26 prose section on auto-retrieve change + backfill command. |
+
+### Out of scope (deferred)
+- Per-chunk metadata (heading path, page number for PDFs) — useful for richer citations later; `chunk_index` is sufficient for v1.
+- Re-ranking (cross-encoder over chunks before ranking) — Voyage cosine alone is good enough at chunk granularity.
+- Chunk-level `/blueprint search` UI surfacing `(matched section: …)` in chat output.
+- Attachment chunking — same problem exists for long PDFs; do this for blueprints first, attachments next sprint if it pays off.
+- Background re-embed on `EMBEDDING_MODEL` change — manual `rechunk_blueprints.py` run is acceptable.
+
+---
+
 ## Sprint 25 — Vault Build-out (DONE 2026-05-06)
 
 **Status:** All 4 phases shipped 2026-05-06. Vault entity now drives a full request → cap-check → approve → execute → audit pipeline against a `StubPaymentProvider`. No real provider yet — the `PaymentProvider` Protocol means swapping Stripe/Plaid in is a one-class change in a future sprint.

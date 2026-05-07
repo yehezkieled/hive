@@ -556,7 +556,9 @@ class ProcessManager:
                 if blueprint_hits:
                     bp_lines = ["Relevant past blueprints (retrieved automatically):"]
                     for h in blueprint_hits:
-                        bp_lines.append(f"\n### {h['title']}\n{h['body']}")
+                        # Sprint 26: render the matching chunk only, not the
+                        # full body — sharper context, less prompt bloat.
+                        bp_lines.append(f"\n### {h['title']}\n{h['chunk_text']}")
                     prepended_blocks.append("\n".join(bp_lines))
 
             if AUTO_RETRIEVE_INCLUDE_ATTACHMENTS and self.attachment_store is not None:
