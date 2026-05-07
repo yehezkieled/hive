@@ -1,4 +1,4 @@
-"""Tests for the attachment embedder — Sprint 18."""
+"""Tests for the attachment embedder — Sprint 18 (embedding) + Sprint 28 (chunking)."""
 
 from __future__ import annotations
 
@@ -53,27 +53,53 @@ async def test_unsupported_mime_returns_none(tmp_path: Path) -> None:
     assert result is None
 
 
-async def test_text_file_embeds(tmp_path: Path, fake_text_embed) -> None:
+async def test_text_file_embeds_as_single_chunk(tmp_path: Path, fake_text_embed) -> None:
+    """Short text fits in one chunk and the chunk text contains the body."""
     f = tmp_path / "doc.md"
     f.write_text("# hello world\n\nthis is some text")
     result = await embed_attachment(f, "text/markdown")
     assert result is not None
-    vector, embed_text = result
+    assert len(result) == 1
+    chunk_text, vector = result[0]
     assert len(vector) == 1024
-    assert "hello world" in embed_text
-    assert fake_text_embed == [[embed_text]]
+    assert "hello world" in chunk_text
+    # one batched embed call with the single chunk
+    assert fake_text_embed == [[chunk_text]]
+
+
+async def test_long_text_fans_out_to_multiple_chunks(tmp_path: Path, fake_text_embed) -> None:
+    """Bodies above the short-body threshold split into >1 chunk."""
+    # target_tokens=500 → 2000 chars; short threshold = 2000 * 1.6 = 3200.
+    # Build distinct paragraphs separated by blank lines so the paragraph
+    # cascade has somewhere to split.
+    paragraph = ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 30).strip()
+    body = "\n\n".join(f"Section {i}.\n\n{paragraph}" for i in range(4))
+    f = tmp_path / "long.md"
+    f.write_text(body)
+    result = await embed_attachment(f, "text/markdown")
+    assert result is not None
+    assert len(result) >= 2  # fanned out
+    # Voyage was called once with the list of chunks (batched).
+    assert len(fake_text_embed) == 1
+    assert len(fake_text_embed[0]) == len(result)
+    for chunk_text, vector in result:
+        assert chunk_text  # no empty chunks
+        assert len(vector) == 1024
 
 
 async def test_text_file_truncates_to_max_chars(
     tmp_path: Path, fake_text_embed, monkeypatch
 ) -> None:
+    """ATTACHMENT_EMBED_MAX_CHARS caps total chars fed to the chunker."""
     monkeypatch.setattr("hive.knowledge.attachment_embedder.ATTACHMENT_EMBED_MAX_CHARS", 50)
     f = tmp_path / "big.txt"
     f.write_text("a" * 200)
     result = await embed_attachment(f, "text/plain")
     assert result is not None
-    _, embed_text = result
-    assert len(embed_text) == 50
+    # 50 chars is well under the short-body threshold → single chunk of 50.
+    assert len(result) == 1
+    chunk_text, _ = result[0]
+    assert len(chunk_text) == 50
 
 
 async def test_text_file_with_non_utf8_falls_back(tmp_path: Path, fake_text_embed) -> None:
@@ -82,8 +108,8 @@ async def test_text_file_with_non_utf8_falls_back(tmp_path: Path, fake_text_embe
     f.write_bytes(b"col1,col2\nvalue,\xff\xff")
     result = await embed_attachment(f, "text/csv")
     assert result is not None
-    _, embed_text = result
-    assert "col1,col2" in embed_text
+    chunk_text, _ = result[0]
+    assert "col1,col2" in chunk_text
 
 
 async def test_empty_text_returns_none(tmp_path: Path, fake_text_embed) -> None:
@@ -94,11 +120,13 @@ async def test_empty_text_returns_none(tmp_path: Path, fake_text_embed) -> None:
 
 
 async def test_image_embeds_via_multimodal(fake_multimodal_embed) -> None:
+    """Images return a single chunk with the filename as chunk text."""
     result = await embed_attachment(FIXTURES / "sample.png", "image/png")
     assert result is not None
-    vector, embed_text = result
+    assert len(result) == 1
+    chunk_text, vector = result[0]
     assert len(vector) == 1024
-    assert embed_text == "sample.png"
+    assert chunk_text == "sample.png"
     # one document with one segment (the image)
     assert len(fake_multimodal_embed) == 1
     assert len(fake_multimodal_embed[0]) == 1
@@ -142,8 +170,9 @@ async def test_pdf_embeds_extracted_text(tmp_path: Path, fake_text_embed, monkey
 
     result = await embed_attachment(f, "application/pdf")
     assert result is not None
-    _, embed_text = result
-    assert "Sprint 18" in embed_text
+    assert len(result) == 1
+    chunk_text, _ = result[0]
+    assert "Sprint 18" in chunk_text
 
 
 async def test_pdf_encrypted_returns_none(tmp_path: Path, fake_text_embed, monkeypatch) -> None:

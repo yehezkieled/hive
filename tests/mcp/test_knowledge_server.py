@@ -76,7 +76,7 @@ class TestSearchKnowledgeRouting:
                 "file_path": "/tmp/uploads/brief.md",
                 "original_name": "brief.md",
                 "mime_type": "text/markdown",
-                "embed_text": "rate-limit playbook for the gateway",
+                "chunk_text": "rate-limit playbook for the gateway",
                 "distance": 0.21,
             }
         ]
@@ -129,7 +129,7 @@ class TestSearchKnowledgeRouting:
                             "file_path": "/tmp/x.md",
                             "original_name": "x.md",
                             "mime_type": "text/markdown",
-                            "embed_text": "policy",
+                            "chunk_text": "policy",
                             "distance": 0.2,
                         }
                     ]
@@ -184,7 +184,7 @@ class TestSearchKnowledgeRouting:
                             "file_path": "/tmp/x.md",
                             "original_name": "x.md",
                             "mime_type": "text/markdown",
-                            "embed_text": "policy",
+                            "chunk_text": "policy",
                             "distance": 0.2,
                         }
                     ]

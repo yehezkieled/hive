@@ -225,13 +225,13 @@ async def test_embedder_failure_still_persists_file(
 
     monkeypatch.setattr("hive.telegram.bridge.embed_attachment", boom)
 
-    store = AsyncMock(save=AsyncMock(return_value=77), update_embedding=AsyncMock())
+    store = AsyncMock(save=AsyncMock(return_value=77), save_chunks=AsyncMock())
     bridge = _make_bridge(uploads_dir=uploads_dir, attachment_store=store)
     update, context = _make_photo_update(caption=None)
 
     await bridge._handle_attachment(update, context)
 
     store.save.assert_awaited_once()
-    store.update_embedding.assert_not_awaited()
+    store.save_chunks.assert_not_awaited()
     reply = update.message.reply_text.await_args.args[0]
     assert "#77" in reply

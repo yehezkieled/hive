@@ -6,10 +6,13 @@ file here. ``forwarded_to`` records which entity (if any) the caption
 routed the file to; NULL means the file was stored without an agent
 reading it.
 
-Sprint 18 adds embedding columns. ``update_embedding`` is called after
-``save`` (sync, but the row persists even if embedding fails). ``search``
-mirrors ``BlueprintStore.search`` — cosine distance via pgvector with an
-optional ``max_distance`` filter.
+Sprint 18 added a single embedding column. Sprint 28 splits that into
+``attachment_chunks`` (one row per chunk, mirroring ``blueprint_chunks``)
+so long PDFs/text uploads no longer truncate at 8000 chars and search
+ranks against the matching chunk instead of one whole-doc vector.
+``save_chunks`` is the new write path; ``search`` joins
+``attachment_chunks`` with ``DISTINCT ON (a.id)`` so each parent
+attachment surfaces at most once with its best-matching chunk attached.
 """
 
 from __future__ import annotations
@@ -83,25 +86,34 @@ class AttachmentStore:
         )
         return row["id"]
 
-    async def update_embedding(
+    async def save_chunks(
         self,
         attachment_id: int,
-        embedding: list[float],
-        embed_text: str,
+        chunks: list[tuple[str, list[float]]],
     ) -> None:
-        """Set the embedding + embed_text for an attachment row."""
+        """Bulk-insert chunks for an attachment under one transaction.
+
+        Replaces any existing chunks for the row, so callers can use this
+        as both first-write and rechunk-rewrite. Mirrors
+        :meth:`BlueprintStore.save`'s chunk-insert step.
+        """
+        if not chunks:
+            return
         async with self.pool.acquire() as conn:
             await self._ensure_vector_codec(conn)
-            await conn.execute(
-                """
-                UPDATE attachments
-                SET embedding = $1, embed_text = $2
-                WHERE id = $3
-                """,
-                embedding,
-                embed_text,
-                attachment_id,
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM attachment_chunks WHERE attachment_id = $1",
+                    attachment_id,
+                )
+                await conn.executemany(
+                    """
+                    INSERT INTO attachment_chunks
+                        (attachment_id, chunk_index, text, embedding)
+                    VALUES ($1, $2, $3, $4)
+                    """,
+                    [(attachment_id, i, text, vector) for i, (text, vector) in enumerate(chunks)],
+                )
 
     async def search(
         self,
@@ -109,10 +121,13 @@ class AttachmentStore:
         limit: int = 5,
         max_distance: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Return attachments ranked by cosine similarity to the query text.
+        """Return attachments ranked by their best matching chunk.
 
-        Mirrors :meth:`BlueprintStore.search`. NULL-embedding rows are
-        excluded by ``WHERE embedding IS NOT NULL``.
+        Each parent attachment surfaces at most once: the inner
+        ``DISTINCT ON (a.id)`` picks the chunk with the lowest cosine
+        distance per attachment, and the outer ORDER BY ranks attachments
+        by that distance. Result rows include ``chunk_text`` and
+        ``chunk_index`` so callers can show only the matched section.
         """
         vectors = await embed_texts([query])
         if not vectors:
@@ -124,12 +139,19 @@ class AttachmentStore:
             if max_distance is None:
                 rows = await conn.fetch(
                     """
-                    SELECT id, file_path, original_name, mime_type,
-                           embed_text, created_at,
-                           embedding <=> $1 AS distance
-                    FROM attachments
-                    WHERE embedding IS NOT NULL
-                    ORDER BY embedding <=> $1, id ASC
+                    SELECT * FROM (
+                        SELECT DISTINCT ON (a.id)
+                            a.id, a.file_path, a.original_name, a.mime_type,
+                            a.created_at,
+                            c.text AS chunk_text,
+                            c.chunk_index,
+                            c.embedding <=> $1 AS distance
+                        FROM attachments a
+                        JOIN attachment_chunks c ON c.attachment_id = a.id
+                        WHERE c.embedding IS NOT NULL
+                        ORDER BY a.id, c.embedding <=> $1
+                    ) sub
+                    ORDER BY distance, id ASC
                     LIMIT $2
                     """,
                     query_vector,
@@ -138,13 +160,20 @@ class AttachmentStore:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, file_path, original_name, mime_type,
-                           embed_text, created_at,
-                           embedding <=> $1 AS distance
-                    FROM attachments
-                    WHERE embedding IS NOT NULL
-                      AND embedding <=> $1 < $3
-                    ORDER BY embedding <=> $1, id ASC
+                    SELECT * FROM (
+                        SELECT DISTINCT ON (a.id)
+                            a.id, a.file_path, a.original_name, a.mime_type,
+                            a.created_at,
+                            c.text AS chunk_text,
+                            c.chunk_index,
+                            c.embedding <=> $1 AS distance
+                        FROM attachments a
+                        JOIN attachment_chunks c ON c.attachment_id = a.id
+                        WHERE c.embedding IS NOT NULL
+                          AND c.embedding <=> $1 < $3
+                        ORDER BY a.id, c.embedding <=> $1
+                    ) sub
+                    ORDER BY distance, id ASC
                     LIMIT $2
                     """,
                     query_vector,
@@ -170,13 +199,13 @@ class AttachmentStore:
         return [_row_to_meta(row) for row in rows]
 
     async def list_unembedded(self) -> list[AttachmentMeta]:
-        """Return rows whose embedding is NULL — used by the backfill script."""
+        """Return rows that have no chunks yet — used by the backfill script."""
         rows = await self.pool.fetch(
             """
             SELECT id, file_path, original_name, mime_type, size_bytes,
                    source, actor, forwarded_to, created_at
             FROM attachments
-            WHERE embedding IS NULL
+            WHERE id NOT IN (SELECT DISTINCT attachment_id FROM attachment_chunks)
             ORDER BY id ASC
             """
         )

@@ -207,7 +207,7 @@ def test_upload_embedder_failure_still_persists_file(
     monkeypatch.setattr("hive.web.app.embed_attachment", boom)
 
     store = _attachment_store(next_id=11)
-    store.update_embedding = AsyncMock()
+    store.save_chunks = AsyncMock()
     client = TestClient(
         create_app(
             process_manager=_bare_pm(),
@@ -224,7 +224,7 @@ def test_upload_embedder_failure_still_persists_file(
     assert resp.status_code == 200
     assert resp.json() == {"id": 11, "forwarded_to": None}
     store.save.assert_awaited_once()
-    store.update_embedding.assert_not_awaited()
+    store.save_chunks.assert_not_awaited()
 
 
 def test_upload_requires_token(uploads_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:

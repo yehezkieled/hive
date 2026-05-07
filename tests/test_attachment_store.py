@@ -1,4 +1,4 @@
-"""Tests for AttachmentStore — Sprint 17 file transit + Sprint 18 embeddings."""
+"""Tests for AttachmentStore — Sprint 17 file transit + Sprint 28 chunked embeddings."""
 
 from __future__ import annotations
 
@@ -76,70 +76,121 @@ async def test_list_recent_orders_newest_first_and_respects_limit(
 
 
 # -----------------------------------------------------------------------------
-# Sprint 18 — embedding + search
+# Sprint 28 — chunked embedding + search
 # -----------------------------------------------------------------------------
+
+
+def _vec(c: str) -> list[float]:
+    """One-hot 1024d vector keyed off the first character of ``c``."""
+    vec = [0.0] * 1024
+    if c:
+        vec[ord(c[0]) % 1024] = 1.0
+    return vec
 
 
 @pytest.fixture
 def mock_embed(monkeypatch):
-    """One-hot 1024d vectors keyed off the first character of each text.
-
-    Same first char → identical vector (cosine distance 0). Different first
-    char → orthogonal (cosine distance 1).
+    """Same first char → identical vector (cosine distance 0); different →
+    orthogonal (distance 1). Only the search path embeds the query — chunk
+    embeddings are written by the test directly via save_chunks.
     """
 
     async def fake(texts: list[str]) -> list[list[float]]:
-        results: list[list[float]] = []
-        for t in texts:
-            vec = [0.0] * 1024
-            if t:
-                vec[ord(t[0]) % 1024] = 1.0
-            results.append(vec)
-        return results
+        return [_vec(t) for t in texts]
 
     monkeypatch.setattr("hive.bus.attachment_store.embed_texts", fake)
 
 
-async def _save_with_embedding(store: AttachmentStore, *, name: str, body: str) -> int:
-    """Helper: insert a row then attach a deterministic embedding via update."""
+async def _save_with_chunks(
+    store: AttachmentStore,
+    *,
+    name: str,
+    chunks: list[str],
+) -> int:
+    """Helper: insert a row then attach one chunk per body string."""
     aid = await store.save(
         file_path=f"/tmp/uploads/{name}",
         original_name=name,
         mime_type="text/plain",
-        size_bytes=len(body),
+        size_bytes=sum(len(c) for c in chunks),
         source="web",
         actor=None,
     )
-    vec = [0.0] * 1024
-    vec[ord(body[0]) % 1024] = 1.0
-    await store.update_embedding(aid, vec, body)
+    await store.save_chunks(aid, [(c, _vec(c)) for c in chunks])
     return aid
 
 
-async def test_update_embedding_persists_columns(
+async def test_save_chunks_persists_and_search_finds(
     attachment_store: AttachmentStore, mock_embed
 ) -> None:
-    aid = await attachment_store.save(
-        file_path="/tmp/uploads/x.txt",
-        original_name="x.txt",
-        mime_type="text/plain",
-        size_bytes=5,
-        source="web",
-        actor=None,
-    )
-    vec = [0.0] * 1024
-    vec[1] = 1.0
-    await attachment_store.update_embedding(aid, vec, "hello")
-
-    # Confirm via search that the row is now retrievable.
+    aid = await _save_with_chunks(attachment_store, name="x.txt", chunks=["hello"])
     results = await attachment_store.search("h prefix", limit=5)
     assert any(r["id"] == aid for r in results)
 
 
+async def test_save_chunks_replaces_existing(attachment_store: AttachmentStore, mock_embed) -> None:
+    """Re-running save_chunks for the same attachment deletes prior chunks."""
+    aid = await _save_with_chunks(attachment_store, name="x.txt", chunks=["alpha"])
+    await attachment_store.save_chunks(aid, [("zeta", _vec("z"))])
+    # Old chunk ('a') must be gone — searching for 'a' shouldn't match anymore.
+    results = await attachment_store.search("alpha", limit=5)
+    assert all(r["id"] != aid or r["chunk_text"] == "zeta" for r in results)
+    # New chunk should match a 'z'-prefix query.
+    results = await attachment_store.search("zoo", limit=5)
+    assert any(r["id"] == aid and r["chunk_text"] == "zeta" for r in results)
+
+
+async def test_search_returns_chunk_text_and_chunk_index(
+    attachment_store: AttachmentStore, mock_embed
+) -> None:
+    aid = await attachment_store.save(
+        file_path="/tmp/uploads/notes.md",
+        original_name="notes.md",
+        mime_type="text/markdown",
+        size_bytes=20,
+        source="web",
+        actor=None,
+    )
+    await attachment_store.save_chunks(
+        aid,
+        [
+            ("first chunk text", _vec("f")),
+            ("second chunk text", _vec("s")),
+        ],
+    )
+    results = await attachment_store.search("forecast", limit=5)
+    assert results[0]["id"] == aid
+    assert results[0]["chunk_text"] == "first chunk text"
+    assert results[0]["chunk_index"] == 0
+
+
+async def test_search_groups_by_attachment(attachment_store: AttachmentStore, mock_embed) -> None:
+    """Multiple matching chunks on one attachment → still one row out."""
+    aid = await attachment_store.save(
+        file_path="/tmp/uploads/big.md",
+        original_name="big.md",
+        mime_type="text/markdown",
+        size_bytes=40,
+        source="web",
+        actor=None,
+    )
+    # Two chunks both starting with 'a' — both match an 'a' query at distance 0.
+    await attachment_store.save_chunks(
+        aid,
+        [
+            ("alpha section one", _vec("a")),
+            ("apple section two", _vec("a")),
+        ],
+    )
+    results = await attachment_store.search("alpha", limit=5)
+    matching = [r for r in results if r["id"] == aid]
+    assert len(matching) == 1
+
+
 async def test_search_orders_by_distance(attachment_store: AttachmentStore, mock_embed) -> None:
-    a = await _save_with_embedding(attachment_store, name="a.txt", body="alpha")
-    b = await _save_with_embedding(attachment_store, name="b.txt", body="beta")
-    c = await _save_with_embedding(attachment_store, name="c.txt", body="charlie")
+    a = await _save_with_chunks(attachment_store, name="a.txt", chunks=["alpha"])
+    b = await _save_with_chunks(attachment_store, name="b.txt", chunks=["beta"])
+    c = await _save_with_chunks(attachment_store, name="c.txt", chunks=["charlie"])
 
     results = await attachment_store.search("alpha-ish", limit=3)
     assert results[0]["id"] == a
@@ -151,17 +202,17 @@ async def test_search_orders_by_distance(attachment_store: AttachmentStore, mock
 async def test_search_max_distance_filters_out_orthogonal(
     attachment_store: AttachmentStore, mock_embed
 ) -> None:
-    await _save_with_embedding(attachment_store, name="b.txt", body="beta")
+    await _save_with_chunks(attachment_store, name="b.txt", chunks=["beta"])
 
     # Query starting with 'a' — orthogonal to "beta" (dist 1.0). Filter at 0.5.
     results = await attachment_store.search("alpha", limit=5, max_distance=0.5)
     assert results == []
 
 
-async def test_search_excludes_null_embedding_rows(
+async def test_search_excludes_attachments_with_no_chunks(
     attachment_store: AttachmentStore, mock_embed
 ) -> None:
-    # Row with no embedding must never appear in search.
+    # Row with no chunks must never appear in search.
     await attachment_store.save(
         file_path="/tmp/uploads/never.bin",
         original_name="never.bin",
@@ -170,13 +221,13 @@ async def test_search_excludes_null_embedding_rows(
         source="web",
         actor=None,
     )
-    embedded = await _save_with_embedding(attachment_store, name="seen.txt", body="alpha")
+    embedded = await _save_with_chunks(attachment_store, name="seen.txt", chunks=["alpha"])
 
     results = await attachment_store.search("alpha-like", limit=5)
     assert [r["id"] for r in results] == [embedded]
 
 
-async def test_list_unembedded_returns_only_null_rows(
+async def test_list_unembedded_returns_only_chunkless_rows(
     attachment_store: AttachmentStore, mock_embed
 ) -> None:
     null_id = await attachment_store.save(
@@ -187,7 +238,7 @@ async def test_list_unembedded_returns_only_null_rows(
         source="web",
         actor=None,
     )
-    await _save_with_embedding(attachment_store, name="done.txt", body="alpha")
+    await _save_with_chunks(attachment_store, name="done.txt", chunks=["alpha"])
 
     pending = await attachment_store.list_unembedded()
     assert [m.id for m in pending] == [null_id]
