@@ -1793,6 +1793,59 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 28 — Attachment Chunking (DONE 2026-05-07)
+
+**Status:** All 3 phases shipped 2026-05-07. Long PDF/text uploads are now split into ~500-token chunks before embedding; auto-retrieve and `search_knowledge` surface the matching chunk text instead of a 200-char `embed_text` prefix. Images stay 1-vector-each (chunking doesn't apply).
+**Plan:** `~/.claude/plans/what-is-next-on-warm-lerdorf.md`
+**Totals:** ~803 → ~810 unit tests (+chunked store/embedder/auto-retrieve assertions). 1 new migration (024 attachment_chunks). 2 new env vars (`HIVE_ATTACHMENT_CHUNK_TOKENS`, `HIVE_ATTACHMENT_CHUNK_OVERLAP_TOKENS`); `HIVE_ATTACHMENT_EMBED_MAX_CHARS` default 8000 → 32000 (now a soft per-chunk cap to guard against monstrously-long inputs).
+
+### Why this exists
+Sprint 18 (file embeddings) saved one 1024d Voyage vector per uploaded text/PDF after truncating at 8000 chars. Same trap blueprints had pre-Sprint 26: (1) **hard truncation** — a 30-page spec gets the first ~2-3 pages embedded and the rest is invisible to retrieval; the only PDF in the live corpus (7448 chars) barely escaped truncation; (2) **coarse ranking** — a long doc gets one vector summarising "everything," wins on cosine for any vaguely-related query, and dumps a path the agent has to `Read` whole. Sprint 28 mirrors Sprint 26's design for attachments: split text/PDF before embedding, keep images as a single chunk, surface only the matched section in retrieval results.
+
+### Phase 1 — Migration + chunking adapter
+
+The Sprint 26 splitter is reused as-is — it already falls back to paragraphs for non-markdown content (PDF text without `##`/`###` headings hits the paragraph cascade naturally). New table mirrors `blueprint_chunks` exactly. The 11 existing attachment rows are re-embedded by the Phase 3 backfill (cost ~$0.001 in Voyage calls) — cheaper and simpler than a SQL data migration, and keeps the schema uniform with blueprints.
+
+| File | Change |
+|------|--------|
+| `src/hive/bus/migrations/024_attachment_chunks.sql` (new) | `CREATE TABLE attachment_chunks (id, attachment_id REFS attachments ON DELETE CASCADE, chunk_index, text, embedding vector(1024), created_at, UNIQUE(attachment_id, chunk_index))`. HNSW cosine index on `embedding`. Partial null-embedding index `WHERE embedding IS NULL`. `ALTER TABLE attachments DROP COLUMN embedding, embed_text` — 11 rows re-embedded by `rechunk_attachments.py`. |
+| `src/hive/config.py` | `ATTACHMENT_CHUNK_TOKENS` (default 500), `ATTACHMENT_CHUNK_OVERLAP_TOKENS` (default 50). `ATTACHMENT_EMBED_MAX_CHARS` default raised 8000 → 32000 — now a soft per-chunk cap, not a truncation point. |
+| `src/hive/knowledge/chunking.py` | One-line module docstring note: splitter is reused by attachments (Sprint 28). |
+
+### Phase 2 — Embedder + store rewrite
+
+`embed_attachment` returns a list of `(chunk_text, vector)` tuples instead of a `(vector, embed_text)` tuple. `AttachmentStore.save_chunks` replaces `update_embedding` and mirrors `BlueprintStore.save`'s chunk-insert step. `search` rewritten to JOIN `attachment_chunks` with `DISTINCT ON (a.id)` so each parent attachment surfaces at most once with its best-matching chunk. The fire-and-continue error pattern at the upload boundary is preserved: a Voyage outage logs the failure and the file delivery still succeeds.
+
+| File | Change |
+|------|--------|
+| `src/hive/knowledge/attachment_embedder.py` | Return type `tuple[list[float], str] \| None` → `list[tuple[str, list[float]]] \| None`. Text/markdown and PDF: extract → soft-truncate at `ATTACHMENT_EMBED_MAX_CHARS` → `split_blueprint(target=ATTACHMENT_CHUNK_TOKENS, overlap=ATTACHMENT_CHUNK_OVERLAP_TOKENS)` → batched `embed_texts(chunks)` → zip. Image: single tuple `[(filename, image_vector)]` (preserves Sprint 17 behaviour, normalised into the chunked schema). |
+| `src/hive/bus/attachment_store.py` | `update_embedding` removed. New `save_chunks(attachment_id, chunks)` — DELETE existing chunks then `executemany` INSERT under one transaction. `search` JOINs `attachment_chunks` with the same `DISTINCT ON (a.id)` pattern as `BlueprintStore.search`; result rows include `chunk_text` and `chunk_index` instead of `embed_text`. `list_unembedded` now selects rows with no chunks (`WHERE id NOT IN (SELECT DISTINCT attachment_id FROM attachment_chunks)`). |
+| `src/hive/process/manager.py` | Auto-retrieve attachment render swaps `(h.get("embed_text") or "")[:200]` → `h["chunk_text"]` (already chunk-sized). Snippet line shape unchanged: `- {file_path} ({mime}, original: {name}) — snippet: "{chunk_text}"`. |
+| `src/hive/mcp/knowledge_server.py` | `_format_attachments` same swap. |
+| `src/hive/web/app.py`, `src/hive/telegram/bridge.py` | Both upload paths swap `embed_attachment` + `update_embedding` for `embed_attachment` + `save_chunks`. Fire-and-continue try/except preserved — Voyage outage logs but does not break file delivery. |
+| `tests/knowledge/test_attachment_embedder.py`, `tests/test_attachment_store.py`, `tests/test_telegram_files.py`, `tests/test_web_upload.py`, `tests/process/test_auto_retrieve.py`, `tests/mcp/test_knowledge_server.py` | Updated for new return shape and `chunk_text` field. New tests: long-text fan-out to multiple chunks, `save_chunks` replace-existing semantics, search groups by attachment (`DISTINCT ON`). |
+
+### Phase 3 — Backfill script + docs
+
+Idempotent re-embed script for the 11 existing attachment rows. Old `scripts/backfill_attachment_embeddings.py` deleted — it called the removed `update_embedding` method.
+
+| File | Change |
+|------|--------|
+| `scripts/rechunk_attachments.py` (new) | Iterates over `SELECT id, file_path, mime_type FROM attachments`, calls `embed_attachment` with current `ATTACHMENT_CHUNK_*` env values, then `save_chunks` (which DELETEs existing + INSERTs). Skips files that vanish from disk or are empty. Logs per-row outcome + final tally. |
+| `scripts/backfill_attachment_embeddings.py` (deleted) | Replaced by `rechunk_attachments.py`. |
+| `docs/PROJECT_PLAN.md` | This entry. |
+| `docs/DEPLOYMENT.md` | Sprint 18 attachment-embedding section rewritten for chunked semantics. New env vars added to the embedding env table; `HIVE_ATTACHMENT_EMBED_MAX_CHARS` default updated 8000 → 32000. Backfill runbook swapped for `python scripts/rechunk_attachments.py`. |
+
+### Out of scope (deferred — decision record)
+- **Per-page PDF metadata** (`page_index`, `page_count` on chunks) — `chunk_index` alone is enough for v1; revisit if agents start asking "which page is this from?".
+- **Cross-encoder re-ranking** of attachment chunks — same rationale as Sprint 26's deferral.
+- **Audio/video transcription** before chunking — Hive doesn't accept audio/video uploads today.
+- **EXIF stripping for images** — long-deferred from Sprint 17.
+- **Auto-rechunk on `EMBEDDING_MODEL` change** — same as Sprint 26 deferral; manual `rechunk_attachments.py` run is acceptable.
+- **Per-attachment chunk-size override** — env defaults are global. Worth adding only if a real corpus shows that one mime needs different tuning.
+
+---
+
 ## Sprint 27 — Knowledge as a Skill (DONE 2026-05-07)
 
 **Status:** All 3 phases shipped 2026-05-07. Auto-retrieve is now a thin first-turn safety net (top_k=1, max_distance=0.5, fires once per activation) and entities get a `search_knowledge(query, kind, limit)` MCP tool they can call mid-conversation when the auto-context misses.

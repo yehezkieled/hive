@@ -334,34 +334,46 @@ Out of scope for Sprint 17 (deferred to Sprint 18+): multi-file
 messages, EXIF stripping, file expiry, `/files search` command. See
 `docs/PROJECT_PLAN.md` for the full deferred list.
 
-### File embeddings (Sprint 18)
+### File embeddings (Sprint 18 + chunking from Sprint 28)
 
 Uploaded files are embedded into the same Voyage `voyage-multimodal-3`
 1024d vector space as blueprints, so semantically-relevant attachments
 are auto-retrieved into agent prompts the same way past blueprints are.
+Sprint 28 split text/PDF embedding into `attachment_chunks` (one row
+per chunk) so long uploads no longer truncate at 8000 chars and
+retrieval ranks against the matching section.
 
-**Schema** (migration `018_attachment_embeddings.sql`): adds
-`embedding vector(1024)` and `embed_text TEXT` columns plus an HNSW
-cosine index on `attachments`. NULL embeddings are skipped at search
-time (`WHERE embedding IS NOT NULL`).
+**Schema** (migrations `018_attachment_embeddings.sql` →
+`024_attachment_chunks.sql`): the parent `attachments` table holds
+metadata only; `attachment_chunks (id, attachment_id, chunk_index,
+text, embedding vector(1024))` owns embeddings. HNSW cosine index on
+`attachment_chunks.embedding`. Partial null-embedding index
+`WHERE embedding IS NULL` for the rechunk path. Sprint 24 dropped the
+parent `embedding` and `embed_text` columns; the 11 pre-existing rows
+were re-embedded by `scripts/rechunk_attachments.py`.
 
 **Embedding strategy by mime type**:
 
 - `image/*` → PIL opens the file, thumbnails to 1024×1024 (Voyage caps
-  at ~16MP / 10MB), then `embed_multimodal([[image]])`.
-- `application/pdf` → `pypdf.PdfReader` joins page text, head-truncates
-  to `HIVE_ATTACHMENT_EMBED_MAX_CHARS` (default 8000), then
-  `embed_texts([text])`. Encrypted or image-only PDFs return empty
-  text and are skipped (NULL embedding stays).
-- `text/*` → bytes decoded utf-8 with `errors="replace"`,
-  head-truncated, then `embed_texts`.
-- Other mime types → skipped; `embedding` stays NULL.
+  at ~16MP / 10MB), then `embed_multimodal([[image]])`. Images stay
+  one chunk each — the chunker doesn't apply.
+- `application/pdf` → `pypdf.PdfReader` joins page text, soft-truncates
+  to `HIVE_ATTACHMENT_EMBED_MAX_CHARS` (default 32000) as a guard
+  against monstrously-long PDFs, then `split_blueprint(target=
+  HIVE_ATTACHMENT_CHUNK_TOKENS, overlap=
+  HIVE_ATTACHMENT_CHUNK_OVERLAP_TOKENS)` → batched `embed_texts(chunks)`.
+  Encrypted or image-only PDFs return empty text and are skipped (no
+  chunks written).
+- `text/*` → bytes decoded utf-8 with `errors="replace"`, soft-truncated,
+  then chunked + embedded the same way.
+- Other mime types → skipped; no chunks written.
 
-**Failure isolation**: embedding runs *after* `attachment_store.save()`
-in both upload paths (`web/app.py`, `telegram/bridge.py`). If
-`embed_attachment` raises (Voyage outage, `VOYAGE_API_KEY` revoked,
-malformed PDF), the row stays in the database with NULL embedding and
-the user-facing upload still succeeds. The row can be backfilled later.
+**Failure isolation**: chunk-embedding runs *after*
+`attachment_store.save()` in both upload paths (`web/app.py`,
+`telegram/bridge.py`). If `embed_attachment` raises (Voyage outage,
+`VOYAGE_API_KEY` revoked, malformed PDF), the row stays in the
+database with no chunks and the user-facing upload still succeeds.
+The row can be re-chunked later via `rechunk_attachments.py`.
 
 **Auto-retrieve renders two labeled blocks** when both blueprints and
 attachments match:
@@ -369,12 +381,12 @@ attachments match:
 ```
 Relevant past blueprints (retrieved automatically):
 ### {title}
-{body}
+{chunk_text}
 
 ---
 
 Relevant uploaded files (retrieved automatically):
-- /abs/path (mime) — snippet: "first 200 chars of embed_text"
+- /abs/path (mime, original: name) — snippet: "{matched chunk text}"
 
 ---
 
@@ -383,29 +395,33 @@ Relevant uploaded files (retrieved automatically):
 
 Blueprints get consumed inline; files surface as paths the agent must
 `Read` itself (the Yolo permission default lets the absolute path open
-without per-file prompts).
+without per-file prompts). Snippets now show the matching chunk text
+instead of a 200-char `embed_text` prefix, so the agent sees *what*
+in the file matched the query before deciding to open it.
 
-**Backfill** — for files saved before Sprint 18 (or any row with a NULL
-embedding due to a Voyage outage), run the idempotent backfill script:
+**Re-chunk / backfill** — for any row that has no chunks (Voyage
+outage during upload, fresh chunking knob, embedding-provider swap),
+run the idempotent re-chunk script:
 
 ```bash
 cd /home/hezki/projects/hive
-.venv/bin/python scripts/backfill_attachment_embeddings.py
+.venv/bin/python scripts/rechunk_attachments.py
 ```
 
 Output:
 
 ```
-Backfilling embeddings for 2 attachment(s)...
-  #12 application/pdf /abs/path/be4c9bc5...pdf → embedded
-  #13 text/markdown   /abs/path/f7912b84...md  → embedded
-Done: 2 embedded, 0 skipped.
+Found 11 attachment rows
+Re-chunked #1 (/abs/path/...png) → 1 chunks
+Re-chunked #12 (/abs/path/be4c9bc5...pdf) → 3 chunks
+Re-chunked #13 (/abs/path/f7912b84...md) → 2 chunks
+...
+Done. Re-chunked=11 Skipped=0
 ```
 
-The script lists rows with `embedding IS NULL` and runs the same
-`embed_attachment` + `update_embedding` cycle as the upload paths. A
-second run after success is a no-op (the WHERE clause excludes embedded
-rows).
+The script iterates over every attachment row, runs the file through
+`embed_attachment`, then `save_chunks` (which DELETEs existing chunks
++ INSERTs the new ones in one transaction). Safe to re-run.
 
 ### Dashboard tab (Sprint 20)
 
@@ -948,7 +964,9 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_EMAIL_DIGEST_INTERVAL_MINUTES` | `60` | Time-based flush trigger for the digest. |
 | `HIVE_EMAIL_DIGEST_BUFFER_SIZE` | `20` | Size-based flush trigger for the digest. |
 | `HIVE_UPLOAD_MAX_BYTES` | `20971520` (20 MB) | Cap for Telegram + web file uploads (Sprint 17). Mirrors Telegram's 20 MB Bot API limit. |
-| `HIVE_ATTACHMENT_EMBED_MAX_CHARS` | `8000` | Head-truncation cap for PDF and text-file extracts before sending to Voyage (Sprint 18). |
+| `HIVE_ATTACHMENT_EMBED_MAX_CHARS` | `32000` | Soft cap on the extracted text length per PDF/text upload before chunking (Sprint 18, raised from 8000 in Sprint 28). Anything longer is head-truncated to keep the chunker bounded. |
+| `HIVE_ATTACHMENT_CHUNK_TOKENS` | `500` | Target tokens per chunk for PDF and text-file uploads (Sprint 28). Reuses the Sprint 26 markdown-aware splitter. |
+| `HIVE_ATTACHMENT_CHUNK_OVERLAP_TOKENS` | `50` | Tail of chunk N prepended to chunk N+1 so a fact straddling a boundary still appears in one full chunk (Sprint 28). |
 | `HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS` | `true` | Prepend the "Relevant uploaded files" block alongside blueprints in auto-retrieve (Sprint 18). |
 | `HIVE_VAULT_ENABLED` | `false` | Auto-register a default `vault` entity on startup and wire the Vault payment pipeline (Sprint 25). Off by default — no real provider yet. |
 | `HIVE_VAULT_CAP_CURRENCIES` | `AUD,USD` | Comma-separated allow-list of currencies the cap accepts. Caps are applied **per currency independently** — a $50/day cap means $50 AUD/day AND $50 USD/day, no FX. Action currencies outside this list are rejected at cap-check time. |
