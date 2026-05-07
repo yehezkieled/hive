@@ -73,9 +73,9 @@
     <span>{{ m.model }}</span>
   </div>
   <div class="maestro-card__actions">
-    <button class="btn-sm btn-sm--primary">Chat</button>
-    <button class="btn-sm">Agents</button>
-    <button class="btn-sm">Info</button>
+    <button class="btn-sm btn-sm--primary" data-cmd="/m:{{ m.name }}">Chat</button>
+    <button class="btn-sm" data-cmd="/org">Agents</button>
+    <button class="btn-sm" data-cmd="/status">Info</button>
   </div>
 </div>
 {%- endmacro %}

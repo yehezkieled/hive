@@ -34,7 +34,7 @@
       <span class="health-pill">
         {{ state_dot(view.health.state, size=7) }} {{ view.health.label }}
       </span>
-      <button class="bell" title="Pending approvals">
+      <button class="bell" id="bell-btn" title="Pending approvals">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3d332a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
         {% if view.approvals_count %}<span class="bell__count">{{ view.approvals_count }}</span>{% endif %}
       </button>
@@ -208,6 +208,16 @@
   <div class="help-popup__body" id="help-rail-body"></div>
 </div>
 <div class="help-tooltip" id="help-tooltip" hidden>Browse all commands</div>
+
+{# ── Bell popup (floating, anchored to bell button) ───────────────────── #}
+<div class="help-popup" id="bell-popup" hidden role="dialog" aria-label="Pending approvals">
+  <div class="help-popup__head">
+    <span class="help-popup__title">Pending approvals</span>
+    <button type="button" class="help-popup__close" id="bell-close"
+            aria-label="Close approvals">×</button>
+  </div>
+  <div class="help-popup__body" id="bell-popup-body"></div>
+</div>
 
 <script>
 function ensureToken() {
@@ -445,6 +455,10 @@ async function sendChatCommand(event) {
   appendChatLine('user', userLine);
   input.value = '';
   input.style.height = 'auto';
+  if (stagedFile) {
+    fileInput.value = '';
+    clearAttachChip();
+  }
   refreshSendState();
 
   // Show a typing indicator for the addressed maestro (or "hive").
@@ -463,9 +477,6 @@ async function sendChatCommand(event) {
         headers: { 'Authorization': 'Bearer ' + token },
         body: fd,
       });
-      // Reset the staged file after submit (success or failure).
-      fileInput.value = '';
-      clearAttachChip();
     } else {
       resp = await fetch('/api/command', {
         method: 'POST',
@@ -602,13 +613,16 @@ composer.addEventListener('keydown', (ev) => {
     document.getElementById('chat-form').requestSubmit();
   }
 });
-document.querySelectorAll('.composer__chip').forEach(chip => {
-  if (!chip.dataset.cmd) return;
-  chip.addEventListener('click', () => {
-    composer.value = chip.dataset.cmd + ' ';
-    composer.focus();
-    composer.dispatchEvent(new Event('input'));
-  });
+// Delegated [data-cmd] handler — catches composer chips, maestro card
+// buttons (Chat/Agents/Info), and vault buttons. Has to be delegated
+// because the active/idle/dormant sections are HTMX-swapped, so
+// listeners attached directly wouldn't survive a refresh.
+document.addEventListener('click', (ev) => {
+  const target = ev.target.closest('[data-cmd]');
+  if (!target) return;
+  composer.value = target.dataset.cmd + ' ';
+  composer.focus();
+  composer.dispatchEvent(new Event('input'));
 });
 refreshSendState();
 
@@ -919,8 +933,160 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     if (!popup.hasAttribute('hidden')) positionPopup();
   });
 })();
+
+(function initBellPanel() {
+  const bellBtn  = document.getElementById('bell-btn');
+  const popup    = document.getElementById('bell-popup');
+  const body     = document.getElementById('bell-popup-body');
+  const closeBtn = document.getElementById('bell-close');
+  if (!bellBtn || !popup || !body) return;
+
+  function positionPopup() {
+    const r = bellBtn.getBoundingClientRect();
+    const margin = 8;
+    const maxH = Math.min(420, window.innerHeight - r.bottom - 24);
+    popup.style.maxHeight = Math.max(180, maxH) + 'px';
+    let left = r.right - 340;
+    if (left < 12) left = 12;
+    popup.style.left = left + 'px';
+    popup.style.top = (r.bottom + margin) + 'px';
+    popup.style.bottom = 'auto';
+  }
+
+  async function loadPending() {
+    body.innerHTML = '<div class="bell-popup__empty">Loading…</div>';
+    const token = sessionStorage.getItem('hive_web_token');
+    if (!token) {
+      body.innerHTML = '<div class="bell-popup__empty">Send a message first to set auth token.</div>';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/mode-requests/pending', {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (!resp.ok) {
+        body.innerHTML = '<div class="bell-popup__empty">Error: ' + resp.status + '</div>';
+        return;
+      }
+      const data = await resp.json();
+      renderRows(data.requests || []);
+    } catch (err) {
+      body.innerHTML = '<div class="bell-popup__empty">Network error: ' + escapeHtml(err.message) + '</div>';
+    }
+  }
+
+  function renderRows(rows) {
+    if (!rows.length) {
+      body.innerHTML = '<div class="bell-popup__empty">No pending approvals.</div>';
+      return;
+    }
+    let html = '';
+    rows.forEach(r => {
+      const reason = r.reason ? escapeHtml(r.reason) : '<em>(no reason)</em>';
+      html +=
+        '<div class="bell-row" data-id="' + r.id + '">'
+        + '<div class="bell-row__head">'
+        + '<strong>' + escapeHtml(r.requester) + '</strong> '
+        + '→ <code>' + escapeHtml(r.requested_mode) + '</code>'
+        + '</div>'
+        + '<div class="bell-row__reason">' + reason + '</div>'
+        + '<div class="bell-row__actions">'
+        + '<button class="mode-req__btn mode-req__btn--allow" data-action="approve">Allow</button>'
+        + '<button class="mode-req__btn mode-req__btn--deny" data-action="deny">Deny</button>'
+        + '</div>'
+        + '</div>';
+    });
+    body.innerHTML = html;
+    body.querySelectorAll('.bell-row').forEach(row => {
+      const id = row.dataset.id;
+      row.querySelectorAll('.mode-req__btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const action = btn.dataset.action;
+          const token = sessionStorage.getItem('hive_web_token');
+          if (!token) return;
+          row.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = true);
+          try {
+            const resp = await fetch('/api/mode-request/' + id + '/' + action, {
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + token },
+            });
+            if (!resp.ok) {
+              row.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
+              return;
+            }
+            const verb = action === 'approve' ? 'Approved' : 'Denied';
+            row.querySelector('.bell-row__actions').innerHTML =
+              '<span class="mode-req__resolved">' + verb + '</span>';
+          } catch (err) {
+            row.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = false);
+          }
+        });
+      });
+    });
+  }
+
+  function openPanel() {
+    popup.removeAttribute('hidden');
+    positionPopup();
+    loadPending();
+  }
+  function closePanel() { popup.setAttribute('hidden', ''); }
+  function togglePanel() {
+    popup.hasAttribute('hidden') ? openPanel() : closePanel();
+  }
+
+  bellBtn.addEventListener('click', togglePanel);
+  if (closeBtn) closeBtn.addEventListener('click', closePanel);
+
+  document.addEventListener('mousedown', e => {
+    if (popup.hasAttribute('hidden')) return;
+    if (popup.contains(e.target) || bellBtn.contains(e.target)) return;
+    closePanel();
+  });
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !popup.hasAttribute('hidden')) closePanel();
+  });
+  window.addEventListener('resize', () => {
+    if (!popup.hasAttribute('hidden')) positionPopup();
+  });
+})();
+
+// Participant chip × close — client-side only, removes the chip and
+// appends a system line. State is per-page; full removal of a maestro
+// from the participants list happens when the next 5s view-model
+// poll runs (since participants are derived from recent messages).
+document.addEventListener('click', (ev) => {
+  const close = ev.target.closest('.participant__close');
+  if (!close) return;
+  const chip = close.closest('.participant');
+  if (!chip) return;
+  const name = chip.textContent.replace('×', '').trim();
+  chip.remove();
+  appendChatLine('system', 'Stopped addressing ' + name + ' (will reappear after next message to it).');
+});
 </script>
 <style>
+.bell-popup__empty {
+  padding: 18px 14px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.bell-row {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.bell-row:last-child { border-bottom: 0; }
+.bell-row__head { font-size: 12px; color: var(--ink); }
+.bell-row__head code {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--honey-soft); padding: 1px 5px; border-radius: 4px;
+}
+.bell-row__reason {
+  font-size: 11px; color: var(--ink-3);
+}
+.bell-row__actions { display: flex; gap: 6px; }
 .autocomplete-wrap { position: relative; }
 .cmd-dropdown {
   position: absolute;

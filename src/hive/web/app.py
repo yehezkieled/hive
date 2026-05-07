@@ -307,6 +307,13 @@ def create_app(
             "metadata": result.metadata,
         }
 
+    @app.get("/api/mode-requests/pending")
+    async def api_mode_requests_pending(_: None = Depends(require_token)):
+        if mode_request_store is None:
+            return {"requests": []}
+        rows = await mode_request_store.list_pending(default_maestro)
+        return {"requests": rows}
+
     @app.post("/api/mode-request/{request_id}/approve")
     async def api_mode_approve(
         request_id: int,

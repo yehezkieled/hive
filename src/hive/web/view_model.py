@@ -50,10 +50,25 @@ def _relative_time(when: datetime | None) -> str:
     return f"{seconds // 86_400}d ago"
 
 
+_ACTIVE_RECENCY_WINDOW = timedelta(minutes=10)
+
+
 def _display_state(entity: Entity) -> str:
-    """Collapse the 6-state Hive lifecycle into the design's 3-state view."""
+    """Collapse the 6-state Hive lifecycle into the design's 3-state view.
+
+    "Active" tracks recent user attention, not just subprocess execution:
+    EntityState.RUNNING is transient (~seconds while a claude -p call
+    runs), so on its own it makes the Active list flicker. Treat any
+    entity whose last_activity_at falls inside the recency window as
+    active too — that way messaging hive_dev keeps it on the Active
+    strip until the user moves on.
+    """
     if entity.state == EntityState.RUNNING:
         return "active"
+    if entity.last_activity_at is not None:
+        age = datetime.now(UTC) - entity.last_activity_at
+        if age < _ACTIVE_RECENCY_WINDOW:
+            return "active"
     if entity.state in (EntityState.IDLE, EntityState.STARTING, EntityState.COMPLETED):
         return "idle"
     return "dormant"
@@ -108,17 +123,19 @@ async def _entity_to_card(entity: Entity, *, task_store: TaskStore | None) -> di
 def _list_dormant(personalities_dir: Path, registered: set[str]) -> list[dict]:
     """Personality files in ``personalities/`` not yet registered as entities.
 
-    Filenames follow ``<role>-<name>.md``; underscore-prefixed files (the
-    ``_template.md`` skeleton) are ignored.
+    Concrete maestro personalities are bare ``<name>.md`` (e.g. ``dev.md``,
+    ``pa.md``). ``role-*.md`` files (``role-lead``, ``role-maestro``,
+    ``role-worker``, ``role-vault``) are role-definition templates, not
+    specific entities, so they are skipped — same with the ``_template.md``
+    skeleton.
     """
     if not personalities_dir.exists():
         return []
     out: list[dict] = []
     for path in sorted(personalities_dir.glob("*.md")):
-        if path.stem.startswith("_"):
+        if path.stem.startswith("_") or path.stem.startswith("role-"):
             continue
-        parts = path.stem.split("-", 1)
-        name = parts[1] if len(parts) == 2 else path.stem
+        name = path.stem
         if name not in registered:
             out.append({"name": name})
     return out
@@ -215,8 +232,20 @@ async def build_landing_view_model(
     ]
 
     chat_messages: list[dict] = []
+    chat_participants: list[str] = []
     if message_store is not None:
         rows = await message_store.get_recent(limit=20)
+        # Distinct non-user counterparties, ordered by most-recent contact
+        # (rows arrive newest → oldest from the store).
+        seen: set[str] = set()
+        for r in rows:
+            sender = r["sender"]
+            recipient = r.get("recipient")
+            counterparty = recipient if sender == "user" else sender
+            if counterparty and counterparty != "user" and counterparty in entities:
+                if counterparty not in seen:
+                    seen.add(counterparty)
+                    chat_participants.append(f"/m:{counterparty}")
         for r in reversed(rows):  # store returns DESC; UI reads top→bottom oldest→newest
             chat_messages.append(
                 {
@@ -224,6 +253,9 @@ async def build_landing_view_model(
                     "text": r["content"],
                 }
             )
+
+    if not chat_participants and default_maestro in entities:
+        chat_participants = [f"/m:{default_maestro}"]
 
     active_count = len(active_maestros)
     idle_count = len(idle_maestros)
@@ -246,7 +278,7 @@ async def build_landing_view_model(
             "dormant_count": dormant_count,
         },
         "chat": {
-            "participants": ([f"/m:{default_maestro}"] if default_maestro in entities else []),
+            "participants": chat_participants,
             "messages": chat_messages,
         },
         "pa": pa_card,

@@ -157,9 +157,11 @@ class TestViewModelShape:
 
     @pytest.mark.asyncio
     async def test_dormant_lists_unregistered_personalities(self, tmp_path: Path) -> None:
-        (tmp_path / "maestro-pa.md").write_text("# Entity: PA")
-        (tmp_path / "maestro-dev.md").write_text("# Entity: Dev")
+        (tmp_path / "pa.md").write_text("# Entity: PA")
+        (tmp_path / "dev.md").write_text("# Entity: Dev")
         (tmp_path / "_template.md").write_text("# template")
+        (tmp_path / "role-lead.md").write_text("# Role: Lead")
+        (tmp_path / "role-worker.md").write_text("# Role: Worker")
 
         dev = Maestro(name="dev", state=EntityState.RUNNING)
         pm = MagicMock()
