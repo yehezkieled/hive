@@ -131,6 +131,16 @@ VOYAGE_API_KEY = os.environ.get("VOYAGE_API_KEY", "")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "voyage-multimodal-3")
 EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 
+# Blueprint chunking (Sprint 26). Long blueprints are split into roughly
+# ``BLUEPRINT_CHUNK_TOKENS``-sized chunks before embedding, so retrieval
+# matches against the most relevant section instead of one whole-body
+# vector. ``BLUEPRINT_CHUNK_OVERLAP_TOKENS`` is how much of chunk N's tail
+# is prepended to chunk N+1, so a fact straddling a boundary still appears
+# in one full chunk. ``len(text) // 4`` is the token-count heuristic
+# (Voyage ships no public tokeniser; ~4 chars/token is the standard rule).
+BLUEPRINT_CHUNK_TOKENS = int(os.environ.get("HIVE_BLUEPRINT_CHUNK_TOKENS", "500"))
+BLUEPRINT_CHUNK_OVERLAP_TOKENS = int(os.environ.get("HIVE_BLUEPRINT_CHUNK_OVERLAP_TOKENS", "50"))
+
 # Auto-retrieval: inject top-K blueprints into every entity prompt.
 AUTO_RETRIEVE_ENABLED = os.environ.get("AUTO_RETRIEVE_ENABLED", "true").lower() == "true"
 AUTO_RETRIEVE_TOP_K = int(os.environ.get("AUTO_RETRIEVE_TOP_K", "3"))

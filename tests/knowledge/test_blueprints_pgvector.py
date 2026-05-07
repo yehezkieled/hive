@@ -74,3 +74,56 @@ async def test_search_max_distance_filters_far_results(blueprint_store, mock_emb
     filtered = await blueprint_store.search("alpha-ish", limit=10, max_distance=0.5)
     assert len(filtered) == 1
     assert filtered[0]["title"] == "alpha"
+
+
+# -----------------------------------------------------------------------------
+# Sprint 26 — chunked embeddings: one row per chunk, parent surfaces by best chunk.
+# -----------------------------------------------------------------------------
+
+
+async def test_search_returns_chunk_text_field(blueprint_store, mock_embed):
+    """Search rows expose ``chunk_text`` so auto-retrieve can render the matched
+    section instead of the full body."""
+    await blueprint_store.save("alpha", "a content", [])
+    results = await blueprint_store.search("anything starting with a", limit=1)
+    assert len(results) == 1
+    assert "chunk_text" in results[0]
+    assert results[0]["chunk_text"]
+    # body is still present for legacy callers.
+    assert "body" in results[0]
+
+
+async def test_save_long_body_creates_multiple_chunks(blueprint_store, mock_embed):
+    """A body above the short-body fast-path threshold fans out to N chunks."""
+    section = "lorem ipsum dolor sit amet. " * 200  # ~5400 chars
+    long_body = (
+        f"## Section A\n\n{section}\n\n## Section B\n\n{section}\n\n## Section C\n\n{section}\n"
+    )
+    await blueprint_store.save("long doc", long_body, [])
+    async with blueprint_store.pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM blueprint_chunks WHERE blueprint_id = "
+            "(SELECT id FROM blueprints WHERE title = 'long doc')"
+        )
+    # Multiple ## sections → at least 3 chunks. Exact count depends on
+    # paragraph packing — assert lower bound to avoid flakiness on minor
+    # splitter tuning.
+    assert count >= 3
+
+
+async def test_search_groups_by_blueprint(blueprint_store, mock_embed):
+    """Each parent blueprint surfaces at most once even if many of its chunks match."""
+    # A long blueprint will produce many chunks; mock_embed gives them all
+    # the same vector (same first char of each chunk → same one-hot index
+    # — actually different first chars per chunk!). To force the grouping
+    # case, save a short blueprint (one chunk) twice with the same leading
+    # char so we know exactly how many parent rows we expect.
+    section = "alpha section. " * 200
+    long_body = f"## A\n\n{section}\n\n## B\n\n{section}\n\n## C\n\n{section}\n"
+    await blueprint_store.save("doc1", long_body, [])
+    await blueprint_store.save("doc2", "another short body", [])
+
+    results = await blueprint_store.search("aardvark", limit=10)
+    titles = [r["title"] for r in results]
+    # Each blueprint must appear at most once.
+    assert len(titles) == len(set(titles))
