@@ -141,13 +141,22 @@ EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "1024"))
 BLUEPRINT_CHUNK_TOKENS = int(os.environ.get("HIVE_BLUEPRINT_CHUNK_TOKENS", "500"))
 BLUEPRINT_CHUNK_OVERLAP_TOKENS = int(os.environ.get("HIVE_BLUEPRINT_CHUNK_OVERLAP_TOKENS", "50"))
 
-# Auto-retrieval: inject top-K blueprints into every entity prompt.
+# Auto-retrieval (Sprint 11/18, dialed down in Sprint 27). The auto-block
+# is now a thin safety net — top_k=1 + first-turn only — so junior agents
+# always get *some* context for their opening prompt while smarter agents
+# reach for the ``search_knowledge`` MCP tool when they need more.
 AUTO_RETRIEVE_ENABLED = os.environ.get("AUTO_RETRIEVE_ENABLED", "true").lower() == "true"
-AUTO_RETRIEVE_TOP_K = int(os.environ.get("AUTO_RETRIEVE_TOP_K", "3"))
+AUTO_RETRIEVE_TOP_K = int(os.environ.get("AUTO_RETRIEVE_TOP_K", "1"))
 # Maximum cosine distance for an auto-retrieved blueprint to be prepended.
-# 0 = identical, 2 = opposite. Without this filter a small corpus prepends
-# the same blueprint to every prompt regardless of relevance.
-AUTO_RETRIEVE_MAX_DISTANCE = float(os.environ.get("AUTO_RETRIEVE_MAX_DISTANCE", "0.6"))
+# 0 = identical, 2 = opposite. Tighter default (was 0.6) since the agent
+# can search again interactively if the auto-context misses.
+AUTO_RETRIEVE_MAX_DISTANCE = float(os.environ.get("AUTO_RETRIEVE_MAX_DISTANCE", "0.5"))
+# Sprint 27: only auto-prepend on the first prompt of a fresh entity
+# activation (when ``entity.session_id is None``). Subsequent turns rely on
+# the agent calling ``search_knowledge`` itself.
+AUTO_RETRIEVE_FIRST_TURN_ONLY = (
+    os.environ.get("AUTO_RETRIEVE_FIRST_TURN_ONLY", "true").lower() == "true"
+)
 
 # Git workflow (Sprint 12 Phase 3). /merge is off by default — set the env
 # var to "1" to allow the Telegram bridge to execute `gh pr merge --squash`.

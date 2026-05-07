@@ -32,6 +32,7 @@ from hive.config import (
     AUTO_COMPACT_ENABLED,
     AUTO_COMPACT_THRESHOLD,
     AUTO_RETRIEVE_ENABLED,
+    AUTO_RETRIEVE_FIRST_TURN_ONLY,
     AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,
     AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
@@ -71,7 +72,30 @@ def _render_auto_personality(
     Frontmatter ``auto_generated: true`` is the cleanup signal — only
     files with this flag are deleted on kill. User-authored files (no
     frontmatter) are always preserved.
+
+    Maestros and leads default to read-only tools (Read, Grep, Glob)
+    so the role boundary holds — they cannot drift into hands-on
+    coding because Edit/Write/Bash aren't available. Workers and other
+    roles inherit the platform default toolkit.
     """
+    tools_section = ""
+    if role in ("maestro", "lead"):
+        tools_section = "\n## Tools\n- allowedTools: Read Grep Glob\n"
+    knowledge_section = (
+        "\n## Knowledge search\n"
+        "You have a `search_knowledge(query, kind, limit)` MCP tool "
+        "(via `hive-knowledge`).\n\n"
+        "Call it when:\n"
+        "- The auto-context above didn't include what you need\n"
+        "- You're mid-task and realise different keywords might match better\n"
+        "- You need more than the 1 result the auto-context gave you\n\n"
+        "Tips:\n"
+        "- Phrase the query like keywords, not a sentence "
+        '("rate limit handling" not "how do I handle rate limits?")\n'
+        '- `kind="blueprints"` for design notes; `kind="attachments"` for '
+        'uploaded files; `kind="both"` if unsure\n'
+        "- Distances < 0.3 are usually solid matches; > 0.6 is noise\n"
+    )
     return (
         "---\n"
         "auto_generated: true\n"
@@ -84,6 +108,8 @@ def _render_auto_personality(
         "## System Prompt\n"
         f"You are {display_name}.\n\n"
         f"{personality}\n"
+        f"{tools_section}"
+        f"{knowledge_section}"
     )
 
 
@@ -534,15 +560,26 @@ class ProcessManager:
 
         # --- Sprint 11: auto-retrieve top-K blueprints as context ---
         # --- Sprint 18: also pull semantically-related uploaded files. ---
-        # Blueprints are consumed inline (body in the prompt); files are
-        # rendered as a separate block listing paths so the agent's first
-        # move is a `Read` on the path it cares about.
+        # --- Sprint 27: dialed down — top_k=1, first-turn only. Smarter
+        #     agents call the ``search_knowledge`` MCP tool when they need
+        #     more or different context.
         prepended_blocks: list[str] = []
         directory_block = self._peer_directory_for(entity_name)
         if directory_block:
             prepended_blocks.append(directory_block)
 
-        if AUTO_RETRIEVE_ENABLED and prompt.strip():
+        # ``session_id`` is set after the first prompt of an activation, so
+        # ``is None`` is the cheapest signal for "first turn this session."
+        is_first_turn = entity.session_id is None
+        auto_retrieve_active = (
+            AUTO_RETRIEVE_ENABLED
+            and prompt.strip()
+            and (is_first_turn or not AUTO_RETRIEVE_FIRST_TURN_ONLY)
+        )
+
+        if auto_retrieve_active:
+            knowledge_blocks: list[str] = []
+
             if self.blueprint_store is not None:
                 try:
                     blueprint_hits = await self.blueprint_store.search(
@@ -559,7 +596,7 @@ class ProcessManager:
                         # Sprint 26: render the matching chunk only, not the
                         # full body — sharper context, less prompt bloat.
                         bp_lines.append(f"\n### {h['title']}\n{h['chunk_text']}")
-                    prepended_blocks.append("\n".join(bp_lines))
+                    knowledge_blocks.append("\n".join(bp_lines))
 
             if AUTO_RETRIEVE_INCLUDE_ATTACHMENTS and self.attachment_store is not None:
                 try:
@@ -581,7 +618,16 @@ class ProcessManager:
                             f"- {h['file_path']} ({mime}, original: {name})"
                             + (f' — snippet: "{snippet}"' if snippet else "")
                         )
-                    prepended_blocks.append("\n".join(file_lines))
+                    knowledge_blocks.append("\n".join(file_lines))
+
+            if knowledge_blocks:
+                # Sprint 27: nudge the agent toward search_knowledge for
+                # mid-conversation lookups when the auto-block doesn't match.
+                knowledge_blocks.append(
+                    "(Need different context? Call the `search_knowledge` "
+                    "MCP tool with your own query.)"
+                )
+                prepended_blocks.extend(knowledge_blocks)
 
         if prepended_blocks:
             context_block = "\n\n---\n\n".join(prepended_blocks)
