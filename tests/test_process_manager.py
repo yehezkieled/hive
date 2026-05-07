@@ -1,5 +1,6 @@
 """Tests for process manager (with mocked subprocesses)."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1201,6 +1202,70 @@ class TestAutonomousDispatch:
         assert events[0]["target"] == DEFAULT_MAESTRO
 
         await mgr.kill_all()
+
+    async def test_spawn_team_auto_kickoff(self, manager: ProcessManager) -> None:
+        """spawn_team schedules a kickoff message to the new lead.
+
+        Without auto-kickoff, the lead is registered in IDLE with no
+        session_id and never wakes — the maestro's ``spawn_team`` is a
+        dead-end. This test asserts the orchestrator both records intent
+        in ``_last_kickoffs`` and actually wakes the lead.
+        """
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        )
+        instance = self._mock_session(response)
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev", "go")
+            # Capture before draining — kickoff task itself dispatches and
+            # resets _last_kickoffs when it runs.
+            recorded = list(manager._last_kickoffs)
+            if manager._kickoff_tasks:
+                await asyncio.gather(*manager._kickoff_tasks)
+
+        assert recorded == ["dev.backend"]
+        assert manager.entities["dev.backend"].session_id == "sess-1"
+
+    async def test_spawn_worker_auto_kickoff(self, manager: ProcessManager) -> None:
+        """spawn_worker schedules a kickoff message to the new worker."""
+        maestro = Maestro(name="dev", model="sonnet")
+        await manager.register_entity(maestro)
+        await manager.create_team("dev", "backend")
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
+        )
+        instance = self._mock_session(response)
+        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
+            mock_cls.side_effect = lambda args, **kw: instance
+            await manager.send_to_entity("dev", "go")
+            recorded = list(manager._last_kickoffs)
+            if manager._kickoff_tasks:
+                await asyncio.gather(*manager._kickoff_tasks)
+
+        assert recorded == ["dev.backend.w1"]
+        assert manager.entities["dev.backend.w1"].session_id == "sess-1"
+
+    async def test_spawn_team_denied_skips_kickoff(self, manager: ProcessManager) -> None:
+        """A lead emitting spawn_team is denied → no kickoff scheduled."""
+        maestro = Maestro(name="dev", model="sonnet")
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        manager._entities["dev"] = maestro
+        manager._entities["dev.backend"] = lead
+        for n in ("dev", "dev.backend"):
+            manager.router.register(n)
+
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "frontend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev.backend", response)
+
+        assert manager._last_kickoffs == []
 
 
 # -- Sprint 10: compact_entity tests --
