@@ -165,10 +165,15 @@ ALLOW_AUTO_MERGE = os.environ.get("HIVE_ALLOW_AUTO_MERGE", "0") == "1"
 # Attachments (Sprint 17). 20 MB matches Telegram bot API getFile cap.
 UPLOAD_MAX_BYTES = int(os.environ.get("HIVE_UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
 
-# Attachment embeddings (Sprint 18). Cap text fed to the embedder so we
-# don't blow Voyage's 32K-token document limit on large PDFs/text files.
-# 8000 chars ≈ 2000 tokens, well under spec.
-ATTACHMENT_EMBED_MAX_CHARS = int(os.environ.get("HIVE_ATTACHMENT_EMBED_MAX_CHARS", "8000"))
+# Attachment embeddings (Sprint 18, chunked in Sprint 28). Long text/PDF
+# attachments are split into roughly ``ATTACHMENT_CHUNK_TOKENS``-sized chunks
+# (mirrors Sprint 26's blueprint chunking — same ``chunking.split_blueprint``
+# splitter). ``ATTACHMENT_EMBED_MAX_CHARS`` is now a per-document soft cap
+# applied before the splitter runs so a 200-page PDF doesn't OOM the chunker;
+# the per-chunk size is bounded by ``ATTACHMENT_CHUNK_TOKENS``.
+ATTACHMENT_EMBED_MAX_CHARS = int(os.environ.get("HIVE_ATTACHMENT_EMBED_MAX_CHARS", "32000"))
+ATTACHMENT_CHUNK_TOKENS = int(os.environ.get("HIVE_ATTACHMENT_CHUNK_TOKENS", "500"))
+ATTACHMENT_CHUNK_OVERLAP_TOKENS = int(os.environ.get("HIVE_ATTACHMENT_CHUNK_OVERLAP_TOKENS", "50"))
 # When true, auto-retrieve also queries the attachments table and renders
 # a separate "Relevant uploaded files" block alongside blueprint hits.
 AUTO_RETRIEVE_INCLUDE_ATTACHMENTS = (
