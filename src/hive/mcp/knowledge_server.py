@@ -35,7 +35,7 @@ async def _get_pool() -> asyncpg.Pool:
     if _pool is None:
         from hive.config import POSTGRES_DSN
 
-        postgres_dsn = os.environ.get("POSTGRES_DSN", str(POSTGRES_DSN))
+        postgres_dsn = os.environ.get("POSTGRES_DSN", POSTGRES_DSN)
         _pool = await asyncpg.create_pool(postgres_dsn)
     return _pool
 
