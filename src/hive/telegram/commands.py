@@ -46,17 +46,18 @@ def parse_command(text: str, default_maestro: str = "dev") -> Command:
         return Command(name="message", target=default_maestro, args=text)
 
     # /m:<name> <message> — message a specific maestro
-    m_match = re.match(r"^/m:(\w+)\s*(.*)", text, re.DOTALL)
+    # Entity names allow hyphens (e.g. hive_dev.state-rules), so include `-`.
+    m_match = re.match(r"^/m:([\w.-]+)\s*(.*)", text, re.DOTALL)
     if m_match:
         return Command(name="message", target=m_match.group(1), args=m_match.group(2).strip())
 
     # /t:<maestro>.<team> <message> — message a specific team
-    t_match = re.match(r"^/t:([\w.]+)\s*(.*)", text, re.DOTALL)
+    t_match = re.match(r"^/t:([\w.-]+)\s*(.*)", text, re.DOTALL)
     if t_match:
         return Command(name="team", target=t_match.group(1), args=t_match.group(2).strip())
 
     # /a:<maestro>.<team>.<agent> <message> — message a specific agent
-    a_match = re.match(r"^/a:([\w.]+)\s*(.*)", text, re.DOTALL)
+    a_match = re.match(r"^/a:([\w.-]+)\s*(.*)", text, re.DOTALL)
     if a_match:
         return Command(name="agent", target=a_match.group(1), args=a_match.group(2).strip())
 
