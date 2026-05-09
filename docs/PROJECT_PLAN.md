@@ -1793,6 +1793,53 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 29 — VPS Backup Strategy (DONE 2026-05-09)
+
+**Status:** Phase 1 + Phase 3 shipped 2026-05-09. Daily `pg_dump` systemd-user timer writes `~/backups/hive/<UTC>.sql.gz` at 03:30 UTC with 14-day retention. Round-trip restore verified on a throwaway DB (11 attachments, 607 messages, 20 chunks all preserved). Restore procedure documented in `DEPLOYMENT.md §8`. **Phase 2 (DigitalOcean droplet snapshot)** deferred — requires user to provision a DO Personal Access Token at `cloud.digitalocean.com/account/api/tokens` and add `DO_API_TOKEN` + `DO_DROPLET_ID` to `.env`. Will land as a small follow-up sprint when the token is in place.
+**Plan:** `~/.claude/plans/what-is-next-on-warm-lerdorf.md`
+**Totals:** 1 new bash script (`backup_postgres.sh`), 2 new systemd-user units (`hive-backup.service` + `.timer`), 1 new env var (`HIVE_BACKUP_DIR`). No code changes — backups are infra-side.
+
+### Why this exists
+Hive's only persistent state lives in *one* Postgres container (`hive-postgres`, pgvector/pgvector:pg16) backed by Docker volume `hive_pgdata`. Before Sprint 29 there was **zero** automated backup — a bad migration, a `docker volume rm`, or disk failure would wipe every blueprint, attachment, audit-log row, vault action, and entity record. Audit `docs/AUDIT_2026-05-05.md §7` flagged this as out-of-scope follow-up #8; it sat deferred long enough.
+
+### Phase 1 — pg_dump systemd timer
+
+Daily logical backup running `docker exec hive-postgres pg_dump --no-owner --no-acl | gzip -9` into `~/backups/hive/<UTC-timestamp>.sql.gz`. Runs *inside* the container so the dumper version always matches the server. 14-day retention via `find -mtime +14 -delete`. Schedule: 03:30 UTC daily (clear of the daily-summary scheduler hour and overnight Telegram traffic). 5-minute jitter via `RandomizedDelaySec`. `Persistent=true` so a missed run after a host reboot fires on next boot.
+
+| File | Change |
+|------|--------|
+| `scripts/backup_postgres.sh` (new) | Sources `.env` for `POSTGRES_USER`/`POSTGRES_DB`, runs `docker exec hive-postgres pg_dump`, gzips, prunes via `find -mtime +14 -delete`. `set -o pipefail` so a failed `pg_dump` exits non-zero and systemd marks the unit failed (journal + `systemctl --user status` are the alerting story). Prints `OK <path> <size>` on success. |
+| `~/.config/systemd/user/hive-backup.service` (new) | `Type=oneshot`, `WorkingDirectory=/home/hezki/projects/hive`, `ExecStart=/home/hezki/projects/hive/scripts/backup_postgres.sh`, `SyslogIdentifier=hive-backup`. |
+| `~/.config/systemd/user/hive-backup.timer` (new) | `OnCalendar=*-*-* 03:30:00 UTC`, `Persistent=true`, `RandomizedDelaySec=300`, `WantedBy=timers.target`. |
+| `.env.example` | New optional `HIVE_BACKUP_DIR=` (defaults to `~/backups/hive` when unset). |
+| `docs/DEPLOYMENT.md` | New `§4.5 Backups` section between §4 (start orchestrator) and §5 (normal operations). Covers install, verification (`systemctl --user list-timers`, `journalctl --user -u hive-backup`), manual fire, and the env-var override. |
+
+**Why systemd-user, not cron**: project already uses systemd-user for `hive.service` (one consistent scheduling layer); `OnCalendar` semantics are clearer than `30 3 * * *`; `journalctl --user` gives one-place log access. `crontab -l` was empty — no cron pattern to follow.
+
+### Phase 2 — DigitalOcean snapshot (DEFERRED — token-gated)
+
+Weekly `POST /v2/droplets/{id}/actions {"type":"snapshot"}` → poll until completed → list `/v2/droplets/{id}/snapshots`, sort by `created_at`, keep 4 most recent. Defends against disk loss, OS-level corruption, full-host disaster. Restorable to a fresh droplet via the DO console "Create droplet from snapshot" flow.
+
+**Why deferred**: requires a DO Personal Access Token (read+write) provisioned at `cloud.digitalocean.com/account/api/tokens` — a manual step Claude can't take autonomously. Plan was to ship Phase 2 in the same sprint if the token was provisioned; the `.env` had no `DO_API_TOKEN` and `doctl` was not installed, so Phase 2 dropped cleanly per the plan's fallback ("if you want to defer the DO step, Phase 1 still ships standalone — pg_dump on the host gives 95% of the protection").
+
+**Trigger to revisit**: provision the DO PAT, then a one-commit follow-up sprint adds `scripts/snapshot_droplet.py`, `hive-snapshot.service`/`.timer`, and `DO_API_TOKEN`/`DO_DROPLET_ID` rows in `.env.example`.
+
+### Phase 3 — Restore docs
+
+| File | Change |
+|------|--------|
+| `docs/DEPLOYMENT.md` | New `§8 Restore from backup (Sprint 29)` subsection above "Fresh-start the database". Step-by-step pg_dump restore: stop hive.service → capture pre-restore dump (return-path insurance) → `DROP DATABASE hive; CREATE DATABASE hive;` → `gunzip -c | psql` → row-count sanity check → restart hive. Includes a zero-risk validation flow that pipes the dump into a throwaway `hive_restore_test` DB first. |
+| `docs/PROJECT_PLAN.md` | This entry. |
+
+### Out of scope (deferred — decision record)
+- **Off-host backup copies (S3/Spaces)** — pg_dump on the host + (eventual) DO snapshot covers logical + disaster scenarios. Adding S3/Spaces would defend against compromised host *and* compromised DO account simultaneously, but that's a higher threat model than Hive currently warrants. Trigger to revisit: if Hive starts holding payment data or PII at scale.
+- **Backup encryption at rest** — pg_dump output sits in `~/backups/hive/` on the same host as the DB. An attacker with host access already has DB access. GPG-encrypting the dump would only matter if dumps ship off-host (see above).
+- **WAL archiving for point-in-time recovery (PITR)** — `pg_dump` is logical and gives ~24h RPO. Streaming WAL to a separate volume gets RPO down to seconds. Overkill for Hive's volume; revisit if downtime requirements tighten.
+- **Backup-restore integration test in CI** — manual smoke is enough at this scale. CI restoring a real dump every commit is wasteful.
+- **Automated alerting on backup failure** (Telegram ping when systemd unit reports failed) — `journalctl --user -u hive-backup` is the manual fallback; an `OnFailure=` hook into a notification script can come later. Trigger: first time a silent failure goes unnoticed.
+
+---
+
 ## Sprint 28 — Attachment Chunking (DONE 2026-05-07)
 
 **Status:** All 3 phases shipped 2026-05-07. Long PDF/text uploads are now split into ~500-token chunks before embedding; auto-retrieve and `search_knowledge` surface the matching chunk text instead of a 200-char `embed_text` prefix. Images stay 1-vector-each (chunking doesn't apply).
