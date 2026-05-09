@@ -950,6 +950,56 @@ On this VPS, the OpenClaw systemd service used to conflict — it's now
 stopped and disabled (`sudo systemctl stop openclaw && sudo systemctl
 disable openclaw`).
 
+### Restore from backup (Sprint 29)
+
+The daily timer (`hive-backup.timer`, see §4.5) writes
+`~/backups/hive/<UTC-timestamp>.sql.gz` files, 14-day retention. Restore
+flow when the live database is corrupt, mid-bad-migration, or
+accidentally truncated:
+
+```bash
+# 1. Stop the orchestrator so it doesn't write to the DB during restore.
+systemctl --user stop hive.service
+
+# 2. Pick a dump.
+ls -lt ~/backups/hive/
+DUMP=~/backups/hive/2026-05-09T001825Z.sql.gz   # adjust
+
+# 3. Drop + recreate the live DB (destructive — keep a "before" dump
+#    first if you want a return path):
+docker exec hive-postgres pg_dump -U hive -d hive --no-owner --no-acl \
+    | gzip -9 > ~/backups/hive/pre-restore-$(date -u +%Y-%m-%dT%H%M%SZ).sql.gz
+docker exec hive-postgres psql -U hive -d postgres -c "DROP DATABASE hive;"
+docker exec hive-postgres psql -U hive -d postgres -c "CREATE DATABASE hive;"
+
+# 4. Pipe the dump back in.
+gunzip -c "$DUMP" | docker exec -i hive-postgres psql -U hive -d hive -q
+
+# 5. Sanity-check (counts should match the pre-incident state):
+docker exec hive-postgres psql -U hive -d hive -c \
+    "SELECT (SELECT COUNT(*) FROM blueprints) AS blueprints,
+            (SELECT COUNT(*) FROM attachments) AS attachments,
+            (SELECT COUNT(*) FROM messages) AS messages;"
+
+# 6. Restart hive.
+systemctl --user start hive.service
+```
+
+The dump is captured with `--no-owner --no-acl`, so it replays cleanly
+into any fresh `hive` database without role/grant errors. Migrations
+embedded in the dump bring `schema_migrations` along, so subsequent
+`run_migrations` calls are no-ops on the restored DB.
+
+**Verification before restoring** — pipe the dump into a throwaway DB
+first if you want zero-risk validation:
+
+```bash
+docker exec hive-postgres psql -U hive -d postgres -c "CREATE DATABASE hive_restore_test;"
+gunzip -c "$DUMP" | docker exec -i hive-postgres psql -U hive -d hive_restore_test -q
+docker exec hive-postgres psql -U hive -d hive_restore_test -c "SELECT COUNT(*) FROM messages;"
+docker exec hive-postgres psql -U hive -d postgres -c "DROP DATABASE hive_restore_test;"
+```
+
 ### Fresh-start the database
 
 **Destructive — wipes all hive data:**
