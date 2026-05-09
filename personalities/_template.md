@@ -9,8 +9,13 @@
 <System prompt defining this entity's personality, behavior, and purpose.>
 
 ## Tools
-- allowedTools: <comma-separated tool names>
-- disallowedTools: <comma-separated tool names>
+Pick the tool set that matches the role:
+- **Maestro / lead**: `allowedTools: Read Grep Glob` — delegation-only.
+  These roles do not write code; they spawn leads or workers.
+- **Worker**: `allowedTools: Read Write Edit Bash Grep Glob` — full
+  toolkit. Workers do the actual building.
+- `disallowedTools`: <space-separated tool names if you need to remove
+  specific tools beyond the role default>
 
 ## Constraints
 <Any constraints or rules this entity must follow.>

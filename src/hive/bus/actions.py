@@ -39,8 +39,12 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# Negative lookahead `(?!<hive_actions>)` makes the lazy group refuse to
+# span across another opening tag — orphan openings (e.g. when the model
+# closes with `</invoke>` and retries) are skipped, and only well-formed
+# pairs match.
 _ACTIONS_PATTERN = re.compile(
-    r"<hive_actions>\s*(.*?)\s*</hive_actions>",
+    r"<hive_actions>\s*((?:(?!<hive_actions>).)*?)\s*</hive_actions>",
     re.DOTALL,
 )
 
@@ -97,32 +101,41 @@ class Action:
 
 
 def parse_actions(response: str) -> tuple[str, list[Action]]:
-    """Extract <hive_actions> block from response text.
+    """Extract <hive_actions> blocks from response text.
 
-    Returns (clean_text, actions) where clean_text has the
-    <hive_actions>...</hive_actions> block stripped out.
-    If no block is found, returns (response, []).
-    If JSON inside the block is malformed, logs a warning
-    and returns (cleaned_text, []).
+    Returns (clean_text, actions) where clean_text has every
+    <hive_actions>-related span stripped — from the first opening
+    tag through the last closing tag, even when orphan openings sit
+    between them. Robust to the model emitting a malformed first
+    attempt (closing with `</invoke>`) and retrying with the correct
+    `</hive_actions>` close: only the well-formed retry is parsed.
+    If no opening tag is present, returns (response, []).
     """
-    match = _ACTIONS_PATTERN.search(response)
-    if not match:
+    first_open = response.find("<hive_actions>")
+    if first_open == -1:
         return response, []
 
-    # Strip the entire block from the response
-    clean_text = response[: match.start()] + response[match.end() :]
-    clean_text = clean_text.strip()
+    closing_tag = "</hive_actions>"
+    last_close = response.rfind(closing_tag)
+    if last_close == -1:
+        # Orphan opening with no close anywhere — strip from the
+        # opening to the end so harness chatter doesn't leak.
+        return response[:first_open].strip(), []
+    last_close_end = last_close + len(closing_tag)
+    clean_text = (response[:first_open] + response[last_close_end:]).strip()
 
-    raw_json = match.group(1)
-    try:
-        data = json.loads(raw_json)
-    except json.JSONDecodeError:
-        logger.warning("Malformed JSON in <hive_actions> block: %s", raw_json[:200])
-        return clean_text, []
-
-    if not isinstance(data, list):
-        logger.warning("<hive_actions> block is not a JSON array")
-        return clean_text, []
+    data: list[object] = []
+    for match in _ACTIONS_PATTERN.finditer(response):
+        raw_json = match.group(1)
+        try:
+            block_data = json.loads(raw_json)
+        except json.JSONDecodeError:
+            logger.warning("Malformed JSON in <hive_actions> block: %s", raw_json[:200])
+            continue
+        if not isinstance(block_data, list):
+            logger.warning("<hive_actions> block is not a JSON array")
+            continue
+        data.extend(block_data)
 
     actions: list[Action] = []
     for item in data:

@@ -77,6 +77,10 @@ Send messages by including a `<hive_actions>` block:
 You can message your own maestro, sibling leads under the same maestro,
 and your own workers. Permission gates enforce this.
 
+**Do NOT call Claude Code's `SendMessage`, `TeamCreate`, or any other agent-teams tool to communicate.** Those bypass Hive's router and your message will not be persisted or visible to the user. The `<hive_actions>` block above is the only supported channel.
+
+The closing tag is exactly `</hive_actions>` — never `</invoke>` or any other tool-call closing tag. Mismatched closes drop your message.
+
 ## Org-growth actions
 
 - **spawn_worker** (under yourself only):

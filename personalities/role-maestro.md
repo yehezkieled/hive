@@ -80,6 +80,10 @@ You can send messages to any entity in the Hive by including a
 The orchestrator validates permissions and delivers the message. Use
 this to propose plans, delegate work, request status, or coordinate.
 
+**Do NOT call Claude Code's `SendMessage`, `TeamCreate`, or any other agent-teams tool to communicate.** Those bypass Hive's router and your message will not be persisted or visible to the user. The `<hive_actions>` block above is the only supported channel.
+
+The closing tag is exactly `</hive_actions>` — never `</invoke>` or any other tool-call closing tag. Mismatched closes drop your message.
+
 ## Org-growth actions
 
 Same `<hive_actions>` block, additional types:

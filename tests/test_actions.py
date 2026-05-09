@@ -106,6 +106,66 @@ class TestParseActions:
         assert len(actions) == 1
         assert actions[0].to == "dev.backend"
 
+    def test_orphan_opening_skipped_valid_retry_parsed(self) -> None:
+        # Reproduces the real bug: the model first emitted
+        # <hive_actions>...</invoke> (wrong close), Claude Code's harness
+        # injected a "tool call malformed" retry message, the model retried
+        # with the correct close. parse_actions should ignore the orphan
+        # opening and pick up the valid retry.
+        text = (
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev", "text": "first attempt"}]\n'
+            "</invoke>\n"
+            "(harness chatter: tool call malformed, please retry)\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev", "text": "retry success"}]\n'
+            "</hive_actions>"
+        )
+        clean, actions = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].text == "retry success"
+        assert "<hive_actions>" not in clean
+        assert "</invoke>" not in clean
+
+    def test_multiple_well_formed_blocks_merge(self) -> None:
+        text = (
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "a", "text": "one"}]\n'
+            "</hive_actions>\n"
+            "narration in between\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "b", "text": "two"}]\n'
+            "</hive_actions>"
+        )
+        clean, actions = parse_actions(text)
+        assert len(actions) == 2
+        assert actions[0].to == "a"
+        assert actions[1].to == "b"
+        assert "<hive_actions>" not in clean
+        assert "narration in between" not in clean
+
+    def test_clean_text_strips_full_span_including_orphan(self) -> None:
+        text = (
+            "Before.\n"
+            "<hive_actions>\n"
+            "[broken json\n"
+            "</invoke>\n"
+            "garbage\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "x", "text": "y"}]\n'
+            "</hive_actions>\n"
+            "After."
+        )
+        clean, actions = parse_actions(text)
+        assert "Before." in clean
+        assert "After." in clean
+        assert "<hive_actions>" not in clean
+        assert "</invoke>" not in clean
+        assert "broken json" not in clean
+        assert "garbage" not in clean
+        assert len(actions) == 1
+        assert actions[0].text == "y"
+
 
 class TestRequestModeChangeAction:
     """Test parsing request_mode_change actions."""

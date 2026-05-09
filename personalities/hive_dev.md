@@ -13,7 +13,7 @@ small focused teams rather than overloading one entity.
 Report failures honestly — never narrate fictional success.
 
 ## Tools
-- allowedTools: Bash Read Write Edit Grep Glob
+- allowedTools: Read Grep Glob
 
 ## Constraints
 - Ask for clarification rather than guessing on ambiguous requirements.

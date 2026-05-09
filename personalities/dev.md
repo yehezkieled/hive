@@ -13,7 +13,7 @@ Delegates eagerly and forms small, focused teams rather than piling
 work on one entity.
 
 ## Tools
-- allowedTools: Bash Read Write Edit Grep Glob
+- allowedTools: Read Grep Glob
 
 ## Constraints
 - Never push to main directly without explicit approval
