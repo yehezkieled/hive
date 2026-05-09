@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,6 +34,12 @@ class MessageRouter:
     def __init__(self, store: MessageStore) -> None:
         self.store = store
         self._queues: dict[str, asyncio.Queue[Message]] = {}
+        # Optional sync hook fired after a message lands in a recipient's
+        # queue. ProcessManager wires this to schedule an auto-wake so
+        # peer messages don't sit idle until the 120m scheduler tick.
+        # Sync (not awaited) so route() returns immediately — the
+        # callback's job is to spawn an asyncio.Task, nothing more.
+        self.wake_callback: Callable[[str], None] | None = None
 
     def register(self, entity_name: str) -> None:
         """Register an entity for message delivery."""
@@ -70,6 +77,11 @@ class MessageRouter:
         )
         if recipient in self._queues:
             await self._queues[recipient].put(msg)
+            if self.wake_callback is not None:
+                try:
+                    self.wake_callback(recipient)
+                except Exception:
+                    logger.exception("wake_callback for %s raised", recipient)
         else:
             logger.warning("No queue for recipient %s, message logged but not delivered", recipient)
 

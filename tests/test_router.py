@@ -76,3 +76,24 @@ async def test_registered_entities(router: MessageRouter) -> None:
 
     router.unregister("a")
     assert router.registered_entities == ["b"]
+
+
+async def test_wake_callback_fires_on_route(router: MessageRouter) -> None:
+    router.register("maestro:dev")
+    seen: list[str] = []
+    router.wake_callback = seen.append
+
+    await router.route("user", "maestro:dev", "hello")
+
+    assert seen == ["maestro:dev"]
+
+
+async def test_wake_callback_skipped_for_unregistered_recipient(
+    router: MessageRouter,
+) -> None:
+    seen: list[str] = []
+    router.wake_callback = seen.append
+
+    await router.route("user", "maestro:dev", "hello")
+
+    assert seen == []

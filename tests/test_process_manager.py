@@ -1546,3 +1546,121 @@ class TestIdleCheckerExemptsAllMaestros:
                 await idle_checker(manager, "dev", stop_event)
 
         assert captured["exempt"] == {"dev", "hive_dev"}
+
+
+# -----------------------------------------------------------------------------
+# Wake-on-inbound: peer messages auto-spawn a session for the recipient
+# -----------------------------------------------------------------------------
+
+
+async def _drain_wake_tasks(manager: ProcessManager) -> None:
+    """Await every detached wake task so assertions see a stable state.
+
+    Loops because wakes schedule both an entity-spawn task and an audit
+    task; awaiting one batch may surface another that was queued while
+    the first was running.
+    """
+    while manager._wake_tasks:
+        pending = list(manager._wake_tasks)
+        for task in pending:
+            try:
+                await task
+            except Exception:
+                pass
+
+
+async def test_inbound_wake_spawns_session(manager: ProcessManager) -> None:
+    """Peer message → recipient gets a wake send."""
+    manager.enable_wake_on_inbound()
+    sender = Maestro(name="alice", model="sonnet")
+    recipient = TeamLead(name="alice.bob", model="sonnet")
+    manager._entities["alice"] = sender
+    manager._entities["alice.bob"] = recipient
+    manager.router.register("alice")
+    manager.router.register("alice.bob")
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(name: str, text: str) -> None:
+        sent.append((name, text))
+
+    from hive.process.manager import _WAKE_ON_INBOUND_TEXT
+
+    with patch.object(manager, "send_to_entity", side_effect=fake_send):
+        await manager.router.route("alice", "alice.bob", "ping")
+        await _drain_wake_tasks(manager)
+
+    assert sent == [("alice.bob", _WAKE_ON_INBOUND_TEXT)]
+
+
+async def test_inbound_wake_throttled_after_budget(
+    manager: ProcessManager,
+    audit_log: AuditLog,
+) -> None:
+    """7 rapid wakes → 6 sends + 1 throttled audit event."""
+    manager.audit_log = audit_log
+    manager.enable_wake_on_inbound()
+    recipient = TeamLead(name="alice.bob", model="sonnet")
+    manager._entities["alice.bob"] = recipient
+    manager.router.register("alice.bob")
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(name: str, text: str) -> None:
+        sent.append((name, text))
+
+    with patch.object(manager, "send_to_entity", side_effect=fake_send):
+        for _ in range(7):
+            await manager.router.route("alice", "alice.bob", "ping")
+        await _drain_wake_tasks(manager)
+
+    assert len(sent) == 6
+    events = await audit_log.recent(action_prefix="entity.wake_")
+    actions = [e["action"] for e in events]
+    assert actions.count("entity.wake_throttled") == 1
+    assert actions.count("entity.wake_scheduled") == 6
+
+
+async def test_inbound_wake_silent_when_recipient_running(
+    manager: ProcessManager,
+    audit_log: AuditLog,
+) -> None:
+    """'already running' RuntimeError from send_to_entity is swallowed."""
+    manager.audit_log = audit_log
+    manager.enable_wake_on_inbound()
+    recipient = TeamLead(name="alice.bob", model="sonnet")
+    manager._entities["alice.bob"] = recipient
+    manager.router.register("alice.bob")
+
+    async def fake_send(name: str, text: str) -> None:
+        raise RuntimeError("Entity alice.bob already running")
+
+    with patch.object(manager, "send_to_entity", side_effect=fake_send):
+        await manager.router.route("alice", "alice.bob", "ping")
+        await _drain_wake_tasks(manager)
+
+    events = await audit_log.recent(action_prefix="entity.wake_failed")
+    assert events == []
+
+
+async def test_inbound_wake_skipped_for_user_recipient(
+    manager: ProcessManager,
+) -> None:
+    """Routing to 'user' (no entity row) must not schedule a wake."""
+    manager.enable_wake_on_inbound()
+    sender = Maestro(name="alice", model="sonnet")
+    manager._entities["alice"] = sender
+    manager.router.register("alice")
+    manager.router.register("user")  # queue exists but no entity row
+
+    sent: list[tuple[str, str]] = []
+
+    async def fake_send(name: str, text: str) -> None:
+        sent.append((name, text))
+
+    with patch.object(manager, "send_to_entity", side_effect=fake_send):
+        await manager.router.route("alice", "user", "status update")
+        await _drain_wake_tasks(manager)
+
+    assert sent == []
+    assert "user" not in manager._wake_budget

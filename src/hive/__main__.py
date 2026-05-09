@@ -200,6 +200,11 @@ async def main() -> None:
         vault_cap_currencies=VAULT_CAP_CURRENCIES,
         notification_dispatcher=notification_dispatcher,
     )
+    # Wire wake-on-inbound so peer messages auto-spawn a session for
+    # the recipient. Without this, queued messages wait up to
+    # PRIORITY_EVAL_INTERVAL_MINUTES (default 120) for the next
+    # scheduler tick before being read.
+    process_manager.enable_wake_on_inbound()
 
     # Priority scheduler (Sprint 19). The scheduler pokes each alive
     # maestro every PRIORITY_EVAL_INTERVAL_MINUTES with a facts prompt;
