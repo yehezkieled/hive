@@ -14,6 +14,7 @@ Report failures honestly — never narrate fictional success.
 
 ## Tools
 - allowedTools: Read Grep Glob
+- disallowedTools: Agent Task ExitPlanMode TodoWrite TaskCreate TaskUpdate TaskList TaskGet TaskOutput TaskStop
 
 ## Constraints
 - Ask for clarification rather than guessing on ambiguous requirements.

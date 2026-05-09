@@ -79,6 +79,16 @@ _WAKE_ON_INBOUND_TEXT = (
 _WAKE_BUDGET_WINDOW_SECONDS = 60
 _WAKE_BUDGET_MAX_PER_WINDOW = 6
 
+# Parse-failure feedback loop. When an entity's <hive_actions> block
+# is malformed, the orchestrator routes a system->entity message with
+# the error so the sender can retry. To avoid feedback->bad-retry
+# loops chewing tokens silently, we cap retries to 3 per 5 minutes
+# per entity. Beyond the cap we stop sending feedback and escalate
+# one notification to the entity's parent (lead->maestro,
+# worker->lead, maestro->user) so a human can intervene.
+_PARSE_FAILURE_WINDOW_SECONDS = 300
+_PARSE_FAILURE_MAX_PER_WINDOW = 3
+
 
 def _render_auto_personality(
     *,
@@ -98,10 +108,23 @@ def _render_auto_personality(
     so the role boundary holds — they cannot drift into hands-on
     coding because Edit/Write/Bash aren't available. Workers and other
     roles inherit the platform default toolkit.
+
+    The ``disallowedTools`` line blocks Claude Code's internal
+    subagent tools (``Agent``/``Task``) and TodoWrite-family tools for
+    coordinator roles. ``allowedTools`` alone is bypassed when the
+    entity runs under ``--dangerously-skip-permissions`` (yolo mode);
+    ``disallowedTools`` is still honored. Without this guard, a yolo
+    lead spawns Claude Code's own subagents instead of Hive workers
+    and the org never grows.
     """
     tools_section = ""
     if role in ("maestro", "lead"):
-        tools_section = "\n## Tools\n- allowedTools: Read Grep Glob\n"
+        tools_section = (
+            "\n## Tools\n"
+            "- allowedTools: Read Grep Glob\n"
+            "- disallowedTools: Agent Task ExitPlanMode TodoWrite TaskCreate "
+            "TaskUpdate TaskList TaskGet TaskOutput TaskStop\n"
+        )
     knowledge_section = (
         "\n## Knowledge search\n"
         "You have a `search_knowledge(query, kind, limit)` MCP tool "
@@ -199,6 +222,11 @@ class ProcessManager:
         # tests that seed queues with router.route() aren't disturbed.
         self._wake_tasks: set[asyncio.Task] = set()
         self._wake_budget: dict[str, deque[datetime]] = defaultdict(deque)
+        # Per-entity sliding window of parse-failure timestamps. Bounds
+        # the feedback->retry loop when a model keeps emitting malformed
+        # <hive_actions> blocks; on overflow we escalate to the parent
+        # instead of resending feedback.
+        self._parse_failure_budget: dict[str, deque[datetime]] = defaultdict(deque)
         self._compacting: set[str] = set()
         # Set after construction by __main__.py so the dispatch site can
         # consult the rate limiter. Optional — tests construct managers
@@ -717,17 +745,33 @@ class ProcessManager:
             await session.kill()
 
         # --- Phase 3: parse and route actions from response ---
-        clean_text, actions = parse_actions(response)
-        return await self._handle_actions(entity_name, clean_text, actions)
+        clean_text, actions, parse_errors = parse_actions(response)
+        return await self._handle_actions(
+            entity_name, clean_text, actions, parse_errors=parse_errors
+        )
 
     async def _handle_actions(
-        self, entity_name: str, clean_text: str, actions: list[Action]
+        self,
+        entity_name: str,
+        clean_text: str,
+        actions: list[Action],
+        *,
+        parse_errors: list[str] | None = None,
     ) -> str:
         """Route parsed actions to the appropriate handlers.
 
         Extracted from ``send_to_entity`` so tests can drive the
         dispatch loop directly without going through a real Claude
         subprocess.
+
+        ``parse_errors`` is the list returned by ``parse_actions`` when
+        an <hive_actions> block was malformed. Each entry is a
+        human-readable description (bad JSON, missing field, unknown
+        type). When non-empty, after action dispatch we either route a
+        ``system -> entity`` feedback message so the sender can retry,
+        or, if the entity has hit ``_PARSE_FAILURE_MAX_PER_WINDOW`` in
+        the rolling window, escalate to the parent and stop sending
+        feedback.
         """
         entity = self._entities.get(entity_name)
         if entity is None:
@@ -989,7 +1033,113 @@ class ProcessManager:
                 self._kickoff_tasks.add(task)
                 task.add_done_callback(self._kickoff_tasks.discard)
 
+        if parse_errors:
+            await self._handle_parse_errors(entity, parse_errors)
+
         return clean_text
+
+    def _parent_of(self, entity: Entity) -> str | None:
+        """Return the entity's direct parent for escalation, or None.
+
+        Workers escalate to their lead, leads to their maestro. Maestros
+        have no Hive parent — callers escalate to ``user`` via the
+        notification dispatcher instead.
+        """
+        from hive.models.team_lead import TeamLead
+        from hive.models.worker import WorkerAgent
+
+        if isinstance(entity, WorkerAgent):
+            return entity.lead_name or None
+        if isinstance(entity, TeamLead):
+            return entity.maestro_name or None
+        return None
+
+    async def _handle_parse_errors(self, entity: Entity, parse_errors: list[str]) -> None:
+        """Route parse-error feedback to the sender, with overflow escalation.
+
+        Two paths:
+        1. Under cap: route a ``system -> entity`` message containing
+           the human-readable parse errors. The wake-on-inbound hook
+           auto-spawns the entity, the drain phase prepends the message
+           to its next prompt, and it can retry with corrected JSON.
+        2. At cap (>= ``_PARSE_FAILURE_MAX_PER_WINDOW`` in
+           ``_PARSE_FAILURE_WINDOW_SECONDS``): suppress the feedback
+           message and notify the parent (lead -> maestro,
+           worker -> lead, maestro -> user) once. This breaks the loop
+           when a model is stuck producing the same malformed output.
+        """
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(seconds=_PARSE_FAILURE_WINDOW_SECONDS)
+        window = self._parse_failure_budget[entity.name]
+        while window and window[0] < cutoff:
+            window.popleft()
+        window.append(now)
+
+        feedback_body = (
+            "Your last response contained a malformed <hive_actions> "
+            "block. The orchestrator could not parse it, so the actions "
+            "did NOT execute. Errors:\n"
+            + "\n".join(f"- {err}" for err in parse_errors)
+            + "\n\nFix the JSON and resend the actions in a new "
+            "<hive_actions> block. Common causes: unescaped newlines/"
+            "quotes inside multi-line `personality` strings (use \\n "
+            'and \\"), wrong closing tag (must be </hive_actions>, not '
+            "</invoke>), or missing required fields."
+        )
+
+        if len(window) > _PARSE_FAILURE_MAX_PER_WINDOW:
+            # Cap exceeded — escalate once, drop the feedback message
+            # so we don't keep waking a stuck entity.
+            parent = self._parent_of(entity)
+            escalation_msg = (
+                f"{entity.name} has emitted {len(window)} malformed "
+                f"<hive_actions> blocks in the last "
+                f"{_PARSE_FAILURE_WINDOW_SECONDS // 60} min. "
+                "Suppressing parse-feedback to avoid a loop. "
+                "Please intervene — kill, reset, or guide the entity. "
+                f"Latest errors:\n" + "\n".join(f"- {err}" for err in parse_errors)
+            )
+            if parent and parent in self._entities:
+                await self.router.route("system", parent, escalation_msg)
+            else:
+                # Maestro (or detached entity) — surface to the user.
+                await self._notify(
+                    escalation_msg,
+                    kind="warning",
+                    data={"entity": entity.name, "kind": "parse_failure_cap"},
+                )
+            await self._audit(
+                "entity.parse_failure_capped",
+                target=entity.name,
+                details={
+                    "window_size": len(window),
+                    "escalated_to": parent or "user",
+                },
+            )
+            logger.warning(
+                "Parse-failure cap hit for %s (%d in window) — escalated to %s",
+                entity.name,
+                len(window),
+                parent or "user",
+            )
+            return
+
+        # Under cap — send feedback so the sender can self-correct.
+        await self.router.route("system", entity.name, feedback_body)
+        await self._audit(
+            "entity.parse_failure_feedback",
+            target=entity.name,
+            details={
+                "window_size": len(window),
+                "error_count": len(parse_errors),
+            },
+        )
+        logger.warning(
+            "Parse-failure feedback sent to %s (%d errors, window=%d)",
+            entity.name,
+            len(parse_errors),
+            len(window),
+        )
 
     async def _auto_kickoff(self, target: str) -> None:
         """Wake a freshly spawned lead/worker by sending the generic kickoff prompt.

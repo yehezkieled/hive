@@ -14,6 +14,7 @@ work on one entity.
 
 ## Tools
 - allowedTools: Read Grep Glob
+- disallowedTools: Agent Task ExitPlanMode TodoWrite TaskCreate TaskUpdate TaskList TaskGet TaskOutput TaskStop
 
 ## Constraints
 - Never push to main directly without explicit approval

@@ -100,27 +100,43 @@ class Action:
     idempotency_key: str | None = None
 
 
-def parse_actions(response: str) -> tuple[str, list[Action]]:
+def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
     """Extract <hive_actions> blocks from response text.
 
-    Returns (clean_text, actions) where clean_text has every
-    <hive_actions>-related span stripped — from the first opening
-    tag through the last closing tag, even when orphan openings sit
-    between them. Robust to the model emitting a malformed first
-    attempt (closing with `</invoke>`) and retrying with the correct
-    `</hive_actions>` close: only the well-formed retry is parsed.
-    If no opening tag is present, returns (response, []).
+    Returns ``(clean_text, actions, errors)``:
+
+    - ``clean_text`` has every <hive_actions>-related span stripped —
+      from the first opening tag through the last closing tag, even
+      when orphan openings sit between them. Robust to a malformed
+      first attempt (closing with ``</invoke>``) and a correctly
+      closed retry: only the well-formed retry is parsed.
+    - ``actions`` is the list of valid Action records.
+    - ``errors`` is a list of human-readable parse-failure strings
+      (malformed JSON, missing required fields, unknown action types).
+      Empty when every block parses cleanly. The caller is expected
+      to route these back to the sender as a feedback message so they
+      can retry — silent drops let leads believe their spawn worked
+      when it didn't.
+
+    If no opening tag is present, returns ``(response, [], [])``.
     """
+    errors: list[str] = []
     first_open = response.find("<hive_actions>")
     if first_open == -1:
-        return response, []
+        return response, [], errors
 
     closing_tag = "</hive_actions>"
     last_close = response.rfind(closing_tag)
     if last_close == -1:
         # Orphan opening with no close anywhere — strip from the
         # opening to the end so harness chatter doesn't leak.
-        return response[:first_open].strip(), []
+        errors.append(
+            "<hive_actions> block has no closing </hive_actions> tag — "
+            "the entire block was dropped. Make sure every opening tag "
+            "is followed by a matching </hive_actions> close (not "
+            "</invoke> or any other tool-call closing tag)."
+        )
+        return response[:first_open].strip(), [], errors
     last_close_end = last_close + len(closing_tag)
     clean_text = (response[:first_open] + response[last_close_end:]).strip()
 
@@ -129,10 +145,22 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         raw_json = match.group(1)
         try:
             block_data = json.loads(raw_json)
-        except json.JSONDecodeError:
-            logger.warning("Malformed JSON in <hive_actions> block: %s", raw_json[:200])
+        except json.JSONDecodeError as exc:
+            snippet = raw_json[:200]
+            errors.append(
+                f"Malformed JSON in <hive_actions> block: {exc.msg} "
+                f"(line {exc.lineno}, col {exc.colno}). "
+                f"Snippet: {snippet!r}. Tip: escape newlines as \\n and "
+                f'quotes as \\" inside multi-line string fields like '
+                f"`personality`."
+            )
+            logger.warning("Malformed JSON in <hive_actions> block: %s", snippet)
             continue
         if not isinstance(block_data, list):
+            errors.append(
+                "<hive_actions> block must be a JSON array of action "
+                f"objects, got {type(block_data).__name__}."
+            )
             logger.warning("<hive_actions> block is not a JSON array")
             continue
         data.extend(block_data)
@@ -140,6 +168,7 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
     actions: list[Action] = []
     for item in data:
         if not isinstance(item, dict) or "type" not in item:
+            errors.append(f"Action missing `type` field: {item!r}")
             logger.warning("Action missing type field: %s", item)
             continue
         atype = item["type"]
@@ -147,6 +176,9 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "message":
             missing = _MESSAGE_REQUIRED - item.keys()
             if missing:
+                errors.append(
+                    f"`message` action missing required fields {sorted(missing)}: {item!r}"
+                )
                 logger.warning("message action missing fields %s: %s", missing, item)
                 continue
             actions.append(Action(type=atype, to=item["to"], text=item["text"]))
@@ -155,6 +187,9 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "request_mode_change":
             missing = _MODE_REQUEST_REQUIRED - item.keys()
             if missing:
+                errors.append(
+                    f"`request_mode_change` missing required fields {sorted(missing)}: {item!r}"
+                )
                 logger.warning("request_mode_change missing fields %s: %s", missing, item)
                 continue
             actions.append(
@@ -169,12 +204,16 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "report_failure":
             missing = _FAILURE_REQUIRED - item.keys()
             if missing:
+                errors.append(
+                    f"`report_failure` missing required fields {sorted(missing)}: {item!r}"
+                )
                 logger.warning("report_failure missing fields %s: %s", missing, item)
                 continue
             raw_task_id = item.get("task_id")
             try:
                 task_id_val = int(raw_task_id) if raw_task_id is not None else None
             except (TypeError, ValueError):
+                errors.append(f"`report_failure` has non-integer task_id: {raw_task_id!r}")
                 logger.warning("report_failure has non-integer task_id: %r", raw_task_id)
                 task_id_val = None
             actions.append(
@@ -189,6 +228,7 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "spawn_team":
             missing = _SPAWN_TEAM_REQUIRED - item.keys()
             if missing:
+                errors.append(f"`spawn_team` missing required fields {sorted(missing)}: {item!r}")
                 logger.warning("spawn_team missing fields %s: %s", missing, item)
                 continue
             actions.append(
@@ -207,6 +247,7 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
             try:
                 task_id_val = int(raw_task_id) if raw_task_id is not None else None
             except (TypeError, ValueError):
+                errors.append(f"`spawn_worker` has non-integer task_id: {raw_task_id!r}")
                 logger.warning("spawn_worker has non-integer task_id: %r", raw_task_id)
                 task_id_val = None
             actions.append(
@@ -224,6 +265,7 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "kill_entity":
             missing = _KILL_ENTITY_REQUIRED - item.keys()
             if missing:
+                errors.append(f"`kill_entity` missing required fields {sorted(missing)}: {item!r}")
                 logger.warning("kill_entity missing fields %s: %s", missing, item)
                 continue
             actions.append(Action(type=atype, target=item["target"]))
@@ -232,6 +274,9 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "request_decision":
             missing = _REQUEST_DECISION_REQUIRED - item.keys()
             if missing:
+                errors.append(
+                    f"`request_decision` missing required fields {sorted(missing)}: {item!r}"
+                )
                 logger.warning("request_decision missing fields %s: %s", missing, item)
                 continue
             actions.append(Action(type=atype, to=item["to"], text=item["text"]))
@@ -240,21 +285,31 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
         if atype == "request_payment":
             missing = _REQUEST_PAYMENT_REQUIRED - item.keys()
             if missing:
+                errors.append(
+                    f"`request_payment` missing required fields {sorted(missing)}: {item!r}"
+                )
                 logger.warning("request_payment missing fields %s: %s", missing, item)
                 continue
             try:
                 amount = int(item["amount_cents"])
             except (TypeError, ValueError):
+                errors.append(
+                    f"`request_payment` has non-integer amount_cents: {item.get('amount_cents')!r}"
+                )
                 logger.warning(
                     "request_payment has non-integer amount_cents: %r",
                     item.get("amount_cents"),
                 )
                 continue
             if amount <= 0:
+                errors.append(f"`request_payment` has non-positive amount_cents: {amount!r}")
                 logger.warning("request_payment has non-positive amount_cents: %r", amount)
                 continue
             currency = item["currency"]
             if not isinstance(currency, str) or len(currency) != 3:
+                errors.append(
+                    f"`request_payment` has invalid currency (must be 3-letter code): {currency!r}"
+                )
                 logger.warning("request_payment has invalid currency: %r", currency)
                 continue
             actions.append(
@@ -269,6 +324,7 @@ def parse_actions(response: str) -> tuple[str, list[Action]]:
             )
             continue
 
+        errors.append(f"Unknown action type {atype!r}, skipped.")
         logger.warning("Unknown action type %r, skipping", atype)
 
-    return clean_text, actions
+    return clean_text, actions, errors

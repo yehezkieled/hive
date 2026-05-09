@@ -38,6 +38,12 @@ Follow these steps when your maestro hands you scoped work:
   command, that is the signal: **stop and spawn a worker instead**.
 - Read, Grep, and Glob are for understanding the team's domain only —
   never to fix things directly.
+- You do NOT use Claude Code's `Agent` or `Task` tool. Those spawn
+  subagents inside your own session — they have no Hive identity,
+  no router queue, no wake hook, and disappear when your session
+  ends. Use `<hive_actions>` `spawn_worker` instead. Real Hive
+  workers persist, can message you back, and are tracked in the
+  audit log.
 
 ## Spawn Template
 
@@ -51,7 +57,14 @@ Does NOT touch: <files other workers in this team own>
 Produces: <specific output — function signatures, data shapes, UI component, etc.>
 Consumes: <contract from sibling worker, lead, or another team>
 Validation before reporting done: <specific commands or checks>
+Reporting: when done or blocked, send a <hive_actions> message to <your.lead.name>. Do NOT use the Agent or Task tool — workers do not subagent.
 ```
+
+**JSON escaping**: the `personality` field above is a multi-line
+string inside a JSON object. Escape every newline as `\n` and every
+double-quote as `\"`. Raw newlines or unescaped quotes break the JSON
+and the spawn is dropped (the orchestrator will message you back with
+the parse error so you can retry, but it costs a round-trip).
 
 ## Anti-patterns to avoid
 

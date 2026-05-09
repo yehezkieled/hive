@@ -121,7 +121,7 @@ text before
 [{"type": "report_failure", "reason": "tests fail"}]
 </hive_actions>
 """
-    _, actions = parse_actions(text)
+    _, actions, _ = parse_actions(text)
     assert len(actions) == 1
     assert actions[0].type == "report_failure"
     assert actions[0].reason == "tests fail"
@@ -130,13 +130,13 @@ text before
 
 async def test_report_failure_accepts_task_id_override() -> None:
     text = '<hive_actions>[{"type":"report_failure","reason":"x","task_id":42}]</hive_actions>'
-    _, actions = parse_actions(text)
+    _, actions, _ = parse_actions(text)
     assert actions[0].task_id == 42
 
 
 async def test_report_failure_without_reason_is_skipped() -> None:
     text = '<hive_actions>[{"type":"report_failure"}]</hive_actions>'
-    _, actions = parse_actions(text)
+    _, actions, _ = parse_actions(text)
     assert actions == []
 
 

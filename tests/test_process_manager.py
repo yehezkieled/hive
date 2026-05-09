@@ -1664,3 +1664,149 @@ async def test_inbound_wake_skipped_for_user_recipient(
 
     assert sent == []
     assert "user" not in manager._wake_budget
+
+
+# -----------------------------------------------------------------------------
+# Parse-failure feedback loop: malformed <hive_actions> blocks come back
+# to the sender as a system message so the model can self-correct.
+# -----------------------------------------------------------------------------
+
+
+async def test_parse_errors_route_system_feedback_to_sender(
+    manager: ProcessManager,
+    audit_log: AuditLog,
+) -> None:
+    """Malformed block → one `system → entity` message + audit event."""
+    manager.audit_log = audit_log
+    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    manager._entities["alice.bob"] = lead
+    manager.router.register("alice.bob")
+
+    await manager._handle_actions(
+        "alice.bob",
+        clean_text="",
+        actions=[],
+        parse_errors=["Malformed JSON in <hive_actions> block: ..."],
+    )
+
+    messages = await manager.router.store.get_messages("alice.bob")
+    assert len(messages) == 1
+    assert messages[0]["sender"] == "system"
+    assert "malformed" in messages[0]["content"].lower()
+    assert "Malformed JSON" in messages[0]["content"]
+
+    events = await audit_log.recent(action_prefix="entity.parse_failure_feedback")
+    assert len(events) == 1
+
+
+async def test_parse_errors_at_cap_escalate_to_parent(
+    manager: ProcessManager,
+    audit_log: AuditLog,
+) -> None:
+    """4th failure in window → escalation to parent, no feedback to sender."""
+    manager.audit_log = audit_log
+    maestro = Maestro(name="alice", model="sonnet")
+    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    manager._entities["alice"] = maestro
+    manager._entities["alice.bob"] = lead
+    manager.router.register("alice")
+    manager.router.register("alice.bob")
+
+    for _ in range(4):
+        await manager._handle_actions(
+            "alice.bob",
+            clean_text="",
+            actions=[],
+            parse_errors=["Malformed JSON"],
+        )
+
+    lead_msgs = await manager.router.store.get_messages("alice.bob")
+    maestro_msgs = await manager.router.store.get_messages("alice")
+    # First 3 sent feedback to the lead; 4th went to maestro.
+    assert len(lead_msgs) == 3
+    assert len(maestro_msgs) == 1
+    assert "Suppressing parse-feedback" in maestro_msgs[0]["content"]
+    assert maestro_msgs[0]["sender"] == "system"
+
+    capped = await audit_log.recent(action_prefix="entity.parse_failure_capped")
+    assert len(capped) == 1
+    assert capped[0]["target"] == "alice.bob"
+
+
+async def test_parse_errors_maestro_at_cap_notifies_user(
+    manager: ProcessManager,
+) -> None:
+    """Maestro has no Hive parent → cap overflow surfaces to the user."""
+    channel = _CapturingChannel()
+    dispatcher = NotificationDispatcher()
+    dispatcher.register(channel)
+    manager.notification_dispatcher = dispatcher
+    maestro = Maestro(name="alice", model="sonnet")
+    manager._entities["alice"] = maestro
+    manager.router.register("alice")
+
+    for _ in range(4):
+        await manager._handle_actions(
+            "alice",
+            clean_text="",
+            actions=[],
+            parse_errors=["Malformed JSON"],
+        )
+
+    # First 3 sent feedback into the queue; 4th hit the cap and went
+    # to the notification dispatcher.
+    msgs = await manager.router.store.get_messages("alice")
+    assert len(msgs) == 3
+    assert any("Suppressing parse-feedback" in text for text in channel.messages)
+
+
+async def test_parse_errors_window_resets_after_5min(
+    manager: ProcessManager,
+) -> None:
+    """Stale entries are pruned before counting against the cap."""
+    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    manager._entities["alice.bob"] = lead
+    manager.router.register("alice.bob")
+
+    # Pre-seed 3 stale failures (older than 5 min).
+    stale = datetime.now(UTC) - timedelta(seconds=400)
+    manager._parse_failure_budget["alice.bob"].extend([stale, stale, stale])
+
+    await manager._handle_actions(
+        "alice.bob",
+        clean_text="",
+        actions=[],
+        parse_errors=["Malformed JSON"],
+    )
+
+    # Stale ones pruned, only the fresh one remains → still under cap.
+    assert len(manager._parse_failure_budget["alice.bob"]) == 1
+    msgs = await manager.router.store.get_messages("alice.bob")
+    assert len(msgs) == 1
+    assert msgs[0]["sender"] == "system"
+
+
+async def test_parse_errors_skip_when_no_errors(
+    manager: ProcessManager,
+) -> None:
+    """No parse errors → no feedback message, no budget entry."""
+    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    manager._entities["alice.bob"] = lead
+    manager.router.register("alice.bob")
+
+    await manager._handle_actions(
+        "alice.bob",
+        clean_text="ok",
+        actions=[],
+        parse_errors=None,
+    )
+    await manager._handle_actions(
+        "alice.bob",
+        clean_text="ok",
+        actions=[],
+        parse_errors=[],
+    )
+
+    msgs = await manager.router.store.get_messages("alice.bob")
+    assert msgs == []
+    assert "alice.bob" not in manager._parse_failure_budget

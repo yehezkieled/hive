@@ -8,7 +8,7 @@ class TestParseActions:
 
     def test_no_actions_returns_original_text(self) -> None:
         text = "Here is my analysis of the codebase."
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert clean == text
         assert actions == []
 
@@ -19,7 +19,7 @@ class TestParseActions:
             '[{"type": "message", "to": "dev.backend", "text": "Start migration"}]\n'
             "</hive_actions>"
         )
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0] == Action(type="message", to="dev.backend", text="Start migration")
 
@@ -33,7 +33,7 @@ class TestParseActions:
             "]\n"
             "</hive_actions>"
         )
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert len(actions) == 2
         assert actions[0].to == "dev.backend"
         assert actions[1].to == "dev.frontend"
@@ -45,7 +45,7 @@ class TestParseActions:
             '[{"type": "message", "to": "dev.backend", "text": "hi"}]\n'
             "</hive_actions>"
         )
-        clean, _ = parse_actions(text)
+        clean, _, _ = parse_actions(text)
         assert "<hive_actions>" not in clean
         assert "</hive_actions>" not in clean
 
@@ -57,13 +57,13 @@ class TestParseActions:
             "</hive_actions>\n\n"
             "After the block."
         )
-        clean, _ = parse_actions(text)
+        clean, _, _ = parse_actions(text)
         assert "Before the block." in clean
         assert "After the block." in clean
 
     def test_malformed_json_returns_empty_list(self) -> None:
         text = "Hello.\n\n<hive_actions>\n{not valid json}\n</hive_actions>"
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert actions == []
         assert "<hive_actions>" not in clean
 
@@ -71,7 +71,7 @@ class TestParseActions:
         text = (
             'Done.\n\n<hive_actions>\n[{"type": "message", "to": "dev.backend"}]\n</hive_actions>'
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions == []
 
     def test_unknown_action_type_skipped(self) -> None:
@@ -81,14 +81,14 @@ class TestParseActions:
             '[{"type": "spawn", "to": "dev.backend", "text": "go"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions == []
 
     def test_non_array_json_returns_empty(self) -> None:
         text = (
             'Done.\n\n<hive_actions>\n{"type": "message", "to": "x", "text": "y"}\n</hive_actions>'
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions == []
 
     def test_mixed_valid_and_invalid_actions(self) -> None:
@@ -102,7 +102,7 @@ class TestParseActions:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].to == "dev.backend"
 
@@ -121,7 +121,7 @@ class TestParseActions:
             '[{"type": "message", "to": "dev", "text": "retry success"}]\n'
             "</hive_actions>"
         )
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].text == "retry success"
         assert "<hive_actions>" not in clean
@@ -137,7 +137,7 @@ class TestParseActions:
             '[{"type": "message", "to": "b", "text": "two"}]\n'
             "</hive_actions>"
         )
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert len(actions) == 2
         assert actions[0].to == "a"
         assert actions[1].to == "b"
@@ -156,7 +156,7 @@ class TestParseActions:
             "</hive_actions>\n"
             "After."
         )
-        clean, actions = parse_actions(text)
+        clean, actions, _ = parse_actions(text)
         assert "Before." in clean
         assert "After." in clean
         assert "<hive_actions>" not in clean
@@ -181,7 +181,7 @@ class TestRequestModeChangeAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].type == "request_mode_change"
         assert actions[0].requested_mode == "yotree"
@@ -193,7 +193,7 @@ class TestRequestModeChangeAction:
             '[{"type": "request_mode_change", "requested_mode": "yolo"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].requested_mode == "yolo"
         assert actions[0].reason is None
@@ -204,7 +204,7 @@ class TestRequestModeChangeAction:
             '[{"type": "request_mode_change", "reason": "because"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions == []
 
     def test_mixed_message_and_mode_request(self) -> None:
@@ -216,7 +216,7 @@ class TestRequestModeChangeAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 2
         assert actions[0].type == "message"
         assert actions[1].type == "request_mode_change"
@@ -227,7 +227,7 @@ class TestSpawnTeamAction:
 
     def test_spawn_team_minimal(self) -> None:
         text = '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].type == "spawn_team"
         assert actions[0].team_name == "backend"
@@ -239,12 +239,12 @@ class TestSpawnTeamAction:
             '[{"type": "spawn_team", "team_name": "backend", "model": "opus"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions[0].model == "opus"
 
     def test_spawn_team_missing_name_skipped(self) -> None:
         text = '<hive_actions>\n[{"type": "spawn_team"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions == []
 
     def test_spawn_team_with_display_name_and_personality(self) -> None:
@@ -263,7 +263,7 @@ class TestSpawnTeamAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].display_name == "Backend Eve"
         assert actions[0].personality == "Methodical, prefers TDD, runs tight ship."
@@ -271,7 +271,7 @@ class TestSpawnTeamAction:
     def test_spawn_team_default_display_name_and_personality_none(self) -> None:
         """When omitted, both fields default to None (same as model)."""
         text = '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions[0].display_name is None
         assert actions[0].personality is None
 
@@ -281,7 +281,7 @@ class TestSpawnWorkerAction:
 
     def test_spawn_worker_minimal(self) -> None:
         text = '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].type == "spawn_worker"
         assert actions[0].lead == "dev.backend"
@@ -297,7 +297,7 @@ class TestSpawnWorkerAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions[0].worker_name == "migrator"
         assert actions[0].task_id == 42
 
@@ -309,7 +309,7 @@ class TestSpawnWorkerAction:
         protocol no longer requires it.
         """
         text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].type == "spawn_worker"
         assert actions[0].lead is None
@@ -318,7 +318,7 @@ class TestSpawnWorkerAction:
         text = (
             '<hive_actions>\n[{"type": "spawn_worker", "worker_name": "backend"}]\n</hive_actions>'
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].lead is None
         assert actions[0].worker_name == "backend"
@@ -329,7 +329,7 @@ class TestSpawnWorkerAction:
             '[{"type": "spawn_worker", "lead": "dev.backend", "task_id": "abc"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].task_id is None
 
@@ -344,7 +344,7 @@ class TestSpawnWorkerAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].display_name == "Migrator Mig"
         assert actions[0].personality == "Cautious, never drops a column."
@@ -352,7 +352,7 @@ class TestSpawnWorkerAction:
     def test_spawn_worker_default_display_name_and_personality_none(self) -> None:
         """When omitted, both fields default to None."""
         text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions[0].display_name is None
         assert actions[0].personality is None
 
@@ -364,14 +364,14 @@ class TestKillEntityAction:
         text = (
             '<hive_actions>\n[{"type": "kill_entity", "target": "dev.backend.w1"}]\n</hive_actions>'
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 1
         assert actions[0].type == "kill_entity"
         assert actions[0].target == "dev.backend.w1"
 
     def test_kill_entity_missing_target_skipped(self) -> None:
         text = '<hive_actions>\n[{"type": "kill_entity"}]\n</hive_actions>'
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert actions == []
 
     def test_mixed_autonomy_actions(self) -> None:
@@ -385,7 +385,7 @@ class TestKillEntityAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions = parse_actions(text)
+        _, actions, _ = parse_actions(text)
         assert len(actions) == 3
         types = [a.type for a in actions]
         assert types == ["spawn_team", "spawn_worker", "kill_entity"]
@@ -404,7 +404,7 @@ class TestRequestDecisionAction:
             "]\n"
             "</hive_actions>"
         )
-        clean, actions = parse_actions(response)
+        clean, actions, _ = parse_actions(response)
         assert clean == "Some text."
         assert len(actions) == 1
         assert actions[0].type == "request_decision"
@@ -415,14 +415,14 @@ class TestRequestDecisionAction:
         response = (
             '<hive_actions>\n[{"type": "request_decision", "to": "dev.backend"}]\n</hive_actions>'
         )
-        _, actions = parse_actions(response)
+        _, actions, _ = parse_actions(response)
         assert actions == []  # missing `text` is rejected
 
     def test_parse_request_decision_missing_to(self) -> None:
         response = (
             '<hive_actions>\n[{"type": "request_decision", "text": "Decide?"}]\n</hive_actions>'
         )
-        _, actions = parse_actions(response)
+        _, actions, _ = parse_actions(response)
         assert actions == []  # missing `to` is rejected
 
 
@@ -443,7 +443,7 @@ class TestRequestPaymentAction:
             "]\n"
             "</hive_actions>"
         )
-        clean, actions = parse_actions(response)
+        clean, actions, _ = parse_actions(response)
         assert clean == "Need to pay vendor."
         assert len(actions) == 1
         a = actions[0]
@@ -461,7 +461,7 @@ class TestRequestPaymentAction:
             '"recipient": "r", "idempotency_key": "k", "reason": "x"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(response)
+        _, actions, _ = parse_actions(response)
         assert actions == []
 
     def test_parse_request_payment_negative_amount_skipped(self) -> None:
@@ -472,7 +472,7 @@ class TestRequestPaymentAction:
             '"reason": "x"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(response)
+        _, actions, _ = parse_actions(response)
         assert actions == []
 
     def test_parse_request_payment_invalid_currency_skipped(self) -> None:
@@ -483,5 +483,100 @@ class TestRequestPaymentAction:
             '"reason": "x"}]\n'
             "</hive_actions>"
         )
-        _, actions = parse_actions(response)
+        _, actions, _ = parse_actions(response)
         assert actions == []
+
+
+class TestParseActionsErrors:
+    """parse_actions returns a third tuple element of human-readable
+    error strings whenever a block is dropped. The orchestrator routes
+    these back to the sender so they can retry — silent drops were the
+    bug this is fixing.
+    """
+
+    def test_clean_input_returns_no_errors(self) -> None:
+        text = (
+            "All good.\n\n"
+            "<hive_actions>\n"
+            '[{"type": "message", "to": "dev.backend", "text": "hi"}]\n'
+            "</hive_actions>"
+        )
+        _, _, errors = parse_actions(text)
+        assert errors == []
+
+    def test_no_actions_block_returns_no_errors(self) -> None:
+        _, _, errors = parse_actions("Just plain prose.")
+        assert errors == []
+
+    def test_malformed_json_returns_error(self) -> None:
+        text = "Hello.\n\n<hive_actions>\n{not valid json}\n</hive_actions>"
+        _, actions, errors = parse_actions(text)
+        assert actions == []
+        assert len(errors) == 1
+        assert "Malformed JSON" in errors[0]
+
+    def test_missing_field_returns_error(self) -> None:
+        text = (
+            'Done.\n\n<hive_actions>\n[{"type": "message", "to": "dev.backend"}]\n</hive_actions>'
+        )
+        _, actions, errors = parse_actions(text)
+        assert actions == []
+        assert len(errors) == 1
+        assert "missing required fields" in errors[0]
+        assert "text" in errors[0]
+
+    def test_unknown_action_type_returns_error(self) -> None:
+        text = (
+            'Done.\n\n<hive_actions>\n[{"type": "teleport", "to": "dev.backend"}]\n</hive_actions>'
+        )
+        _, _, errors = parse_actions(text)
+        assert len(errors) == 1
+        assert "Unknown action type" in errors[0]
+        assert "'teleport'" in errors[0]
+
+    def test_orphan_open_tag_returns_error(self) -> None:
+        # Opening tag with no closing tag — entire response after the
+        # opening is dropped. The user needs to know.
+        text = "Here\n<hive_actions>\nblah blah no close"
+        _, actions, errors = parse_actions(text)
+        assert actions == []
+        assert len(errors) == 1
+        assert "no closing" in errors[0]
+
+    def test_non_array_json_returns_error(self) -> None:
+        text = (
+            'Done.\n\n<hive_actions>\n{"type": "message", "to": "x", "text": "y"}\n</hive_actions>'
+        )
+        _, _, errors = parse_actions(text)
+        assert len(errors) == 1
+        assert "must be a JSON array" in errors[0]
+
+    def test_multiple_errors_collected(self) -> None:
+        text = (
+            "Mixed.\n\n<hive_actions>\n"
+            "[\n"
+            '  {"type": "message", "to": "dev.backend"},\n'
+            '  {"type": "teleport"}\n'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions, errors = parse_actions(text)
+        assert actions == []
+        assert len(errors) == 2
+
+    def test_partial_success_some_errors(self) -> None:
+        # One valid action + one bad action: parser keeps the good one,
+        # surfaces error for the bad one.
+        text = (
+            "Mixed.\n\n<hive_actions>\n"
+            "[\n"
+            '  {"type": "message", "to": "dev.backend", "text": "hi"},\n'
+            '  {"type": "message", "to": "dev.frontend"}\n'
+            "]\n"
+            "</hive_actions>"
+        )
+        _, actions, errors = parse_actions(text)
+        assert len(actions) == 1
+        assert actions[0].to == "dev.backend"
+        assert len(errors) == 1
+        assert "dev.frontend" in errors[0]

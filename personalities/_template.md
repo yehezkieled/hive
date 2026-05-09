@@ -11,7 +11,12 @@
 ## Tools
 Pick the tool set that matches the role:
 - **Maestro / lead**: `allowedTools: Read Grep Glob` — delegation-only.
-  These roles do not write code; they spawn leads or workers.
+  These roles do not write code; they spawn leads or workers. ALSO add
+  `disallowedTools: Agent Task ExitPlanMode TodoWrite TaskCreate TaskUpdate TaskList TaskGet TaskOutput TaskStop`
+  — `allowedTools` alone is bypassed under `--dangerously-skip-permissions`,
+  but `disallowedTools` is honored, so this is what stops a yolo
+  maestro/lead from spawning Claude Code subagents instead of Hive
+  workers.
 - **Worker**: `allowedTools: Read Write Edit Bash Grep Glob` — full
   toolkit. Workers do the actual building.
 - `disallowedTools`: <space-separated tool names if you need to remove
