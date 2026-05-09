@@ -77,7 +77,12 @@ class MessageRouter:
         )
         if recipient in self._queues:
             await self._queues[recipient].put(msg)
-            if self.wake_callback is not None:
+            # Wake only on peer messages. User dispatches (sender='user')
+            # already spawn a session synchronously via the dispatch path
+            # and call route() afterwards just to log the round-trip — a
+            # wake there would race with that session and start a
+            # redundant second one.
+            if self.wake_callback is not None and sender != "user":
                 try:
                     self.wake_callback(recipient)
                 except Exception:

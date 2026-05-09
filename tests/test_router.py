@@ -78,14 +78,25 @@ async def test_registered_entities(router: MessageRouter) -> None:
     assert router.registered_entities == ["b"]
 
 
-async def test_wake_callback_fires_on_route(router: MessageRouter) -> None:
+async def test_wake_callback_fires_on_peer_route(router: MessageRouter) -> None:
+    router.register("maestro:dev")
+    seen: list[str] = []
+    router.wake_callback = seen.append
+
+    await router.route("dev.backend", "maestro:dev", "DB ready")
+
+    assert seen == ["maestro:dev"]
+
+
+async def test_wake_callback_skipped_for_user_sender(router: MessageRouter) -> None:
+    """User dispatches already spawn sessions synchronously — skip wake."""
     router.register("maestro:dev")
     seen: list[str] = []
     router.wake_callback = seen.append
 
     await router.route("user", "maestro:dev", "hello")
 
-    assert seen == ["maestro:dev"]
+    assert seen == []
 
 
 async def test_wake_callback_skipped_for_unregistered_recipient(
@@ -94,6 +105,6 @@ async def test_wake_callback_skipped_for_unregistered_recipient(
     seen: list[str] = []
     router.wake_callback = seen.append
 
-    await router.route("user", "maestro:dev", "hello")
+    await router.route("dev.backend", "maestro:dev", "DB ready")
 
     assert seen == []
