@@ -586,6 +586,71 @@ line) is the one to kill later.
 
 ---
 
+## 4.5 Backups (Sprint 29)
+
+Hive's only persistent state is the `hive-postgres` Docker volume
+(`hive_pgdata`). A bad migration, accidental `DELETE`, or `docker volume
+rm` would wipe every blueprint, attachment, audit-log row, and entity
+record. Backups defend against that.
+
+### Daily logical backup (pg_dump)
+
+A systemd-user timer (`hive-backup.timer`) runs at **03:30 UTC** every
+day and dumps the database to `~/backups/hive/<UTC-timestamp>.sql.gz`.
+The script (`scripts/backup_postgres.sh`) prunes anything older than 14
+days, so the directory stays at ~14 files.
+
+The dump runs *inside* the `hive-postgres` container (`docker exec
+hive-postgres pg_dump …`), guaranteeing the dumper version always
+matches the server.
+
+#### One-time install
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now hive-backup.timer
+```
+
+#### Verify it's healthy
+
+```bash
+# Next-fire time
+systemctl --user list-timers --all | grep hive-backup
+
+# Last run + journal output
+systemctl --user status hive-backup.service
+journalctl --user -u hive-backup -n 30 --no-pager
+
+# What's on disk
+ls -lh ~/backups/hive/
+```
+
+#### Manual fire (smoke test)
+
+```bash
+systemctl --user start hive-backup.service
+# A new ~/backups/hive/<timestamp>.sql.gz appears within seconds.
+```
+
+#### Override location
+
+Set `HIVE_BACKUP_DIR` in `.env` to write somewhere other than
+`~/backups/hive/`. The systemd unit re-reads `.env` at each run, so no
+restart is needed after editing.
+
+#### Configuration knobs
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HIVE_BACKUP_DIR` | `~/backups/hive` | Output directory for `*.sql.gz` files |
+| (retention) | 14 days | Hard-coded in `scripts/backup_postgres.sh` (`-mtime +14`) |
+| (schedule) | `03:30 UTC` daily | Hard-coded in `~/.config/systemd/user/hive-backup.timer` |
+
+> **Restore procedure** lives in §8 (Troubleshooting → Restore from
+> backup).
+
+---
+
 ## 5. Normal operations
 
 ### Tail logs
