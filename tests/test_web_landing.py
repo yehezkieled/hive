@@ -49,6 +49,19 @@ class TestLandingPage:
         assert 'id="help-rail"' in resp.text
         assert 'id="help-rail-body"' in resp.text
 
+    def test_otter_icon_and_tooltip(self) -> None:
+        """Otter maestro card shows a CSS tooltip icon; no native title attr."""
+        client = _client()
+        resp = client.get("/")
+        assert resp.status_code == 200
+        # icon and tooltip wrapper must be present
+        assert "otter-info-wrap" in resp.text
+        assert "otter-tooltip" in resp.text
+        # tooltip text must appear
+        assert "Hezki personal assistant" in resp.text
+        # must use CSS tooltip — native browser title= is explicitly forbidden
+        assert 'title="Hezki personal assistant"' not in resp.text
+
 
 class TestFragmentEndpoints:
     def test_hero_fragment(self) -> None:
@@ -77,7 +90,7 @@ class TestViewModelShape:
             "health",
             "hero",
             "chat",
-            "pa",
+            "otter",
             "vault",
             "active",
             "idle",
@@ -89,7 +102,7 @@ class TestViewModelShape:
         assert view["approvals_count"] == 0
         assert view["hero"]["active_count"] == 0
         assert view["hero"]["mood"] == "asleep"
-        assert view["pa"]["state"] == "dormant"
+        assert view["otter"]["state"] == "dormant"
         assert view["vault"]["pending_approvals"] == 0
         assert view["vault"]["highest"] is None
         assert view["active"] == []
@@ -157,7 +170,7 @@ class TestViewModelShape:
 
     @pytest.mark.asyncio
     async def test_dormant_lists_unregistered_personalities(self, tmp_path: Path) -> None:
-        (tmp_path / "pa.md").write_text("# Entity: PA")
+        (tmp_path / "otter.md").write_text("# Entity: Otter")
         (tmp_path / "dev.md").write_text("# Entity: Dev")
         (tmp_path / "_template.md").write_text("# template")
         (tmp_path / "role-lead.md").write_text("# Role: Lead")
@@ -170,4 +183,4 @@ class TestViewModelShape:
         view = await build_landing_view_model(process_manager=pm, personalities_dir=tmp_path)
 
         names = {d["name"] for d in view["dormant"]}
-        assert names == {"pa"}
+        assert names == {"otter"}

@@ -147,7 +147,7 @@
           <span class="section-head__rule"></span>
         </div>
         <div class="cards-grid cards-grid--pinned">
-          {{ maestro_card(view.pa, pinned=true) }}
+          {{ maestro_card(view.otter, pinned=true) }}
           <div class="vault-wrapper" style="display: contents;" hx-get="/api/landing/vault" hx-trigger="every 15s" hx-swap="innerHTML">
             {% include "_partials/vault.html" %}
           </div>
@@ -303,6 +303,23 @@ function appendChatLine(from, text) {
       + '<div class="msg__body"><span class="msg__from"></span>'
       + '<div class="msg__bubble"></div></div>';
     wrap.querySelector('.msg__from').textContent = from;
+    if (from === 'otter') {
+      const infoWrap = document.createElement('span');
+      infoWrap.className = 'otter-info-wrap';
+      const infoIcon = document.createElement('span');
+      infoIcon.className = 'otter-info';
+      infoIcon.setAttribute('tabindex', '0');
+      infoIcon.setAttribute('role', 'button');
+      infoIcon.setAttribute('aria-label', 'Hezki personal assistant');
+      infoIcon.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4.5" fill="none" stroke="#e0a726" stroke-width="1"/><circle cx="5" cy="3" r="0.9" fill="#e0a726"/><rect x="4.25" y="4.5" width="1.5" height="3" rx="0.5" fill="#e0a726"/></svg>';
+      const infoTip = document.createElement('div');
+      infoTip.className = 'otter-tooltip';
+      infoTip.setAttribute('role', 'tooltip');
+      infoTip.textContent = 'Hezki personal assistant';
+      infoWrap.appendChild(infoIcon);
+      infoWrap.appendChild(infoTip);
+      wrap.querySelector('.msg__from').appendChild(infoWrap);
+    }
     wrap.querySelector('.msg__bubble').innerHTML = renderMarkdown(text);
   }
   rail.appendChild(wrap);
@@ -504,13 +521,13 @@ async function sendChatCommand(event) {
     const data = await resp.json();
     if (stagedFile) {
       if (data && data.response) {
-        appendChatLine('hive', data.response);
+        appendChatLine(data.entity || 'hive', data.response);
       } else if (data && data.id != null) {
         const tail = data.forwarded_to ? ` → ${data.forwarded_to}` : '';
         appendChatLine('system', `📎 Attachment #${data.id} stored${tail}.`);
       }
     } else if (data && data.text) {
-      appendChatLine('hive', data.text);
+      appendChatLine(data.entity || 'hive', data.text);
     }
   } catch (err) {
     if (typingEl) typingEl.remove();
@@ -1116,6 +1133,75 @@ document.addEventListener('click', (ev) => {
   color: var(--ink-3);
   font-family: var(--font-sans); font-size: 11px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* ── Otter info icon + CSS tooltip ─────────────────────────── */
+.otter-info-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.otter-info {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #1f1812;
+  border: 1px solid #e0a726;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  flex-shrink: 0;
+}
+.otter-info:focus {
+  outline: 2px solid #e0a726;
+  outline-offset: 2px;
+}
+.otter-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-3px);
+  background: #1f1812;
+  color: #f5e9d3;
+  border: 1px solid #e0a726;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 175ms ease, transform 175ms ease;
+  pointer-events: none;
+  z-index: 20;
+}
+/* downward-pointing arrow tail, centred on tooltip bottom edge */
+.otter-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #e0a726;
+}
+.otter-tooltip::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  margin-top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1f1812;
+  z-index: 1;
+}
+.otter-info-wrap:hover .otter-tooltip,
+.otter-info-wrap:focus-within .otter-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
 }
 </style>
 </body>

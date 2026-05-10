@@ -149,8 +149,8 @@ Running migration 013_task_retries.sql
 Running migration 014_rename_loop_yolo.sql
 Running migration 015_advisor_calls.sql
 Running migration 016_embedding_dim_1024.sql
-Registered entity: pa
-Registered default maestro: pa
+Registered entity: otter
+Registered default maestro: otter
 Telegram bridge started, polling for updates
 Idle checker started (timeout=30m)
 Running with Telegram bridge
@@ -700,7 +700,7 @@ sleep 3 && grep -E 'Restored|Registered default|Running migration' data/hive.log
 After Sprint 2a, entities survive restart. Subsequent startup logs should
 show `Restored persisted entity: <name>` for each persisted entity and
 **skip** the `Registered default maestro` line (the first-run branch
-short-circuits when `pa` is already restored).
+short-circuits when `otter` is already restored).
 
 ### Telegram commands (full list)
 
@@ -1041,7 +1041,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `POSTGRES_DB` | `hive` | DB name |
 | `POSTGRES_USER` | `hive` | User |
 | `POSTGRES_PASSWORD` | `hive` | Password |
-| `HIVE_DEFAULT_MAESTRO` | `pa` | Auto-registered maestro name on first run |
+| `HIVE_DEFAULT_MAESTRO` | `otter` | Auto-registered maestro name on first run |
 | `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |

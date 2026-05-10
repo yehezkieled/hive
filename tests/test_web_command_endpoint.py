@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from hive.commands.dispatch import CommandResult
@@ -162,3 +164,60 @@ class TestDualWriteSuppression:
         )
         assert resp.status_code == 200
         assert store.log_message.await_count == 2
+
+
+class TestEntityResolution:
+    """POST /api/command returns the correct ``entity`` field for each routing case."""
+
+    @pytest.mark.asyncio
+    async def test_plain_text_resolves_to_otter(self, monkeypatch) -> None:
+        """Plain text 'hello' routes to the default maestro (otter)."""
+        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+        dispatcher = MagicMock()
+        dispatcher.dispatch = AsyncMock(return_value=CommandResult(text="hi", entity="otter"))
+        app = create_app(process_manager=_bare_pm(), command_dispatcher=dispatcher)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/command",
+                json={"text": "hello"},
+                headers={"Authorization": "Bearer secret"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["entity"] == "otter"
+
+    @pytest.mark.asyncio
+    async def test_m_dev_resolves_to_dev(self, monkeypatch) -> None:
+        """/m:dev x routes to entity 'dev'."""
+        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+        dispatcher = MagicMock()
+        dispatcher.dispatch = AsyncMock(return_value=CommandResult(text="ok", entity="dev"))
+        app = create_app(process_manager=_bare_pm(), command_dispatcher=dispatcher)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/command",
+                json={"text": "/m:dev x"},
+                headers={"Authorization": "Bearer secret"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["entity"] == "dev"
+
+    @pytest.mark.asyncio
+    async def test_full_address_resolves_to_entity(self, monkeypatch) -> None:
+        """A dotted address like hive_dev.backend resolves entity to hive_dev.backend."""
+        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
+        dispatcher = MagicMock()
+        dispatcher.dispatch = AsyncMock(
+            return_value=CommandResult(text="ok", entity="hive_dev.backend")
+        )
+        app = create_app(process_manager=_bare_pm(), command_dispatcher=dispatcher)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/command",
+                json={"text": "/m:hive_dev.backend check status"},
+                headers={"Authorization": "Bearer secret"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["entity"] == "hive_dev.backend"

@@ -53,11 +53,11 @@
 
 {% macro maestro_card(m, pinned=false) -%}
 <div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}">
-  {% if pinned %}<span class="maestro-card__pin">PINNED · PA</span>{% endif %}
+  {% if pinned %}<span class="maestro-card__pin">PINNED · {{ m.name|upper }}</span>{% endif %}
   <div class="maestro-card__head">
     <div class="maestro-card__icon{% if pinned %} maestro-card__icon--pinned{% endif %}">{{ m.name[:2] }}</div>
     <div class="maestro-card__name">
-      <span class="maestro-card__addr">{{ state_dot(m.state, size=8) }}/m:{{ m.name }}</span>
+      <span class="maestro-card__addr">{{ state_dot(m.state, size=8) }}/m:{{ m.name }}{% if m.name == 'otter' %}<span class="otter-info-wrap"><span class="otter-info" tabindex="0" role="button" aria-label="Hezki personal assistant"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4.5" fill="none" stroke="#e0a726" stroke-width="1"/><circle cx="5" cy="3" r="0.9" fill="#e0a726"/><rect x="4.25" y="4.5" width="1.5" height="3" rx="0.5" fill="#e0a726"/></svg></span><span class="otter-tooltip" role="tooltip">Hezki personal assistant</span></span>{% endif %}</span>
       <span class="maestro-card__role">{{ m.role }}</span>
     </div>
     <span class="maestro-card__chip">{{ tasks_chip(m.tasks) }}</span>

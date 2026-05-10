@@ -67,7 +67,7 @@ async def test_totals_empty(token_store: TokenStore) -> None:
 async def test_totals_aggregates(token_store: TokenStore) -> None:
     await token_store.record("dev", _usage(input_tokens=10, output_tokens=20, cost_usd=0.01))
     await token_store.record("dev", _usage(input_tokens=5, output_tokens=15, cost_usd=0.02))
-    await token_store.record("pa", _usage(input_tokens=3, output_tokens=4, cost_usd=0.03))
+    await token_store.record("otter", _usage(input_tokens=3, output_tokens=4, cost_usd=0.03))
 
     totals = await token_store.totals()
     assert totals["call_count"] == 3
@@ -78,16 +78,16 @@ async def test_totals_aggregates(token_store: TokenStore) -> None:
 
 async def test_totals_filters_by_entity(token_store: TokenStore) -> None:
     await token_store.record("dev", _usage(input_tokens=10, cost_usd=0.01))
-    await token_store.record("pa", _usage(input_tokens=100, cost_usd=0.05))
+    await token_store.record("otter", _usage(input_tokens=100, cost_usd=0.05))
 
     dev_totals = await token_store.totals(entity_name="dev")
     assert dev_totals["call_count"] == 1
     assert dev_totals["input_tokens"] == 10
     assert float(dev_totals["cost_usd"]) == 0.01
 
-    pa_totals = await token_store.totals(entity_name="pa")
-    assert pa_totals["call_count"] == 1
-    assert pa_totals["input_tokens"] == 100
+    otter_totals = await token_store.totals(entity_name="otter")
+    assert otter_totals["call_count"] == 1
+    assert otter_totals["input_tokens"] == 100
 
 
 async def test_totals_filters_by_since(token_store: TokenStore) -> None:

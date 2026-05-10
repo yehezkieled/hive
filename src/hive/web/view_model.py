@@ -141,11 +141,11 @@ def _list_dormant(personalities_dir: Path, registered: set[str]) -> list[dict]:
     return out
 
 
-_PA_STUB: dict = {
-    "name": "pa",
+_OTTER_STUB: dict = {
+    "name": "otter",
     "role": "personal assistant",
     "state": "dormant",
-    "summary": ("PA maestro not yet spawned. Run /m:pa hello in Telegram to register."),
+    "summary": ("Otter maestro not yet spawned. Run /m:otter hello in Telegram to register."),
     "updated": "—",
     "leads": 0,
     "workers": 0,
@@ -163,7 +163,7 @@ async def build_landing_view_model(
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
     personalities_dir: Path | None = None,
-    default_maestro: str = "pa",
+    default_maestro: str = "otter",
     message_store: MessageStore | None = None,
 ) -> dict:
     """Assemble the landing-page view-model dict from live Hive state."""
@@ -192,11 +192,11 @@ async def build_landing_view_model(
     if personalities_dir is not None:
         dormant_list = _list_dormant(personalities_dir, set(entities.keys()))
 
-    pa_entity = entities.get("pa")
-    pa_card = (
-        dict(_PA_STUB)
-        if pa_entity is None
-        else await _entity_to_card(pa_entity, task_store=task_store)
+    otter_entity = entities.get("otter")
+    otter_card = (
+        dict(_OTTER_STUB)
+        if otter_entity is None
+        else await _entity_to_card(otter_entity, task_store=task_store)
     )
 
     vault_pending: list[dict] = []
@@ -281,7 +281,7 @@ async def build_landing_view_model(
             "participants": chat_participants,
             "messages": chat_messages,
         },
-        "pa": pa_card,
+        "otter": otter_card,
         "vault": {
             "pending_approvals": pending_total,
             "highest": highest,

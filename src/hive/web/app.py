@@ -59,7 +59,7 @@ def create_app(
     audit_log: AuditLog | None = None,
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
-    default_maestro: str = "pa",
+    default_maestro: str = "otter",
     personalities_dir: Path | None = None,
     command_dispatcher: CommandDispatcher | None = None,
     message_store: MessageStore | None = None,
@@ -174,11 +174,11 @@ def create_app(
             try:
                 await message_store.log_message(sender="user", recipient="hive", content=body.text)
                 await message_store.log_message(
-                    sender="hive", recipient="user", content=result.text
+                    sender=result.entity or "hive", recipient="user", content=result.text
                 )
             except Exception:
                 logger.exception("Failed to persist web chat message")
-        return {"text": result.text, "metadata": result.metadata}
+        return {"text": result.text, "metadata": result.metadata, "entity": result.entity}
 
     @app.post("/api/upload")
     async def api_upload(

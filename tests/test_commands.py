@@ -78,13 +78,13 @@ def test_reset_command() -> None:
 def test_plain_text_goes_to_default_maestro() -> None:
     cmd = parse_command("hello there")
     assert cmd.name == "message"
-    assert cmd.target == "pa"
+    assert cmd.target == "otter"
     assert cmd.args == "hello there"
 
 
 def test_plain_text_custom_default() -> None:
-    cmd = parse_command("hello", default_maestro="pa")
-    assert cmd.target == "pa"
+    cmd = parse_command("hello", default_maestro="otter")
+    assert cmd.target == "otter"
 
 
 def test_empty_string() -> None:
