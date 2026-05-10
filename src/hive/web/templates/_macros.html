@@ -53,11 +53,13 @@
 
 {% macro maestro_card(m, pinned=false) -%}
 <div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}">
-  {% if pinned %}<span class="maestro-card__pin">PINNED · PA</span>{% endif %}
+  {% if pinned %}<span class="maestro-card__pin">PINNED · {{ m.name|upper }}</span>{% endif %}
   <div class="maestro-card__head">
     <div class="maestro-card__icon{% if pinned %} maestro-card__icon--pinned{% endif %}">{{ m.name[:2] }}</div>
     <div class="maestro-card__name">
-      <span class="maestro-card__addr">{{ state_dot(m.state, size=8) }}/m:{{ m.name }}</span>
+      <span class="maestro-card__addr">
+        {{ state_dot(m.state, size=8) }}/m:{{ m.name }}{% if m.name == 'otter' %}<span class="maestro-card__info" title="Hezki personal assistant" aria-label="Hezki personal assistant" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:6px;border-radius:50%;background:#1f1812;color:#e0a726;font-size:10px;font-weight:700;cursor:help;">!</span>{% endif %}
+      </span>
       <span class="maestro-card__role">{{ m.role }}</span>
     </div>
     <span class="maestro-card__chip">{{ tasks_chip(m.tasks) }}</span>

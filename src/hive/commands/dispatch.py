@@ -123,6 +123,7 @@ class CommandResult:
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
     routed: bool = False
+    entity: str = ""
 
 
 class CommandDispatcher:
@@ -136,7 +137,7 @@ class CommandDispatcher:
     def __init__(
         self,
         process_manager: ProcessManager,
-        default_maestro: str = "pa",
+        default_maestro: str = "otter",
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,
@@ -238,6 +239,7 @@ class CommandDispatcher:
             return CommandResult(
                 text=await self._send_to_entity(cmd.target, cmd.args),
                 routed=True,
+                entity=cmd.target,
             )
 
         if cmd.name == "cost":
@@ -259,6 +261,7 @@ class CommandDispatcher:
                 return CommandResult(
                     text=await self._send_to_entity(cmd.target, cmd.args),
                     routed=True,
+                    entity=cmd.target,
                 )
             return CommandResult(text=await self._execute_team(cmd.target, cmd.args))
 
@@ -272,6 +275,7 @@ class CommandDispatcher:
             return CommandResult(
                 text=await self._send_to_entity(cmd.target or "", cmd.args),
                 routed=True,
+                entity=cmd.target or "",
             )
 
         if cmd.name == "mode":

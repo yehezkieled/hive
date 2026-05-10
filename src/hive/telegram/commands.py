@@ -15,7 +15,7 @@ class Command:
     args: str = ""
 
 
-def parse_command(text: str, default_maestro: str = "pa") -> Command:
+def parse_command(text: str, default_maestro: str = "otter") -> Command:
     """Parse a Telegram message into a Command.
 
     Examples:
