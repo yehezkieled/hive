@@ -1469,6 +1469,18 @@ class ProcessManager:
                     if team and name in team.workers:
                         team.workers.remove(name)
 
+            # When killing a lead, also drop the Team object on the maestro
+            # so the team name can be reused. kill_team() already calls
+            # maestro.remove_team — wrap in try/except so the two paths
+            # remain idempotent.
+            if isinstance(entity, TeamLead) and entity.maestro_name:
+                maestro = self._entities.get(entity.maestro_name)
+                if isinstance(maestro, Maestro):
+                    try:
+                        maestro.remove_team(entity.team_name)
+                    except KeyError:
+                        pass
+
             # Clear session_id so a stale --resume isn't persisted to DB
             entity.session_id = None
 
@@ -1486,6 +1498,8 @@ class ProcessManager:
 
         self.router.unregister(name)
         await self._audit("entity.kill", target=name)
+        if self.scheduler is not None:
+            self.scheduler.refund_autospawn(name)
         logger.info("Killed entity: %s", name)
 
     async def kill_all(self) -> None:

@@ -58,6 +58,42 @@ def test_rate_limit_window_resets(manager: ProcessManager) -> None:
     assert sched.spawn_count("dev") == 0
 
 
+def test_refund_autospawn_decrements(manager: ProcessManager) -> None:
+    """refund_autospawn should give back one slot in the current window."""
+    sched = PriorityScheduler(process_manager=manager, spawn_limit=3)
+    sched.record_autospawn("dev")
+    sched.record_autospawn("dev")
+    assert sched.spawn_count("dev") == 2
+    sched.refund_autospawn("dev")
+    assert sched.spawn_count("dev") == 1
+
+
+def test_refund_does_not_go_negative(manager: ProcessManager) -> None:
+    """Refunding a fresh actor is a no-op — never below zero."""
+    sched = PriorityScheduler(process_manager=manager, spawn_limit=3)
+    sched.refund_autospawn("dev")
+    assert sched.spawn_count("dev") == 0
+    # Still safe to refund again.
+    sched.refund_autospawn("dev")
+    assert sched.spawn_count("dev") == 0
+
+
+def test_refund_uses_org_attribution(manager: ProcessManager) -> None:
+    """Refund must mirror record's root-maestro attribution.
+
+    A nested actor like ``dev.team.w1`` should refund ``dev``'s counter
+    so a kill credits the same budget that the spawn debited.
+    """
+    sched = PriorityScheduler(process_manager=manager, spawn_limit=3)
+    sched.record_autospawn("dev.team.w1")
+    sched.record_autospawn("dev.team.w2")
+    assert sched.spawn_count("dev") == 2
+    sched.refund_autospawn("dev.team.w1")
+    assert sched.spawn_count("dev") == 1
+    # Different maestro is unaffected.
+    assert sched.spawn_count("ops") == 0
+
+
 async def test_facts_prompt_capacity_and_budget(manager: ProcessManager) -> None:
     """Facts prompt surfaces the numbers the maestro needs to allocate."""
     manager._entities["dev"] = Maestro(name="dev", model="sonnet")

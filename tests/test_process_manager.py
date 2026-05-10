@@ -336,6 +336,31 @@ class TestTeamManagement:
         assert "dev.backend.w1" not in manager.entities
         assert "backend" not in maestro.teams
 
+    async def test_kill_lead_frees_team_name(self, manager: ProcessManager) -> None:
+        """kill_entity on a lead must drop the Team so the name can be reused.
+
+        Regression: previously kill_entity left the Team object on the
+        maestro, so a subsequent create_team with the same name raised
+        "Team already exists".
+        """
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        await manager.create_team("dev", "foo")
+        assert "foo" in maestro.teams
+
+        await manager.kill_entity("dev.foo")
+        assert "dev.foo" not in manager.entities
+        assert "foo" not in maestro.teams
+
+        # Re-creating the team with the same name must succeed.
+        new_lead = await manager.create_team("dev", "foo")
+        assert isinstance(new_lead, TeamLead)
+        assert new_lead.name == "dev.foo"
+        assert "dev.foo" in manager.entities
+        assert "foo" in maestro.teams
+
     async def test_lead_inherits_maestro_permission_mode(self, manager: ProcessManager) -> None:
         """Yolo on the maestro must propagate to a freshly spawned lead.
 

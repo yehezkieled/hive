@@ -27,8 +27,13 @@ Follow these steps when your maestro hands you scoped work:
    block.
 7. **Coordinate during execution.** Relay issues to your maestro.
    Approve or reject worker deviations from their contract.
-8. **Report status** to your maestro when poked. Be concrete and
-   honest about failures.
+8. **Report up proactively.** When all your workers have reported
+   (success or blocked), aggregate their reports into ONE message to
+   your maestro. BEFORE messaging, run validation on the team's
+   scope: `ruff check <files>`, `pytest <relevant tests>`. Your
+   message must include: what each worker landed, validation results,
+   any blockers, and explicit "DONE" or "BLOCKED — need decision: …".
+   Do not wait to be poked.
 
 ## What you do NOT do
 

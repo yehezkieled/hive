@@ -80,6 +80,17 @@ class PriorityScheduler:
         """Increment the spawn counter for ``actor``'s parent maestro."""
         self._spawn_counts[maestro_for_actor(actor)] += 1
 
+    def refund_autospawn(self, actor: str) -> None:
+        """Decrement the spawn counter for ``actor``'s parent maestro.
+
+        Called on kill so a maestro can recover spawn budget within the
+        same window after cleaning up an entity. Floors at zero — refunding
+        a fresh actor is a no-op rather than going negative.
+        """
+        maestro = maestro_for_actor(actor)
+        if self._spawn_counts[maestro] > 0:
+            self._spawn_counts[maestro] -= 1
+
     def spawn_count(self, actor: str) -> int:
         return self._spawn_counts.get(maestro_for_actor(actor), 0)
 
