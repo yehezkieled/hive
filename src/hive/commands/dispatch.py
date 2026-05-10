@@ -136,7 +136,7 @@ class CommandDispatcher:
     def __init__(
         self,
         process_manager: ProcessManager,
-        default_maestro: str = "dev",
+        default_maestro: str = "pa",
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,

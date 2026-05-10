@@ -163,7 +163,7 @@ async def build_landing_view_model(
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
     personalities_dir: Path | None = None,
-    default_maestro: str = "dev",
+    default_maestro: str = "pa",
     message_store: MessageStore | None = None,
 ) -> dict:
     """Assemble the landing-page view-model dict from live Hive state."""

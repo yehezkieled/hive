@@ -78,7 +78,7 @@ def test_reset_command() -> None:
 def test_plain_text_goes_to_default_maestro() -> None:
     cmd = parse_command("hello there")
     assert cmd.name == "message"
-    assert cmd.target == "dev"
+    assert cmd.target == "pa"
     assert cmd.args == "hello there"
 
 

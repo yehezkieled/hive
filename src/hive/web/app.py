@@ -59,7 +59,7 @@ def create_app(
     audit_log: AuditLog | None = None,
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
-    default_maestro: str = "dev",
+    default_maestro: str = "pa",
     personalities_dir: Path | None = None,
     command_dispatcher: CommandDispatcher | None = None,
     message_store: MessageStore | None = None,
