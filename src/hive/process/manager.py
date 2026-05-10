@@ -1299,6 +1299,7 @@ class ProcessManager:
             team_name=team_name,
             maestro_name=maestro_name,
             model=model,
+            permission_mode=entity.permission_mode,
         )
         team.lead = lead_name
 
@@ -1376,6 +1377,7 @@ class ProcessManager:
             team_name=lead.team_name,
             lead_name=lead_name,
             model=lead.model,
+            permission_mode=lead.permission_mode,
             task_id=task_id,
             worktree_path=worktree_path,
         )

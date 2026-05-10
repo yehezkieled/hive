@@ -336,6 +336,46 @@ class TestTeamManagement:
         assert "dev.backend.w1" not in manager.entities
         assert "backend" not in maestro.teams
 
+    async def test_lead_inherits_maestro_permission_mode(self, manager: ProcessManager) -> None:
+        """Yolo on the maestro must propagate to a freshly spawned lead.
+
+        Otherwise the lead spawns in 'default' and can't run any tool that
+        Claude Code prompts for, breaking the maestro→lead→worker pipeline.
+        """
+        maestro = Maestro(name="dev", model="sonnet")
+        maestro.set_permission_mode("yolo")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        lead = await manager.create_team("dev", "backend")
+
+        assert lead.permission_mode == "yolo"
+
+    async def test_worker_inherits_lead_permission_mode(self, manager: ProcessManager) -> None:
+        """A worker should be born with the same permission_mode as its lead."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        lead = await manager.create_team("dev", "backend")
+        lead.set_permission_mode("yolo")
+
+        worker = await manager.spawn_worker("dev.backend", "w1")
+
+        assert worker.permission_mode == "yolo"
+
+    async def test_default_mode_still_works(self, manager: ProcessManager) -> None:
+        """Sanity: a maestro in 'default' produces lead+worker in 'default'."""
+        maestro = Maestro(name="dev", model="sonnet")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        lead = await manager.create_team("dev", "backend")
+        worker = await manager.spawn_worker("dev.backend", "w1")
+
+        assert maestro.permission_mode == "default"
+        assert lead.permission_mode == "default"
+        assert worker.permission_mode == "default"
+
 
 class TestWorktreeIntegration:
     """Test worktree creation/cleanup during worker lifecycle."""
