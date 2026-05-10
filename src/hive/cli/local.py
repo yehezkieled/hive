@@ -19,7 +19,7 @@ class LocalCLI:
         self,
         process_manager: ProcessManager,
         router: MessageRouter,
-        default_maestro: str = "otter",
+        default_maestro: str = "pa",
     ) -> None:
         self.process_manager = process_manager
         self.router = router

@@ -147,7 +147,7 @@
           <span class="section-head__rule"></span>
         </div>
         <div class="cards-grid cards-grid--pinned">
-          {{ maestro_card(view.otter, pinned=true) }}
+          {{ maestro_card(view.pa, pinned=true) }}
           <div class="vault-wrapper" style="display: contents;" hx-get="/api/landing/vault" hx-trigger="every 15s" hx-swap="innerHTML">
             {% include "_partials/vault.html" %}
           </div>
@@ -303,15 +303,6 @@ function appendChatLine(from, text) {
       + '<div class="msg__body"><span class="msg__from"></span>'
       + '<div class="msg__bubble"></div></div>';
     wrap.querySelector('.msg__from').textContent = from;
-    if (from === 'otter') {
-      const info = document.createElement('span');
-      info.className = 'msg__info';
-      info.textContent = '!';
-      info.title = 'Hezki personal assistant';
-      info.setAttribute('aria-label', 'Hezki personal assistant');
-      info.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:6px;border-radius:50%;background:#1f1812;color:#e0a726;font-size:10px;font-weight:700;cursor:help;';
-      wrap.querySelector('.msg__from').appendChild(info);
-    }
     wrap.querySelector('.msg__bubble').innerHTML = renderMarkdown(text);
   }
   rail.appendChild(wrap);
@@ -513,13 +504,13 @@ async function sendChatCommand(event) {
     const data = await resp.json();
     if (stagedFile) {
       if (data && data.response) {
-        appendChatLine(data.entity || 'hive', data.response);
+        appendChatLine('hive', data.response);
       } else if (data && data.id != null) {
         const tail = data.forwarded_to ? ` → ${data.forwarded_to}` : '';
         appendChatLine('system', `📎 Attachment #${data.id} stored${tail}.`);
       }
     } else if (data && data.text) {
-      appendChatLine(data.entity || 'hive', data.text);
+      appendChatLine('hive', data.text);
     }
   } catch (err) {
     if (typingEl) typingEl.remove();

@@ -156,7 +156,7 @@ async def test_cost_by_entity_model_groups(token_store: TokenStore) -> None:
         ("dev", "sonnet", 0.10),
         ("dev", "sonnet", 0.05),
         ("dev", "haiku", 0.01),
-        ("otter", "opus", 0.20),
+        ("pa", "opus", 0.20),
     ]:
         await pool.execute(
             """INSERT INTO token_usage (entity_name, model, cost_usd)
@@ -168,11 +168,11 @@ async def test_cost_by_entity_model_groups(token_store: TokenStore) -> None:
 
     since = datetime.now(UTC) - timedelta(hours=1)
     out = await token_store.cost_by_entity_model(since)
-    assert set(out.keys()) == {"dev", "otter"}
+    assert set(out.keys()) == {"dev", "pa"}
     assert round(out["dev"]["sonnet"], 2) == 0.15
     assert round(out["dev"]["haiku"], 2) == 0.01
-    assert round(out["otter"]["opus"], 2) == 0.20
-    assert "haiku" not in out["otter"]
+    assert round(out["pa"]["opus"], 2) == 0.20
+    assert "haiku" not in out["pa"]
 
 
 async def test_cost_by_entity_model_filters_since(token_store: TokenStore) -> None:
@@ -224,7 +224,7 @@ async def test_cache_stats_per_entity(token_store: TokenStore) -> None:
     pool = token_store.pool
     for entity, ip, cr in [
         ("dev", 100, 100),  # 50%
-        ("otter", 200, 0),  # 0%
+        ("pa", 200, 0),  # 0%
     ]:
         await pool.execute(
             """INSERT INTO token_usage (entity_name, model, input_tokens,
@@ -239,7 +239,7 @@ async def test_cache_stats_per_entity(token_store: TokenStore) -> None:
     out = await token_store.cache_stats(since)
     by_name = {r["name"]: r for r in out}
     assert by_name["dev"]["hit_pct"] == 50.0
-    assert by_name["otter"]["hit_pct"] == 0.0
+    assert by_name["pa"]["hit_pct"] == 0.0
 
 
 async def test_cache_stats_excludes_outside_window(token_store: TokenStore) -> None:
@@ -321,7 +321,7 @@ async def test_cache_baseline_7d_filters_to_requested_entities(
     token_store: TokenStore,
 ) -> None:
     pool = token_store.pool
-    for entity, ip, cr in [("dev", 100, 400), ("otter", 200, 0)]:
+    for entity, ip, cr in [("dev", 100, 400), ("pa", 200, 0)]:
         await pool.execute(
             """INSERT INTO token_usage (entity_name, model, input_tokens,
                cache_read_input_tokens) VALUES ($1, $2, $3, $4)""",
@@ -333,7 +333,7 @@ async def test_cache_baseline_7d_filters_to_requested_entities(
 
     out = await token_store.cache_baseline_7d(["dev"])
     assert out == {"dev": 80.0}
-    assert "otter" not in out
+    assert "pa" not in out
 
 
 async def test_cache_baseline_7d_excludes_outside_window(

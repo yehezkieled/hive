@@ -89,7 +89,7 @@ DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "opus")
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 
 # Default maestro
-DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "otter")
+DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "pa")
 
 # Web dashboard (0 = disabled). WEB_HOST defaults to 127.0.0.1 so the
 # dashboard is only reachable locally (and via Tailscale) unless explicitly

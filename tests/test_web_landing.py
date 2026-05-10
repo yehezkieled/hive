@@ -77,7 +77,7 @@ class TestViewModelShape:
             "health",
             "hero",
             "chat",
-            "otter",
+            "pa",
             "vault",
             "active",
             "idle",
@@ -89,7 +89,7 @@ class TestViewModelShape:
         assert view["approvals_count"] == 0
         assert view["hero"]["active_count"] == 0
         assert view["hero"]["mood"] == "asleep"
-        assert view["otter"]["state"] == "dormant"
+        assert view["pa"]["state"] == "dormant"
         assert view["vault"]["pending_approvals"] == 0
         assert view["vault"]["highest"] is None
         assert view["active"] == []
@@ -157,7 +157,7 @@ class TestViewModelShape:
 
     @pytest.mark.asyncio
     async def test_dormant_lists_unregistered_personalities(self, tmp_path: Path) -> None:
-        (tmp_path / "otter.md").write_text("# Entity: Otter")
+        (tmp_path / "pa.md").write_text("# Entity: PA")
         (tmp_path / "dev.md").write_text("# Entity: Dev")
         (tmp_path / "_template.md").write_text("# template")
         (tmp_path / "role-lead.md").write_text("# Role: Lead")
@@ -170,4 +170,4 @@ class TestViewModelShape:
         view = await build_landing_view_model(process_manager=pm, personalities_dir=tmp_path)
 
         names = {d["name"] for d in view["dormant"]}
-        assert names == {"otter"}
+        assert names == {"pa"}

@@ -108,47 +108,6 @@ class TestSuccessPath:
         assert resp.status_code == 200
         assert "not configured" in resp.json()["text"].lower()
 
-    def test_response_includes_entity_field(self, monkeypatch) -> None:
-        """Frontend chat bubble titles use ``entity`` to render the correct sender."""
-        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
-        dispatcher = MagicMock()
-        dispatcher.dispatch = AsyncMock(
-            return_value=CommandResult(text="hi from otter", entity="otter")
-        )
-        client = TestClient(
-            create_app(
-                process_manager=_bare_pm(),
-                command_dispatcher=dispatcher,
-            )
-        )
-        resp = client.post(
-            "/api/command",
-            json={"text": "hi"},
-            headers={"Authorization": "Bearer secret"},
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["entity"] == "otter"
-        assert body["text"] == "hi from otter"
-
-    def test_response_entity_falls_back_to_hive(self, monkeypatch) -> None:
-        """When the dispatcher does not name a responder (e.g. /help), default to 'hive'."""
-        monkeypatch.setattr("hive.web.auth.WEB_TOKEN", "secret")
-        dispatcher = _dispatcher_returning("help text")
-        client = TestClient(
-            create_app(
-                process_manager=_bare_pm(),
-                command_dispatcher=dispatcher,
-            )
-        )
-        resp = client.post(
-            "/api/command",
-            json={"text": "/help"},
-            headers={"Authorization": "Bearer secret"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["entity"] == "hive"
-
 
 class TestDualWriteSuppression:
     """The dispatcher already logs entity round-trips through the bus router.

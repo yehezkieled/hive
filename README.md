@@ -47,7 +47,7 @@ docker compose up -d postgres
 python -m hive
 ```
 
-On first run, Hive applies all DB migrations and registers a default maestro named `otter`. You should see `Telegram bridge started, polling for updates` in the logs.
+On first run, Hive applies all DB migrations and registers a default maestro named `pa`. You should see `Telegram bridge started, polling for updates` in the logs.
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full install runbook, systemd setup, troubleshooting, and all config variables.
 

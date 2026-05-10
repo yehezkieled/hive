@@ -61,7 +61,7 @@ class TelegramBridge:
         bot_token: str,
         allowed_user_ids: list[int],
         process_manager: ProcessManager,
-        default_maestro: str = "otter",
+        default_maestro: str = "pa",
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,

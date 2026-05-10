@@ -70,11 +70,11 @@ class TestGenerateMcpConfig:
         from hive.mcp.config import generate_mcp_config
 
         config_path = tmp_path / "test2.json"
-        generate_mcp_config("otter", str(config_path))
+        generate_mcp_config("pa", str(config_path))
         data = json.loads(config_path.read_text())
         args = data["mcpServers"]["hive"]["args"]
         idx = args.index("--entity")
-        assert args[idx + 1] == "otter"
+        assert args[idx + 1] == "pa"
 
     def test_module_invocation_in_args(self, tmp_path: Path) -> None:
         from hive.mcp.config import generate_mcp_config

@@ -288,22 +288,22 @@ class TestNewMaestroInteractiveFlow:
     async def test_no_personality_starts_flow_with_first_question(
         self, dispatcher: CommandDispatcher, manager: ProcessManager
     ) -> None:
-        result = await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        result = await dispatcher.dispatch("/new maestro pa", actor="user:42")
         # Question text — purpose / "for?" — case-insensitive match
         text = result.text.lower()
         assert "for?" in text or "purpose" in text
         # Maestro is NOT yet registered — flow must collect answers first
-        assert "newbot" not in manager.entities
+        assert "pa" not in manager.entities
 
     async def test_plain_text_advances_flow(
         self, dispatcher: CommandDispatcher, manager: ProcessManager
     ) -> None:
-        await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
         result = await dispatcher.dispatch("manage my projects", actor="user:42")
         # Second question asks about communication style
         text = result.text.lower()
         assert "style" in text or "communicate" in text or "tone" in text
-        assert "newbot" not in manager.entities
+        assert "pa" not in manager.entities
 
     async def test_full_flow_writes_file_and_registers(
         self,
@@ -311,19 +311,19 @@ class TestNewMaestroInteractiveFlow:
         manager: ProcessManager,
         tmp_path: Path,
     ) -> None:
-        await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
         await dispatcher.dispatch("manage my projects", actor="user:42")
         result = await dispatcher.dispatch("terse and direct", actor="user:42")
         assert "registered" in result.text.lower()
         # File written with the user's answers embedded
-        target = tmp_path / "newbot.md"
+        target = tmp_path / "pa.md"
         assert target.exists()
         content = target.read_text()
-        assert "**Name**: newbot" in content
+        assert "**Name**: pa" in content
         assert "manage my projects" in content
         assert "terse and direct" in content
         # Maestro registered in process manager
-        assert "newbot" in manager.entities
+        assert "pa" in manager.entities
 
     async def test_full_flow_honors_explicit_model_arg(
         self,
@@ -332,21 +332,21 @@ class TestNewMaestroInteractiveFlow:
         tmp_path: Path,
     ) -> None:
         """Model passed via `/new maestro <name> <model>` carries through the flow."""
-        await dispatcher.dispatch("/new maestro newbot haiku", actor="user:42")
+        await dispatcher.dispatch("/new maestro pa haiku", actor="user:42")
         await dispatcher.dispatch("a purpose", actor="user:42")
         result = await dispatcher.dispatch("casual", actor="user:42")
         assert "model=haiku" in result.text
-        assert manager.entities["newbot"].model == "haiku"
-        assert "**Model**: haiku" in (tmp_path / "newbot.md").read_text()
+        assert manager.entities["pa"].model == "haiku"
+        assert "**Model**: haiku" in (tmp_path / "pa.md").read_text()
 
     async def test_cancel_command_aborts_flow(
         self, dispatcher: CommandDispatcher, manager: ProcessManager
     ) -> None:
-        await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
         result = await dispatcher.dispatch("/cancel", actor="user:42")
         assert "cancel" in result.text.lower()
         # No file written, no registration
-        assert "newbot" not in manager.entities
+        assert "pa" not in manager.entities
 
     async def test_cancel_command_outside_flow_returns_friendly_message(
         self, dispatcher: CommandDispatcher
@@ -359,7 +359,7 @@ class TestNewMaestroInteractiveFlow:
 
     async def test_other_command_cancels_pending_flow(self, dispatcher: CommandDispatcher) -> None:
         """A different /command (not /cancel) interrupts the flow."""
-        await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
         # Send a different command — should cancel flow and execute the new command
         result = await dispatcher.dispatch("/status", actor="user:42")
         # Status response, not the next flow question
@@ -381,7 +381,7 @@ class TestNewMaestroInteractiveFlow:
 
     async def test_pending_state_times_out(self, dispatcher: CommandDispatcher) -> None:
         """Pending flow expires after 10 minutes of inactivity."""
-        await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
         # Backdate the actor's pending state
         pending = dispatcher._pending_new["user:42"]  # type: ignore[attr-defined]
         pending.last_active = datetime.now(UTC) - timedelta(minutes=11)
@@ -397,9 +397,9 @@ class TestNewMaestroInteractiveFlow:
         tmp_path: Path,
     ) -> None:
         """If a maestro is registered mid-flow, finalization reports the error gracefully."""
-        # Register newbot via another path before the flow finishes
-        await manager.register_maestro("newbot", model="opus")
-        await dispatcher.dispatch("/new maestro newbot", actor="user:42")
+        # Register pa via another path before the flow finishes
+        await manager.register_maestro("pa", model="opus")
+        await dispatcher.dispatch("/new maestro pa", actor="user:42")
         await dispatcher.dispatch("a purpose", actor="user:42")
         result = await dispatcher.dispatch("a style", actor="user:42")
         # Final step surfaces the duplicate-name error from register_maestro
