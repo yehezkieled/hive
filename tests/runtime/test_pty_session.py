@@ -89,9 +89,7 @@ async def test_start_spawns_with_model_flag(mock_spawn, tmp_path: Path) -> None:
     assert spawn_args[idx + 1] == "opus"
 
 
-async def test_start_adds_continue_when_prior_session_exists(
-    mock_spawn, tmp_path: Path
-) -> None:
+async def test_start_adds_continue_when_prior_session_exists(mock_spawn, tmp_path: Path) -> None:
     MockPtyProcess, proc = mock_spawn
     # Simulate an existing Claude session: create the projects dir + .jsonl file
     cwd_slug = str(tmp_path).replace("/", "-")
@@ -107,12 +105,11 @@ async def test_start_adds_continue_when_prior_session_exists(
 
     # cleanup
     import shutil
+
     shutil.rmtree(projects_dir, ignore_errors=True)
 
 
-async def test_start_no_continue_when_no_prior_session(
-    mock_spawn, tmp_path: Path
-) -> None:
+async def test_start_no_continue_when_no_prior_session(mock_spawn, tmp_path: Path) -> None:
     MockPtyProcess, proc = mock_spawn
     # Ensure the projects dir does NOT have a jsonl for this cwd
     session = PtySession(model="sonnet", cwd=tmp_path)
@@ -130,9 +127,9 @@ async def test_send_injects_via_bracketed_paste(mock_spawn, tmp_path: Path) -> N
     await session.send("hello world")
 
     written = b"".join(c[0][0] for c in proc.write.call_args_list)
-    assert b"\x1b[200~" in written   # paste start
+    assert b"\x1b[200~" in written  # paste start
     assert b"hello world" in written
-    assert b"\x1b[201~" in written   # paste end
+    assert b"\x1b[201~" in written  # paste end
 
 
 async def test_stop_sends_exit_command(mock_spawn, tmp_path: Path) -> None:
@@ -153,13 +150,16 @@ async def test_crash_recovery_respawns_on_dead_proc(tmp_path: Path) -> None:
     recovered_proc.isalive.return_value = True
 
     spawn_count = 0
+
     def _spawn(*args, **kwargs):
         nonlocal spawn_count
         spawn_count += 1
         return dead_proc if spawn_count == 1 else recovered_proc
 
-    with patch("hive.runtime.pty_session.PtyProcess") as MockPtyProcess, \
-         patch("hive.runtime.pty_session.asyncio.sleep"):
+    with (
+        patch("hive.runtime.pty_session.PtyProcess") as MockPtyProcess,
+        patch("hive.runtime.pty_session.asyncio.sleep"),
+    ):
         MockPtyProcess.spawn.side_effect = _spawn
         session = PtySession(model="sonnet", cwd=tmp_path)
         await session.start()

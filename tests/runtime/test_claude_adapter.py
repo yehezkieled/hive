@@ -26,8 +26,10 @@ def _make_session(text: str, session_id: str = "s1", usage: dict | None = None) 
 
 def _factory(session: ClaudeSession):
     """Session factory that always returns the pre-built session."""
+
     def factory(args: list[str], cwd: Path | None) -> ClaudeSession:
         return session
+
     return factory
 
 
@@ -83,7 +85,7 @@ async def test_send_turn_passes_resume_flag_after_first_turn() -> None:
         return _make_session("ok", session_id="sess-abc")
 
     adapter = ClaudeAdapter(_config(), session_factory=capturing_factory)
-    await adapter.send_turn("first prompt")   # establishes session_id
+    await adapter.send_turn("first prompt")  # establishes session_id
     await adapter.send_turn("second prompt")  # should include --resume
 
     assert "--resume" not in " ".join(captured_args[0])
@@ -119,16 +121,80 @@ def test_is_alive_returns_true_in_step_1() -> None:
     assert adapter.is_alive() is True
 
 
+async def test_pty_mode_start_spawns_pty() -> None:
+    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+        mock_pty = AsyncMock()
+        mock_pty.is_alive.return_value = True
+        MockPtySession.return_value = mock_pty
+
+        adapter = ClaudeAdapter(_config(), use_pty=True)
+        await adapter.start()
+
+        MockPtySession.assert_called_once()
+        mock_pty.start.assert_awaited_once()
+
+
+async def test_pty_mode_send_turn_returns_text() -> None:
+    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+        mock_pty = AsyncMock()
+        mock_pty.is_alive.return_value = True
+        mock_pty.send.return_value = "PTY response text"
+        MockPtySession.return_value = mock_pty
+
+        adapter = ClaudeAdapter(_config(), use_pty=True)
+        await adapter.start()
+        text, usage = await adapter.send_turn("hello via pty")
+
+    assert text == "PTY response text"
+    assert "input_tokens" in usage
+    assert usage["session_id"] is None
+
+
+async def test_pty_mode_stop_terminates_pty() -> None:
+    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+        mock_pty = AsyncMock()
+        mock_pty.is_alive.return_value = True
+        MockPtySession.return_value = mock_pty
+
+        adapter = ClaudeAdapter(_config(), use_pty=True)
+        await adapter.start()
+        await adapter.stop()
+
+        mock_pty.stop.assert_awaited_once()
+
+
+async def test_pty_mode_is_alive_delegates_to_pty() -> None:
+    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+        mock_pty = MagicMock()
+        mock_pty.is_alive.return_value = False
+        MockPtySession.return_value = mock_pty
+
+        adapter = ClaudeAdapter(_config(), use_pty=True)
+        adapter._pty = mock_pty  # inject without calling start()
+
+        assert adapter.is_alive() is False
+        mock_pty.is_alive.assert_called()
+
+
 async def test_usage_dict_has_all_expected_keys() -> None:
     session = _make_session(
         "response",
-        usage={"input_tokens": 3, "output_tokens": 7,
-               "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
+        usage={
+            "input_tokens": 3,
+            "output_tokens": 7,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        },
     )
     adapter = ClaudeAdapter(_config(), session_factory=_factory(session))
     _, usage = await adapter.send_turn("hello")
 
-    for key in ("input_tokens", "output_tokens",
-                "cache_creation_input_tokens", "cache_read_input_tokens",
-                "session_id", "cost_usd"):
+    for key in (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "session_id",
+        "cost_usd",
+    ):
         assert key in usage, f"Missing key: {key}"

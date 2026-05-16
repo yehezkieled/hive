@@ -16,14 +16,17 @@ def test_reads_usage_from_last_assistant_turn(tmp_path: Path) -> None:
     session_dir = tmp_path / "session"
     session_dir.mkdir()
     log = session_dir / "session.jsonl"
-    _write_jsonl(log, [
-        {"role": "user", "content": "hello"},
-        {
-            "role": "assistant",
-            "content": "world",
-            "usage": {"input_tokens": 42, "output_tokens": 17},
-        },
-    ])
+    _write_jsonl(
+        log,
+        [
+            {"role": "user", "content": "hello"},
+            {
+                "role": "assistant",
+                "content": "world",
+                "usage": {"input_tokens": 42, "output_tokens": 17},
+            },
+        ],
+    )
 
     usage = read_last_usage(session_dir)
 
@@ -50,9 +53,12 @@ def test_returns_zeros_when_no_assistant_turn_with_usage(tmp_path: Path) -> None
     session_dir = tmp_path / "session"
     session_dir.mkdir()
     log = session_dir / "session.jsonl"
-    _write_jsonl(log, [
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "world"},  # no usage key
-    ])
+    _write_jsonl(
+        log,
+        [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "world"},  # no usage key
+        ],
+    )
     usage = read_last_usage(session_dir)
     assert usage == {"input_tokens": 0, "output_tokens": 0}

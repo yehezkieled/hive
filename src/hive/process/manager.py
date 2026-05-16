@@ -38,6 +38,7 @@ from hive.config import (
     AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
     DEFAULT_MAESTRO,
+    HIVE_USE_PTY,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import generate_mcp_config
@@ -215,6 +216,7 @@ class ProcessManager:
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
+        self._adapters: dict[str, ClaudeAdapter] = {}
         # Single asyncio.Lock guards mutations to _entities / _sessions when
         # those mutations need to be consistent (e.g. entity + session
         # registered together on spawn). Single-key reads do not acquire
@@ -603,6 +605,37 @@ class ProcessManager:
         )
         return session
 
+    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
+        """Return a live adapter for entity, creating one if needed.
+
+        In PTY mode (HIVE_USE_PTY=True) adapters are cached per entity so
+        the same persistent PTY process handles all turns. In subprocess mode
+        a fresh adapter is built per call (stateless, backward-compatible).
+        """
+        if HIVE_USE_PTY:
+            existing = self._adapters.get(entity.name)
+            if existing is not None and existing.is_alive():
+                return existing
+
+        cwd = (
+            Path(entity.worktree_path)
+            if isinstance(entity, WorkerAgent) and entity.worktree_path
+            else None
+        )
+        config = _adapter_config_from_entity(entity)
+        adapter = ClaudeAdapter(
+            config,
+            cwd=cwd,
+            session_factory=lambda args, c: ClaudeSession(args=args, cwd=c),
+            initial_session_id=entity.session_id if not HIVE_USE_PTY else None,
+            use_pty=HIVE_USE_PTY,
+        )
+        await adapter.start()
+        if HIVE_USE_PTY:
+            async with self._state_lock:
+                self._adapters[entity.name] = adapter
+        return adapter
+
     async def send_to_entity(self, entity_name: str, prompt: str) -> str:
         """Send a prompt to an entity and get the response.
 
@@ -711,12 +744,7 @@ class ProcessManager:
         if ADVISOR_ENABLED:
             generate_mcp_config(entity.name, entity.mcp_config_path)
 
-        config = _adapter_config_from_entity(entity)
-        adapter = ClaudeAdapter(
-            config,
-            session_factory=lambda args, cwd: ClaudeSession(args=args, cwd=cwd),
-            initial_session_id=entity.session_id,
-        )
+        adapter = await self._get_or_create_adapter(entity)
         response, usage = await adapter.send_turn(prompt)
         await self._record_usage(entity, usage)
 
@@ -1457,6 +1485,13 @@ class ProcessManager:
             async with self._state_lock:
                 self._sessions.pop(name, None)
 
+        adapter = self._adapters.pop(name, None)
+        if adapter is not None:
+            try:
+                await adapter.stop()
+            except Exception:
+                logger.exception("Failed to stop adapter for %s on kill", name)
+
         entity = self._entities.get(name)
         if entity:
             # Clean up worktree for workers
@@ -1532,6 +1567,14 @@ class ProcessManager:
                 logger.exception("Failed to kill session for %s on shutdown", name)
         async with self._state_lock:
             self._sessions.clear()
+
+        for name, adapter in list(self._adapters.items()):
+            try:
+                await adapter.stop()
+            except Exception:
+                logger.exception("Failed to stop adapter for %s on shutdown", name)
+        self._adapters.clear()
+
         logger.info("Stopped %d entity sessions for restart", len(self._entities))
 
     # -----------------------------------------------------------------
