@@ -20,9 +20,10 @@ _PASTE_START = b"\x1b[200~"
 _PASTE_END = b"\x1b[201~"
 _CHUNK_SIZE = 4096
 
-# Pattern that signals Claude Code is idle and waiting for input
-# cortexos confirmed: "⚔ ❯ " is the full prompt; ❯ never appears in normal output
-_TURN_COMPLETE = re.compile(r"❯\s*$", re.MULTILINE)
+# Pattern that signals Claude Code is idle and waiting for input.
+# cortexos: "⚔ ❯ " is the full prompt; ❯ never appears in assistant output.
+# Real idle line: "❯ Try ..." — non-breaking space follows, so match ❯ anywhere.
+_TURN_COMPLETE = re.compile(r"❯")
 
 # Trust prompt text Claude Code shows on first launch
 _TRUST_PROMPT = "Do you trust"
