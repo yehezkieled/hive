@@ -25,8 +25,8 @@ _CHUNK_SIZE = 4096
 # Real idle line: "❯ Try ..." — non-breaking space follows, so match ❯ anywhere.
 _TURN_COMPLETE = re.compile(r"❯")
 
-# Trust prompt text Claude Code shows on first launch
-_TRUST_PROMPT = "Do you trust"
+# Trust prompt text Claude Code shows on first launch (verified 2026-05-16)
+_TRUST_PROMPT = "trust this folder"
 
 
 def _claude_projects_dir(cwd: Path) -> Path:

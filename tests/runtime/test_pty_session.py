@@ -170,7 +170,7 @@ async def test_crash_recovery_respawns_on_dead_proc(tmp_path: Path) -> None:
 
 
 async def test_trust_prompt_auto_accept_writes_carriage_return(tmp_path: Path) -> None:
-    proc = _make_mock_proc([b"Do you trust the files in this folder? (y/n)\r\n"])
+    proc = _make_mock_proc([b"\xe2\x9d\xaf 1. Yes, I trust this folder\r\n"])
     with patch("hive.runtime.pty_session.PtyProcess") as MockPtyProcess:
         MockPtyProcess.spawn.return_value = proc
         session = PtySession(model="sonnet", cwd=tmp_path)
