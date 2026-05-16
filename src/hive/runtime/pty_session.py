@@ -46,13 +46,15 @@ def _build_spawn_args(
     cwd: Path | None,
     append_system_prompts: list[str],
     extra_args: list[str],
+    permission_mode: str = "bypassPermissions",
 ) -> list[str]:
-    args = [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--model",
-        model,
-    ]
+    from hive.models.entity import DANGEROUS_MODES
+
+    args = ["claude", "--model", model]
+    if permission_mode in DANGEROUS_MODES:
+        args.append("--dangerously-skip-permissions")
+    elif permission_mode not in ("default", ""):
+        args.extend(["--permission-mode", permission_mode])
     if cwd and _has_prior_session(cwd):
         args.append("--continue")
     for prompt in append_system_prompts:
@@ -74,17 +76,21 @@ class PtySession:
         cwd: Path | None = None,
         append_system_prompts: list[str] | None = None,
         extra_args: list[str] | None = None,
+        permission_mode: str = "bypassPermissions",
     ) -> None:
         self._model = model
         self._cwd = str(cwd) if cwd else None
         self._append_system_prompts = append_system_prompts or []
         self._extra_args = extra_args or []
+        self._permission_mode = permission_mode
         self._proc: PtyProcess | None = None
 
     async def start(self) -> None:
         """Spawn Claude Code in a PTY and handle the initial trust prompt."""
         cwd = Path(self._cwd) if self._cwd else None
-        args = _build_spawn_args(self._model, cwd, self._append_system_prompts, self._extra_args)
+        args = _build_spawn_args(
+            self._model, cwd, self._append_system_prompts, self._extra_args, self._permission_mode
+        )
         logger.info("PtySession: spawning %s", " ".join(args[:5]))
         self._proc = PtyProcess.spawn(
             args,

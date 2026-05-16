@@ -49,16 +49,32 @@ def _make_proc_with_sequence(sequences: list[bytes | Exception]) -> MagicMock:
     return _make_mock_proc(sequences)
 
 
-async def test_start_spawns_with_dangerously_skip_permissions(
+async def test_start_spawns_with_dangerously_skip_for_dangerous_mode(
     mock_spawn, tmp_path: Path
 ) -> None:
     MockPtyProcess, proc = mock_spawn
-    session = PtySession(model="sonnet", cwd=tmp_path)
+    session = PtySession(model="sonnet", cwd=tmp_path, permission_mode="yolo")
 
     await session.start()
 
     spawn_args = MockPtyProcess.spawn.call_args[0][0]
     assert "--dangerously-skip-permissions" in spawn_args
+    assert "--permission-mode" not in spawn_args
+
+
+async def test_start_spawns_with_permission_mode_flag_for_bypass(
+    mock_spawn, tmp_path: Path
+) -> None:
+    MockPtyProcess, proc = mock_spawn
+    session = PtySession(model="sonnet", cwd=tmp_path, permission_mode="bypassPermissions")
+
+    await session.start()
+
+    spawn_args = MockPtyProcess.spawn.call_args[0][0]
+    assert "--permission-mode" in spawn_args
+    idx = spawn_args.index("--permission-mode")
+    assert spawn_args[idx + 1] == "bypassPermissions"
+    assert "--dangerously-skip-permissions" not in spawn_args
 
 
 async def test_start_spawns_with_model_flag(mock_spawn, tmp_path: Path) -> None:
