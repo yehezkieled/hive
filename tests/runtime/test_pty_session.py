@@ -133,7 +133,7 @@ async def test_crash_recovery_respawns_on_dead_proc(tmp_path: Path) -> None:
     dead_proc = _make_mock_proc()
     dead_proc.isalive.return_value = False
 
-    recovered_proc = _make_mock_proc([EOFError(), b"recovered response\n> "])
+    recovered_proc = _make_mock_proc([EOFError(), b"recovered response\n\xe2\x9d\xaf "])
     recovered_proc.isalive.return_value = True
 
     spawn_count = 0
@@ -166,7 +166,7 @@ async def test_trust_prompt_auto_accept_writes_carriage_return(tmp_path: Path) -
 
 async def test_send_returns_text_before_idle_prompt(tmp_path: Path) -> None:
     # Trust-prompt phase gets EOFError immediately; send phase gets real output
-    proc = _make_mock_proc([EOFError(), b"Here is my answer.\n> "])
+    proc = _make_mock_proc([EOFError(), b"Here is my answer.\n\xe2\x9d\xaf "])
     with patch("hive.runtime.pty_session.PtyProcess") as MockPtyProcess:
         MockPtyProcess.spawn.return_value = proc
         session = PtySession(model="sonnet", cwd=tmp_path)
@@ -174,7 +174,7 @@ async def test_send_returns_text_before_idle_prompt(tmp_path: Path) -> None:
         result = await session.send("question")
 
     assert "Here is my answer." in result
-    assert ">" not in result  # idle prompt stripped
+    assert "❯" not in result  # idle prompt stripped
 
 
 async def test_send_chunks_large_payload(mock_spawn, tmp_path: Path) -> None:

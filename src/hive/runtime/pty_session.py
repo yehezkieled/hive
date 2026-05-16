@@ -21,7 +21,8 @@ _PASTE_END = b"\x1b[201~"
 _CHUNK_SIZE = 4096
 
 # Pattern that signals Claude Code is idle and waiting for input
-_TURN_COMPLETE = re.compile(r"[❯>]\s*$", re.MULTILINE)
+# cortexos confirmed: "⚔ ❯ " is the full prompt; ❯ never appears in normal output
+_TURN_COMPLETE = re.compile(r"❯\s*$", re.MULTILINE)
 
 # Trust prompt text Claude Code shows on first launch
 _TRUST_PROMPT = "Do you trust"
@@ -136,6 +137,11 @@ class PtySession:
             output = await asyncio.wait_for(self._read_chunk_containing(_TRUST_PROMPT), timeout=5.0)
             if output and self._proc:
                 self._proc.write(b"\r")
+                # Drain the welcome banner so the first real send() sees a clean buffer
+                try:
+                    await asyncio.wait_for(self._read_chunk_containing("❯"), timeout=15.0)
+                except TimeoutError:
+                    pass
         except TimeoutError:
             pass  # No trust prompt appeared — already trusted or newer Claude version
 
@@ -166,8 +172,14 @@ class PtySession:
             except (EOFError, OSError):
                 return buf
 
-    async def _read_until_idle(self) -> str:
+    async def _read_until_idle(self, timeout: float = 120.0) -> str:
         """Read PTY output until Claude Code's idle prompt glyph appears."""
+        try:
+            return await asyncio.wait_for(self._read_loop(), timeout=timeout)
+        except TimeoutError:
+            raise TimeoutError(f"Claude did not become idle within {timeout}s")
+
+    async def _read_loop(self) -> str:
         buf = ""
         loop = asyncio.get_event_loop()
         while True:
@@ -175,7 +187,6 @@ class PtySession:
                 chunk = await loop.run_in_executor(None, self._proc.read, 1024)
                 buf += chunk.decode("utf-8", errors="replace")
                 if _TURN_COMPLETE.search(buf):
-                    # Strip the prompt glyph line from the returned text
                     lines = buf.splitlines()
                     content_lines = [ln for ln in lines if not _TURN_COMPLETE.search(ln)]
                     return "\n".join(content_lines)

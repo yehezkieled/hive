@@ -48,11 +48,12 @@ class ClaudeAdapter(Runtime):
         config: ClaudeAdapterConfig,
         cwd: Path | None = None,
         session_factory: SessionFactory | None = None,
+        initial_session_id: str | None = None,
     ) -> None:
         self._config = config
         self._cwd = cwd
         self._session_factory: SessionFactory = session_factory or _default_session_factory
-        self._session_id: str | None = None
+        self._session_id: str | None = initial_session_id
 
     def _build_args(self) -> list[str]:
         cfg = self._config

@@ -59,6 +59,22 @@ async def test_send_turn_returns_text_and_usage() -> None:
     assert usage["output_tokens"] == 5
 
 
+async def test_initial_session_id_used_as_resume_on_first_turn() -> None:
+    captured_args: list[list[str]] = []
+
+    def capturing_factory(args: list[str], cwd: Path | None) -> ClaudeSession:
+        captured_args.append(args[:])
+        return _make_session("ok", session_id="sess-new")
+
+    adapter = ClaudeAdapter(
+        _config(), session_factory=capturing_factory, initial_session_id="sess-prior"
+    )
+    await adapter.send_turn("first prompt")
+
+    assert "--resume" in captured_args[0]
+    assert "sess-prior" in captured_args[0]
+
+
 async def test_send_turn_passes_resume_flag_after_first_turn() -> None:
     captured_args: list[list[str]] = []
 
