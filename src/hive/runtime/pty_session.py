@@ -42,9 +42,7 @@ _STARTUP_QUIET_S = 1.5
 # OSC must come before the generic [@-Z\\-_] alternative because ] (0x5D) falls
 # in the \\-_ range; if the generic branch wins, only \x1b] is consumed and the
 # rest of the OSC payload is left in the output.
-_ANSI_ESCAPE = re.compile(
-    r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])"
-)
+_ANSI_ESCAPE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
 
 
 def _claude_projects_dir(cwd: Path) -> Path:
@@ -120,7 +118,11 @@ class PtySession:
         try:
             cwd = Path(self._cwd) if self._cwd else None
             args = _build_spawn_args(
-                self._model, cwd, self._append_system_prompts, self._extra_args, self._permission_mode
+                self._model,
+                cwd,
+                self._append_system_prompts,
+                self._extra_args,
+                self._permission_mode,
             )
             logger.info("PtySession: spawning %s", " ".join(args[:5]))
             self._proc = PtyProcess.spawn(
