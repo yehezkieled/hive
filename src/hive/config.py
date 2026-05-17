@@ -180,6 +180,10 @@ AUTO_RETRIEVE_INCLUDE_ATTACHMENTS = (
     os.environ.get("HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS", "true").lower() == "true"
 )
 
+# PTY harness — set to "true" after 2026-06-15 billing cutover to route all
+# send_turn calls through persistent PTY sessions instead of claude -p.
+HIVE_USE_PTY = os.environ.get("HIVE_USE_PTY", "false").lower() == "true"
+
 # Advisor MCP server (Sprint 13)
 ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "true"
 ADVISOR_COOLDOWN_SECONDS = int(os.environ.get("HIVE_ADVISOR_COOLDOWN_SECONDS", "300"))

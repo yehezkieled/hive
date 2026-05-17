@@ -1088,6 +1088,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_VAULT_DAILY_CAP_CENTS` | `5000` ($50) | Daily spend cap (rolling 24h) enforced when approving a `request_payment` action. Applies to each currency in the allow-list separately. Set to `0` to disable. |
 | `HIVE_VAULT_MONTHLY_CAP_CENTS` | `50000` ($500) | Monthly spend cap (rolling 30d). Same per-currency-independent semantics as the daily cap. Set to `0` to disable. |
 | `HIVE_VAULT_PROVIDER` | `stub` | Payment provider name. Sprint 25 ships only `stub`. Unknown names fall back to stub with a warning. |
+| `HIVE_USE_PTY` | `false` | **Must be flipped to `true` before 2026-06-15.** When `true`, every entity runs as a persistent PTY session (`claude --continue`) instead of a `claude -p` subprocess-per-turn, keeping usage plan-billed after Anthropic's billing change (Sprint 30). |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.

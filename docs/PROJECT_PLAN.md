@@ -1793,6 +1793,61 @@ User-authored files (no frontmatter) are always preserved.
 
 ---
 
+## Sprint 30 — PTY Harness Migration (DONE 2026-05-16)
+
+**Status:** Shipped on `harness-migration` branch 2026-05-16. Trust prompt auto-accept verified against real Claude Code output. `HIVE_USE_PTY=true` flip pending — flip `.env` before 2026-06-15 (Anthropic billing change deadline).
+**Plan:** `docs/adr/0001-harness-agnostic-runtime.md`
+**Totals:** 2 new source files (`pty_session.py`, `claude_adapter.py`), 1 updated (`manager.py`), 1 ADR, 1 test module (11 tests), 1 new env var (`HIVE_USE_PTY`).
+
+### Why this exists
+
+Anthropic moves `claude -p` headless invocations to metered API billing from 2026-06-15. Hive's entity fleet runs `claude -p` subprocess-per-turn — at 24/7 load that flips from ~$100/month (Max plan flat) to $1000+/month (API-metered). Interactive PTY sessions (`claude --continue`) stay plan-billed. Sprint 30 moves every entity behind a persistent PTY session, flag-gated so the flip is a one-line `.env` change.
+
+The sprint also makes Hive harness-agnostic (ADR `0001`): `Runtime` is an abstract turn-level interface; `ClaudeAdapter` wraps `PtySession` behind it. A future `codex` or `opencode` adapter needs only a new implementation, not a manager rewrite.
+
+### Phase 1 — Runtime interface + Claude adapter
+
+`Runtime` (abstract, `src/hive/runtime/`) defines `start()`, `send(prompt) → str`, `stop()`, `is_alive()`. `ClaudeAdapter` wraps `PtySession` behind that contract. `ProcessManager.send_to_entity` routes through `ClaudeAdapter` when `HIVE_USE_PTY=true`, falls back to legacy `ClaudeSession` otherwise.
+
+| File | Change |
+|------|--------|
+| `src/hive/runtime/pty_session.py` (new) | `PtySession` — spawns `claude --model <m> [--continue]` in a PTY, injects turns via bracketed paste (`\x1b[200~`/`\x1b[201~`), strips ANSI escapes, detects idle via `❯` glyph. Auto-accepts trust prompt on first launch; handles both `bypassPermissions` and `--dangerously-skip-permissions`. Combined 30s startup drain so the welcome-banner `❯` is consumed before the first `send()`. Crash recovery with exponential back-off (2s/4s/8s). |
+| `src/hive/runtime/claude_adapter.py` (new) | `ClaudeAdapter(Runtime)` — thin wrapper of `PtySession` with entity-context plumbing. |
+| `src/hive/runtime/manager.py` | `send_to_entity` gate on `HIVE_USE_PTY`; adapter lifecycle wired into entity spawn/stop/restart. |
+| `src/hive/config.py` | `HIVE_USE_PTY = os.environ.get("HIVE_USE_PTY", "false").lower() == "true"` |
+| `docs/adr/0001-harness-agnostic-runtime.md` (new) | Decision record — PTY billing rationale, three rejected options, consequences (RAM-bound, terminal scraping fragility, no per-turn token stream). |
+| `tests/runtime/test_pty_session.py` (new) | 11 unit tests: spawn flags (dangerous/bypass/model), `--continue` detection, bracketed-paste injection, large-payload chunking, trust-prompt accept, idle drain, ANSI-stripped response, crash recovery respawn. |
+
+### Phase 2 — Trust prompt + response fidelity fixes (smoke-test driven)
+
+Three bugs found during smoke testing, fixed before flag flip:
+
+1. **`_TRUST_PROMPT` text wrong** — old value `"Do you trust"` never matched; real text verified 2026-05-16 is `"trust this folder"` (raw PTY capture: `"❯ 1. Yes, I trust this folder"`).
+2. **ANSI escape sequences in response** — `_read_loop` returned raw terminal bytes containing `\x1b[...m` colour codes; `"HELLO"` was not a substring of `"H\x1b[1mE\x1b[0mLLO"`. Added `_ANSI_ESCAPE` regex strip before returning.
+3. **Drain timeout insufficient** — `bypassPermissions` skips the trust prompt but still shows a welcome banner (3155 bytes, zero `❯`); `❯` only appears ~25s after spawn. Old drain was 5s trust-phase + 15s drain-phase = 20s total — timed out before idle. Rewrote `_handle_trust_prompt` as one combined 30s loop with 0.5s burst reads, handling trust-accept and idle detection in a single pass.
+
+### Phase 3 — Flag flip (PENDING — do before 2026-06-15)
+
+```bash
+# In /home/hezki/projects/hive/.env — add or update:
+HIVE_USE_PTY=true
+
+# Then restart:
+systemctl --user restart hive.service
+journalctl --user -u hive.service -f | grep -E "PtySession|error|ERROR"
+```
+
+Verify entities are using PTY mode: look for `PtySession: spawning claude` in the log within 30s of an entity being activated.
+
+### Out of scope (deferred)
+
+- **`codex` and `opencode` adapters** — ADR reserved the interface; v1 ships `claude-code` only.
+- **Per-turn token/cost data** — PTY sessions have no `stream-json` channel; interactive token tracking deferred.
+- **Non-blocking PTY I/O** (`select.select` refactor) — current 0.5s burst-read approach is sufficient; refactor if latency degrades.
+- **DO droplet snapshot (Sprint 29 Phase 2)** — still deferred, unrelated.
+
+---
+
 ## Sprint 29 — VPS Backup Strategy (DONE 2026-05-09)
 
 **Status:** Phase 1 + Phase 3 shipped 2026-05-09. Daily `pg_dump` systemd-user timer writes `~/backups/hive/<UTC>.sql.gz` at 03:30 UTC with 14-day retention. Round-trip restore verified on a throwaway DB (11 attachments, 607 messages, 20 chunks all preserved). Restore procedure documented in `DEPLOYMENT.md §8`. **Phase 2 (DigitalOcean droplet snapshot)** deferred — requires user to provision a DO Personal Access Token at `cloud.digitalocean.com/account/api/tokens` and add `DO_API_TOKEN` + `DO_DROPLET_ID` to `.env`. Will land as a small follow-up sprint when the token is in place.

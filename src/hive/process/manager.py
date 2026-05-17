@@ -38,6 +38,7 @@ from hive.config import (
     AUTO_RETRIEVE_MAX_DISTANCE,
     AUTO_RETRIEVE_TOP_K,
     DEFAULT_MAESTRO,
+    HIVE_USE_PTY,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import generate_mcp_config
@@ -54,6 +55,7 @@ from hive.models.worker import WorkerAgent
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
+from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
 from hive.vault.provider import PaymentProvider
 from hive.vault.spend_caps import check_caps
 
@@ -157,6 +159,21 @@ def _render_auto_personality(
     )
 
 
+def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
+    """Map an Entity to the ClaudeAdapterConfig needed by ClaudeAdapter."""
+    return ClaudeAdapterConfig(
+        model=entity.model,
+        system_prompt=entity.system_prompt,
+        allowed_tools=list(entity.allowed_tools),
+        disallowed_tools=list(entity.disallowed_tools),
+        permission_mode=entity.permission_mode,
+        loop_mode=entity.loop_mode,
+        role=entity.role,
+        name=entity.name,
+        mcp_config_path=Path(entity.mcp_config_path) if ADVISOR_ENABLED else None,
+    )
+
+
 class ProcessManager:
     """Manages all Claude Code subprocesses for Hive entities."""
 
@@ -199,6 +216,7 @@ class ProcessManager:
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
         self._sessions: dict[str, ClaudeSession] = {}
+        self._adapters: dict[str, ClaudeAdapter] = {}
         # Single asyncio.Lock guards mutations to _entities / _sessions when
         # those mutations need to be consistent (e.g. entity + session
         # registered together on spawn). Single-key reads do not acquire
@@ -331,18 +349,17 @@ class ProcessManager:
 
         return "\n".join(lines)
 
-    async def _record_usage(self, entity: Entity, session: ClaudeSession) -> None:
-        """Record token usage from a completed session, if a store is configured.
+    async def _record_usage(self, entity: Entity, usage: dict | None) -> None:
+        """Record token usage from a completed turn, if a store is configured.
 
-        Merges the entity's canonical ``model`` into the session's captured
-        usage dict before handing it to the store. Fire-and-continue: any
-        DB error is logged and swallowed, since token bookkeeping must not
-        take down the user-facing send path.
+        Merges the entity's canonical ``model`` into the usage dict before
+        handing it to the store. Fire-and-continue: any DB error is logged
+        and swallowed, since token bookkeeping must not take down the
+        user-facing send path. Skips zero-usage dicts (no tokens charged).
         """
         if self.token_store is None:
             return
-        usage = session.last_usage
-        if usage is None:
+        if not usage or not usage.get("input_tokens"):
             return
         try:
             await self.token_store.record(
@@ -588,6 +605,37 @@ class ProcessManager:
         )
         return session
 
+    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
+        """Return a live adapter for entity, creating one if needed.
+
+        In PTY mode (HIVE_USE_PTY=True) adapters are cached per entity so
+        the same persistent PTY process handles all turns. In subprocess mode
+        a fresh adapter is built per call (stateless, backward-compatible).
+        """
+        if HIVE_USE_PTY:
+            existing = self._adapters.get(entity.name)
+            if existing is not None and existing.is_alive():
+                return existing
+
+        cwd = (
+            Path(entity.worktree_path)
+            if isinstance(entity, WorkerAgent) and entity.worktree_path
+            else None
+        )
+        config = _adapter_config_from_entity(entity)
+        adapter = ClaudeAdapter(
+            config,
+            cwd=cwd,
+            session_factory=lambda args, c: ClaudeSession(args=args, cwd=c),
+            initial_session_id=entity.session_id if not HIVE_USE_PTY else None,
+            use_pty=HIVE_USE_PTY,
+        )
+        await adapter.start()
+        if HIVE_USE_PTY:
+            async with self._state_lock:
+                self._adapters[entity.name] = adapter
+        return adapter
+
     async def send_to_entity(self, entity_name: str, prompt: str) -> str:
         """Send a prompt to an entity and get the response.
 
@@ -693,56 +741,46 @@ class ProcessManager:
             context_block = "\n\n---\n\n".join(prepended_blocks)
             prompt = f"{context_block}\n\n---\n\n{prompt}"
 
-        args = entity.build_cli_args()
-        if entity.session_id:
-            args.extend(["--resume", entity.session_id])
-
         if ADVISOR_ENABLED:
             generate_mcp_config(entity.name, entity.mcp_config_path)
 
-        session = ClaudeSession(args=args)
-        await session.start()
+        adapter = await self._get_or_create_adapter(entity)
+        response, usage = await adapter.send_turn(prompt)
+        await self._record_usage(entity, usage)
 
-        try:
-            response = await session.send_prompt(prompt)
-            await self._record_usage(entity, session)
-
-            # Auto-compact if context is too large
-            if (
-                AUTO_COMPACT_ENABLED
-                and entity_name not in self._compacting
-                and session.last_usage
-                and session.last_usage.get("input_tokens", 0) > AUTO_COMPACT_THRESHOLD
-            ):
-                input_tokens = session.last_usage["input_tokens"]
-                logger.info(
-                    "Auto-compacting %s (input_tokens=%d > threshold=%d)",
-                    entity_name,
-                    input_tokens,
-                    AUTO_COMPACT_THRESHOLD,
+        # Auto-compact if context is too large
+        if (
+            AUTO_COMPACT_ENABLED
+            and entity_name not in self._compacting
+            and usage.get("input_tokens", 0) > AUTO_COMPACT_THRESHOLD
+        ):
+            input_tokens = usage["input_tokens"]
+            logger.info(
+                "Auto-compacting %s (input_tokens=%d > threshold=%d)",
+                entity_name,
+                input_tokens,
+                AUTO_COMPACT_THRESHOLD,
+            )
+            self._compacting.add(entity_name)
+            try:
+                await self.compact_entity(entity_name)
+                await self._notify(
+                    f"Auto-compacted {entity_name} (context: {input_tokens:,} tokens)"
                 )
-                self._compacting.add(entity_name)
-                try:
-                    await self.compact_entity(entity_name)
-                    await self._notify(
-                        f"Auto-compacted {entity_name} (context: {input_tokens:,} tokens)"
-                    )
-                    await self._audit(
-                        "entity.auto_compact",
-                        target=entity_name,
-                        details={"input_tokens": input_tokens},
-                    )
-                except Exception:
-                    logger.exception("Auto-compact failed for %s", entity_name)
-                finally:
-                    self._compacting.discard(entity_name)
+                await self._audit(
+                    "entity.auto_compact",
+                    target=entity_name,
+                    details={"input_tokens": input_tokens},
+                )
+            except Exception:
+                logger.exception("Auto-compact failed for %s", entity_name)
+            finally:
+                self._compacting.discard(entity_name)
 
-            # Store session_id for resume on next call
-            if session.session_id:
-                entity.session_id = session.session_id
-                await self._persist(entity)
-        finally:
-            await session.kill()
+        # Store session_id for resume on next call
+        if usage.get("session_id"):
+            entity.session_id = usage["session_id"]
+            await self._persist(entity)
 
         # --- Phase 3: parse and route actions from response ---
         clean_text, actions, parse_errors = parse_actions(response)
@@ -1447,6 +1485,13 @@ class ProcessManager:
             async with self._state_lock:
                 self._sessions.pop(name, None)
 
+        adapter = self._adapters.pop(name, None)
+        if adapter is not None:
+            try:
+                await adapter.stop()
+            except Exception:
+                logger.exception("Failed to stop adapter for %s on kill", name)
+
         entity = self._entities.get(name)
         if entity:
             # Clean up worktree for workers
@@ -1522,6 +1567,14 @@ class ProcessManager:
                 logger.exception("Failed to kill session for %s on shutdown", name)
         async with self._state_lock:
             self._sessions.clear()
+
+        for name, adapter in list(self._adapters.items()):
+            try:
+                await adapter.stop()
+            except Exception:
+                logger.exception("Failed to stop adapter for %s on shutdown", name)
+        self._adapters.clear()
+
         logger.info("Stopped %d entity sessions for restart", len(self._entities))
 
     # -----------------------------------------------------------------

@@ -1875,3 +1875,41 @@ async def test_parse_errors_skip_when_no_errors(
     msgs = await manager.router.store.get_messages("alice.bob")
     assert msgs == []
     assert "alice.bob" not in manager._parse_failure_budget
+
+
+# ---------------------------------------------------------------------------
+# Adapter lifecycle — kill and stop_all clean up cached adapters
+# ---------------------------------------------------------------------------
+
+
+async def test_kill_entity_stops_adapter(manager: ProcessManager) -> None:
+    """kill_entity must call stop() on any cached adapter for the entity."""
+    entity = Maestro(name="dev", model="sonnet")
+    manager._entities["dev"] = entity
+    manager.router.register("dev")
+
+    mock_adapter = AsyncMock()
+    mock_adapter.is_alive.return_value = True
+    manager._adapters["dev"] = mock_adapter
+
+    await manager.kill_entity("dev")
+
+    mock_adapter.stop.assert_awaited_once()
+    assert "dev" not in manager._adapters
+
+
+async def test_stop_all_stops_adapters(manager: ProcessManager) -> None:
+    """stop_all must call stop() on all cached adapters."""
+    for name in ("alpha", "beta"):
+        entity = Maestro(name=name, model="sonnet")
+        manager._entities[name] = entity
+        manager.router.register(name)
+        mock = AsyncMock()
+        mock.is_alive.return_value = True
+        manager._adapters[name] = mock
+
+    await manager.stop_all()
+
+    for name in ("alpha", "beta"):
+        manager._adapters.get(name)  # already cleared
+    assert manager._adapters == {}
