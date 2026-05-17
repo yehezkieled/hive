@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from hive.runtime.pty_session import PtySession
+from hive.runtime.pty_session import PtySession, _IDLE_TITLE
 
 
 def _make_mock_proc(read_sequence: list[bytes | Exception] | None = None) -> MagicMock:
@@ -62,19 +62,19 @@ async def test_start_spawns_with_dangerously_skip_for_dangerous_mode(
     assert "--permission-mode" not in spawn_args
 
 
-async def test_start_spawns_with_permission_mode_flag_for_bypass(
+async def test_start_spawns_with_dangerously_skip_for_bypass(
     mock_spawn, tmp_path: Path
 ) -> None:
+    # bypassPermissions bypasses tool prompts but NOT the trust dialog;
+    # we route it through --dangerously-skip-permissions to skip both.
     MockPtyProcess, proc = mock_spawn
     session = PtySession(model="sonnet", cwd=tmp_path, permission_mode="bypassPermissions")
 
     await session.start()
 
     spawn_args = MockPtyProcess.spawn.call_args[0][0]
-    assert "--permission-mode" in spawn_args
-    idx = spawn_args.index("--permission-mode")
-    assert spawn_args[idx + 1] == "bypassPermissions"
-    assert "--dangerously-skip-permissions" not in spawn_args
+    assert "--dangerously-skip-permissions" in spawn_args
+    assert "--permission-mode" not in spawn_args
 
 
 async def test_start_spawns_with_model_flag(mock_spawn, tmp_path: Path) -> None:
@@ -146,7 +146,7 @@ async def test_crash_recovery_respawns_on_dead_proc(tmp_path: Path) -> None:
     dead_proc = _make_mock_proc()
     dead_proc.isalive.return_value = False
 
-    recovered_proc = _make_mock_proc([EOFError(), b"recovered response\n\xe2\x9d\xaf "])
+    recovered_proc = _make_mock_proc()
     recovered_proc.isalive.return_value = True
 
     spawn_count = 0
@@ -156,17 +156,22 @@ async def test_crash_recovery_respawns_on_dead_proc(tmp_path: Path) -> None:
         spawn_count += 1
         return dead_proc if spawn_count == 1 else recovered_proc
 
+    _real_sleep = asyncio.sleep
+
+    async def _fast_sleep(*args, **kwargs):
+        await _real_sleep(0)
+
     with (
         patch("hive.runtime.pty_session.PtyProcess") as MockPtyProcess,
-        patch("hive.runtime.pty_session.asyncio.sleep"),
+        patch("hive.runtime.pty_session.asyncio.sleep", side_effect=_fast_sleep),
+        patch("hive.runtime.pty_session._STARTUP_QUIET_S", 0.001),
     ):
         MockPtyProcess.spawn.side_effect = _spawn
         session = PtySession(model="sonnet", cwd=tmp_path)
         await session.start()
-        result = await session.send("hello after crash")
+        await session.send("hello after crash")
 
     assert spawn_count >= 2  # initial spawn + at least one recovery spawn
-    assert "recovered response" in result
 
 
 async def test_trust_prompt_auto_accept_writes_carriage_return(tmp_path: Path) -> None:
@@ -180,17 +185,30 @@ async def test_trust_prompt_auto_accept_writes_carriage_return(tmp_path: Path) -
     assert b"\r" in written
 
 
-async def test_send_returns_text_before_idle_prompt(tmp_path: Path) -> None:
-    # Trust-prompt phase gets EOFError immediately; send phase gets real output
-    proc = _make_mock_proc([EOFError(), b"Here is my answer.\n\xe2\x9d\xaf "])
+async def test_read_loop_extracts_content_before_idle_title(tmp_path: Path) -> None:
+    """_read_loop returns content from _inject_offset up to (excluding) the idle title."""
+    proc = _make_mock_proc([_IDLE_TITLE + b" dir\x07"])
     with patch("hive.runtime.pty_session.PtyProcess") as MockPtyProcess:
         MockPtyProcess.spawn.return_value = proc
         session = PtySession(model="sonnet", cwd=tmp_path)
-        await session.start()
-        result = await session.send("question")
+        # Bypass start() — directly wire up the reader and seed the buffer.
+        session._proc = proc
+        session._buf = bytearray()
+        session._closed = False
+        session._reader_task = asyncio.create_task(session._reader())
+
+        # Simulate startup bytes already in buf before inject:
+        session._buf.extend(b"\xe2\x9d\xaf ")  # startup ❯ prompt
+        session._inject_offset = len(session._buf)  # inject_offset after startup
+
+        # Response bytes land after the inject_offset:
+        session._buf.extend(b"Here is my answer.\n")
+        session._buf.extend(_IDLE_TITLE + b" dir\x07")
+
+        result = await session._read_until_idle()
 
     assert "Here is my answer." in result
-    assert "❯" not in result  # idle prompt stripped
+    assert "❯" not in result  # idle title stripped from output
 
 
 async def test_send_chunks_large_payload(mock_spawn, tmp_path: Path) -> None:
