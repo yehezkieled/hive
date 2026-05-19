@@ -104,7 +104,10 @@ class ClaudeAdapter(Runtime):
             args.extend(["--append-system-prompt", load_role_jd(cfg.role)])
 
         if cfg.mcp_config_path is not None:
+            # --strict-mcp-config: load only this file, not the user's global
+            # MCP servers (those add minutes of cold-start latency per spawn).
             args.extend(["--mcp-config", str(cfg.mcp_config_path)])
+            args.append("--strict-mcp-config")
 
         return args
 
@@ -136,7 +139,10 @@ class ClaudeAdapter(Runtime):
         if cfg.disallowed_tools:
             args.extend(["--disallowedTools", *cfg.disallowed_tools])
         if cfg.mcp_config_path is not None:
+            # --strict-mcp-config: load only this file, not the user's global
+            # MCP servers (those add minutes of cold-start latency per spawn).
             args.extend(["--mcp-config", str(cfg.mcp_config_path)])
+            args.append("--strict-mcp-config")
         return args
 
     async def start(self) -> None:

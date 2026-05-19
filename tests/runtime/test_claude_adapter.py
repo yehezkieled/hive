@@ -116,6 +116,27 @@ def test_build_args_dangerous_mode_skips_permissions() -> None:
     assert "--permission-mode" not in args
 
 
+def test_build_args_includes_strict_mcp_config() -> None:
+    adapter = ClaudeAdapter(_config(mcp_config_path=Path("/tmp/hive-mcp-alice.json")))
+    args = adapter._build_args()
+    assert "--mcp-config" in args
+    assert "--strict-mcp-config" in args
+
+
+def test_build_args_omits_mcp_flags_when_no_config() -> None:
+    adapter = ClaudeAdapter(_config(mcp_config_path=None))
+    args = adapter._build_args()
+    assert "--mcp-config" not in args
+    assert "--strict-mcp-config" not in args
+
+
+def test_pty_extra_args_includes_strict_mcp_config() -> None:
+    adapter = ClaudeAdapter(_config(mcp_config_path=Path("/tmp/hive-mcp-alice.json")))
+    args = adapter._build_pty_extra_args()
+    assert "--mcp-config" in args
+    assert "--strict-mcp-config" in args
+
+
 def test_is_alive_returns_true_in_step_1() -> None:
     adapter = ClaudeAdapter(_config())
     assert adapter.is_alive() is True
