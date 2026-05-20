@@ -4,11 +4,36 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from hive.runtime.pty_session import _IDLE_TITLE, PtySession
+from hive.runtime.pty_session import PtySession, _claude_projects_dir
+
+
+def test_claude_projects_dir_replaces_slashes_and_dots() -> None:
+    """Regression: Claude Code's slug rule replaces BOTH '/' and '.' with '-'.
+
+    A cwd like /home/x/repo/.claude/worktrees/foo becomes
+    -home-x-repo--claude-worktrees-foo (note the double-dash because '/.'
+    becomes '--'). Earlier code only replaced '/' and silently mis-located
+    the transcript dir for any cwd containing a dot.
+    """
+    cwd = Path("/home/hezki/projects/hive/.claude/worktrees/fix-pty-output")
+    expected = (
+        Path.home()
+        / ".claude"
+        / "projects"
+        / ("-home-hezki-projects-hive--claude-worktrees-fix-pty-output")
+    )
+    assert _claude_projects_dir(cwd) == expected
+
+
+def test_claude_projects_dir_for_dotless_path() -> None:
+    """Sanity: a cwd with no dots produces the simple dash-substituted slug."""
+    cwd = Path("/home/hezki/projects/hive")
+    expected = Path.home() / ".claude" / "projects" / "-home-hezki-projects-hive"
+    assert _claude_projects_dir(cwd) == expected
 
 
 def _make_mock_proc(read_sequence: list[bytes | Exception] | None = None) -> MagicMock:
@@ -44,9 +69,28 @@ def mock_spawn():
         yield mock_cls, proc
 
 
-def _make_proc_with_sequence(sequences: list[bytes | Exception]) -> MagicMock:
-    """Convenience wrapper for tests that need a specific read sequence."""
-    return _make_mock_proc(sequences)
+@pytest.fixture
+def mock_transcript_reader():
+    """Patch TranscriptReader inside pty_session and return the mock instance.
+
+    Returns canned data so tests can exercise send() without a real .jsonl.
+    """
+    with patch("hive.runtime.pty_session.TranscriptReader") as mock_reader_cls:
+        mock_reader = mock_reader_cls.return_value
+        mock_reader.identify_session.return_value = Path("/tmp/fake-session.jsonl")
+        mock_reader.await_next_assistant_turn = AsyncMock(
+            return_value=(
+                "canned response",
+                {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "session_id": "sess-mock",
+                },
+            )
+        )
+        yield mock_reader
 
 
 async def test_start_spawns_with_dangerously_skip_for_dangerous_mode(
@@ -117,9 +161,36 @@ async def test_start_no_continue_when_no_prior_session(mock_spawn, tmp_path: Pat
     assert "--continue" not in spawn_args
 
 
-async def test_send_injects_via_bracketed_paste(mock_spawn, tmp_path: Path) -> None:
+async def test_start_snapshots_project_dir_jsonls(mock_spawn, tmp_path: Path) -> None:
+    """start() must snapshot the *.jsonl set + sizes BEFORE spawning, so
+    TranscriptReader can later tell our session's file apart from siblings."""
     mock_cls, proc = mock_spawn
-    # Default mock raises EOFError on all reads — send() resolves after EOF
+    cwd_slug = str(tmp_path).replace("/", "-")
+    projects_dir = Path.home() / ".claude" / "projects" / cwd_slug
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    file_a = projects_dir / "a.jsonl"
+    file_b = projects_dir / "b.jsonl"
+    file_a.write_text("seed-a\n")
+    file_b.write_text("seed-bigger\n")
+
+    session = PtySession(model="sonnet", cwd=tmp_path)
+    await session.start()
+
+    assert session._project_dir == projects_dir
+    assert set(session._before_sizes.keys()) == {file_a, file_b}
+    assert session._before_sizes[file_a] == file_a.stat().st_size
+    assert session._before_sizes[file_b] == file_b.stat().st_size
+
+    # cleanup
+    import shutil
+
+    shutil.rmtree(projects_dir, ignore_errors=True)
+
+
+async def test_send_injects_via_bracketed_paste(
+    mock_spawn, mock_transcript_reader, tmp_path: Path
+) -> None:
+    mock_cls, proc = mock_spawn
     session = PtySession(model="sonnet", cwd=tmp_path)
     await session.start()
     await session.send("hello world")
@@ -128,6 +199,33 @@ async def test_send_injects_via_bracketed_paste(mock_spawn, tmp_path: Path) -> N
     assert b"\x1b[200~" in written  # paste start
     assert b"hello world" in written
     assert b"\x1b[201~" in written  # paste end
+
+
+async def test_send_returns_text_and_usage_from_transcript(
+    mock_spawn, mock_transcript_reader, tmp_path: Path
+) -> None:
+    """send() returns (text, usage) sourced from the transcript reader, not the screen."""
+    session = PtySession(model="sonnet", cwd=tmp_path)
+    await session.start()
+    text, usage = await session.send("hi")
+
+    assert text == "canned response"
+    assert usage["input_tokens"] == 1
+    assert usage["session_id"] == "sess-mock"
+
+
+async def test_send_identifies_session_only_on_first_call(
+    mock_spawn, mock_transcript_reader, tmp_path: Path
+) -> None:
+    """identify_session should run on the FIRST send() only; cached thereafter."""
+    session = PtySession(model="sonnet", cwd=tmp_path)
+    await session.start()
+
+    await session.send("first")
+    await session.send("second")
+    await session.send("third")
+
+    assert mock_transcript_reader.identify_session.call_count == 1
 
 
 async def test_stop_sends_exit_command(mock_spawn, tmp_path: Path) -> None:
@@ -140,7 +238,7 @@ async def test_stop_sends_exit_command(mock_spawn, tmp_path: Path) -> None:
     assert b"/exit" in written
 
 
-async def test_crash_recovery_respawns_on_dead_proc(tmp_path: Path) -> None:
+async def test_crash_recovery_respawns_on_dead_proc(mock_transcript_reader, tmp_path: Path) -> None:
     dead_proc = _make_mock_proc()
     dead_proc.isalive.return_value = False
 
@@ -183,33 +281,9 @@ async def test_trust_prompt_auto_accept_writes_carriage_return(tmp_path: Path) -
     assert b"\r" in written
 
 
-async def test_read_loop_extracts_content_before_idle_title(tmp_path: Path) -> None:
-    """_read_loop returns content from _inject_offset up to (excluding) the idle title."""
-    proc = _make_mock_proc([_IDLE_TITLE + b" dir\x07"])
-    with patch("hive.runtime.pty_session.PtyProcess") as mock_cls:
-        mock_cls.spawn.return_value = proc
-        session = PtySession(model="sonnet", cwd=tmp_path)
-        # Bypass start() — directly wire up the reader and seed the buffer.
-        session._proc = proc
-        session._buf = bytearray()
-        session._closed = False
-        session._reader_task = asyncio.create_task(session._reader())
-
-        # Simulate startup bytes already in buf before inject:
-        session._buf.extend(b"\xe2\x9d\xaf ")  # startup ❯ prompt
-        session._inject_offset = len(session._buf)  # inject_offset after startup
-
-        # Response bytes land after the inject_offset:
-        session._buf.extend(b"Here is my answer.\n")
-        session._buf.extend(_IDLE_TITLE + b" dir\x07")
-
-        result = await session._read_until_idle()
-
-    assert "Here is my answer." in result
-    assert "❯" not in result  # idle title stripped from output
-
-
-async def test_send_chunks_large_payload(mock_spawn, tmp_path: Path) -> None:
+async def test_send_chunks_large_payload(
+    mock_spawn, mock_transcript_reader, tmp_path: Path
+) -> None:
     mock_cls, proc = mock_spawn
     large_prompt = "x" * 8192  # 2× chunk size
     session = PtySession(model="sonnet", cwd=tmp_path)

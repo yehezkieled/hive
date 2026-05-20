@@ -6,11 +6,13 @@ import asyncio
 import atexit
 import json
 import logging
-import re
+import os
 from pathlib import Path
 from threading import Thread
 
 from ptyprocess import PtyProcess
+
+from hive.runtime.transcript_reader import TranscriptReader
 
 _SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 
@@ -28,26 +30,23 @@ _CHUNK_SIZE = 4096
 # Trust prompt text Claude Code shows on first launch (verified 2026-05-16)
 _TRUST_PROMPT = "trust this folder"
 
-# OSC title bar signals emitted by Claude Code:
-#   Idle:    \x1b]0;✳ <dir>\x07  — ✳ U+2733 (\xe2\x9c\xb3)
-_IDLE_TITLE = b"\x1b]0;\xe2\x9c\xb3"
-_IDLE_TITLE_STR = _IDLE_TITLE.decode("utf-8")
-
 # Seconds of quiet (no new bytes) after the ❯ input prompt appears before
 # _handle_trust_prompt declares startup complete. 1.5s is empirically needed
 # to outlast the welcome banner's full render; override in tests via patch.
 _STARTUP_QUIET_S = 1.5
 
-# Strips ANSI/VT100 escape sequences (OSC first, then CSI, then simple Fe).
-# OSC must come before the generic [@-Z\\-_] alternative because ] (0x5D) falls
-# in the \\-_ range; if the generic branch wins, only \x1b] is consumed and the
-# rest of the OSC payload is left in the output.
-_ANSI_ESCAPE = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
-
 
 def _claude_projects_dir(cwd: Path) -> Path:
-    """Return the ~/.claude/projects/<cwd-slug>/ path for a given working directory."""
-    slug = str(cwd).replace("/", "-")
+    """Return the ~/.claude/projects/<cwd-slug>/ path for a given working directory.
+
+    Claude Code's slug rule: replace BOTH ``/`` and ``.`` with ``-`` in the cwd
+    path. The dot replacement matters whenever the cwd traverses a hidden dir
+    (e.g. ``/home/x/repo/.claude/worktrees/foo`` → ``-home-x-repo--claude-...``,
+    note the double-dash because ``/.`` becomes ``--``). Skipping the dot
+    replacement (the original bug) silently mis-locates the transcript and
+    breaks the transcript route for any cwd containing a ``.``.
+    """
+    slug = str(cwd).replace("/", "-").replace(".", "-")
     return Path.home() / ".claude" / "projects" / slug
 
 
@@ -82,10 +81,17 @@ def _build_spawn_args(
 
 
 class PtySession:
-    """Spawns Claude Code in a persistent PTY, injects turns via bracketed paste.
+    """Spawns Claude Code in a persistent PTY; drives turns; reads results from .jsonl.
 
     This is the billing-fix layer: interactive PTY sessions stay on the Claude
-    Max plan; claude -p subprocess-per-turn would be API-billed after 2026-06-15.
+    Max plan (`claude -p` subprocess-per-turn would be API-billed after
+    2026-06-15).
+
+    Response text and per-turn usage come from the session .jsonl transcript
+    (via TranscriptReader), not from screen-scraping the TUI. The PTY exists
+    only to drive the turn — spawn interactive `claude`, let it process input,
+    detect startup. The byte-reader thread populates _buf for trust-prompt and
+    idle detection during startup; after startup the buffer is unused.
     """
 
     def __init__(
@@ -106,8 +112,14 @@ class PtySession:
         self._closed: bool = False
         self._reader_task: asyncio.Task | None = None
         self._advisor_original: str | None = None  # set only if we removed it
-        self._inject_offset: int = 0  # buf offset just before \r (Enter) is sent
         self._atexit_registered: bool = False
+        # Transcript-as-source-of-truth: snapshot project_dir's *.jsonl BEFORE
+        # spawn, identify this session's file on first send(), then read every
+        # turn's response + usage from there. Replaces screen-scraping.
+        self._project_dir: Path | None = None
+        self._before_sizes: dict[Path, int] = {}
+        self._transcript_reader: TranscriptReader | None = None
+        self._session_path: Path | None = None
 
     async def start(self) -> None:
         """Spawn Claude Code in a PTY and handle the initial trust prompt."""
@@ -117,6 +129,21 @@ class PtySession:
             self._atexit_registered = True
         try:
             cwd = Path(self._cwd) if self._cwd else None
+            # Snapshot the project-dir *.jsonl set BEFORE spawning so the
+            # TranscriptReader can identify this session's file (a brand-new
+            # one or a --continue'd one that grows past its snapshot size).
+            effective_cwd = cwd if cwd is not None else Path(os.getcwd())
+            self._project_dir = _claude_projects_dir(effective_cwd)
+            self._before_sizes = {}
+            if self._project_dir.is_dir():
+                for p in self._project_dir.glob("*.jsonl"):
+                    try:
+                        self._before_sizes[p] = p.stat().st_size
+                    except OSError:
+                        continue
+            self._transcript_reader = TranscriptReader(self._project_dir)
+            self._session_path = None  # identified lazily on first send()
+
             args = _build_spawn_args(
                 self._model,
                 cwd,
@@ -154,14 +181,43 @@ class PtySession:
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.isalive()
 
-    async def send(self, prompt: str) -> str:
-        """Inject prompt via bracketed paste and return the cleaned response."""
+    async def send(self, prompt: str) -> tuple[str, dict]:
+        """Inject prompt; return (response_text, usage) from the .jsonl transcript.
+
+        Claude Code's interactive TUI can't emit structured output to stdout
+        (``--output-format`` is ``--print``-only), but it writes every turn to
+        the session .jsonl as clean structured JSON. The PTY drives the turn
+        (inject + Claude processes it); the transcript is the source of truth
+        for the response text and token usage.
+
+        Returns ``(response_text, usage)`` where ``usage`` carries the 5 keys
+        defined by ``TranscriptReader.await_next_assistant_turn``:
+        ``input_tokens``, ``output_tokens``, ``cache_creation_input_tokens``,
+        ``cache_read_input_tokens``, ``session_id``.
+        """
         if self._proc is None:
             raise RuntimeError("PtySession not started — call start() first.")
         if not self.is_alive():
             await self._recover()
+        assert self._transcript_reader is not None, (
+            "PtySession not properly started — _transcript_reader is None"
+        )
+
         await self._inject(prompt)
-        return await self._read_until_idle()
+
+        # Identify this session's .jsonl lazily — Claude Code only creates the
+        # file once it has user input to log. After _inject the file either
+        # appears (fresh session) or the --continue'd file has grown.
+        if self._session_path is None:
+            self._session_path = await asyncio.to_thread(
+                self._transcript_reader.identify_session,
+                self._before_sizes,
+                timeout=10.0,
+            )
+
+        return await self._transcript_reader.await_next_assistant_turn(
+            self._session_path, timeout=180.0
+        )
 
     async def _recover(self) -> None:
         """Attempt to respawn after a crash, with exponential back-off."""
@@ -278,10 +334,6 @@ class PtySession:
                         # ❯ present + terminal quiet for _STARTUP_QUIET_S → truly idle.
                         # 300ms was too short: Claude Code's welcome banner can pause
                         # mid-render (emitting ❯) then continue for > 300ms more.
-                        # Do NOT trim _buf here: Claude Code redraws the input
-                        # field using cursor-position moves (no new ❯ bytes),
-                        # so the startup ❯ bytes must stay in _buf for
-                        # _inject to snapshot them as the inject_offset.
                         return
                 else:
                     quiet_since = None
@@ -304,58 +356,8 @@ class PtySession:
             if len(payload) > _CHUNK_SIZE:
                 await asyncio.sleep(0.05)
         self._proc.write(_PASTE_END)
-        # Wait for the paste-triggered screen repaint before snapshotting.
-        # Claude Code repaints the terminal (including a ✳ idle title) when it
-        # receives pasted text. By sampling _buf AFTER that repaint settles,
-        # _read_loop sees only bytes produced after Enter triggers actual processing.
+        # Wait for the paste-triggered screen repaint to settle before sending
+        # Enter — Claude Code repaints (incl. a ✳ idle title) on receiving the
+        # paste, and Enter pressed mid-repaint can be eaten by the paste handler.
         await asyncio.sleep(0.5)
-        self._inject_offset = len(self._buf)
         self._proc.write(b"\r")
-
-    async def _read_until_idle(self, timeout: float = 180.0) -> str:
-        """Read PTY output until Claude Code's idle prompt glyph appears."""
-        try:
-            return await asyncio.wait_for(self._read_loop(), timeout=timeout)
-        except TimeoutError:
-            raise TimeoutError(f"Claude did not become idle within {timeout}s")
-
-    async def _read_loop(self) -> str:
-        """Poll post-inject slice of _buf until idle-title appears and is stable.
-
-        _inject_offset is snapshotted AFTER the paste-triggered repaint and
-        BEFORE \\r, so the slice contains only post-Enter output. ✳ + 1s quiet
-        is the completion signal.
-        """
-        loop = asyncio.get_event_loop()
-        idle_since: float | None = None
-        prev_len = 0
-        offset = self._inject_offset
-
-        while True:
-            slice_bytes = bytes(self._buf[offset:])
-            cur_len = len(slice_bytes)
-
-            has_idle = _IDLE_TITLE in slice_bytes
-
-            if has_idle:
-                if cur_len == prev_len:
-                    if idle_since is None:
-                        idle_since = loop.time()
-                    elif loop.time() - idle_since >= 1.0:
-                        self._buf.clear()
-                        text = slice_bytes.decode("utf-8", errors="replace")
-                        clean = _ANSI_ESCAPE.sub("", text)
-                        lines = clean.splitlines()
-                        content_lines = [ln for ln in lines if _IDLE_TITLE_STR not in ln]
-                        return "\n".join(content_lines).strip()
-                else:
-                    idle_since = None
-
-            prev_len = cur_len
-
-            if self._closed:
-                self._buf.clear()
-                text = slice_bytes.decode("utf-8", errors="replace")
-                return _ANSI_ESCAPE.sub("", text).strip()
-
-            await asyncio.sleep(0.1)

@@ -3,8 +3,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from hive.runtime.usage_reader import read_last_usage
 
 

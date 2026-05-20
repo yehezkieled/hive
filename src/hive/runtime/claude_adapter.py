@@ -175,13 +175,17 @@ class ClaudeAdapter(Runtime):
 
     async def _send_via_pty(self, prompt: str) -> tuple[str, dict]:
         assert self._pty is not None, "PtySession not started — call start() first"
-        text = await self._pty.send(prompt)
+        # PtySession.send now returns (text, usage) — usage sourced from the
+        # session .jsonl transcript, not the scraped screen. Pass the token
+        # counts through and add cost_usd=None (plan-billed: no marginal
+        # dollar cost).
+        text, raw_usage = await self._pty.send(prompt)
         usage: dict = {
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0,
-            "session_id": None,
+            "input_tokens": raw_usage.get("input_tokens", 0),
+            "output_tokens": raw_usage.get("output_tokens", 0),
+            "cache_creation_input_tokens": raw_usage.get("cache_creation_input_tokens", 0),
+            "cache_read_input_tokens": raw_usage.get("cache_read_input_tokens", 0),
+            "session_id": raw_usage.get("session_id"),
             "cost_usd": None,
         }
         return text, usage

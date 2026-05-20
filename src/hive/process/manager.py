@@ -11,7 +11,7 @@ from pathlib import Path
 
 import asyncpg
 
-from hive.bus.actions import Action, parse_actions
+from hive.bus.actions import Action, neutralize_action_tags, parse_actions
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
@@ -1113,7 +1113,12 @@ class ProcessManager:
             window.popleft()
         window.append(now)
 
-        feedback_body = (
+        # Tag names rendered with spaces (`< hive_actions >`) so this
+        # feedback cannot be re-parsed when the entity's terminal
+        # screen-echoes it back into the next turn's prompt — the
+        # every-2h self-feedback loop in prod. See
+        # ``neutralize_action_tags`` for the rationale.
+        feedback_body = neutralize_action_tags(
             "Your last response contained a malformed <hive_actions> "
             "block. The orchestrator could not parse it, so the actions "
             "did NOT execute. Errors:\n"
@@ -1122,14 +1127,16 @@ class ProcessManager:
             "<hive_actions> block. Common causes: unescaped newlines/"
             "quotes inside multi-line `personality` strings (use \\n "
             'and \\"), wrong closing tag (must be </hive_actions>, not '
-            "</invoke>), or missing required fields."
+            "</invoke>), or missing required fields. (Tag names above "
+            "are shown with spaces — emit them without spaces, exactly "
+            "as in the protocol spec.)"
         )
 
         if len(window) > _PARSE_FAILURE_MAX_PER_WINDOW:
             # Cap exceeded — escalate once, drop the feedback message
             # so we don't keep waking a stuck entity.
             parent = self._parent_of(entity)
-            escalation_msg = (
+            escalation_msg = neutralize_action_tags(
                 f"{entity.name} has emitted {len(window)} malformed "
                 f"<hive_actions> blocks in the last "
                 f"{_PARSE_FAILURE_WINDOW_SECONDS // 60} min. "

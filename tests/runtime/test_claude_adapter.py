@@ -6,10 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
 from hive.process.claude_session import ClaudeSession
+from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
 
 
 def _make_session(text: str, session_id: str = "s1", usage: dict | None = None) -> ClaudeSession:
@@ -143,39 +141,51 @@ def test_is_alive_returns_true_in_step_1() -> None:
 
 
 async def test_pty_mode_start_spawns_pty() -> None:
-    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty_cls:
         mock_pty = AsyncMock()
         mock_pty.is_alive.return_value = True
-        MockPtySession.return_value = mock_pty
+        mock_pty_cls.return_value = mock_pty
 
         adapter = ClaudeAdapter(_config(), use_pty=True)
         await adapter.start()
 
-        MockPtySession.assert_called_once()
+        mock_pty_cls.assert_called_once()
         mock_pty.start.assert_awaited_once()
 
 
 async def test_pty_mode_send_turn_returns_text() -> None:
-    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty_cls:
         mock_pty = AsyncMock()
         mock_pty.is_alive.return_value = True
-        mock_pty.send.return_value = "PTY response text"
-        MockPtySession.return_value = mock_pty
+        # PtySession.send now returns (text, usage) — usage from transcript.
+        mock_pty.send.return_value = (
+            "PTY response text",
+            {
+                "input_tokens": 5,
+                "output_tokens": 10,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "session_id": "sess-pty",
+            },
+        )
+        mock_pty_cls.return_value = mock_pty
 
         adapter = ClaudeAdapter(_config(), use_pty=True)
         await adapter.start()
         text, usage = await adapter.send_turn("hello via pty")
 
     assert text == "PTY response text"
-    assert "input_tokens" in usage
-    assert usage["session_id"] is None
+    assert usage["input_tokens"] == 5
+    assert usage["output_tokens"] == 10
+    assert usage["session_id"] == "sess-pty"
+    assert usage["cost_usd"] is None  # plan-billed: no marginal dollar cost
 
 
 async def test_pty_mode_stop_terminates_pty() -> None:
-    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty_cls:
         mock_pty = AsyncMock()
         mock_pty.is_alive.return_value = True
-        MockPtySession.return_value = mock_pty
+        mock_pty_cls.return_value = mock_pty
 
         adapter = ClaudeAdapter(_config(), use_pty=True)
         await adapter.start()
@@ -185,10 +195,10 @@ async def test_pty_mode_stop_terminates_pty() -> None:
 
 
 async def test_pty_mode_is_alive_delegates_to_pty() -> None:
-    with patch("hive.runtime.claude_adapter.PtySession") as MockPtySession:
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty_cls:
         mock_pty = MagicMock()
         mock_pty.is_alive.return_value = False
-        MockPtySession.return_value = mock_pty
+        mock_pty_cls.return_value = mock_pty
 
         adapter = ClaudeAdapter(_config(), use_pty=True)
         adapter._pty = mock_pty  # inject without calling start()

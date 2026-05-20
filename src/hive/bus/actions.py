@@ -48,6 +48,35 @@ _ACTIONS_PATTERN = re.compile(
     re.DOTALL,
 )
 
+# Human-readable aliases for the action tag names, used inside error
+# strings and feedback messages. Using these instead of the literal
+# `<hive_actions>` / `</hive_actions>` tags prevents a self-sustaining
+# loop: when the orchestrator routes parse-error feedback back to an
+# entity, the entity's terminal screen-echoes the feedback, and on the
+# next turn parse_actions re-scans the screen. If the feedback contained
+# the literal tag strings, the parser would find them inside its own
+# help text, try to parse the prose between them as JSON, fail, and
+# generate the same feedback — firing every ~2h in prod. The spaces
+# break the literal-substring `.find` and the `<hive_actions>` regex
+# both, while staying obviously the tag name to a human reader.
+_OPEN_TAG_ALIAS = "< hive_actions >"
+_CLOSE_TAG_ALIAS = "< /hive_actions >"
+
+
+def neutralize_action_tags(text: str) -> str:
+    """Replace literal ``<hive_actions>`` / ``</hive_actions>`` substrings
+    with non-parseable visual aliases.
+
+    Used by ``parse_actions`` (on its own error strings) and by the
+    process manager (on the wrapper text it composes around them) to
+    guarantee that feedback routed back to an entity cannot re-trigger
+    the parser when the entity's terminal screen-echoes it.
+    """
+    return text.replace("</hive_actions>", _CLOSE_TAG_ALIAS).replace(
+        "<hive_actions>", _OPEN_TAG_ALIAS
+    )
+
+
 _MESSAGE_REQUIRED = {"to", "text"}
 _MODE_REQUEST_REQUIRED = {"requested_mode"}
 _FAILURE_REQUIRED = {"reason"}
@@ -131,10 +160,12 @@ def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
         # Orphan opening with no close anywhere — strip from the
         # opening to the end so harness chatter doesn't leak.
         errors.append(
-            "<hive_actions> block has no closing </hive_actions> tag — "
-            "the entire block was dropped. Make sure every opening tag "
-            "is followed by a matching </hive_actions> close (not "
-            "</invoke> or any other tool-call closing tag)."
+            f"{_OPEN_TAG_ALIAS} block has no closing {_CLOSE_TAG_ALIAS} "
+            "tag — the entire block was dropped. Make sure every "
+            f"opening tag is followed by a matching {_CLOSE_TAG_ALIAS} "
+            "close (not </invoke> or any other tool-call closing tag). "
+            "(Tag names shown with spaces to avoid re-triggering the "
+            "parser when this message is echoed back.)"
         )
         return response[:first_open].strip(), [], errors
     last_close_end = last_close + len(closing_tag)
@@ -147,18 +178,22 @@ def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
             block_data = json.loads(raw_json)
         except json.JSONDecodeError as exc:
             snippet = raw_json[:200]
+            # Neutralise the snippet too — entities sometimes paste prior
+            # feedback or doc text verbatim into their malformed JSON,
+            # which would re-introduce parseable tag substrings.
+            safe_snippet = neutralize_action_tags(repr(snippet))
             errors.append(
-                f"Malformed JSON in <hive_actions> block: {exc.msg} "
+                f"Malformed JSON in {_OPEN_TAG_ALIAS} block: {exc.msg} "
                 f"(line {exc.lineno}, col {exc.colno}). "
-                f"Snippet: {snippet!r}. Tip: escape newlines as \\n and "
-                f'quotes as \\" inside multi-line string fields like '
-                f"`personality`."
+                f"Snippet: {safe_snippet}. Tip: escape newlines as \\n "
+                f'and \\" for quotes inside multi-line string fields '
+                f"like `personality`."
             )
             logger.warning("Malformed JSON in <hive_actions> block: %s", snippet)
             continue
         if not isinstance(block_data, list):
             errors.append(
-                "<hive_actions> block must be a JSON array of action "
+                f"{_OPEN_TAG_ALIAS} block must be a JSON array of action "
                 f"objects, got {type(block_data).__name__}."
             )
             logger.warning("<hive_actions> block is not a JSON array")

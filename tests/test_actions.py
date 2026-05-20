@@ -580,3 +580,71 @@ class TestParseActionsErrors:
         assert actions[0].to == "dev.backend"
         assert len(errors) == 1
         assert "dev.frontend" in errors[0]
+
+
+class TestParseErrorFeedbackNotReparseable:
+    """Parse-error feedback strings must not contain parseable
+    ``<hive_actions>`` tag substrings.
+
+    Background: when ``parse_actions`` failed, the previous help text
+    quoted the literal ``<hive_actions>`` and ``</hive_actions>`` tag
+    names. The orchestrator routes that text back to the entity as a
+    system feedback message, the entity's terminal screen-echoes it,
+    and on the next turn ``parse_actions`` re-scans the screen text,
+    finds the substrings inside its own help, tries to parse the prose
+    between them as JSON, fails, generates the same help message —
+    a self-sustaining loop firing every ~2h in prod.
+
+    Fix invariant: every error string returned by ``parse_actions``
+    must be neutralised so that feeding the full error list back
+    through ``parse_actions`` produces zero errors.
+    """
+
+    def test_orphan_open_error_has_no_parseable_tags(self) -> None:
+        # No-close path: error string itself contained
+        # `<hive_actions>` and `</hive_actions>` literally.
+        text = "Here\n<hive_actions>\nblah blah no close"
+        _, _, errors = parse_actions(text)
+        assert len(errors) == 1
+        assert "<hive_actions>" not in errors[0]
+        assert "</hive_actions>" not in errors[0]
+
+    def test_malformed_json_error_has_no_parseable_tags(self) -> None:
+        text = "Hello.\n\n<hive_actions>\n{not valid json}\n</hive_actions>"
+        _, _, errors = parse_actions(text)
+        assert len(errors) == 1
+        assert "<hive_actions>" not in errors[0]
+        assert "</hive_actions>" not in errors[0]
+
+    def test_non_array_error_has_no_parseable_tags(self) -> None:
+        text = (
+            'Done.\n\n<hive_actions>\n{"type": "message", "to": "x", "text": "y"}\n</hive_actions>'
+        )
+        _, _, errors = parse_actions(text)
+        assert len(errors) == 1
+        assert "<hive_actions>" not in errors[0]
+        assert "</hive_actions>" not in errors[0]
+
+    def test_feeding_errors_back_produces_no_errors(self) -> None:
+        # The regression test for the every-2h loop. Compose the
+        # feedback text the way the orchestrator does (errors joined
+        # into a single body), feed it back into parse_actions, and
+        # assert no parse errors fire — i.e. the loop can no longer
+        # form.
+        triggers = [
+            "Here\n<hive_actions>\nno close at all",
+            "Bad.\n\n<hive_actions>\n{not valid json}\n</hive_actions>",
+            (
+                'Done.\n\n<hive_actions>\n{"type": "message", "to": "x", '
+                '"text": "y"}\n</hive_actions>'
+            ),
+        ]
+        all_errors: list[str] = []
+        for trigger in triggers:
+            _, _, errors = parse_actions(trigger)
+            all_errors.extend(errors)
+        assert all_errors, "fixture should produce errors to feed back"
+        feedback = "\n".join(f"- {err}" for err in all_errors)
+        _, actions_back, errors_back = parse_actions(feedback)
+        assert actions_back == []
+        assert errors_back == []
