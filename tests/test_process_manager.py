@@ -1623,14 +1623,20 @@ async def _drain_wake_tasks(manager: ProcessManager) -> None:
 
     Loops because wakes schedule both an entity-spawn task and an audit
     task; awaiting one batch may surface another that was queued while
-    the first was running.
+    the first was running. asyncio.wait with a per-round timeout caps
+    the wait so a stuck task can't block the test indefinitely — any
+    unfinished task is cancelled and awaited so it doesn't survive into
+    the next test.
     """
     while manager._wake_tasks:
         pending = list(manager._wake_tasks)
+        _, not_done = await asyncio.wait(pending, timeout=5.0)
+        for task in not_done:
+            task.cancel()
         for task in pending:
             try:
                 await task
-            except Exception:
+            except (asyncio.CancelledError, Exception):
                 pass
 
 
