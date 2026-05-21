@@ -1,6 +1,6 @@
 # Hive — Status
 
-_Last verified: 2026-05-18_
+_Last verified: 2026-05-20_
 
 A one-screen view of where Hive is right now. Build history lives in
 `docs/PROJECT_PLAN.md`; what's planned next lives in `ROADMAP.md`. This
@@ -20,11 +20,18 @@ The daily `pg_dump` backup timer (Sprint 29 Phase 1) is active.
 
 ## Done but NOT live
 
-- **Sprint 30 — PTY harness migration.** Committed to local `main`,
-  which is 9 commits ahead of `origin/main`. Not pushed, not deployed
-  (the running service predates the Sprint 30 code), and `HIVE_USE_PTY`
-  is not set in `.env` so the PTY path is off. Going live means: push,
-  restart the service, verify, then flip `HIVE_USE_PTY=true`.
+- **Sprint 30 — PTY harness migration.** Committed to local `main`.
+  Not pushed, not deployed (the running service predates the Sprint 30
+  code), and `HIVE_USE_PTY` is not set in `.env` so the PTY path is off.
+  Going live means: push, restart the service, verify, then flip
+  `HIVE_USE_PTY=true`.
+- **Sprint 31 — QuotaMonitor.** Committed to local `main`. Background
+  poller of Anthropic plan-quota (5h + 7d windows); Telegram alerts at
+  80 / 90 / 100, plus a "monitor blind" meta-alert on continuous fetch
+  failure. Notify-only v1 — see
+  `docs/plans/2026-05-20-quota-monitor.md` and
+  `docs/adr/0002-quota-from-undocumented-oauth-endpoint.md`. Not pushed,
+  not yet deployed (deploys with the Sprint 30 push).
 
 ## On hold / deferred
 

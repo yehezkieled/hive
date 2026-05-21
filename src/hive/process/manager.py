@@ -56,6 +56,7 @@ from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
 from hive.vault.spend_caps import check_caps
 
@@ -250,6 +251,9 @@ class ProcessManager:
         # consult the rate limiter. Optional — tests construct managers
         # without a scheduler and the spawn dispatch falls back to "allow".
         self.scheduler: object | None = None
+        # Set after construction by __main__.py. Optional — tests
+        # construct managers without quota monitoring.
+        self.quota_monitor: QuotaMonitor | None = None
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -1581,6 +1585,12 @@ class ProcessManager:
             except Exception:
                 logger.exception("Failed to stop adapter for %s on shutdown", name)
         self._adapters.clear()
+
+        if self.quota_monitor is not None:
+            try:
+                await self.quota_monitor.stop()
+            except Exception:
+                logger.exception("Failed to stop QuotaMonitor on shutdown")
 
         logger.info("Stopped %d entity sessions for restart", len(self._entities))
 

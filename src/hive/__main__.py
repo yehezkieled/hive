@@ -29,6 +29,8 @@ from hive.config import (
     EMAIL_TO,
     HEARTBEAT_ENABLED,
     HEARTBEAT_INTERVAL_MINUTES,
+    HIVE_CLAUDE_CREDENTIALS_PATH,
+    HIVE_QUOTA_POLL_SECONDS,
     IDLE_TIMEOUT_MINUTES,
     MAX_CONCURRENT_SESSIONS,
     PERSONALITIES_DIR,
@@ -56,6 +58,7 @@ from hive.notifications import EmailDigest, NotificationDispatcher
 from hive.observability.health_monitor import HealthMonitor
 from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
+from hive.runtime import QuotaMonitor
 from hive.vault.provider import build_provider
 
 logger = logging.getLogger("hive")
@@ -219,6 +222,23 @@ async def main() -> None:
         spawn_limit=AUTONOMOUS_SPAWN_LIMIT,
     )
     process_manager.scheduler = scheduler
+
+    # QuotaMonitor — background poller of Anthropic plan-quota.
+    # Alerts at 80/90/100 thresholds on both 5h and 7d windows; meta-alerts
+    # if the endpoint goes blind. See
+    # docs/adr/0002-quota-from-undocumented-oauth-endpoint.md.
+    quota_monitor = QuotaMonitor(
+        credentials_path=HIVE_CLAUDE_CREDENTIALS_PATH,
+        notifications=notification_dispatcher,
+        poll_seconds=HIVE_QUOTA_POLL_SECONDS,
+    )
+    process_manager.quota_monitor = quota_monitor
+    await quota_monitor.start()
+    logger.info(
+        "QuotaMonitor started (poll every %.0fs, credentials %s)",
+        HIVE_QUOTA_POLL_SECONDS,
+        HIVE_CLAUDE_CREDENTIALS_PATH,
+    )
 
     # Restore persisted entities (organizational structure, not running procs)
     for persisted in await entity_store.all():

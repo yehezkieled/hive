@@ -72,6 +72,15 @@ To be filled with your feature ideas. Seed recommendations:
   remaining quota.
 - The 8 deferred spec features in `docs/AUDIT_2026-05-05.md` section 7 —
   review and pick any worth doing.
+- **Quota-aware planning** — Maestros treat Plan quota (the 5h + 7d
+  windows) as a shared, finite budget. Each Maestro sees the remaining
+  quota, weighs its tasks by priority (P0–P4), and Maestros collaborate
+  so the budget flows to the most important work — quota becomes a
+  planning input, not just a wall it hits. Depends on the QuotaMonitor
+  sensor (a queryable current-quota reading) existing first. Open design
+  fork: decentralised negotiation between Maestros vs. a central
+  allocator handing each a budget. Subsumes deferred spec feature #22
+  "dynamic budget recalc" (`docs/AUDIT_2026-05-05.md`).
 - _(your ideas here)_
 
 ## Priority note

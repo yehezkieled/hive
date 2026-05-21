@@ -229,6 +229,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/model opusplan dev.backend",
         ),
     ),
+    "quota": HelpEntry(
+        category="Resources",
+        usage="/quota",
+        description="Show plan-quota utilization for the 5h and 7d windows, with reset times.",
+        examples=("/quota",),
+    ),
     # Security — alphabetical: approve, deny, vault
     "approve": HelpEntry(
         category="Security",

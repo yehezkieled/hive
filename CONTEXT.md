@@ -67,6 +67,15 @@ A Turn metered per-token against an API key, paid in real money. Hive treats
 API-billed usage as the expensive path, used only by deliberate choice.
 _Avoid_: pay-as-you-go, raw API
 
+**Plan quota**:
+The usage allowance on a Plan-billed Harness, expressed as utilization
+(0–100%) of a rolling window. Two windows run at once — a 5-hour window
+and a 7-day window. Plan quota is account-wide: the developer's own
+Claude usage draws it down alongside Hive's Entities. It is not the same
+as per-Turn token counts. When a window reaches 100%, Turns on that
+Harness fail until it resets.
+_Avoid_: rate limit, token usage
+
 ## Relationships
 
 - A **Maestro** owns zero or more **Teams**

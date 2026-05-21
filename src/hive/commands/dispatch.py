@@ -105,6 +105,7 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(
         "files",
         "eval",
         "budget",
+        "quota",
     }
 )
 
@@ -244,6 +245,9 @@ class CommandDispatcher:
 
         if cmd.name == "cost":
             return CommandResult(text=await self._format_cost(cmd.args))
+
+        if cmd.name == "quota":
+            return CommandResult(text=self._format_quota())
 
         if cmd.name == "task":
             return CommandResult(text=await self._execute_task(cmd.target, cmd.args, actor=actor))
@@ -415,6 +419,19 @@ class CommandDispatcher:
         if row is None:
             return f"Request #{req_id} not found or already resolved."
         return f"Denied #{row['id']}: {row['requester']} -> {row['requested_mode']}."
+
+    def _format_quota(self) -> str:
+        """Render the on-demand /quota response using the manager's monitor."""
+        from hive.config import HIVE_QUOTA_POLL_SECONDS
+        from hive.runtime.quota_monitor import format_quota_text
+
+        monitor = self.process_manager.quota_monitor
+        reading = monitor.get_quota() if monitor is not None else None
+        return format_quota_text(
+            reading,
+            now=datetime.now(UTC),
+            stale_after_seconds=HIVE_QUOTA_POLL_SECONDS * 2,
+        )
 
     async def _format_cost(self, args: str) -> str:
         """Format a /cost report over an optional time window (default 24h)."""

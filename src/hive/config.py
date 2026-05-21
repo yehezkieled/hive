@@ -184,6 +184,19 @@ AUTO_RETRIEVE_INCLUDE_ATTACHMENTS = (
 # send_turn calls through persistent PTY sessions instead of claude -p.
 HIVE_USE_PTY = os.environ.get("HIVE_USE_PTY", "false").lower() == "true"
 
+# QuotaMonitor. Polls Anthropic's plan-quota OAuth endpoint every
+# HIVE_QUOTA_POLL_SECONDS and alerts at 80/90/100 thresholds on both
+# the 5-hour and 7-day rolling windows. See
+# docs/adr/0002-quota-from-undocumented-oauth-endpoint.md for the
+# data-source decision.
+HIVE_QUOTA_POLL_SECONDS = float(os.environ.get("HIVE_QUOTA_POLL_SECONDS", "180"))
+HIVE_CLAUDE_CREDENTIALS_PATH = Path(
+    os.environ.get(
+        "HIVE_CLAUDE_CREDENTIALS_PATH",
+        str(Path.home() / ".claude" / ".credentials.json"),
+    )
+)
+
 # Advisor MCP server (Sprint 13)
 ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "true"
 ADVISOR_COOLDOWN_SECONDS = int(os.environ.get("HIVE_ADVISOR_COOLDOWN_SECONDS", "300"))
