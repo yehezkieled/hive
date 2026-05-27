@@ -76,6 +76,25 @@ as per-Turn token counts. When a window reaches 100%, Turns on that
 Harness fail until it resets.
 _Avoid_: rate limit, token usage
 
+### Project management
+
+**Sprint**:
+A 2-week calendar window holding committed Tickets. One file per
+sprint in `docs/sprints/YYYY-QN-SN.md`, peer files sorted
+chronologically by filename. Frozen at sprint close.
+_Note_: Sprints 0–31 in `docs/archive/PROJECT_PLAN.md` and
+`docs/CHANGELOG.md` are the **legacy** meaning — single units of
+shipped work, not 2-week windows. The current meaning starts from
+`2026-Q2-S1`.
+
+**Ticket**:
+One unit of work. Lives in `docs/tickets/NNN-slug/` as a folder of
+artifacts (`ticket.md`, `questions.md`, `research.md`, `design.md`,
+`outline.md`, `plan.md`). A Sprint commits a set of Tickets.
+_Avoid_: task (overloaded — `/task add` in Telegram is a different
+concept), feature (a roadmap-level idea that may eventually become
+one or more Tickets).
+
 ## Relationships
 
 - A **Maestro** owns zero or more **Teams**

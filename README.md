@@ -1,91 +1,102 @@
 # Hive
 
-Multi-maestro AI agent orchestration platform built natively on Claude Code. Hive lets you run and coordinate multiple Claude agents (maestros, teams, workers) via Telegram — each agent runs as a `claude -p` subprocess with its own conversation history, personality, and permissions.
+Hive is a multi-agent orchestration platform: it runs and coordinates
+a fleet of AI coding agents that you control from Telegram. Each
+Entity (Maestro / Team Lead / Worker) runs on its own Harness —
+Claude Code via an interactive PTY session today, with Codex and
+OpenCode adapters planned.
+
+See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
+Maestro, Harness, Plan-billed, …) and
+[`docs/roadmap.md`](docs/roadmap.md) for direction.
 
 ## How it works
 
 ```
 You (Telegram)
-    ↓
-Telegram Bridge  ←→  Command Router
-    ↓
-Process Manager
-    ↓
-claude -p subprocess  ←→  PostgreSQL (message history, tasks, usage)
-    ↓
+    │
+    ▼
+Hive orchestrator (Python asyncio)
+    │
+    ▼
+One Harness per Entity  ←→  PostgreSQL (messages, tasks, usage)
+    │
+    ▼
 Telegram reply
 ```
 
-Each entity (maestro / team lead / worker) is a persistent Claude Code session. The orchestrator spawns a subprocess per message, resuming the conversation via `--resume <session_id>`, and records token usage and messages to PostgreSQL.
+The orchestrator owns Entity lifecycle, message routing, and Telegram
+integration. Each Entity runs on the Harness it's assigned to via an
+Adapter — uniform turn-level interface, harness-specific internals.
 
 ## Prerequisites
 
 - Python 3.12+
-- Docker + Docker Compose (for PostgreSQL with pgvector)
-- Claude Code CLI — `claude -p` must work on the host
+- Docker + Docker Compose
+- Claude Code CLI on the host (`claude` must work)
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
-- OpenAI API key (optional — required only for blueprint embeddings)
+- OpenAI API key (optional — for blueprint embeddings)
 
 ## Quick start
 
 ```bash
-# 1. Clone and install
 git clone <repo-url> hive
 cd hive
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# 2. Configure
 cp .env.example .env
-$EDITOR .env   # fill in TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, POSTGRES_* vars
+$EDITOR .env       # TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, POSTGRES_*
 
-# 3. Start PostgreSQL
 docker compose up -d postgres
-
-# 4. Start Hive
 python -m hive
 ```
 
-On first run, Hive applies all DB migrations and registers a default maestro named `otter`. You should see `Telegram bridge started, polling for updates` in the logs.
+On first run, Hive applies all DB migrations and registers a default
+Maestro. You should see `Telegram bridge started, polling for updates`
+in the logs.
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full install runbook, systemd setup, troubleshooting, and all config variables.
+Full install + ops runbook in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Telegram interface
 
-**Talk to an entity:**
-```
-/m:dev what's the status of the auth refactor?
-```
+Send `/m:<entity> <msg>` to talk to an Entity, e.g.
+`/m:dev what's the status of the auth refactor?`.
 
-**Common commands:**
+Common commands:
 
 | Command | Purpose |
 |---|---|
-| `/status` | Overview of all active entities |
-| `/cost [24h\|7d\|30d]` | Token usage and estimated API cost |
-| `/m:<name> <msg>` | Send a message to a named entity |
+| `/status` | Overview of all active Entities |
+| `/cost [24h\|7d\|30d]` | Token usage and estimated cost |
+| `/m:<name> <msg>` | Send a message to a named Entity |
 | `/mode <plan\|edit\|auto\|yolo> [entity]` | Set Claude permission mode |
 | `/loop <ralph\|ship-it\|plan-act-observe\|build-test-refine> [entity]` | Set agent reasoning loop |
 | `/model <opus\|sonnet\|haiku> [entity]` | Switch model |
+| `/runtime <entity> <harness> [model]` | Switch the Entity's Harness |
+| `/quota` | Plan-quota status (5h + 7d windows) |
 | `/task add "<title>"` | Add a task to the queue |
 | `/tasks` | List all tasks |
 | `/org` | Show entity hierarchy |
 | `/help` | Full command list |
 
-No `TELEGRAM_BOT_TOKEN`? Hive falls back to a local readline CLI — useful for debugging without a bot.
+No `TELEGRAM_BOT_TOKEN`? Hive falls back to a local readline CLI —
+useful for debugging without a bot.
 
-## Entity modes and loops
+## Modes and loops
 
 **Permission modes** control what Claude can do:
 
-| Mode | Claude flag | Use case |
-|---|---|---|
-| `plan` | `--permission-mode plan` | Read-only — explore and plan, no writes |
-| `edit` | `--permission-mode default` | Normal edits, no shell commands |
-| `auto` | `--dangerously-skip-permissions` | Full autonomy, use carefully |
+| Mode | Use case |
+|---|---|
+| `plan` | Read-only — explore and plan, no writes |
+| `edit` | Normal edits, no shell commands |
+| `auto` | Full autonomy (`--dangerously-skip-permissions`) |
 
-**Loops** are system prompt instructions that shape how the agent approaches a task:
+**Loops** are system-prompt strategies for how the Entity approaches
+a task:
 
 | Loop | Behaviour |
 |---|---|
@@ -96,11 +107,12 @@ No `TELEGRAM_BOT_TOKEN`? Hive falls back to a local readline CLI — useful for 
 
 ## Configuration
 
-Key variables in `.env` (see [`docs/DEPLOYMENT.md § Configuration`](docs/DEPLOYMENT.md) for the full table):
+Key variables in `.env` (full table in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)):
 
 ```bash
 TELEGRAM_BOT_TOKEN=<from BotFather>
-TELEGRAM_ALLOWED_USER_IDS=<your numeric Telegram user ID>
+TELEGRAM_ALLOWED_USER_IDS=<your numeric Telegram user id>
 
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5433
@@ -108,14 +120,14 @@ POSTGRES_DB=hive
 POSTGRES_USER=hive
 POSTGRES_PASSWORD=hive
 
-# Optional — enables blueprint save/search and auto-retrieval
-OPENAI_API_KEY=<your key>
+HIVE_USE_PTY=true               # PTY harness path (plan-billed)
+OPENAI_API_KEY=<optional>       # blueprint embeddings
 ```
 
 ## Development
 
 ```bash
-# Tests (spins up a throwaway Postgres container — won't touch your dev DB)
+# Tests (spins up a throwaway Postgres container — won't touch dev DB)
 .venv/bin/python -m pytest tests/ -v
 
 # Lint + format
@@ -127,27 +139,29 @@ OPENAI_API_KEY=<your key>
 
 ```
 src/hive/
-├── __main__.py          # entry point, wires up all components
-├── config.py            # env var loading
-├── telegram/
-│   └── bridge.py        # Telegram message handler and command router
-├── process/
-│   ├── manager.py       # session lifecycle, spawns claude -p subprocesses
-│   ├── claude_session.py# subprocess wrapper (stdin/stdout pipes)
-│   └── loops.py         # loop mode prompt strings
-├── models/
-│   └── entity.py        # Entity model, builds CLI args for claude -p
-├── bus/
-│   └── router.py        # in-memory message routing between entities
-└── storage/
-    ├── message_store.py  # PostgreSQL message persistence
-    └── migrations/       # SQL migration files (applied on startup)
+├── __main__.py        # entry point
+├── config.py
+├── runtime/           # harness-agnostic adapter (Claude, …)
+├── process/           # Entity / session lifecycle
+├── models/            # Entity, Team, Task, Vault, …
+├── bus/               # message routing + persistence
+├── telegram/          # Telegram bridge + command parser
+├── commands/          # /command handlers
+├── web/               # FastAPI dashboard
+├── knowledge/         # blueprints + embeddings
+├── vault/             # security-gated payment Entity
+├── notifications/
+├── observability/     # /status, /cost, daily summary, heartbeat
+├── mcp/               # MCP advisor server
+└── cli/               # local readline CLI fallback
 ```
 
-## Deployment
+## Project documentation
 
-For running Hive as a persistent systemd user service on a Linux VPS, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). It covers:
-- systemd unit file setup
-- Log tailing and graceful restarts
-- Database verification queries
-- Troubleshooting common failures
+- [`CONTEXT.md`](CONTEXT.md) — terminology
+- [`docs/roadmap.md`](docs/roadmap.md) — vision and themes
+- [`docs/sprints/`](docs/sprints/) — current and past sprint plans
+- [`docs/tickets/INDEX.md`](docs/tickets/INDEX.md) — Ticket registry
+- [`docs/adr/`](docs/adr/) — architecture decisions
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — install + ops runbook
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — what shipped, when
