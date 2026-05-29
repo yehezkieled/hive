@@ -6,6 +6,6 @@ marked with ✱.
 
 | ID | Title | Sprint | Status |
 |----|-------|--------|--------|
-| 001 | [Deploy PTY runtime + QuotaMonitor](001-deploy-pty-runtime/) | 2026-Q2-S1 | in progress |
+| 001 | [Deploy PTY runtime + QuotaMonitor](001-deploy-pty-runtime/) | 2026-Q2-S1 | done |
 | 002 ✱ | [Restructure project management docs](002-doc-restructure/) | 2026-Q2-S1 | done |
-| 003 | [Interactive-gate bridge for the PTY harness](003-plan-interaction-bridge/) | 2026-Q2-S1 | in progress |
+| 003 | [Interactive-gate bridge for the PTY harness](003-plan-interaction-bridge/) | 2026-Q2-S2 | in progress |
