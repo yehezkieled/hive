@@ -30,25 +30,21 @@ _BAND_KIND: dict[int, str] = {
     90: "quota_urgent",
     100: "quota_exhausted",
 }
-_BAND_LABEL: dict[int, str] = {
-    80: "Crossed 80%",
-    90: "Crossed 90%",
-    100: "EXHAUSTED (100%)",
-}
-_WINDOW_LABEL: dict[str, str] = {
-    "five_hour": "5-hour window",
-    "seven_day": "7-day window",
-}
 
 FetchCallable = Callable[[str, dict[str, str]], Awaitable[dict]]
 
 
 @dataclass(frozen=True)
 class WindowReading:
-    """One quota window's current utilization and next reset."""
+    """One quota window's current utilization and next reset.
+
+    ``resets_at`` is ``None`` when the upstream reports no reset clock for the
+    window — happens at window rollover with zero usage. Treated as "not
+    started" in rendered text; never fabricated.
+    """
 
     utilization: float  # 0.0 – 100.0
-    resets_at: datetime  # UTC
+    resets_at: datetime | None  # UTC, or None when upstream omits it
 
 
 @dataclass(frozen=True)
@@ -71,19 +67,20 @@ class QuotaMonitor:
         fetch_callable: FetchCallable | None = None,
         failure_threshold: int = 5,
     ) -> None:
+        from hive.runtime.quota_state import QuotaState
+
         self._credentials_path = credentials_path
         self._notifications = notifications
         self._poll_seconds = poll_seconds
         self._fetch: FetchCallable = fetch_callable or _default_fetch
-        self._failure_threshold = failure_threshold
         self._latest: QuotaReading | None = None
         # (window_name, band) pairs already alerted in the current window cycle
         self._fired: set[tuple[str, int]] = set()
-        # Last-seen resets_at per window — drives reset detection
+        # Last-seen resets_at per window — drives reset detection.
+        # Only populated when upstream gave a real timestamp.
         self._last_resets: dict[str, datetime] = {}
-        # Failure tracking for the "monitor blind" meta-alert
-        self._consecutive_failures: int = 0
-        self._monitor_blind_alerted: bool = False
+        # Symmetric-debounce state machine for blind/recovered transitions.
+        self._state = QuotaState(threshold=failure_threshold)
         # Background-loop task handle
         self._task: asyncio.Task[None] | None = None
 
@@ -135,7 +132,11 @@ class QuotaMonitor:
         windows = (("five_hour", five), ("seven_day", seven))
 
         # Clear fired-bands for any window whose resets_at has advanced.
+        # Null resets_at carries no signal — keep the previous timestamp until
+        # upstream provides a real one again.
         for name, window in windows:
+            if window.resets_at is None:
+                continue
             prev = self._last_resets.get(name)
             if prev is not None and window.resets_at > prev:
                 self._fired = {(n, b) for (n, b) in self._fired if n != name}
@@ -152,40 +153,32 @@ class QuotaMonitor:
         )
 
     async def _record_success(self) -> None:
-        if self._monitor_blind_alerted:
+        if self._state.record_success() == "recovered":
             await self._fire_recovery_alert()
-            self._monitor_blind_alerted = False
-        self._consecutive_failures = 0
 
     async def _record_failure(self, exc: BaseException) -> None:
         logger.warning("QuotaMonitor poll failed: %s", exc)
-        self._consecutive_failures += 1
-        if (
-            self._consecutive_failures >= self._failure_threshold
-            and not self._monitor_blind_alerted
-        ):
+        if self._state.record_failure() == "blind":
             await self._fire_blind_alert()
-            self._monitor_blind_alerted = True
 
     async def _fire_blind_alert(self) -> None:
+        from hive.runtime.quota_alerts import format_unreachable_alert
+
         await self._notifications.dispatch(
             Notification(
-                text=(
-                    "QuotaMonitor — endpoint unreachable\n"
-                    "Quota polling has failed continuously. "
-                    "Quota alerts are offline until it recovers."
-                ),
+                text=format_unreachable_alert(self._latest, now=datetime.now(UTC)),
                 kind="quota_monitor_blind",
             )
         )
 
     async def _fire_recovery_alert(self) -> None:
+        from hive.runtime.quota_alerts import format_recovery_alert
+
+        # _latest is guaranteed set: recovery only fires after N successful polls.
+        assert self._latest is not None
         await self._notifications.dispatch(
             Notification(
-                text=(
-                    "QuotaMonitor — back online\n"
-                    "Quota polling has recovered. Alerts are active again."
-                ),
+                text=format_recovery_alert(self._latest),
                 kind="quota_monitor_recovered",
             )
         )
@@ -202,13 +195,11 @@ class QuotaMonitor:
             self._fired.add((window_name, b))
 
     async def _fire_alert(self, window_name: str, band: int, window: WindowReading) -> None:
-        label = _BAND_LABEL[band]
-        window_label = _WINDOW_LABEL[window_name]
-        reset_str = window.resets_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
-        text = f"Hive quota — {window_label}\n{label}. Resets at {reset_str}."
+        from hive.runtime.quota_alerts import format_band_alert
+
         await self._notifications.dispatch(
             Notification(
-                text=text,
+                text=format_band_alert(window_name, band, window),
                 kind=_BAND_KIND[band],
                 data={
                     "window": window_name,
@@ -228,18 +219,16 @@ class QuotaMonitor:
 
     @staticmethod
     def _parse_windows(data: dict) -> tuple[WindowReading, WindowReading]:
-        five_raw = data["five_hour"]
-        seven_raw = data["seven_day"]
         return (
-            WindowReading(
-                utilization=float(five_raw["utilization"]),
-                resets_at=datetime.fromisoformat(five_raw["resets_at"]),
-            ),
-            WindowReading(
-                utilization=float(seven_raw["utilization"]),
-                resets_at=datetime.fromisoformat(seven_raw["resets_at"]),
-            ),
+            QuotaMonitor._parse_one_window(data["five_hour"]),
+            QuotaMonitor._parse_one_window(data["seven_day"]),
         )
+
+    @staticmethod
+    def _parse_one_window(raw: dict) -> WindowReading:
+        resets_raw = raw["resets_at"]
+        resets_at = datetime.fromisoformat(resets_raw) if resets_raw is not None else None
+        return WindowReading(utilization=float(raw["utilization"]), resets_at=resets_at)
 
 
 def format_quota_text(
@@ -263,7 +252,11 @@ def format_quota_text(
         stale_note = f" (reading {minutes} min old — endpoint may be down)"
 
     def _line(label: str, window: WindowReading) -> str:
-        reset_str = window.resets_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        reset_str = (
+            window.resets_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+            if window.resets_at is not None
+            else "not started"
+        )
         return f"{label}: {window.utilization:.0f}%, resets {reset_str}"
 
     return (
