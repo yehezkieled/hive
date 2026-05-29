@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
+
 from hive.notifications.dispatcher import NotificationDispatcher
 from hive.runtime.quota_monitor import (
     QuotaMonitor,
@@ -357,6 +359,29 @@ async def test_missing_required_keys_treated_as_failure(tmp_path: Path):
     assert monitor.get_quota() is None  # no successful reading stored
 
 
+async def test_null_resets_at_on_main_window_is_treated_as_success(tmp_path: Path):
+    """Behavior: a main window with resets_at=null parses cleanly (no crash)."""
+    fetch = AsyncMock(
+        return_value={
+            "five_hour": {"utilization": 0.0, "resets_at": None},
+            "seven_day": {
+                "utilization": 5.0,
+                "resets_at": "2026-05-28T15:00:00+00:00",
+            },
+        }
+    )
+    monitor, sent = _make_monitor_with_recorder(tmp_path, fetch)
+    await monitor.poll_once()
+    reading = monitor.get_quota()
+    assert reading is not None  # parse did not raise
+    assert reading.five_hour.resets_at is None
+    assert reading.five_hour.utilization == 0.0
+    assert reading.seven_day.resets_at == datetime(2026, 5, 28, 15, 0, tzinfo=UTC)
+    # No band alerts fired (utilization is far below thresholds).
+    band_alerts = [n for n in sent if n.kind.startswith("quota_warn")]
+    assert band_alerts == []
+
+
 async def test_consecutive_failures_fire_blind_alert_once(tmp_path: Path):
     """Behavior 17a: N consecutive failures fire the meta-alert exactly once."""
     fetch = AsyncMock(side_effect=[urllib.error.URLError(f"f{i}") for i in range(6)])
@@ -390,7 +415,11 @@ async def test_success_between_failures_resets_failure_counter(tmp_path: Path):
 
 
 async def test_recovery_after_blind_fires_back_online_and_re_arms(tmp_path: Path):
-    """Behavior 18: success after the meta-alert fires recovery ping; meta-alert re-arms."""
+    """Behavior 18: N consecutive successes after blind fire recovery; meta-alert re-arms.
+
+    Symmetric debounce — recovery now requires the same threshold as blind so
+    a single lucky poll doesn't fire a false "back online".
+    """
     fetch = AsyncMock(
         side_effect=[
             urllib.error.URLError("1"),
@@ -398,7 +427,11 @@ async def test_recovery_after_blind_fires_back_online_and_re_arms(tmp_path: Path
             urllib.error.URLError("3"),
             urllib.error.URLError("4"),
             urllib.error.URLError("5"),  # fires monitor_blind
-            _success_response(),  # fires recovery
+            _success_response(),  # success #1 — not yet enough for recovery
+            _success_response(),  # success #2
+            _success_response(),  # success #3
+            _success_response(),  # success #4
+            _success_response(),  # success #5 → fires recovery
             urllib.error.URLError("re1"),
             urllib.error.URLError("re2"),
             urllib.error.URLError("re3"),
@@ -407,12 +440,58 @@ async def test_recovery_after_blind_fires_back_online_and_re_arms(tmp_path: Path
         ]
     )
     monitor, sent = _make_monitor_with_recorder(tmp_path, fetch, failure_threshold=5)
-    for _ in range(11):
+    for _ in range(15):
         await monitor.poll_once()
     blinds = [n for n in sent if n.kind == "quota_monitor_blind"]
     recoveries = [n for n in sent if n.kind == "quota_monitor_recovered"]
     assert len(blinds) == 2
     assert len(recoveries) == 1
+
+
+# --- 4-hour digest ----------------------------------------------------------
+
+
+@pytest.mark.skip(reason="digest scheduling deferred to #11 — firing semantics undecided")
+async def test_digest_fires_when_a_4h_slot_passes(tmp_path: Path):
+    """A poll that crosses a 4-hour wall-clock anchor fires one digest."""
+    clock = {"now": datetime(2026, 5, 25, 11, 58, tzinfo=UTC)}  # 2 min before 12:00 UTC
+
+    def now() -> datetime:
+        return clock["now"]
+
+    fetch = AsyncMock(return_value=_success_response())
+    monitor, sent = _make_monitor_with_recorder(tmp_path, fetch, now_callable=now)
+
+    # First poll at 11:58 UTC — no digest yet because we haven't crossed a slot.
+    await monitor.poll_once()
+    assert [n for n in sent if n.kind == "quota_digest"] == []
+
+    # Advance clock past 12:00 UTC. Next poll should fire the digest once.
+    clock["now"] = datetime(2026, 5, 25, 12, 1, tzinfo=UTC)
+    await monitor.poll_once()
+    digests = [n for n in sent if n.kind == "quota_digest"]
+    assert len(digests) == 1
+
+
+@pytest.mark.skip(reason="digest scheduling deferred to #11 — firing semantics undecided")
+async def test_digest_does_not_re_fire_within_the_same_slot(tmp_path: Path):
+    """Multiple polls inside the same 4h slot fire the digest at most once."""
+    clock = {"now": datetime(2026, 5, 25, 12, 1, tzinfo=UTC)}
+
+    def now() -> datetime:
+        return clock["now"]
+
+    fetch = AsyncMock(return_value=_success_response())
+    monitor, sent = _make_monitor_with_recorder(tmp_path, fetch, now_callable=now)
+
+    await monitor.poll_once()  # in the 12:00 slot — fires
+    clock["now"] = datetime(2026, 5, 25, 14, 30, tzinfo=UTC)  # still 12:00 slot
+    await monitor.poll_once()  # no re-fire
+    clock["now"] = datetime(2026, 5, 25, 15, 59, tzinfo=UTC)  # still 12:00 slot
+    await monitor.poll_once()  # no re-fire
+
+    digests = [n for n in sent if n.kind == "quota_digest"]
+    assert len(digests) == 1
 
 
 async def test_poll_once_never_raises_on_unexpected_exception(tmp_path: Path):
