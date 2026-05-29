@@ -1,5 +1,10 @@
 # 003 — Interactive-gate bridge for the PTY harness
 
+> **Discovered during:** Ticket 001 deploy testing (Sprint
+> `2026-Q2-S1`). The PTY smoke test (`/m:dev`) surfaced this hang.
+> Lineage only — 003 is **new scope**, committed to Sprint
+> `2026-Q2-S2`, not part of S1's commitment.
+
 ## What
 
 When an Entity running on the PTY (Claude Code) Harness hits an

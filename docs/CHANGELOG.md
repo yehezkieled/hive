@@ -11,6 +11,7 @@ of the legacy Sprints 0–31 lives in
 
 ## 2026-05
 
+- **2026-05-29** — Sprint 2026-Q2-S1 (first 2-week-window sprint): deployed the PTY harness (S30) + QuotaMonitor (S31) to production on the Max plan; adopted the three-altitude doc structure (Tickets 001–002). Plan-mode interactive-gate hang surfaced during deploy testing → tracked as Ticket 003.
 - **2026-05-21** — Sprint 31: QuotaMonitor — plan-quota polling + Telegram alerts at 80/90/100% (committed, not yet deployed)
 - **2026-05-17** — Sprint 30: PTY harness migration — interactive PTY sessions for plan-billed Claude (committed, not yet deployed)
 - **2026-05-09** — Sprint 29: VPS backup strategy — daily `pg_dump` timer (Phase 1 only)
