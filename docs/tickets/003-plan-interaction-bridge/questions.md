@@ -1,8 +1,18 @@
-# Questions — design forks to resolve (brainstorm in progress)
+# Questions — design forks to resolve
 
-The brainstorm started but paused at Q1. Resume here. The user
-prefers **free-text questions + flow diagrams**, one at a time — not
-rapid AskUserQuestion option-picking — for conceptual design work.
+> **RESOLVED 2026-05-30.** Every fork below is answered. The chosen
+> approach is in [`design.md`](design.md); the core interaction
+> decision is recorded in
+> [ADR 0004](../../adr/0004-interactive-gate-hold-and-inject.md).
+> Kept below for the reasoning trail. (Grilled via free-text + flow
+> diagrams, one fork at a time — as the user prefers for conceptual work.)
+>
+> - **Q1** interaction model → **B1 hold-and-inject** (not notify-only, not escape-and-re-prompt)
+> - **Q2** no-answer policy → **park forever, no auto-decide**; new `GATED` state
+> - **Q5 / round-trip** → **reuse the approval row + new in-memory doorbell** (W1)
+> - **Q3** gates → **all three**: plan → `AskUserQuestion` → permission prompt
+> - **Q4** surfaces → **Telegram + web** (free via the reused row)
+> - **Q6** detection → **inside `TranscriptReader`**, handling in `PtySession`
 
 ## Q1 — Core interaction model (PAUSED HERE, unanswered)
 
