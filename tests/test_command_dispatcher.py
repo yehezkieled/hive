@@ -86,6 +86,79 @@ def test_bridge_commands_extends_known_commands() -> None:
 # ---------------------------------------------------------------------------
 
 
+class TestGateApprovalDispatch:
+    """`/approve gate <id>` and `/deny gate <id>` ring the doorbell."""
+
+    async def test_approve_gate_resolves_and_rings(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        mode_request_store: ModeRequestStore,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        manager.mode_request_store = mode_request_store
+        coordinator = MagicMock()
+        manager.gate_coordinator = coordinator
+
+        row = await mode_request_store.create(
+            requester="dev",
+            requested_mode="plan",
+            approver="user",
+            kind="gate",
+        )
+
+        result = await dispatcher.dispatch(f"/approve gate {row['id']}")
+        assert f"#{row['id']}" in result.text
+        coordinator.ring.assert_called_once_with("dev")
+
+        resolved = await mode_request_store.get(row["id"])
+        assert resolved["status"] == "approved"
+
+    async def test_deny_gate_resolves_and_rings(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        mode_request_store: ModeRequestStore,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        manager.mode_request_store = mode_request_store
+        coordinator = MagicMock()
+        manager.gate_coordinator = coordinator
+
+        row = await mode_request_store.create(
+            requester="dev",
+            requested_mode="plan",
+            approver="user",
+            kind="gate",
+        )
+
+        result = await dispatcher.dispatch(f"/deny gate {row['id']} re-plan")
+        assert f"#{row['id']}" in result.text
+        coordinator.ring.assert_called_once_with("dev")
+
+        resolved = await mode_request_store.get(row["id"])
+        assert resolved["status"] == "denied"
+        assert resolved["reason"] == "re-plan"
+
+    async def test_approve_gate_unknown_id_returns_not_found(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        mode_request_store: ModeRequestStore,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        manager.mode_request_store = mode_request_store
+        coordinator = MagicMock()
+        manager.gate_coordinator = coordinator
+
+        result = await dispatcher.dispatch("/approve gate 99999")
+        assert "not found" in result.text.lower()
+        coordinator.ring.assert_not_called()
+
+
 async def test_dispatch_empty_returns_empty_result(dispatcher: CommandDispatcher) -> None:
     result = await dispatcher.dispatch("", actor="test")
     assert isinstance(result, CommandResult)

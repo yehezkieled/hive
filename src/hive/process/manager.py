@@ -56,6 +56,7 @@ from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
 from hive.vault.spend_caps import check_caps
@@ -254,6 +255,10 @@ class ProcessManager:
         # Set after construction by __main__.py. Optional — tests
         # construct managers without quota monitoring.
         self.quota_monitor: QuotaMonitor | None = None
+        # Set after construction. The interactive-gate doorbell registry
+        # (Ticket 003). /approve and /deny on a gate row ring it to wake the
+        # parked Turn. Optional — tests construct managers without it.
+        self.gate_coordinator: GateCoordinator | None = None
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -1991,6 +1996,48 @@ class ProcessManager:
         )
         return row
 
+    async def approve_gate(self, request_id: int) -> dict | None:
+        """Approve a parked interactive gate and wake its Turn (Ticket 003).
+
+        Marks the gate row approved, then rings the coordinator's doorbell
+        keyed to the row's requester so the blocked Turn injects the approve
+        keypress and resumes. Returns the resolved row, or None if the gate
+        was not found or already resolved.
+        """
+        if self.mode_request_store is None:
+            return None
+        row = await self.mode_request_store.approve(request_id)
+        if row is None:
+            return None
+        await self._audit(
+            "gate.approve",
+            target=row["requester"],
+            details={"id": request_id},
+        )
+        if self.gate_coordinator is not None:
+            self.gate_coordinator.ring(row["requester"])
+        return row
+
+    async def deny_gate(self, request_id: int, reason: str | None = None) -> dict | None:
+        """Deny a parked interactive gate and wake its Turn (Ticket 003).
+
+        Marks the gate row denied, then rings the doorbell so the blocked Turn
+        injects the deny keypress (e.g. "keep planning") and resumes.
+        """
+        if self.mode_request_store is None:
+            return None
+        row = await self.mode_request_store.deny(request_id, reason=reason)
+        if row is None:
+            return None
+        await self._audit(
+            "gate.deny",
+            target=row["requester"],
+            details={"id": request_id, "reason": reason},
+        )
+        if self.gate_coordinator is not None:
+            self.gate_coordinator.ring(row["requester"])
+        return row
+
     async def expire_old_mode_requests(self, cutoff: datetime) -> list[dict]:
         """Expire pending mode requests older than cutoff. Returns expired rows."""
         if self.mode_request_store is None:
@@ -2228,6 +2275,11 @@ class ProcessManager:
 
         for name, entity in list(self._entities.items()):
             if name in exempt:
+                continue
+            # A GATED entity is parked on an interactive gate awaiting the
+            # user's decision (ADR 0004). It is intentionally idle and must
+            # never be reaped, regardless of exempt_names.
+            if entity.state == EntityState.GATED:
                 continue
             if entity.last_activity_at is None:
                 continue

@@ -23,6 +23,47 @@ async def test_create_pending_request(mode_request_store: ModeRequestStore) -> N
     assert req["resolved_at"] is None
 
 
+async def test_create_defaults_kind_to_mode_request(
+    mode_request_store: ModeRequestStore,
+) -> None:
+    """Existing rows are mode-elevation requests; kind defaults accordingly."""
+    req = await mode_request_store.create(
+        requester="lead-a", requested_mode="yotree", approver="dev"
+    )
+    assert req["kind"] == "mode_request"
+
+
+async def test_create_gate_row_with_kind(mode_request_store: ModeRequestStore) -> None:
+    """A gate decision reuses the row pattern, tagged kind='gate'."""
+    req = await mode_request_store.create(
+        requester="dev",
+        requested_mode="plan",
+        approver="user",
+        reason="approve my plan?",
+        kind="gate",
+    )
+    assert req["kind"] == "gate"
+    assert req["status"] == "pending"
+    assert req["requester"] == "dev"
+
+
+async def test_list_pending_filters_by_kind(mode_request_store: ModeRequestStore) -> None:
+    """list_pending can scope to one kind so gate rows don't leak into the
+    mode-request listing and vice versa."""
+    await mode_request_store.create(requester="w1", requested_mode="yolo", approver="user")
+    await mode_request_store.create(
+        requester="dev", requested_mode="plan", approver="user", kind="gate"
+    )
+
+    gates = await mode_request_store.list_pending("user", kind="gate")
+    assert len(gates) == 1
+    assert gates[0]["requester"] == "dev"
+
+    modes = await mode_request_store.list_pending("user", kind="mode_request")
+    assert len(modes) == 1
+    assert modes[0]["requester"] == "w1"
+
+
 async def test_get_returns_row(mode_request_store: ModeRequestStore) -> None:
     req = await mode_request_store.create(
         requester="w1", requested_mode="yolo", approver="lead-backend"

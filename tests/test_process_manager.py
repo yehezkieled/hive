@@ -1552,6 +1552,23 @@ class TestIdleKill:
         assert "worker" in channel.messages[0]
         assert "inactive" in channel.messages[0]
 
+    async def test_gated_entity_not_killed(self, manager: ProcessManager) -> None:
+        """A GATED entity is parked on a gate forever — it must never be
+        idle-reaped, even when not in exempt_names (ADR 0004)."""
+        from hive.models.entity import EntityState
+
+        entity = Entity(name="worker", role="worker")
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        entity.transition_to(EntityState.GATED)
+        entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        killed = await manager.kill_idle_entities(30)
+        assert killed == []
+        assert "worker" in manager.entities
+
 
 class TestIdleCheckerExemptsAllMaestros:
     """Regression: idle_checker must dynamically exempt every live maestro,

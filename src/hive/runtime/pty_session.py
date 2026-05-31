@@ -7,12 +7,15 @@ import atexit
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from threading import Thread
 
 from ptyprocess import PtyProcess
 
-from hive.runtime.transcript_reader import TranscriptReader
+from hive.runtime.gate_coordinator import GateCoordinator
+from hive.runtime.gates import GateDetector
+from hive.runtime.transcript_reader import Gated, TranscriptReader
 
 _SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 
@@ -101,12 +104,25 @@ class PtySession:
         append_system_prompts: list[str] | None = None,
         extra_args: list[str] | None = None,
         permission_mode: str = "bypassPermissions",
+        gate_coordinator: GateCoordinator | None = None,
+        entity_name: str | None = None,
+        gate_approver: str = "user",
+        on_gate_state: Callable[[str, str], None] | None = None,
     ) -> None:
         self._model = model
         self._cwd = str(cwd) if cwd else None
         self._append_system_prompts = append_system_prompts or []
         self._extra_args = extra_args or []
         self._permission_mode = permission_mode
+        # Interactive-gate bridge (Ticket 003). When a coordinator is wired,
+        # the transcript reader watches for unanswered gates and send() holds
+        # the Turn open, resolves the gate, injects the keypress, and resumes.
+        # Without it, send() keeps its original two-outcome (text, usage)
+        # contract.
+        self._gate_coordinator = gate_coordinator
+        self._entity_name = entity_name
+        self._gate_approver = gate_approver
+        self._on_gate_state = on_gate_state
         self._proc: PtyProcess | None = None
         self._buf: bytearray = bytearray()
         self._closed: bool = False
@@ -141,7 +157,13 @@ class PtySession:
                         self._before_sizes[p] = p.stat().st_size
                     except OSError:
                         continue
-            self._transcript_reader = TranscriptReader(self._project_dir)
+            # Wire gate detection only when a coordinator can act on it; this
+            # keeps the reader's two-outcome contract for sessions that don't
+            # bridge gates.
+            gate_detector = GateDetector() if self._gate_coordinator is not None else None
+            self._transcript_reader = TranscriptReader(
+                self._project_dir, gate_detector=gate_detector
+            )
             self._session_path = None  # identified lazily on first send()
 
             args = _build_spawn_args(
@@ -215,9 +237,52 @@ class PtySession:
                 timeout=10.0,
             )
 
-        return await self._transcript_reader.await_next_assistant_turn(
-            self._session_path, timeout=180.0
+        # Await loop: a normal turn returns (text, usage) on the first pass.
+        # If the Turn parks on an interactive gate, the reader returns Gated;
+        # we hold the Turn open, resolve the gate, inject the decision, and
+        # re-await the SAME Turn. Re-awaiting is how the 180s reader timeout is
+        # "suspended" while gated — a fresh 180s window starts after the
+        # keypress, not while the user is deciding.
+        while True:
+            outcome = await self._transcript_reader.await_next_assistant_turn(
+                self._session_path, timeout=180.0
+            )
+            if not isinstance(outcome, Gated):
+                return outcome
+            await self._handle_gate(outcome)
+
+    async def _handle_gate(self, gated: Gated) -> None:
+        """Park on the gate, inject the user's decision, resume the Turn.
+
+        Requires a coordinator; the reader only emits Gated when one is wired.
+        """
+        assert self._gate_coordinator is not None
+        entity_name = self._entity_name or "unknown"
+        self._set_gate_state(entity_name, "gated")
+        keys = await self._gate_coordinator.resolve(
+            entity_name, gated.gate, approver=self._gate_approver
         )
+        for key in keys:
+            await self._inject_keys(key)
+        self._set_gate_state(entity_name, "running")
+
+    def _set_gate_state(self, entity_name: str, state: str) -> None:
+        """Notify the state hook of a gate transition, if one is registered."""
+        if self._on_gate_state is not None:
+            self._on_gate_state(entity_name, state)
+
+    async def _inject_keys(self, key: str) -> None:
+        """Write a raw control key (e.g. Enter, arrow-down) into the PTY.
+
+        Unlike _inject, this sends the bytes verbatim with no bracketed-paste
+        wrapping — these are TUI navigation keystrokes, not pasted text.
+        """
+        if self._proc is None:
+            return
+        self._proc.write(key.encode("utf-8"))
+        # Small settle so successive keys (e.g. Down, Down, Enter) aren't
+        # coalesced or eaten by a mid-keystroke repaint.
+        await asyncio.sleep(0.05)
 
     async def _recover(self) -> None:
         """Attempt to respawn after a crash, with exponential back-off."""
