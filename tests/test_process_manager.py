@@ -534,6 +534,126 @@ class TestHierarchyRestore:
         manager.rebuild_hierarchy()  # should not raise
 
 
+class _FakeGateStore:
+    """In-memory ModeRequestStore stand-in, gate-reconciliation subset.
+
+    Only the methods reconcile_orphaned_gates touches: list_pending(kind) and
+    deny(request_id, reason). No DB, no PTY.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[int, dict] = {}
+        self._next_id = 1
+
+    def add_pending_gate(self, requester: str, approver: str = "user") -> dict:
+        row = {
+            "id": self._next_id,
+            "requester": requester,
+            "requested_mode": "plan",
+            "approver": approver,
+            "reason": None,
+            "kind": "gate",
+            "status": "pending",
+        }
+        self.rows[self._next_id] = row
+        self._next_id += 1
+        return dict(row)
+
+    async def list_pending(self, approver: str, kind: str | None = None) -> list[dict]:
+        return [
+            dict(r)
+            for r in self.rows.values()
+            if r["approver"] == approver
+            and r["status"] == "pending"
+            and (kind is None or r["kind"] == kind)
+        ]
+
+    async def deny(self, request_id: int, reason: str | None = None) -> dict | None:
+        row = self.rows.get(request_id)
+        if row is None or row["status"] != "pending":
+            return None
+        row["status"] = "denied"
+        if reason is not None:
+            row["reason"] = reason
+        return dict(row)
+
+
+class _FakeGateCoordinator:
+    """Doorbell registry stand-in — tracks which entities have a live doorbell."""
+
+    def __init__(self, live: set[str] | None = None) -> None:
+        self._live = live or set()
+
+    def pending_request_id(self, entity_name: str) -> int | None:
+        # A live doorbell would have a registered pending row id.
+        return 1 if entity_name in self._live else None
+
+
+class TestRestartGateReconciliation:
+    """#27 — pending gate rows that lost their parked coroutine on restart.
+
+    A Hive restart kills the in-memory doorbell but the pending kind='gate'
+    row survives in the DB with no coroutine behind it. On restore, those
+    orphaned rows must be marked stale (denied) so they don't dangle — without
+    ever re-spawning a PTY or auto-approving.
+    """
+
+    async def test_reconcile_denies_orphaned_gate_rows(self, router: MessageRouter) -> None:
+        store = _FakeGateStore()
+        store.add_pending_gate("dev")
+        store.add_pending_gate("dev.backend")
+
+        mgr = ProcessManager(router=router)
+        mgr.mode_request_store = store  # type: ignore[assignment]
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+
+        assert len(reconciled) == 2
+        # Both rows are now denied with a stale reason, not approved.
+        for row in store.rows.values():
+            assert row["status"] == "denied"
+            assert "stale" in (row["reason"] or "").lower()
+
+        await mgr.kill_all()
+
+    async def test_reconcile_no_pending_gates_is_noop(self, router: MessageRouter) -> None:
+        store = _FakeGateStore()
+        mgr = ProcessManager(router=router)
+        mgr.mode_request_store = store  # type: ignore[assignment]
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+        assert reconciled == []
+
+        await mgr.kill_all()
+
+    async def test_reconcile_skips_rows_with_live_doorbell(self, router: MessageRouter) -> None:
+        """A gate that still has a live doorbell (not orphaned) is left alone —
+        defensive against calling reconcile while a Turn is genuinely parked."""
+        store = _FakeGateStore()
+        store.add_pending_gate("dev")
+
+        mgr = ProcessManager(router=router)
+        mgr.mode_request_store = store  # type: ignore[assignment]
+        mgr.gate_coordinator = _FakeGateCoordinator(live={"dev"})  # type: ignore[assignment]
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+
+        assert reconciled == []
+        assert store.rows[1]["status"] == "pending"  # untouched
+
+        await mgr.kill_all()
+
+    async def test_reconcile_without_store_is_noop(self, router: MessageRouter) -> None:
+        """No mode_request_store configured — reconcile must not raise."""
+        mgr = ProcessManager(router=router)
+        assert mgr.mode_request_store is None
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+        assert reconciled == []
+
+        await mgr.kill_all()
+
+
 class TestStopAll:
     """Test graceful stop_all — kills subprocesses but preserves DB rows."""
 

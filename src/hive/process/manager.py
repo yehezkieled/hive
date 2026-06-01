@@ -2038,6 +2038,53 @@ class ProcessManager:
             self.gate_coordinator.ring(row["requester"])
         return row
 
+    async def reconcile_orphaned_gates(self, approver: str = "user") -> list[dict]:
+        """Mark gate rows orphaned by a restart as stale (Ticket 003, #27).
+
+        A Hive restart kills the in-memory doorbell and the parked coroutine,
+        but the pending ``kind='gate'`` approval row survives in the DB with no
+        coroutine behind it. Left alone it would dangle forever — the user sees
+        a gate they can no longer resolve into a live Turn.
+
+        On startup we deny those orphans with a ``"stale: lost on restart"``
+        reason so the surface clears. This is the simplest safe recovery: we do
+        **not** re-spawn the PTY and we never auto-approve — a denial just lets
+        the user re-issue the turn. A row that still has a live doorbell (a Turn
+        genuinely parked right now) is left untouched.
+
+        Returns the rows it reconciled. No-op (``[]``) when no store is wired.
+        """
+        if self.mode_request_store is None:
+            return []
+
+        pending = await self.mode_request_store.list_pending(approver, kind="gate")
+        reconciled: list[dict] = []
+        for row in pending:
+            requester = row["requester"]
+            # Defensive: if a doorbell is live for this entity the Turn is
+            # genuinely parked, not orphaned — leave it for the real /approve.
+            if self.gate_coordinator is not None:
+                if self.gate_coordinator.pending_request_id(requester) is not None:
+                    continue
+            denied = await self.mode_request_store.deny(row["id"], reason="stale: lost on restart")
+            if denied is None:
+                continue
+            reconciled.append(denied)
+            await self._audit(
+                "gate.reconcile_stale",
+                target=requester,
+                details={"id": row["id"]},
+            )
+            logger.info(
+                "Reconciled orphaned gate %s for %s (stale: lost on restart)",
+                row["id"],
+                requester,
+            )
+
+        if reconciled:
+            logger.info("Reconciled %d orphaned gate(s) on restore", len(reconciled))
+        return reconciled
+
     async def expire_old_mode_requests(self, cutoff: datetime) -> list[dict]:
         """Expire pending mode requests older than cutoff. Returns expired rows."""
         if self.mode_request_store is None:

@@ -23,12 +23,22 @@ for re-detection — recovery is a later slice).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from hive.runtime.gates import Gate, KeystrokePlanner
 
 logger = logging.getLogger(__name__)
+
+# Default no-answer nudge cadence: re-ping the user's surface once an hour
+# while a gate stays parked, then keep waiting. Never auto-decides (#25).
+_DEFAULT_NUDGE_INTERVAL_SECONDS = 3600.0
+
+# on_nudge(entity_name, request_id). May be sync or async; the coordinator
+# awaits the result when it's a coroutine.
+NudgeCallback = Callable[[str, int], Awaitable[None] | None]
 
 
 class _ApprovalStore(Protocol):
@@ -58,6 +68,9 @@ class GateCoordinator:
         self,
         store: _ApprovalStore,
         planner: KeystrokePlanner | None = None,
+        *,
+        nudge_interval_seconds: float = _DEFAULT_NUDGE_INTERVAL_SECONDS,
+        on_nudge: NudgeCallback | None = None,
     ) -> None:
         self._store = store
         self._planner = planner or KeystrokePlanner()
@@ -67,6 +80,10 @@ class GateCoordinator:
         # entity name -> the pending row id, so the wake path can read the
         # resolved decision back off the store.
         self._pending: dict[str, int] = {}
+        # No-answer nudge (#25): re-ping the user's surface every interval
+        # while parked. This never resolves the gate — it only re-surfaces it.
+        self._nudge_interval_seconds = nudge_interval_seconds
+        self._on_nudge = on_nudge
 
     async def resolve(self, entity_name: str, gate: Gate, *, approver: str) -> list[str]:
         """Park on ``gate`` until the user decides, then return the keys.
@@ -89,7 +106,7 @@ class GateCoordinator:
         self._pending[entity_name] = request_id
 
         try:
-            await doorbell.wait()  # park forever — no timeout, no auto-decide
+            await self._park(entity_name, request_id, doorbell)
         finally:
             # Always tear down so a later gate on the same Entity parks afresh
             # rather than waking on this stale doorbell.
@@ -98,6 +115,42 @@ class GateCoordinator:
 
         resolved = await self._store.get(request_id)
         return self._keys_for(gate, resolved)
+
+    async def _park(self, entity_name: str, request_id: int, doorbell: asyncio.Event) -> None:
+        """Block until the doorbell rings, nudging the user each interval.
+
+        Park-forever and never-auto-decide are preserved: the only exit is the
+        doorbell. Each ``nudge_interval_seconds`` that elapses while still
+        parked fires ``on_nudge`` and then keeps waiting — it never resolves the
+        gate. When the doorbell rings, the in-flight interval wait is abandoned
+        and ``_park`` returns.
+        """
+        while not doorbell.is_set():
+            try:
+                await asyncio.wait_for(doorbell.wait(), timeout=self._nudge_interval_seconds)
+            except TimeoutError:
+                # Interval elapsed and the gate is still pending. Re-ping the
+                # user, then loop back and keep waiting. Never auto-decide.
+                await self._fire_nudge(entity_name, request_id)
+
+    async def _fire_nudge(self, entity_name: str, request_id: int) -> None:
+        """Invoke the nudge callback, tolerating sync or async callbacks.
+
+        A failing nudge must never break the park — re-surfacing is best-effort,
+        the durable approval row is the source of truth.
+        """
+        if self._on_nudge is None:
+            return
+        try:
+            result = self._on_nudge(entity_name, request_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception(
+                "Nudge callback failed for gate %s (entity %s)",
+                request_id,
+                entity_name,
+            )
 
     def ring(self, entity_name: str) -> None:
         """Wake the Turn parked on this Entity's gate. No-op if none parked."""

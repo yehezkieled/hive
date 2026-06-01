@@ -217,3 +217,93 @@ async def test_resolve_clears_doorbell_after_wake() -> None:
     second.cancel()
     with pytest.raises(asyncio.CancelledError):
         await second
+
+
+# ---------------------------------------------------------------------------
+# #25 No-answer nudge: re-ping the user's surface while parked, never decide.
+# ---------------------------------------------------------------------------
+
+
+async def test_nudge_fires_while_parked_without_resolving() -> None:
+    """With a tiny interval, on_nudge fires while the gate is still parked and
+    resolve() does NOT return — the park-forever guarantee stays intact."""
+    store = _FakeStore()
+    nudges: list[tuple[str, int]] = []
+
+    async def on_nudge(entity_name: str, request_id: int) -> None:
+        nudges.append((entity_name, request_id))
+
+    coordinator = GateCoordinator(store, nudge_interval_seconds=0.02, on_nudge=on_nudge)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _plan_gate(), approver="user"))
+    # Let several intervals elapse while no decision is made.
+    await asyncio.sleep(0.1)
+
+    assert not task.done()  # never auto-decided despite nudges firing
+    assert len(nudges) >= 2  # fired repeatedly while parked
+    request_id = store.created[0]["id"]
+    assert all(entity == "dev" and rid == request_id for entity, rid in nudges)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_nudge_stops_and_resolve_returns_after_doorbell() -> None:
+    """The doorbell still wakes resolve() cleanly while nudging is active, and
+    no further nudges fire once the gate is resolved."""
+    store = _FakeStore()
+    nudges: list[tuple[str, int]] = []
+
+    async def on_nudge(entity_name: str, request_id: int) -> None:
+        nudges.append((entity_name, request_id))
+
+    coordinator = GateCoordinator(store, nudge_interval_seconds=0.02, on_nudge=on_nudge)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _plan_gate(), approver="user"))
+    await asyncio.sleep(0.05)  # let at least one nudge fire
+    assert len(nudges) >= 1
+
+    store._resolve(store.created[0]["id"], "approved")
+    coordinator.ring("dev")
+    keys = await asyncio.wait_for(task, timeout=1.0)
+    assert keys == [_ENTER]
+
+    count_at_wake = len(nudges)
+    await asyncio.sleep(0.05)  # idle past several would-be intervals
+    assert len(nudges) == count_at_wake  # nudging stopped once resolved
+
+
+async def test_no_nudge_callback_is_safe() -> None:
+    """Without an on_nudge callback the interval loop must not raise even as
+    intervals elapse — it just keeps parking."""
+    store = _FakeStore()
+    coordinator = GateCoordinator(store, nudge_interval_seconds=0.02)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _plan_gate(), approver="user"))
+    await asyncio.sleep(0.08)
+    assert not task.done()  # still parked, no crash from the missing callback
+
+    store._resolve(store.created[0]["id"], "approved")
+    coordinator.ring("dev")
+    keys = await asyncio.wait_for(task, timeout=1.0)
+    assert keys == [_ENTER]
+
+
+async def test_sync_nudge_callback_is_supported() -> None:
+    """on_nudge may be a plain (sync) callable, not only a coroutine."""
+    store = _FakeStore()
+    calls: list[int] = []
+
+    def on_nudge(entity_name: str, request_id: int) -> None:
+        calls.append(request_id)
+
+    coordinator = GateCoordinator(store, nudge_interval_seconds=0.02, on_nudge=on_nudge)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _plan_gate(), approver="user"))
+    await asyncio.sleep(0.08)
+    assert len(calls) >= 1
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
