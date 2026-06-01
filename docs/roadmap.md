@@ -8,18 +8,21 @@ trim the section.
 See [`../CONTEXT.md`](../CONTEXT.md) for terminology and
 [`adr/`](adr/) for the decisions behind these phases.
 
-## Phase 1 — Runtime migration  ·  IN PROGRESS · deadline 2026-06-15
+## Phase 1 — Runtime migration  ·  ✅ DONE 2026-06-01
 
-Hive runs plan-billed again on a harness-agnostic foundation. On
-2026-06-15 Anthropic moves headless `claude -p` to API billing; the
-PTY harness keeps Hive on the Claude Max plan.
+Hive runs plan-billed on a harness-agnostic foundation — the PTY
+harness is deployed and live (Tickets 001 + 003). The 2026-06-15
+cutoff that moves headless `claude -p` to API billing no longer
+threatens Hive; retiring the leftover headless path is Phase 2 cleanup
+(Ticket 007).
 
-## Phase 2 — Restructure  ·  NEXT
+## Phase 2 — Restructure  ·  IN PROGRESS
 
 Hive is cleanly structured and properly documented — maintainable,
 easy for humans and agents to navigate. Targets: break up
 `manager.py` (god object), consolidate the Vault, resolve naming
-drift (`WorkerAgent` → `Worker`).
+drift (`WorkerAgent` → `Worker`), and retire the superseded headless
+runtime path.
 
 ## Phase 3 — Web dashboard to PWA
 
