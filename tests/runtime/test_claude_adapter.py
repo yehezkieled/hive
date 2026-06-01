@@ -229,3 +229,29 @@ async def test_usage_dict_has_all_expected_keys() -> None:
         "cost_usd",
     ):
         assert key in usage, f"Missing key: {key}"
+
+
+async def test_start_threads_gate_wiring_into_pty() -> None:
+    """ClaudeAdapter forwards the interactive-gate wiring into the PtySession it
+    builds, so the bridge is live in PTY mode (Ticket 003 runtime wiring)."""
+
+    coordinator = MagicMock()
+
+    def on_state(entity: str, state: str) -> None:
+        pass
+
+    adapter = ClaudeAdapter(
+        _config(),
+        use_pty=True,
+        gate_coordinator=coordinator,
+        entity_name="dev",
+        on_gate_state=on_state,
+    )
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty:
+        mock_pty.return_value.start = AsyncMock()
+        await adapter.start()
+
+    _, kwargs = mock_pty.call_args
+    assert kwargs["gate_coordinator"] is coordinator
+    assert kwargs["entity_name"] == "dev"
+    assert kwargs["on_gate_state"] is on_state

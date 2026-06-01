@@ -59,6 +59,7 @@ from hive.observability.health_monitor import HealthMonitor
 from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
 from hive.runtime import QuotaMonitor
+from hive.runtime.gate_coordinator import GateCoordinator
 from hive.vault.provider import build_provider
 
 logger = logging.getLogger("hive")
@@ -203,6 +204,16 @@ async def main() -> None:
         vault_cap_currencies=VAULT_CAP_CURRENCIES,
         notification_dispatcher=notification_dispatcher,
     )
+
+    # Interactive-gate bridge (Ticket 003): construct the coordinator and wire
+    # it into the manager so PtySession parks-and-injects on plan/ask gates and
+    # re-pings unanswered ones. Without this the bridge stays dormant and a gate
+    # would hang the Turn to the 180s timeout.
+    process_manager.gate_coordinator = GateCoordinator(
+        mode_request_store,
+        on_nudge=process_manager._gate_nudge,
+    )
+
     # Wire wake-on-inbound so peer messages auto-spawn a session for
     # the recipient. Without this, queued messages wait up to
     # PRIORITY_EVAL_INTERVAL_MINUTES (default 120) for the next
@@ -247,6 +258,10 @@ async def main() -> None:
 
     # Rebuild team hierarchy from restored entities
     process_manager.rebuild_hierarchy()
+
+    # Reconcile interactive-gate rows orphaned by a restart (Ticket 003 #27):
+    # a pending gate whose parked Turn died is marked stale, not left dangling.
+    await process_manager.reconcile_orphaned_gates()
 
     # Ensure default maestro exists — register fresh on first run, skip if
     # already restored from a previous session.

@@ -638,6 +638,9 @@ class ProcessManager:
             session_factory=lambda args, c: ClaudeSession(args=args, cwd=c),
             initial_session_id=entity.session_id if not HIVE_USE_PTY else None,
             use_pty=HIVE_USE_PTY,
+            gate_coordinator=self.gate_coordinator,
+            entity_name=entity.name,
+            on_gate_state=self._on_gate_state,
         )
         await adapter.start()
         if HIVE_USE_PTY:
@@ -1995,6 +1998,63 @@ class ProcessManager:
             details={"id": request_id, "reason": reason},
         )
         return row
+
+    def _on_gate_state(self, entity_name: str, state: str) -> None:
+        """React to a PtySession gate transition (Ticket 003 runtime wiring).
+
+        On ``"gated"`` the Entity moves to GATED — exempt from idle-kill and the
+        reader timeout — and the user is pushed the initial surface. On
+        ``"running"`` it moves back to RUNNING. Called from PtySession's sync
+        ``on_gate_state`` hook inside the event loop, so the notification is
+        fired as a background task.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            return
+        target = EntityState.GATED if state == "gated" else EntityState.RUNNING
+        try:
+            entity.transition_to(target)
+        except Exception:
+            logger.exception("gate transition to %s failed for %s", target, entity_name)
+        if state == "gated":
+            asyncio.create_task(self._notify_gate_waiting(entity_name))
+
+    async def _notify_gate_waiting(self, entity_name: str) -> None:
+        """Push the initial 'a gate is waiting' surface to the user (#22/#23)."""
+        if self.notification_dispatcher is None:
+            return
+        request_id = (
+            self.gate_coordinator.pending_request_id(entity_name)
+            if self.gate_coordinator is not None
+            else None
+        )
+        suffix = (
+            f" Reply /approve gate {request_id} or /deny gate {request_id}."
+            if request_id is not None
+            else ""
+        )
+        await self.notification_dispatcher.dispatch(
+            Notification(
+                text=f"⏸ {entity_name} is waiting at an interactive gate.{suffix}",
+                kind="gate",
+                data={"entity": entity_name, "request_id": request_id},
+            )
+        )
+
+    async def _gate_nudge(self, entity_name: str, request_id: int) -> None:
+        """on_nudge callback (#25): re-ping the user about a still-parked gate."""
+        if self.notification_dispatcher is None:
+            return
+        await self.notification_dispatcher.dispatch(
+            Notification(
+                text=(
+                    f"⏸ {entity_name} is still waiting at a gate. "
+                    f"Reply /approve gate {request_id} or /deny gate {request_id}."
+                ),
+                kind="gate",
+                data={"entity": entity_name, "request_id": request_id},
+            )
+        )
 
     async def approve_gate(self, request_id: int, chosen_option: int | None = None) -> dict | None:
         """Approve a parked interactive gate and wake its Turn (Ticket 003).
