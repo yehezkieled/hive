@@ -28,7 +28,7 @@ the transcript and which keys answer them.
 |------|--------------------|-------------------|-----------|
 | ① plan-approval | "Here's my plan. Proceed?" | `attachment.type == "plan_mode"` and/or a `tool_use` named `ExitPlanMode` with no `tool_result` | ✅ (research.md) |
 | ② `AskUserQuestion` | "Which option? 1/2/…" | a `tool_use` named `AskUserQuestion` with no `tool_result`; the options live in the tool_use **input** | ✅ (research.md) |
-| ③ permission prompt | "Allow `Bash(rm …)`? Yes/No" | **unverified** — must capture a real one; likely an unmatched `tool_use`, to be confirmed | ❌ first impl task |
+| ③ permission prompt | "Allow `Bash(rm …)`? Yes/No" | a parked prompt is only an **unmatched `tool_use` of an ordinary tool** — no unique marker, indistinguishable from an in-flight tool call | ⛔ **deferred** — not transcript-detectable ([ADR 0005](../../adr/0005-permission-gate-not-transcript-detectable.md), research.md) |
 
 > Detection never reads the screen. The *option list* for ② also comes from the
 > transcript (the tool_use input), so we know which option index to select
