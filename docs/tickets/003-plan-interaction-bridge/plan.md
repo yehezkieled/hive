@@ -14,7 +14,7 @@ the repo.**
 | 2 | `AskUserQuestion` gate round-trip | [#23](https://github.com/yehezkieled/hive/issues/23) | AFK | #22 |
 | 3 | Web-dashboard surface for gates | [#24](https://github.com/yehezkieled/hive/issues/24) | AFK | #22 |
 | 4 | No-answer nudge for parked gates | [#25](https://github.com/yehezkieled/hive/issues/25) | AFK | #22 |
-| 5 | Permission-prompt gate (capture + verify + implement) | [#26](https://github.com/yehezkieled/hive/issues/26) | **HITL** | #22 |
+| 5 | Permission-prompt gate (capture + verify + implement) | [#26](https://github.com/yehezkieled/hive/issues/26) | **HITL → deferred** ([ADR 0005](../../adr/0005-permission-gate-not-transcript-detectable.md)) | #22 |
 | 6 | Restart-while-parked recovery | [#27](https://github.com/yehezkieled/hive/issues/27) | AFK | #22 |
 
 All labelled `ready-for-agent`. No parent/PRD issue — this ledger plus

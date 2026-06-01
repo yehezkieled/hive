@@ -123,3 +123,39 @@ The interaction bridge should almost certainly model a plan-approval
 as another pending row reusing this pattern, rather than inventing a
 new one. See `src/hive/commands/dispatch.py` (`_execute_approve`,
 `_execute_deny`) and `src/hive/web/app.py` (mode-request endpoints).
+
+## #26 permission-prompt gate — capture findings (2026-06-01)
+
+**Question:** is a tool-permission prompt ("Allow `Bash(rm …)`? Yes/No")
+structurally detectable in the `.jsonl` like the plan/ask gates?
+**Finding: no.** #26 is deferred per its own acceptance criteria; decision in
+[ADR 0005](../../adr/0005-permission-gate-not-transcript-detectable.md).
+
+**What was checked**
+- 638 existing transcripts under `~/.claude/projects/`: **zero** permission
+  prompts — Hive Entities run `bypassPermissions`/`yolo`, so tools never
+  prompt. The only permission-related markers are `type:"permission-mode"`
+  (the *mode* setting) and a `command_permissions` attachment, which is a
+  **config snapshot** (`{"type":"command_permissions","allowedTools":[…]}`),
+  not a prompt.
+- Three live captures (`claude --permission-mode default`): a safe command
+  (`echo`) is **auto-allowed** and resolves `tool_use → tool_result` with no
+  permission event. No `permission_request` / `can_use_tool` / `approve`
+  token exists anywhere in the schema.
+
+**Why it's not detectable**
+- Plan/ask gates carry a **unique tool name** (`ExitPlanMode`,
+  `AskUserQuestion`) → an unanswered one is unambiguous.
+- A permission prompt fires on an **ordinary** tool (`Bash`/`Write`/`Edit`/…).
+  Parked, it is just an **unmatched `tool_use`** for that ordinary tool —
+  structurally identical to a tool that is simply still executing. There is no
+  separate "awaiting permission" event; the prompt is a client-side TUI
+  overlay not written to the transcript.
+- The only guess would be a **time-based heuristic** ("ordinary `tool_use`
+  unmatched for > N s") — false-positives on slow legitimate calls, and
+  exactly the screen-state guessing ADR 0001 / the design rejects.
+
+**Practical note:** with `bypassPermissions` the prompt never arises anyway;
+the sprint scoped this out ("beyond what yolo/bypassPermissions already
+cover"). If permission gating is ever needed, the heuristic above is the only
+viable path and must be a deliberate, separately-scoped decision.
