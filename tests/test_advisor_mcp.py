@@ -220,6 +220,9 @@ class TestAdvisorTool:
         pm.mode_request_store.get_pending = AsyncMock(return_value=[])
         pm.permissions = MagicMock()
         pm.permissions.can_message = MagicMock(return_value=(True, ""))
+        # Ticket 003: _get_or_create_adapter threads gate_coordinator into the
+        # adapter; this __new__-shortcut manager must set it like __init__ does.
+        pm.gate_coordinator = None
 
         mock_session = MagicMock()
         mock_session.start = AsyncMock()
