@@ -2056,3 +2056,43 @@ async def test_stop_all_stops_adapters(manager: ProcessManager) -> None:
     for name in ("alpha", "beta"):
         manager._adapters.get(name)  # already cleared
     assert manager._adapters == {}
+
+
+class TestGateStateWiring:
+    """_on_gate_state moves the Entity in/out of GATED and pushes the surface."""
+
+    async def test_gated_transitions_entity_and_notifies(self, manager: ProcessManager) -> None:
+        from unittest.mock import MagicMock
+
+        channel = _CapturingChannel()
+        manager.notification_dispatcher.register(channel)
+        coordinator = MagicMock()
+        coordinator.pending_request_id.return_value = 7
+        manager.gate_coordinator = coordinator
+
+        entity = Entity(name="dev", role="worker")
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        manager._entities["dev"] = entity
+        manager.router.register("dev")
+
+        manager._on_gate_state("dev", "gated")
+        assert entity.state == EntityState.GATED
+
+        await asyncio.sleep(0.02)  # let the fire-and-forget notification run
+        assert any("gate" in m.lower() for m in channel.messages)
+        assert any("7" in m for m in channel.messages)
+
+    async def test_running_transitions_entity_back(self, manager: ProcessManager) -> None:
+        entity = Entity(name="dev", role="worker")
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        entity.transition_to(EntityState.GATED)
+        manager._entities["dev"] = entity
+        manager.router.register("dev")
+
+        manager._on_gate_state("dev", "running")
+        assert entity.state == EntityState.RUNNING
+
+    async def test_unknown_entity_is_noop(self, manager: ProcessManager) -> None:
+        manager._on_gate_state("ghost", "gated")  # must not raise
