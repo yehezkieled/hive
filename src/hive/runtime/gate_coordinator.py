@@ -169,7 +169,16 @@ class GateCoordinator:
         if gate.kind == "plan":
             return gate.payload.get("plan")
         if gate.kind == "ask":
-            return gate.payload.get("question")
+            # Surface the question plus the numbered options so the user can
+            # see them on the durable row (Telegram/web) and pick one with
+            # `/approve gate <id> <option>` (Ticket 003 #23). Indices match the
+            # menu order that KeystrokePlanner.ask_keys navigates.
+            question = gate.payload.get("question", "")
+            options = gate.payload.get("options") or []
+            if not options:
+                return question
+            lines = [question, *(f"[{index}] {label}" for index, label in enumerate(options))]
+            return "\n".join(line for line in lines if line)
         return None
 
     def _keys_for(self, gate: Gate, row: dict | None) -> list[str]:

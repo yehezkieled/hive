@@ -1996,17 +1996,20 @@ class ProcessManager:
         )
         return row
 
-    async def approve_gate(self, request_id: int) -> dict | None:
+    async def approve_gate(self, request_id: int, chosen_option: int | None = None) -> dict | None:
         """Approve a parked interactive gate and wake its Turn (Ticket 003).
 
         Marks the gate row approved, then rings the coordinator's doorbell
         keyed to the row's requester so the blocked Turn injects the approve
         keypress and resumes. Returns the resolved row, or None if the gate
         was not found or already resolved.
+
+        ``chosen_option`` carries the picked AskUserQuestion option index for an
+        ask gate (Ticket 003 #23); omit it for plan gates (binary approve/deny).
         """
         if self.mode_request_store is None:
             return None
-        row = await self.mode_request_store.approve(request_id)
+        row = await self.mode_request_store.approve(request_id, chosen_option=chosen_option)
         if row is None:
             return None
         await self._audit(

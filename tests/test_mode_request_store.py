@@ -123,6 +123,29 @@ async def test_cannot_approve_already_resolved(mode_request_store: ModeRequestSt
     assert await mode_request_store.approve(req["id"]) is None
 
 
+async def test_approve_records_chosen_option(mode_request_store: ModeRequestStore) -> None:
+    """approve(chosen_option=N) persists the picked ask-gate option index (#23)."""
+    req = await mode_request_store.create(
+        requester="dev", requested_mode="ask", approver="user", kind="gate"
+    )
+    approved = await mode_request_store.approve(req["id"], chosen_option=2)
+    assert approved is not None
+    assert approved["status"] == "approved"
+    assert approved["chosen_option"] == 2
+
+
+async def test_approve_without_option_leaves_choice_null(
+    mode_request_store: ModeRequestStore,
+) -> None:
+    """A plain approve (plan gate / mode request) leaves chosen_option NULL."""
+    req = await mode_request_store.create(
+        requester="dev", requested_mode="plan", approver="user", kind="gate"
+    )
+    approved = await mode_request_store.approve(req["id"])
+    assert approved is not None
+    assert approved["chosen_option"] is None
+
+
 async def test_deny_with_reason(mode_request_store: ModeRequestStore) -> None:
     req = await mode_request_store.create(
         requester="w1", requested_mode="yolo", approver="lead-a", reason="format readme"

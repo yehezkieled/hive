@@ -81,16 +81,23 @@ class ModeRequestStore:
             )
         return [dict(r) for r in rows]
 
-    async def approve(self, request_id: int) -> dict | None:
-        """Mark as approved. Returns None if not found or not pending."""
+    async def approve(self, request_id: int, chosen_option: int | None = None) -> dict | None:
+        """Mark as approved. Returns None if not found or not pending.
+
+        ``chosen_option`` records the picked AskUserQuestion option index on a
+        gate row (Ticket 003 #23); left NULL for plan/mode approvals and for
+        ask gates approved without an explicit choice.
+        """
         row = await self.pool.fetchrow(
             """
             UPDATE mode_requests
-            SET status = 'approved', resolved_at = NOW()
+            SET status = 'approved', resolved_at = NOW(),
+                chosen_option = COALESCE($2, chosen_option)
             WHERE id = $1 AND status = 'pending'
             RETURNING *
             """,
             request_id,
+            chosen_option,
         )
         return dict(row) if row else None
 

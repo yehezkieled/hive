@@ -382,10 +382,19 @@ class CommandDispatcher:
 
         sub = subcommand.lower()
         if sub == "gate":
-            req_id = _parse_task_id(args)
+            parts = args.split()
+            req_id = _parse_task_id(parts[0]) if parts else None
             if req_id is None:
-                return "Usage: /approve gate <id>"
-            row = await self.process_manager.approve_gate(req_id)
+                return "Usage: /approve gate <id> [option]"
+            # Optional option index for an AskUserQuestion gate (Ticket 003 #23).
+            # Plan gates are a binary approve, so the option is omitted there.
+            chosen_option: int | None = None
+            if len(parts) > 1:
+                try:
+                    chosen_option = int(parts[1])
+                except ValueError:
+                    return "Usage: /approve gate <id> [option]"
+            row = await self.process_manager.approve_gate(req_id, chosen_option=chosen_option)
             if row is None:
                 return f"Gate #{req_id} not found or already resolved."
             return f"Approved gate #{row['id']}: {row['requester']} resumes its turn."

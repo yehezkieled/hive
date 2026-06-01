@@ -158,6 +158,52 @@ class TestGateApprovalDispatch:
         assert "not found" in result.text.lower()
         coordinator.ring.assert_not_called()
 
+    async def test_approve_gate_with_option_records_choice(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        mode_request_store: ModeRequestStore,
+    ) -> None:
+        """`/approve gate <id> <option>` persists the picked option index (#23)."""
+        from unittest.mock import MagicMock
+
+        manager.mode_request_store = mode_request_store
+        manager.gate_coordinator = MagicMock()
+
+        row = await mode_request_store.create(
+            requester="dev", requested_mode="ask", approver="user", kind="gate"
+        )
+
+        result = await dispatcher.dispatch(f"/approve gate {row['id']} 2")
+        assert f"#{row['id']}" in result.text
+
+        resolved = await mode_request_store.get(row["id"])
+        assert resolved["status"] == "approved"
+        assert resolved["chosen_option"] == 2
+
+    async def test_approve_gate_non_integer_option_returns_usage(
+        self,
+        dispatcher: CommandDispatcher,
+        manager: ProcessManager,
+        mode_request_store: ModeRequestStore,
+    ) -> None:
+        """A non-integer option is rejected with usage; the gate stays pending."""
+        from unittest.mock import MagicMock
+
+        manager.mode_request_store = mode_request_store
+        coordinator = MagicMock()
+        manager.gate_coordinator = coordinator
+
+        row = await mode_request_store.create(
+            requester="dev", requested_mode="ask", approver="user", kind="gate"
+        )
+
+        result = await dispatcher.dispatch(f"/approve gate {row['id']} two")
+        assert "usage" in result.text.lower()
+        coordinator.ring.assert_not_called()
+        resolved = await mode_request_store.get(row["id"])
+        assert resolved["status"] == "pending"
+
 
 async def test_dispatch_empty_returns_empty_result(dispatcher: CommandDispatcher) -> None:
     result = await dispatcher.dispatch("", actor="test")

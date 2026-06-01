@@ -219,6 +219,17 @@ async def test_resolve_clears_doorbell_after_wake() -> None:
         await second
 
 
+def test_reason_for_ask_gate_includes_numbered_options() -> None:
+    """An ask gate's row reason surfaces the question + numbered options (#23)."""
+    gate = Gate(kind="ask", payload={"question": "Pick one", "options": ["Foo", "Bar", "Baz"]})
+    assert GateCoordinator._reason_for(gate) == "Pick one\n[0] Foo\n[1] Bar\n[2] Baz"
+
+
+def test_reason_for_ask_gate_without_options_is_just_the_question() -> None:
+    gate = Gate(kind="ask", payload={"question": "Pick one", "options": []})
+    assert GateCoordinator._reason_for(gate) == "Pick one"
+
+
 # ---------------------------------------------------------------------------
 # #25 No-answer nudge: re-ping the user's surface while parked, never decide.
 # ---------------------------------------------------------------------------
