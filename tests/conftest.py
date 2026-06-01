@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from testcontainers.postgres import PostgresContainer
+
+# Hermetic test config: pin HIVE_USE_PTY before importing any hive module.
+# hive.config calls load_dotenv(), which walks UP the directory tree and — when
+# tests run from a git worktree — picks up the main checkout's .env, where
+# HIVE_USE_PTY=true (the deployed PTY runtime). That flips
+# ProcessManager.send_to_entity onto the real PtySession path, so unit tests
+# that mock the subprocess layer spawn an actual `claude` process and hang on
+# read(). Pin subprocess mode for the unit suite; the real-PTY path has its own
+# `integration`-marked tests. setdefault, not assignment: an explicit
+# `export HIVE_USE_PTY=true` still wins for anyone who wants PTY mode.
+os.environ.setdefault("HIVE_USE_PTY", "false")
 
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog

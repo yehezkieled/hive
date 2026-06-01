@@ -62,6 +62,24 @@ class TestDashboardPage:
         assert 'href="/dashboard"' in resp.text
 
 
+class TestGatePanel:
+    """The landing page carries the Ticket 003 'Pending gates' panel."""
+
+    def test_landing_renders_gate_panel(self) -> None:
+        resp = _client().get("/")
+        assert resp.status_code == 200
+        # Button + popup dialog mirroring the bell/approvals panel.
+        assert 'id="gate-btn"' in resp.text
+        assert 'id="gate-popup"' in resp.text
+        assert "Pending gates" in resp.text
+
+    def test_gate_panel_wires_endpoints(self) -> None:
+        resp = _client().get("/")
+        # JS fetches the pending list and POSTs approve/deny to the gate routes.
+        assert "/api/gates/pending" in resp.text
+        assert "/api/gate/" in resp.text
+
+
 class TestDashboardAPI:
     def test_requires_token(self) -> None:
         resp = _client().get("/api/dashboard/all")

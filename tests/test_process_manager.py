@@ -534,6 +534,126 @@ class TestHierarchyRestore:
         manager.rebuild_hierarchy()  # should not raise
 
 
+class _FakeGateStore:
+    """In-memory ModeRequestStore stand-in, gate-reconciliation subset.
+
+    Only the methods reconcile_orphaned_gates touches: list_pending(kind) and
+    deny(request_id, reason). No DB, no PTY.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[int, dict] = {}
+        self._next_id = 1
+
+    def add_pending_gate(self, requester: str, approver: str = "user") -> dict:
+        row = {
+            "id": self._next_id,
+            "requester": requester,
+            "requested_mode": "plan",
+            "approver": approver,
+            "reason": None,
+            "kind": "gate",
+            "status": "pending",
+        }
+        self.rows[self._next_id] = row
+        self._next_id += 1
+        return dict(row)
+
+    async def list_pending(self, approver: str, kind: str | None = None) -> list[dict]:
+        return [
+            dict(r)
+            for r in self.rows.values()
+            if r["approver"] == approver
+            and r["status"] == "pending"
+            and (kind is None or r["kind"] == kind)
+        ]
+
+    async def deny(self, request_id: int, reason: str | None = None) -> dict | None:
+        row = self.rows.get(request_id)
+        if row is None or row["status"] != "pending":
+            return None
+        row["status"] = "denied"
+        if reason is not None:
+            row["reason"] = reason
+        return dict(row)
+
+
+class _FakeGateCoordinator:
+    """Doorbell registry stand-in — tracks which entities have a live doorbell."""
+
+    def __init__(self, live: set[str] | None = None) -> None:
+        self._live = live or set()
+
+    def pending_request_id(self, entity_name: str) -> int | None:
+        # A live doorbell would have a registered pending row id.
+        return 1 if entity_name in self._live else None
+
+
+class TestRestartGateReconciliation:
+    """#27 — pending gate rows that lost their parked coroutine on restart.
+
+    A Hive restart kills the in-memory doorbell but the pending kind='gate'
+    row survives in the DB with no coroutine behind it. On restore, those
+    orphaned rows must be marked stale (denied) so they don't dangle — without
+    ever re-spawning a PTY or auto-approving.
+    """
+
+    async def test_reconcile_denies_orphaned_gate_rows(self, router: MessageRouter) -> None:
+        store = _FakeGateStore()
+        store.add_pending_gate("dev")
+        store.add_pending_gate("dev.backend")
+
+        mgr = ProcessManager(router=router)
+        mgr.mode_request_store = store  # type: ignore[assignment]
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+
+        assert len(reconciled) == 2
+        # Both rows are now denied with a stale reason, not approved.
+        for row in store.rows.values():
+            assert row["status"] == "denied"
+            assert "stale" in (row["reason"] or "").lower()
+
+        await mgr.kill_all()
+
+    async def test_reconcile_no_pending_gates_is_noop(self, router: MessageRouter) -> None:
+        store = _FakeGateStore()
+        mgr = ProcessManager(router=router)
+        mgr.mode_request_store = store  # type: ignore[assignment]
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+        assert reconciled == []
+
+        await mgr.kill_all()
+
+    async def test_reconcile_skips_rows_with_live_doorbell(self, router: MessageRouter) -> None:
+        """A gate that still has a live doorbell (not orphaned) is left alone —
+        defensive against calling reconcile while a Turn is genuinely parked."""
+        store = _FakeGateStore()
+        store.add_pending_gate("dev")
+
+        mgr = ProcessManager(router=router)
+        mgr.mode_request_store = store  # type: ignore[assignment]
+        mgr.gate_coordinator = _FakeGateCoordinator(live={"dev"})  # type: ignore[assignment]
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+
+        assert reconciled == []
+        assert store.rows[1]["status"] == "pending"  # untouched
+
+        await mgr.kill_all()
+
+    async def test_reconcile_without_store_is_noop(self, router: MessageRouter) -> None:
+        """No mode_request_store configured — reconcile must not raise."""
+        mgr = ProcessManager(router=router)
+        assert mgr.mode_request_store is None
+
+        reconciled = await mgr.reconcile_orphaned_gates()
+        assert reconciled == []
+
+        await mgr.kill_all()
+
+
 class TestStopAll:
     """Test graceful stop_all — kills subprocesses but preserves DB rows."""
 
@@ -1552,6 +1672,23 @@ class TestIdleKill:
         assert "worker" in channel.messages[0]
         assert "inactive" in channel.messages[0]
 
+    async def test_gated_entity_not_killed(self, manager: ProcessManager) -> None:
+        """A GATED entity is parked on a gate forever — it must never be
+        idle-reaped, even when not in exempt_names (ADR 0004)."""
+        from hive.models.entity import EntityState
+
+        entity = Entity(name="worker", role="worker")
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        entity.transition_to(EntityState.GATED)
+        entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        killed = await manager.kill_idle_entities(30)
+        assert killed == []
+        assert "worker" in manager.entities
+
 
 class TestIdleCheckerExemptsAllMaestros:
     """Regression: idle_checker must dynamically exempt every live maestro,
@@ -1919,3 +2056,43 @@ async def test_stop_all_stops_adapters(manager: ProcessManager) -> None:
     for name in ("alpha", "beta"):
         manager._adapters.get(name)  # already cleared
     assert manager._adapters == {}
+
+
+class TestGateStateWiring:
+    """_on_gate_state moves the Entity in/out of GATED and pushes the surface."""
+
+    async def test_gated_transitions_entity_and_notifies(self, manager: ProcessManager) -> None:
+        from unittest.mock import MagicMock
+
+        channel = _CapturingChannel()
+        manager.notification_dispatcher.register(channel)
+        coordinator = MagicMock()
+        coordinator.pending_request_id.return_value = 7
+        manager.gate_coordinator = coordinator
+
+        entity = Entity(name="dev", role="worker")
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        manager._entities["dev"] = entity
+        manager.router.register("dev")
+
+        manager._on_gate_state("dev", "gated")
+        assert entity.state == EntityState.GATED
+
+        await asyncio.sleep(0.02)  # let the fire-and-forget notification run
+        assert any("gate" in m.lower() for m in channel.messages)
+        assert any("7" in m for m in channel.messages)
+
+    async def test_running_transitions_entity_back(self, manager: ProcessManager) -> None:
+        entity = Entity(name="dev", role="worker")
+        entity.transition_to(EntityState.STARTING)
+        entity.transition_to(EntityState.RUNNING)
+        entity.transition_to(EntityState.GATED)
+        manager._entities["dev"] = entity
+        manager.router.register("dev")
+
+        manager._on_gate_state("dev", "running")
+        assert entity.state == EntityState.RUNNING
+
+    async def test_unknown_entity_is_noop(self, manager: ProcessManager) -> None:
+        manager._on_gate_state("ghost", "gated")  # must not raise

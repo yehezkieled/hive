@@ -15,6 +15,12 @@ class EntityState(enum.Enum):
     IDLE = "idle"
     STARTING = "starting"
     RUNNING = "running"
+    # The Turn hit an interactive gate (plan approval, AskUserQuestion, or a
+    # permission prompt) and is parked waiting for the user's decision. While
+    # GATED the Entity is exempt from idle-kill and the reader timeout is
+    # suspended (Ticket 003 / ADR 0004). On the injected decision it resumes
+    # the same Turn back to RUNNING.
+    GATED = "gated"
     COMPLETED = "completed"
     ERROR = "error"
     STOPPED = "stopped"
@@ -24,7 +30,14 @@ class EntityState(enum.Enum):
 _TRANSITIONS: dict[EntityState, set[EntityState]] = {
     EntityState.IDLE: {EntityState.STARTING},
     EntityState.STARTING: {EntityState.RUNNING, EntityState.ERROR},
-    EntityState.RUNNING: {EntityState.COMPLETED, EntityState.ERROR, EntityState.STOPPED},
+    EntityState.RUNNING: {
+        EntityState.GATED,
+        EntityState.COMPLETED,
+        EntityState.ERROR,
+        EntityState.STOPPED,
+    },
+    # A gate can resolve (resume the Turn -> RUNNING), error, or be killed.
+    EntityState.GATED: {EntityState.RUNNING, EntityState.ERROR, EntityState.STOPPED},
     EntityState.COMPLETED: {EntityState.IDLE},
     EntityState.ERROR: {EntityState.IDLE},
     EntityState.STOPPED: {EntityState.IDLE},

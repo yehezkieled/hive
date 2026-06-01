@@ -79,6 +79,29 @@ class TestEntityState:
         e.transition_to(EntityState.ERROR)
         assert e.state == EntityState.ERROR
 
+    def test_running_to_gated(self) -> None:
+        """A Turn that hits an interactive gate parks in GATED."""
+        e = Entity(name="test", role="maestro")
+        e.transition_to(EntityState.STARTING)
+        e.transition_to(EntityState.RUNNING)
+        e.transition_to(EntityState.GATED)
+        assert e.state == EntityState.GATED
+
+    def test_gated_back_to_running_on_resume(self) -> None:
+        """After the decision is injected the same Turn resumes in RUNNING."""
+        e = Entity(name="test", role="maestro")
+        e.transition_to(EntityState.STARTING)
+        e.transition_to(EntityState.RUNNING)
+        e.transition_to(EntityState.GATED)
+        e.transition_to(EntityState.RUNNING)
+        assert e.state == EntityState.RUNNING
+
+    def test_cannot_gate_from_idle(self) -> None:
+        """GATED is only reachable from a live (RUNNING) Turn."""
+        e = Entity(name="test", role="maestro")
+        with pytest.raises(InvalidStateTransitionError):
+            e.transition_to(EntityState.GATED)
+
 
 class TestPersonalityParsing:
     """Test personality markdown file parsing."""

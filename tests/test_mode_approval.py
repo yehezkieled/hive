@@ -182,3 +182,62 @@ async def test_approve_without_store_is_noop(
     mgr = ProcessManager(router=router)  # no mode_request_store
     assert await mgr.approve_mode_request(1) is None
     assert await mgr.deny_mode_request(1) is None
+
+
+async def test_approve_gate_rings_doorbell(
+    manager: ProcessManager,
+    mode_request_store: ModeRequestStore,
+) -> None:
+    """approve_gate marks the gate row approved AND rings the coordinator's
+    doorbell so the parked Turn wakes."""
+    from unittest.mock import MagicMock
+
+    coordinator = MagicMock()
+    manager.gate_coordinator = coordinator
+
+    row = await mode_request_store.create(
+        requester="dev",
+        requested_mode="plan",
+        approver="user",
+        reason="my plan",
+        kind="gate",
+    )
+    resolved = await manager.approve_gate(row["id"])
+    assert resolved is not None
+    assert resolved["status"] == "approved"
+    coordinator.ring.assert_called_once_with("dev")
+
+
+async def test_deny_gate_rings_doorbell(
+    manager: ProcessManager,
+    mode_request_store: ModeRequestStore,
+) -> None:
+    """deny_gate marks the gate row denied AND rings the doorbell."""
+    from unittest.mock import MagicMock
+
+    coordinator = MagicMock()
+    manager.gate_coordinator = coordinator
+
+    row = await mode_request_store.create(
+        requester="dev",
+        requested_mode="plan",
+        approver="user",
+        kind="gate",
+    )
+    resolved = await manager.deny_gate(row["id"], reason="re-plan")
+    assert resolved is not None
+    assert resolved["status"] == "denied"
+    assert resolved["reason"] == "re-plan"
+    coordinator.ring.assert_called_once_with("dev")
+
+
+async def test_approve_gate_missing_row_returns_none(
+    manager: ProcessManager,
+) -> None:
+    """An unknown gate id resolves to None and never rings."""
+    from unittest.mock import MagicMock
+
+    coordinator = MagicMock()
+    manager.gate_coordinator = coordinator
+    assert await manager.approve_gate(99999) is None
+    coordinator.ring.assert_not_called()

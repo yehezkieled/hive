@@ -54,6 +54,14 @@ The protocol an Entity uses to act on the rest of Hive — message a peer,
 request a spawn, finish a task. The Entity emits a `<hive_actions>` block;
 Hive parses it and routes the actions.
 
+**Interactive gate**:
+A point mid-Turn where the Harness pauses for human input rather than
+completing the Turn — plan-mode approval (`ExitPlanMode`), an
+`AskUserQuestion` call, or a permission prompt. On the interactive PTY
+Harness a gate blocks the Turn until answered; the same points resolved
+non-interactively under headless `claude -p`.
+_Avoid_: prompt, menu, interrupt
+
 ### Billing
 
 **Plan-billed**:

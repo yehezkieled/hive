@@ -381,6 +381,23 @@ class CommandDispatcher:
             return "\n".join(lines)
 
         sub = subcommand.lower()
+        if sub == "gate":
+            parts = args.split()
+            req_id = _parse_task_id(parts[0]) if parts else None
+            if req_id is None:
+                return "Usage: /approve gate <id> [option]"
+            # Optional option index for an AskUserQuestion gate (Ticket 003 #23).
+            # Plan gates are a binary approve, so the option is omitted there.
+            chosen_option: int | None = None
+            if len(parts) > 1:
+                try:
+                    chosen_option = int(parts[1])
+                except ValueError:
+                    return "Usage: /approve gate <id> [option]"
+            row = await self.process_manager.approve_gate(req_id, chosen_option=chosen_option)
+            if row is None:
+                return f"Gate #{req_id} not found or already resolved."
+            return f"Approved gate #{row['id']}: {row['requester']} resumes its turn."
         if sub != "mode":
             return "Usage: /approve mode <id>"
         req_id = _parse_task_id(args)
@@ -403,6 +420,19 @@ class CommandDispatcher:
             return "Usage: /deny mode <id> [reason]"
 
         sub = subcommand.lower()
+        if sub == "gate":
+            parts = args.strip().split(None, 1)
+            if not parts:
+                return "Usage: /deny gate <id> [reason]"
+            try:
+                req_id = int(parts[0])
+            except ValueError:
+                return "Usage: /deny gate <id> [reason]"
+            reason = parts[1].strip() if len(parts) > 1 else None
+            row = await self.process_manager.deny_gate(req_id, reason=reason)
+            if row is None:
+                return f"Gate #{req_id} not found or already resolved."
+            return f"Denied gate #{row['id']}: {row['requester']} keeps planning."
         if sub != "mode":
             return "Usage: /deny mode <id> [reason]"
 

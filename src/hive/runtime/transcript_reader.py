@@ -19,17 +19,43 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+from hive.runtime.gates import Gate, GateDetector
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Gated:
+    """Third outcome of ``await_next_assistant_turn``: the Turn parked on a gate.
+
+    Returned instead of ``(text, usage)`` when the transcript shows an
+    unanswered interactive gate. PtySession holds the Turn open and resolves
+    the gate rather than treating this as a completed turn or a timeout.
+    """
+
+    gate: Gate
 
 
 class TranscriptReader:
     """Reads response text + usage from Claude Code session .jsonl transcripts."""
 
-    def __init__(self, project_dir: Path) -> None:
-        """project_dir = ~/.claude/projects/<cwd-slug>/ for this entity."""
+    def __init__(
+        self,
+        project_dir: Path,
+        gate_detector: GateDetector | None = None,
+    ) -> None:
+        """project_dir = ~/.claude/projects/<cwd-slug>/ for this entity.
+
+        gate_detector: optional. When supplied, ``await_next_assistant_turn``
+        also watches for an unanswered interactive gate and returns ``Gated``
+        instead of hanging to the timeout. Off by default so callers that only
+        want completed turns keep the original two-outcome contract.
+        """
         self._project_dir = project_dir
+        self._gate_detector = gate_detector
 
     def identify_session(
         self,
@@ -75,7 +101,7 @@ class TranscriptReader:
         *,
         timeout: float = 180.0,
         quiescence_ms: int = 500,
-    ) -> tuple[str, dict]:
+    ) -> tuple[str, dict] | Gated:
         """Poll session_path until a completed assistant turn is written.
 
         Returns (response_text, usage):
@@ -92,6 +118,11 @@ class TranscriptReader:
         A turn is considered complete when an assistant entry exists in the
         file AND the file's mtime has been stable for `quiescence_ms`
         milliseconds (no in-progress writes).
+
+        Third outcome: if a gate_detector was supplied and the (quiescent)
+        transcript shows an unanswered interactive gate, returns ``Gated(gate)``
+        instead — the PTY is frozen on a TUI menu and no further assistant
+        entry will arrive. Without a detector this never happens.
 
         Raises TimeoutError after `timeout` seconds.
         """
@@ -126,9 +157,40 @@ class TranscriptReader:
                     await asyncio.sleep(poll_interval)
                     continue
                 if (time.time() - mtime) >= quiescence_seconds:
+                    # A frozen gate also writes an assistant entry then goes
+                    # quiet (the PTY sits on a menu). Check for an unanswered
+                    # gate FIRST so it isn't mistaken for a completed turn.
+                    gate = self._detect_gate(session_path)
+                    if gate is not None:
+                        return Gated(gate)
                     return self._extract_last_turn(session_path)
 
             await asyncio.sleep(poll_interval)
+
+    def _detect_gate(self, session_path: Path) -> Gate | None:
+        """Run the gate detector over the current transcript, if one is set."""
+        if self._gate_detector is None:
+            return None
+        entries = self._read_entries(session_path)
+        return self._gate_detector.detect(entries)
+
+    @staticmethod
+    def _read_entries(session_path: Path) -> list[dict]:
+        """Parse every JSON line in the transcript into a list of dicts."""
+        try:
+            text = session_path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        entries: list[dict] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return entries
 
     @staticmethod
     def _count_assistant_entries(session_path: Path) -> int:

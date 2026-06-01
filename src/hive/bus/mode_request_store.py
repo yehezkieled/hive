@@ -24,18 +24,26 @@ class ModeRequestStore:
         requested_mode: str,
         approver: str,
         reason: str | None = None,
+        kind: str = "mode_request",
     ) -> dict:
-        """Create a pending mode-elevation request."""
+        """Create a pending approval row.
+
+        ``kind`` discriminates a permission-mode elevation request
+        (``"mode_request"``, the default) from an interactive-gate decision
+        (``"gate"``, Ticket 003). The row shape is shared; the kind keeps the
+        two flows from leaking into each other's listings.
+        """
         row = await self.pool.fetchrow(
             """
-            INSERT INTO mode_requests (requester, requested_mode, approver, reason)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO mode_requests (requester, requested_mode, approver, reason, kind)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             """,
             requester,
             requested_mode,
             approver,
             reason,
+            kind,
         )
         return dict(row)
 
@@ -46,28 +54,50 @@ class ModeRequestStore:
         )
         return dict(row) if row else None
 
-    async def list_pending(self, approver: str) -> list[dict]:
-        """All pending requests awaiting this approver."""
-        rows = await self.pool.fetch(
-            """
-            SELECT * FROM mode_requests
-            WHERE approver = $1 AND status = 'pending'
-            ORDER BY created_at
-            """,
-            approver,
-        )
+    async def list_pending(self, approver: str, kind: str | None = None) -> list[dict]:
+        """All pending requests awaiting this approver.
+
+        Pass ``kind`` to scope to one flow (``"gate"`` or ``"mode_request"``);
+        omit it to list every pending row regardless of kind.
+        """
+        if kind is None:
+            rows = await self.pool.fetch(
+                """
+                SELECT * FROM mode_requests
+                WHERE approver = $1 AND status = 'pending'
+                ORDER BY created_at
+                """,
+                approver,
+            )
+        else:
+            rows = await self.pool.fetch(
+                """
+                SELECT * FROM mode_requests
+                WHERE approver = $1 AND status = 'pending' AND kind = $2
+                ORDER BY created_at
+                """,
+                approver,
+                kind,
+            )
         return [dict(r) for r in rows]
 
-    async def approve(self, request_id: int) -> dict | None:
-        """Mark as approved. Returns None if not found or not pending."""
+    async def approve(self, request_id: int, chosen_option: int | None = None) -> dict | None:
+        """Mark as approved. Returns None if not found or not pending.
+
+        ``chosen_option`` records the picked AskUserQuestion option index on a
+        gate row (Ticket 003 #23); left NULL for plan/mode approvals and for
+        ask gates approved without an explicit choice.
+        """
         row = await self.pool.fetchrow(
             """
             UPDATE mode_requests
-            SET status = 'approved', resolved_at = NOW()
+            SET status = 'approved', resolved_at = NOW(),
+                chosen_option = COALESCE($2, chosen_option)
             WHERE id = $1 AND status = 'pending'
             RETURNING *
             """,
             request_id,
+            chosen_option,
         )
         return dict(row) if row else None
 

@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from hive.runtime.transcript_reader import TranscriptReader
+from hive.runtime.gates import GateDetector
+from hive.runtime.transcript_reader import Gated, TranscriptReader
 
 
 def _write_jsonl(path: Path, entries: list[dict]) -> None:
@@ -288,6 +289,78 @@ async def test_await_next_assistant_turn_raises_timeout_when_no_assistant_entry(
         await reader.await_next_assistant_turn(session, timeout=0.3, quiescence_ms=50)
     elapsed = time.monotonic() - start
     assert 0.25 <= elapsed < 1.5
+
+
+async def test_await_returns_gated_when_plan_gate_detected(tmp_path: Path) -> None:
+    """With a detector wired, an unanswered ExitPlanMode returns Gated, not text.
+
+    The plan gate freezes the PTY mid-Turn — no completed assistant entry is
+    ever written. The reader must return a Gated outcome instead of hanging to
+    the timeout.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("plan it")])
+
+    plan_assistant = {
+        "type": "assistant",
+        "sessionId": "sess-gate",
+        "uuid": "uuid-plan",
+        "timestamp": "2026-05-20T00:00:00.000Z",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Here is my plan."},
+                {
+                    "type": "tool_use",
+                    "id": "tu-plan",
+                    "name": "ExitPlanMode",
+                    "input": {"plan": "1. build the spine"},
+                },
+            ],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+        },
+    }
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(plan_assistant) + "\n")
+
+    reader = TranscriptReader(tmp_path, gate_detector=GateDetector())
+    write_task = asyncio.create_task(writer())
+    result = await reader.await_next_assistant_turn(session, timeout=2.0, quiescence_ms=50)
+    await write_task
+
+    assert isinstance(result, Gated)
+    assert result.gate.kind == "plan"
+    assert "build the spine" in result.gate.payload["plan"]
+
+
+async def test_await_returns_text_not_gated_for_normal_turn_with_detector(
+    tmp_path: Path,
+) -> None:
+    """A normal completed turn still returns (text, usage) even with a detector."""
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("hi")])
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(_assistant_entry("all done", session_id="sess-ok")) + "\n")
+
+    reader = TranscriptReader(tmp_path, gate_detector=GateDetector())
+    write_task = asyncio.create_task(writer())
+    result = await reader.await_next_assistant_turn(session, timeout=2.0, quiescence_ms=50)
+    await write_task
+
+    assert not isinstance(result, Gated)
+    text, _usage = result
+    assert text == "all done"
 
 
 async def test_usage_dict_has_exactly_the_five_contract_keys(tmp_path: Path) -> None:

@@ -333,6 +333,34 @@ def create_app(
             raise HTTPException(status_code=404, detail="Request not found or already resolved")
         return {"ok": True, "id": row["id"], "status": row.get("status", "denied")}
 
+    # ─── Interactive gates (Ticket 003, slice #24) ─────────────────────
+    @app.get("/api/gates/pending")
+    async def api_gates_pending(_: None = Depends(require_token)):
+        if mode_request_store is None:
+            return {"gates": []}
+        rows = await mode_request_store.list_pending(default_maestro, kind="gate")
+        return {"gates": rows}
+
+    @app.post("/api/gate/{request_id}/approve")
+    async def api_gate_approve(
+        request_id: int,
+        _: None = Depends(require_token),
+    ):
+        row = await process_manager.approve_gate(request_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Gate not found or already resolved")
+        return {"ok": True, "id": row["id"], "status": row.get("status", "approved")}
+
+    @app.post("/api/gate/{request_id}/deny")
+    async def api_gate_deny(
+        request_id: int,
+        _: None = Depends(require_token),
+    ):
+        row = await process_manager.deny_gate(request_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Gate not found or already resolved")
+        return {"ok": True, "id": row["id"], "status": row.get("status", "denied")}
+
     @app.post("/api/vault-action/{action_id}/approve")
     async def api_vault_approve(
         action_id: int,

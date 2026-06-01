@@ -11,6 +11,7 @@ from pathlib import Path
 from hive.models.entity import DANGEROUS_MODES
 from hive.process.claude_session import ClaudeSession
 from hive.runtime.base import Runtime
+from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,10 @@ class ClaudeAdapter(Runtime):
         session_factory: SessionFactory | None = None,
         initial_session_id: str | None = None,
         use_pty: bool = False,
+        gate_coordinator: GateCoordinator | None = None,
+        entity_name: str | None = None,
+        gate_approver: str = "user",
+        on_gate_state: Callable[[str, str], None] | None = None,
     ) -> None:
         self._config = config
         self._cwd = cwd
@@ -60,6 +65,12 @@ class ClaudeAdapter(Runtime):
         self._use_pty = use_pty
         self._pty: PtySession | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
+        # Interactive-gate bridge (Ticket 003): forwarded to PtySession so the
+        # transcript reader detects gates and send() parks-and-injects.
+        self._gate_coordinator = gate_coordinator
+        self._entity_name = entity_name
+        self._gate_approver = gate_approver
+        self._on_gate_state = on_gate_state
 
     def _build_args(self) -> list[str]:
         cfg = self._config
@@ -154,6 +165,10 @@ class ClaudeAdapter(Runtime):
                 append_system_prompts=self._build_pty_system_prompts(),
                 extra_args=self._build_pty_extra_args(),
                 permission_mode=cfg.permission_mode,
+                gate_coordinator=self._gate_coordinator,
+                entity_name=self._entity_name,
+                gate_approver=self._gate_approver,
+                on_gate_state=self._on_gate_state,
             )
             await self._pty.start()
 

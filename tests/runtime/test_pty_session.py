@@ -228,6 +228,71 @@ async def test_send_identifies_session_only_on_first_call(
     assert mock_transcript_reader.identify_session.call_count == 1
 
 
+async def test_send_handles_plan_gate_then_resumes(mock_spawn, tmp_path: Path) -> None:
+    """On a Gated outcome, send() resolves the gate, injects the keys, and
+    resumes awaiting the real assistant turn — no hang, same Turn continues."""
+    from hive.runtime.gates import Gate
+    from hive.runtime.transcript_reader import Gated
+
+    mock_cls, proc = mock_spawn
+
+    # The reader returns Gated first, then the real completed turn on the
+    # second await (after the keypress is injected).
+    plan_gate = Gate(kind="plan", payload={"plan": "1. ship it"})
+    real_turn = (
+        "plan executed",
+        {
+            "input_tokens": 5,
+            "output_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "session_id": "sess-gate",
+        },
+    )
+
+    with patch("hive.runtime.pty_session.TranscriptReader") as mock_reader_cls:
+        mock_reader = mock_reader_cls.return_value
+        mock_reader.identify_session.return_value = Path("/tmp/fake.jsonl")
+        mock_reader.await_next_assistant_turn = AsyncMock(side_effect=[Gated(plan_gate), real_turn])
+
+        # Coordinator resolves the gate to the approve keypress.
+        coordinator = MagicMock()
+        coordinator.resolve = AsyncMock(return_value=["\r"])
+
+        states: list[str] = []
+        session = PtySession(
+            model="sonnet",
+            cwd=tmp_path,
+            gate_coordinator=coordinator,
+            entity_name="dev",
+            on_gate_state=lambda name, state: states.append(state),
+        )
+        await session.start()
+        text, usage = await session.send("plan something")
+
+    assert text == "plan executed"
+    assert usage["session_id"] == "sess-gate"
+    # The gate was resolved exactly once for this entity.
+    coordinator.resolve.assert_awaited_once()
+    assert coordinator.resolve.call_args.args[0] == "dev"
+    # State went GATED then back to RUNNING (resume).
+    assert states == ["gated", "running"]
+    # The approve keypress reached the PTY.
+    written = b"".join(c[0][0] for c in proc.write.call_args_list)
+    assert b"\r" in written
+
+
+async def test_send_without_coordinator_keeps_two_outcome_contract(
+    mock_spawn, mock_transcript_reader, tmp_path: Path
+) -> None:
+    """No coordinator wired → send() behaves exactly as before (text, usage)."""
+    session = PtySession(model="sonnet", cwd=tmp_path)
+    await session.start()
+    text, usage = await session.send("hi")
+    assert text == "canned response"
+    assert usage["session_id"] == "sess-mock"
+
+
 async def test_stop_sends_exit_command(mock_spawn, tmp_path: Path) -> None:
     mock_cls, proc = mock_spawn
     session = PtySession(model="sonnet", cwd=tmp_path)

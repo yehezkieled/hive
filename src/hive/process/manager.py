@@ -56,6 +56,7 @@ from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
 from hive.vault.spend_caps import check_caps
@@ -254,6 +255,10 @@ class ProcessManager:
         # Set after construction by __main__.py. Optional — tests
         # construct managers without quota monitoring.
         self.quota_monitor: QuotaMonitor | None = None
+        # Set after construction. The interactive-gate doorbell registry
+        # (Ticket 003). /approve and /deny on a gate row ring it to wake the
+        # parked Turn. Optional — tests construct managers without it.
+        self.gate_coordinator: GateCoordinator | None = None
 
     async def _persist(self, entity: Entity) -> None:
         """Persist an entity's current state to the entity store, if configured.
@@ -633,6 +638,9 @@ class ProcessManager:
             session_factory=lambda args, c: ClaudeSession(args=args, cwd=c),
             initial_session_id=entity.session_id if not HIVE_USE_PTY else None,
             use_pty=HIVE_USE_PTY,
+            gate_coordinator=self.gate_coordinator,
+            entity_name=entity.name,
+            on_gate_state=self._on_gate_state,
         )
         await adapter.start()
         if HIVE_USE_PTY:
@@ -1991,6 +1999,155 @@ class ProcessManager:
         )
         return row
 
+    def _on_gate_state(self, entity_name: str, state: str) -> None:
+        """React to a PtySession gate transition (Ticket 003 runtime wiring).
+
+        On ``"gated"`` the Entity moves to GATED — exempt from idle-kill and the
+        reader timeout — and the user is pushed the initial surface. On
+        ``"running"`` it moves back to RUNNING. Called from PtySession's sync
+        ``on_gate_state`` hook inside the event loop, so the notification is
+        fired as a background task.
+        """
+        entity = self._entities.get(entity_name)
+        if entity is None:
+            return
+        target = EntityState.GATED if state == "gated" else EntityState.RUNNING
+        try:
+            entity.transition_to(target)
+        except Exception:
+            logger.exception("gate transition to %s failed for %s", target, entity_name)
+        if state == "gated":
+            asyncio.create_task(self._notify_gate_waiting(entity_name))
+
+    async def _notify_gate_waiting(self, entity_name: str) -> None:
+        """Push the initial 'a gate is waiting' surface to the user (#22/#23)."""
+        if self.notification_dispatcher is None:
+            return
+        request_id = (
+            self.gate_coordinator.pending_request_id(entity_name)
+            if self.gate_coordinator is not None
+            else None
+        )
+        suffix = (
+            f" Reply /approve gate {request_id} or /deny gate {request_id}."
+            if request_id is not None
+            else ""
+        )
+        await self.notification_dispatcher.dispatch(
+            Notification(
+                text=f"⏸ {entity_name} is waiting at an interactive gate.{suffix}",
+                kind="gate",
+                data={"entity": entity_name, "request_id": request_id},
+            )
+        )
+
+    async def _gate_nudge(self, entity_name: str, request_id: int) -> None:
+        """on_nudge callback (#25): re-ping the user about a still-parked gate."""
+        if self.notification_dispatcher is None:
+            return
+        await self.notification_dispatcher.dispatch(
+            Notification(
+                text=(
+                    f"⏸ {entity_name} is still waiting at a gate. "
+                    f"Reply /approve gate {request_id} or /deny gate {request_id}."
+                ),
+                kind="gate",
+                data={"entity": entity_name, "request_id": request_id},
+            )
+        )
+
+    async def approve_gate(self, request_id: int, chosen_option: int | None = None) -> dict | None:
+        """Approve a parked interactive gate and wake its Turn (Ticket 003).
+
+        Marks the gate row approved, then rings the coordinator's doorbell
+        keyed to the row's requester so the blocked Turn injects the approve
+        keypress and resumes. Returns the resolved row, or None if the gate
+        was not found or already resolved.
+
+        ``chosen_option`` carries the picked AskUserQuestion option index for an
+        ask gate (Ticket 003 #23); omit it for plan gates (binary approve/deny).
+        """
+        if self.mode_request_store is None:
+            return None
+        row = await self.mode_request_store.approve(request_id, chosen_option=chosen_option)
+        if row is None:
+            return None
+        await self._audit(
+            "gate.approve",
+            target=row["requester"],
+            details={"id": request_id},
+        )
+        if self.gate_coordinator is not None:
+            self.gate_coordinator.ring(row["requester"])
+        return row
+
+    async def deny_gate(self, request_id: int, reason: str | None = None) -> dict | None:
+        """Deny a parked interactive gate and wake its Turn (Ticket 003).
+
+        Marks the gate row denied, then rings the doorbell so the blocked Turn
+        injects the deny keypress (e.g. "keep planning") and resumes.
+        """
+        if self.mode_request_store is None:
+            return None
+        row = await self.mode_request_store.deny(request_id, reason=reason)
+        if row is None:
+            return None
+        await self._audit(
+            "gate.deny",
+            target=row["requester"],
+            details={"id": request_id, "reason": reason},
+        )
+        if self.gate_coordinator is not None:
+            self.gate_coordinator.ring(row["requester"])
+        return row
+
+    async def reconcile_orphaned_gates(self, approver: str = "user") -> list[dict]:
+        """Mark gate rows orphaned by a restart as stale (Ticket 003, #27).
+
+        A Hive restart kills the in-memory doorbell and the parked coroutine,
+        but the pending ``kind='gate'`` approval row survives in the DB with no
+        coroutine behind it. Left alone it would dangle forever — the user sees
+        a gate they can no longer resolve into a live Turn.
+
+        On startup we deny those orphans with a ``"stale: lost on restart"``
+        reason so the surface clears. This is the simplest safe recovery: we do
+        **not** re-spawn the PTY and we never auto-approve — a denial just lets
+        the user re-issue the turn. A row that still has a live doorbell (a Turn
+        genuinely parked right now) is left untouched.
+
+        Returns the rows it reconciled. No-op (``[]``) when no store is wired.
+        """
+        if self.mode_request_store is None:
+            return []
+
+        pending = await self.mode_request_store.list_pending(approver, kind="gate")
+        reconciled: list[dict] = []
+        for row in pending:
+            requester = row["requester"]
+            # Defensive: if a doorbell is live for this entity the Turn is
+            # genuinely parked, not orphaned — leave it for the real /approve.
+            if self.gate_coordinator is not None:
+                if self.gate_coordinator.pending_request_id(requester) is not None:
+                    continue
+            denied = await self.mode_request_store.deny(row["id"], reason="stale: lost on restart")
+            if denied is None:
+                continue
+            reconciled.append(denied)
+            await self._audit(
+                "gate.reconcile_stale",
+                target=requester,
+                details={"id": row["id"]},
+            )
+            logger.info(
+                "Reconciled orphaned gate %s for %s (stale: lost on restart)",
+                row["id"],
+                requester,
+            )
+
+        if reconciled:
+            logger.info("Reconciled %d orphaned gate(s) on restore", len(reconciled))
+        return reconciled
+
     async def expire_old_mode_requests(self, cutoff: datetime) -> list[dict]:
         """Expire pending mode requests older than cutoff. Returns expired rows."""
         if self.mode_request_store is None:
@@ -2228,6 +2385,11 @@ class ProcessManager:
 
         for name, entity in list(self._entities.items()):
             if name in exempt:
+                continue
+            # A GATED entity is parked on an interactive gate awaiting the
+            # user's decision (ADR 0004). It is intentionally idle and must
+            # never be reaped, regardless of exempt_names.
+            if entity.state == EntityState.GATED:
                 continue
             if entity.last_activity_at is None:
                 continue
