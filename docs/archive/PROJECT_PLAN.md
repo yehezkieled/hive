@@ -2182,7 +2182,7 @@ New regex-based classifier maps a free-text `failure_reason` to one of 6 coarse 
 awaiting deploy + Telegram smoke test.
 **Branch:** `feat/peer-messaging` → main
 **Totals:** 645 → 676 unit tests (+31). No migrations. No env vars.
-**Plan:** `docs/plans/2026-05-04-peer-messaging.md`
+**Plan:** `docs/archive/plans/2026-05-04-peer-messaging.md`
 
 ### Why this exists
 Hive's three tiers could only message along the parent-child axis.
