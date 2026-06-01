@@ -97,8 +97,7 @@ class GateCoordinator:
             self._pending.pop(entity_name, None)
 
         resolved = await self._store.get(request_id)
-        decision = self._decision_from_row(resolved)
-        return self._plan_keys(gate, decision)
+        return self._keys_for(gate, resolved)
 
     def ring(self, entity_name: str) -> None:
         """Wake the Turn parked on this Entity's gate. No-op if none parked."""
@@ -116,7 +115,26 @@ class GateCoordinator:
     def _reason_for(gate: Gate) -> str | None:
         if gate.kind == "plan":
             return gate.payload.get("plan")
+        if gate.kind == "ask":
+            return gate.payload.get("question")
         return None
+
+    def _keys_for(self, gate: Gate, row: dict | None) -> list[str]:
+        """Plan the keystrokes for the resolved gate row.
+
+        Plan gates resolve to approve/deny (Enter vs navigate-to-reject). Ask
+        gates resolve to the user's chosen option index, carried on the row,
+        which maps to ``Down × index`` + Enter. Anything not explicitly an
+        approval is treated as a denial so a parked Turn never injects an
+        approve on an ambiguous status.
+        """
+        if gate.kind == "plan":
+            decision = self._decision_from_row(row)
+            return self._planner.plan_keys(gate, decision)
+        if gate.kind == "ask":
+            option_index = self._chosen_option_from_row(row)
+            return self._planner.ask_keys(gate, option_index)
+        raise NotImplementedError(f"No keystroke plan for gate kind {gate.kind!r}")
 
     @staticmethod
     def _decision_from_row(row: dict | None) -> str:
@@ -124,7 +142,15 @@ class GateCoordinator:
         status = (row or {}).get("status")
         return "approve" if status == _APPROVED_STATUS else "deny"
 
-    def _plan_keys(self, gate: Gate, decision: str) -> list[str]:
-        if gate.kind == "plan":
-            return self._planner.plan_keys(gate, decision)
-        raise NotImplementedError(f"No keystroke plan for gate kind {gate.kind!r}")
+    @staticmethod
+    def _chosen_option_from_row(row: dict | None) -> int:
+        """Read the user's chosen option index off a resolved ask-gate row.
+
+        ``/approve gate <id> <option>`` records the picked index on the row.
+        Defaults to 0 (the highlighted first option) when absent so a bare
+        approval still resolves to a valid selection rather than failing.
+        """
+        chosen = (row or {}).get("chosen_option")
+        if isinstance(chosen, int):
+            return chosen
+        return 0

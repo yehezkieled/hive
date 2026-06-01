@@ -59,6 +59,11 @@ class _FakeStore:
     def _resolve(self, request_id: int, status: str) -> None:
         self.rows[request_id]["status"] = status
 
+    def _resolve_ask(self, request_id: int, chosen_option: int) -> None:
+        """Mark an ask gate approved with the user's chosen option index."""
+        self.rows[request_id]["status"] = "approved"
+        self.rows[request_id]["chosen_option"] = chosen_option
+
 
 def _plan_gate() -> Gate:
     return Gate(kind="plan", payload={"plan": "1. ship it"})
@@ -127,6 +132,64 @@ async def test_deny_wakes_with_navigation_keys() -> None:
 
     keys = await asyncio.wait_for(task, timeout=1.0)
     assert keys == [_DOWN, _DOWN, _ENTER]
+
+
+def _ask_gate() -> Gate:
+    return Gate(
+        kind="ask",
+        payload={
+            "question": "Which database?",
+            "options": ["Postgres", "SQLite", "MySQL"],
+        },
+    )
+
+
+async def test_ask_gate_creates_gate_kind_row_with_question_reason() -> None:
+    """An ask gate parks on the same gate-kind row; the reason is the question."""
+    store = _FakeStore()
+    coordinator = GateCoordinator(store)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _ask_gate(), approver="user"))
+    await asyncio.sleep(0.05)
+
+    row = store.created[0]
+    assert row["kind"] == "gate"
+    assert row["requested_mode"] == "ask"
+    assert "Which database?" in (row["reason"] or "")
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_ask_wakes_with_option_navigation_keys() -> None:
+    """Ringing an ask gate resolved to option index 2 returns Down x2 + Enter."""
+    store = _FakeStore()
+    coordinator = GateCoordinator(store)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _ask_gate(), approver="user"))
+    await asyncio.sleep(0.05)
+    request_id = store.created[0]["id"]
+
+    store._resolve_ask(request_id, 2)
+    coordinator.ring("dev")
+
+    keys = await asyncio.wait_for(task, timeout=1.0)
+    assert keys == [_DOWN, _DOWN, _ENTER]
+
+
+async def test_ask_first_option_wakes_with_enter_only() -> None:
+    """Option index 0 needs no navigation — just Enter."""
+    store = _FakeStore()
+    coordinator = GateCoordinator(store)
+
+    task = asyncio.create_task(coordinator.resolve("dev", _ask_gate(), approver="user"))
+    await asyncio.sleep(0.05)
+    store._resolve_ask(store.created[0]["id"], 0)
+    coordinator.ring("dev")
+
+    keys = await asyncio.wait_for(task, timeout=1.0)
+    assert keys == [_ENTER]
 
 
 async def test_ring_unknown_entity_is_noop() -> None:

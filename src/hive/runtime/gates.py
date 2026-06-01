@@ -11,9 +11,9 @@ truth, never the screen). A gate is an interactive pause the Harness makes
 mid-Turn; on the PTY it freezes the subprocess on a TUI menu, so no assistant
 entry is ever written and the Turn would otherwise hang to the 180s timeout.
 
-This slice (issue #22) ships the **plan** gate only. ``AskUserQuestion`` and
-permission prompts extend ``GateDetector`` / ``KeystrokePlanner`` in later
-slices behind the same signatures.
+Issue #22 shipped the **plan** gate; issue #23 added the **ask**
+(``AskUserQuestion``) gate. The permission-prompt gate extends ``GateDetector``
+/ ``KeystrokePlanner`` in a later slice behind the same signatures.
 """
 
 from __future__ import annotations
@@ -50,9 +50,12 @@ class GateDetector:
 
         Plan gate = an ``attachment.type == "plan_mode"`` anywhere, OR an
         ``ExitPlanMode`` ``tool_use`` block whose ``tool_use_id`` has no
-        matching ``tool_result``. The bare string ``"ExitPlanMode"`` inside a
-        ``deferred_tools_delta`` is ignored — only the structured ``tool_use``
-        block counts (research.md false-positive note).
+        matching ``tool_result``. Ask gate = an ``AskUserQuestion`` ``tool_use``
+        block with no matching ``tool_result``; its option list comes from the
+        block's ``input``. The bare strings ``"ExitPlanMode"`` /
+        ``"AskUserQuestion"`` inside a ``deferred_tools_delta`` are ignored —
+        only the structured ``tool_use`` block counts (research.md
+        false-positive note).
         """
         for entry in entries:
             attachment = entry.get("attachment")
@@ -61,17 +64,48 @@ class GateDetector:
 
         resolved_ids = self._resolved_tool_use_ids(entries)
         for tool_use in self._tool_use_blocks(entries):
-            if tool_use.get("name") != "ExitPlanMode":
-                continue
             if tool_use.get("id") in resolved_ids:
                 continue
-            plan = ""
-            tool_input = tool_use.get("input")
-            if isinstance(tool_input, dict):
-                plan = tool_input.get("plan", "")
-            return Gate(kind="plan", payload={"plan": plan})
+            name = tool_use.get("name")
+            if name == "ExitPlanMode":
+                return Gate(kind="plan", payload=self._plan_payload(tool_use))
+            if name == "AskUserQuestion":
+                return Gate(kind="ask", payload=self._ask_payload(tool_use))
 
         return None
+
+    @staticmethod
+    def _plan_payload(tool_use: dict) -> dict[str, Any]:
+        plan = ""
+        tool_input = tool_use.get("input")
+        if isinstance(tool_input, dict):
+            plan = tool_input.get("plan", "")
+        return {"plan": plan}
+
+    @staticmethod
+    def _ask_payload(tool_use: dict) -> dict[str, Any]:
+        """Read the question + ordered option labels from the tool_use input.
+
+        Claude Code's ``AskUserQuestion`` input is
+        ``{"questions": [{"question": ..., "options": [{"label": ...}, ...]}]}``.
+        We surface the first question and its option labels in menu order, so
+        the chosen option's index is known without ever reading the screen.
+        """
+        question = ""
+        options: list[str] = []
+        tool_input = tool_use.get("input")
+        if isinstance(tool_input, dict):
+            questions = tool_input.get("questions")
+            if isinstance(questions, list) and questions:
+                first = questions[0]
+                if isinstance(first, dict):
+                    question = first.get("question", "")
+                    raw_options = first.get("options")
+                    if isinstance(raw_options, list):
+                        for option in raw_options:
+                            if isinstance(option, dict):
+                                options.append(option.get("label", ""))
+        return {"question": question, "options": options}
 
     @staticmethod
     def _tool_use_blocks(entries: list[dict]) -> list[dict]:
@@ -132,3 +166,18 @@ class KeystrokePlanner:
         if decision == "deny":
             return [_ARROW_DOWN] * _PLAN_REJECT_ROW_INDEX + [_ENTER]
         raise ValueError(f"Unknown plan decision {decision!r}; expected 'approve' or 'deny'.")
+
+    def ask_keys(self, gate: Gate, option_index: int) -> list[str]:
+        """Keys for the ``AskUserQuestion`` gate: select option ``option_index``.
+
+        The menu lists the options in the same order as ``gate.payload["options"]``
+        with the first row highlighted. Selecting option N is ``Down × N`` to
+        move the cursor onto that row, then Enter — the cortexOS ``selectOption``
+        pattern. Index 0 needs no navigation.
+        """
+        options = gate.payload.get("options") or []
+        if option_index < 0 or option_index >= len(options):
+            raise ValueError(
+                f"option index {option_index} out of range for {len(options)} option(s)"
+            )
+        return [_ARROW_DOWN] * option_index + [_ENTER]
