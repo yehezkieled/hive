@@ -6,7 +6,7 @@ Project-specific rules for any Claude Code session working on Hive.
 
 @CONTEXT.md
 @docs/roadmap.md
-@docs/sprints/2026-Q2-S2.md
+@docs/sprints/2026-Q2-S3.md
 @docs/tickets/INDEX.md
 
 > When the sprint rolls over, update the sprint `@`-reference above.
@@ -173,11 +173,21 @@ Lona and Wonder run on isolated per-bot state dirs. Always use the
 
 ## Active work
 
-**Phase 1 — Runtime migration** (deadline 2026-06-15). Headless
-`claude -p` moves to API billing on that date; the PTY harness keeps
-Hive plan-billed. Sprints 30 + 31 are in local `main` but not yet
-deployed. Deploy work tracked as Ticket
-[`001-deploy-pty-runtime`](docs/tickets/001-deploy-pty-runtime/).
+**Phase 2 — Restructure** (Sprint
+[`2026-Q2-S3`](docs/sprints/2026-Q2-S3.md), 2026-06-01 → 2026-06-15).
+Break up the `process/manager.py` god object (Ticket
+[`004`](docs/tickets/004-manager-py-breakup/)), rename `WorkerAgent`
+→ `Worker` (Ticket [`006`](docs/tickets/006-worker-rename/)), and
+retire the superseded headless runtime path (Ticket
+[`007`](docs/tickets/007-remove-headless-runtime/)). Vault
+consolidation (Ticket
+[`005`](docs/tickets/005-vault-consolidation/)) is drafted and deferred
+to the next sprint.
+
+Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
+and plan-billed in production (Tickets 001 + 003). The 2026-06-15
+headless-billing cutoff still applies to anything left on `claude -p` —
+which Ticket 007 removes.
 
 Before working on `runtime/` or `process/manager.py`, read the
 adapter code and

@@ -9,6 +9,10 @@ of the legacy Sprints 0–31 lives in
 > windows. The current meaning (2-week window) starts from
 > `2026-Q2-S1` in `docs/sprints/`.
 
+## 2026-06
+
+- **2026-06-01** — Sprint 2026-Q2-S2: hardened the PTY runtime — the interactive-gate bridge (Ticket 003) detects plan-mode and `AskUserQuestion` gates from the transcript, holds the Turn open, surfaces it on Telegram + web, and injects the user's decision back into the live PTY. Permission gate deferred (ADR 0005). Sprint closed early on goal-met; Phase 1 (Runtime migration) complete.
+
 ## 2026-05
 
 - **2026-05-29** — Sprint 2026-Q2-S1 (first 2-week-window sprint): deployed the PTY harness (S30) + QuotaMonitor (S31) to production on the Max plan; adopted the three-altitude doc structure (Tickets 001–002). Plan-mode interactive-gate hang surfaced during deploy testing → tracked as Ticket 003.
