@@ -24,7 +24,7 @@ from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.notifications import NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -50,7 +50,7 @@ async def test_worker_replies_to_lead_via_hive_actions(
             maestro_name="dev",
             model="haiku",
         )
-        worker = WorkerAgent(
+        worker = Worker(
             name="dev.backend.w1",
             team_name="backend",
             lead_name="dev.backend",

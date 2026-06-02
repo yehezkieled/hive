@@ -7,7 +7,7 @@ from hive.bus.entity_store import EntityStore
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 
 
 async def test_upsert_and_load(entity_store: EntityStore) -> None:
@@ -172,15 +172,15 @@ async def test_load_lead_returns_team_lead_instance(entity_store: EntityStore) -
 
 
 async def test_load_worker_returns_worker_instance(entity_store: EntityStore) -> None:
-    """Loading an entity with role='worker' should return a WorkerAgent."""
-    worker = WorkerAgent(
+    """Loading an entity with role='worker' should return a Worker."""
+    worker = Worker(
         name="dev.backend.w1",
         team_name="backend",
         lead_name="dev.backend",
     )
     await entity_store.upsert(worker)
     loaded = await entity_store.load("dev.backend.w1")
-    assert isinstance(loaded, WorkerAgent)
+    assert isinstance(loaded, Worker)
     assert loaded.team_name == "backend"
     assert loaded.lead_name == "dev.backend"
 
@@ -194,7 +194,7 @@ async def test_hierarchy_columns_roundtrip(entity_store: EntityStore) -> None:
     )
     await entity_store.upsert(lead)
 
-    worker = WorkerAgent(
+    worker = Worker(
         name="dev.backend.w1",
         team_name="backend",
         lead_name="dev.backend",

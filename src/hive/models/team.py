@@ -1,4 +1,4 @@
-"""Team model — groups a TeamLead and its WorkerAgents under a Maestro."""
+"""Team model — groups a TeamLead and its Workers under a Maestro."""
 
 from __future__ import annotations
 

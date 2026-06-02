@@ -3,7 +3,7 @@
 from hive.models.maestro import Maestro
 from hive.models.team import Team
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 
 
 class TestTeamModel:
@@ -85,10 +85,10 @@ class TestTeamLeadFields:
 
 
 class TestWorkerFields:
-    """Test WorkerAgent hierarchy fields."""
+    """Test Worker hierarchy fields."""
 
     def test_worker_has_team_and_lead(self) -> None:
-        w = WorkerAgent(
+        w = Worker(
             name="dev.backend.w1",
             team_name="backend",
             lead_name="dev.backend",
@@ -99,7 +99,7 @@ class TestWorkerFields:
         assert w.task_id is None
 
     def test_worker_with_task_id(self) -> None:
-        w = WorkerAgent(
+        w = Worker(
             name="dev.backend.w1",
             team_name="backend",
             lead_name="dev.backend",
