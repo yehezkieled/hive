@@ -124,6 +124,5 @@ one or more Tickets).
 ## Flagged ambiguities
 
 - **"agent" vs "Entity"** — the README and older docs say "agent"; the code's base class is `Entity`. Resolved: **Entity** is canonical.
-- **`WorkerAgent` vs "worker"** — the class is `WorkerAgent` but the role string is `"worker"` everywhere else. Naming drift; **Worker** is the canonical term.
 - **"runtime" vs "Harness"** — a **Harness** is the external tool; a **Runtime** is which Harness an Entity is assigned to. Not synonyms.
 - **"subsidised"** — informal word for **Plan-billed**. Use Plan-billed.
