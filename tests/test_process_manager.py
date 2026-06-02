@@ -15,7 +15,7 @@ from hive.bus.router import MessageRouter
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 from hive.process.worktree import WorktreeManager
@@ -278,7 +278,7 @@ class TestTeamManagement:
 
     async def test_create_team_non_maestro_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if target entity is not a maestro."""
-        worker = WorkerAgent(name="w1")
+        worker = Worker(name="w1")
         manager._entities["w1"] = worker
         with pytest.raises(TypeError, match="not a maestro"):
             await manager.create_team("w1", "backend")
@@ -294,14 +294,14 @@ class TestTeamManagement:
             await manager.create_team("dev", "backend")
 
     async def test_spawn_worker(self, manager: ProcessManager) -> None:
-        """spawn_worker should create a WorkerAgent under a lead."""
+        """spawn_worker should create a Worker under a lead."""
         maestro = Maestro(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
         await manager.create_team("dev", "backend")
 
         worker = await manager.spawn_worker("dev.backend", "w1")
-        assert isinstance(worker, WorkerAgent)
+        assert isinstance(worker, Worker)
         assert worker.name == "dev.backend.w1"
         assert worker.team_name == "backend"
         assert worker.lead_name == "dev.backend"
@@ -505,7 +505,7 @@ class TestHierarchyRestore:
             team_name="backend",
             maestro_name="dev",
         )
-        worker = WorkerAgent(
+        worker = Worker(
             name="dev.backend.w1",
             team_name="backend",
             lead_name="dev.backend",
@@ -972,7 +972,7 @@ class TestActionRouting:
         maestro = Maestro(name="dev", model="sonnet")
         lead_a = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
         lead_b = TeamLead(name="dev.frontend", team_name="frontend", maestro_name="dev")
-        worker = WorkerAgent(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
+        worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
         manager._entities["dev"] = maestro
         manager._entities["dev.backend"] = lead_a
         manager._entities["dev.frontend"] = lead_b
@@ -1264,7 +1264,7 @@ class TestAutonomousDispatch:
     async def test_worker_spawn_actions_denied(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        worker = WorkerAgent(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
+        worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
         manager._entities["dev"] = maestro
         manager._entities["dev.backend"] = lead
         manager._entities["dev.backend.w1"] = worker

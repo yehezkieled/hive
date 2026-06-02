@@ -12,7 +12,7 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 
 
 class TestEntityState:
@@ -363,7 +363,7 @@ class TestMessagingPromptInjection:
         assert any("spawn_worker" in a for a in appended)
 
     def test_worker_includes_role_jd_no_spawn(self) -> None:
-        w = WorkerAgent(name="dev.backend.w1")
+        w = Worker(name="dev.backend.w1")
         args = w.build_cli_args()
         # Workers get identity + loop + role JD = 3 (worker JD has no autonomy actions)
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
@@ -393,7 +393,7 @@ class TestIdentityPreamble:
         assert any("dev.backend" in a and "lead" in a.lower() for a in appended)
 
     def test_worker_identity_preamble_includes_dotted_name(self) -> None:
-        w = WorkerAgent(name="dev.backend.w1")
+        w = Worker(name="dev.backend.w1")
         args = w.build_cli_args()
         appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert any("dev.backend.w1" in a and "worker" in a.lower() for a in appended)
@@ -408,7 +408,7 @@ class TestIdentityPreamble:
 
 
 class TestSubclasses:
-    """Test Maestro and WorkerAgent subclasses."""
+    """Test Maestro and Worker subclasses."""
 
     def test_maestro_default_role(self) -> None:
         m = Maestro(name="dev")
@@ -416,7 +416,7 @@ class TestSubclasses:
         assert m.teams == {}
 
     def test_worker_with_worktree(self) -> None:
-        w = WorkerAgent(name="coder", worktree_path=Path("/tmp/wt"))
+        w = Worker(name="coder", worktree_path=Path("/tmp/wt"))
         assert w.role == "worker"
         args = w.build_cli_args()
         assert "--add-dir" in args

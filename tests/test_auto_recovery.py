@@ -24,7 +24,7 @@ from hive.bus.task_store import TaskStore
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -65,7 +65,7 @@ def _populate_org(manager: ProcessManager) -> None:
     """Register maestro/lead/worker so escalation paths are resolvable."""
     maestro = Maestro(name="dev")
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    worker = WorkerAgent(
+    worker = Worker(
         name="dev.backend.w1",
         team_name="backend",
         lead_name="dev.backend",
@@ -157,7 +157,7 @@ async def test_handle_task_failure_retries_below_limit(
         created_by="user",
     )
     worker = manager._entities["dev.backend.w1"]
-    assert isinstance(worker, WorkerAgent)
+    assert isinstance(worker, Worker)
     worker.task_id = task.id
 
     send = AsyncMock(return_value="ok")
@@ -192,7 +192,7 @@ async def test_handle_task_failure_escalates_worker_to_lead(
     for _ in range(3):
         await task_store.increment_retry(task.id, "prior")
     worker = manager._entities["dev.backend.w1"]
-    assert isinstance(worker, WorkerAgent)
+    assert isinstance(worker, Worker)
     worker.task_id = task.id
 
     send = AsyncMock()
@@ -255,7 +255,7 @@ async def test_retry_audits_emit_expected_actions(
     _populate_org(manager)
     task = await task_store.create(title="a", assigned_to="dev.backend.w1", created_by="user")
     worker = manager._entities["dev.backend.w1"]
-    assert isinstance(worker, WorkerAgent)
+    assert isinstance(worker, Worker)
     worker.task_id = task.id
 
     monkeypatch.setattr(manager, "send_to_entity", AsyncMock(return_value="ok"))

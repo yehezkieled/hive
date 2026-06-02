@@ -1,4 +1,4 @@
-"""Worker agent entity — executes tasks assigned by team leads."""
+"""Worker entity — executes tasks assigned by team leads."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from hive.models.entity import Entity
 
 
 @dataclass
-class WorkerAgent(Entity):
-    """A worker agent that executes specific tasks in an isolated worktree.
+class Worker(Entity):
+    """A Worker that executes specific tasks in an isolated worktree.
 
     Named ``maestro.team.worker`` (e.g., "dev.backend.w1"). Tracks its
     parent lead and the task it's currently working on.

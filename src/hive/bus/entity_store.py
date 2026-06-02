@@ -16,7 +16,7 @@ from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 
 
 class EntityStore:
@@ -99,28 +99,28 @@ def _get_parent_name(entity: Entity) -> str | None:
     """Extract the parent_name for DB storage based on entity type."""
     if isinstance(entity, TeamLead):
         return entity.maestro_name or None
-    if isinstance(entity, WorkerAgent):
+    if isinstance(entity, Worker):
         return entity.lead_name or None
     return None
 
 
 def _get_team_name(entity: Entity) -> str | None:
     """Extract the team_name for DB storage based on entity type."""
-    if isinstance(entity, (TeamLead, WorkerAgent)):
+    if isinstance(entity, (TeamLead, Worker)):
         return entity.team_name or None
     return None
 
 
 def _get_worktree_path(entity: Entity) -> str | None:
     """Extract the worktree_path for DB storage (workers only)."""
-    if isinstance(entity, WorkerAgent) and entity.worktree_path:
+    if isinstance(entity, Worker) and entity.worktree_path:
         return str(entity.worktree_path)
     return None
 
 
 def _get_task_id(entity: Entity) -> int | None:
     """Extract the task_id for DB storage (workers only)."""
-    if isinstance(entity, WorkerAgent):
+    if isinstance(entity, Worker):
         return entity.task_id
     return None
 
@@ -162,7 +162,7 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         )
     if role == "worker":
         worktree_path = Path(row["worktree_path"]) if row["worktree_path"] else None
-        return WorkerAgent(
+        return Worker(
             **common,
             team_name=row["team_name"] or "",
             lead_name=row["parent_name"] or "",

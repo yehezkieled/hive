@@ -21,7 +21,7 @@ from hive.config import ALLOW_AUTO_MERGE
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.process import git_ops
 from hive.telegram.commands import Command, parse_command
 from hive.telegram.help_text import format_all, format_one
@@ -1076,7 +1076,7 @@ class CommandDispatcher:
         """Return (entity, worktree_path) or (None, None) if entity has no worktree.
 
         Kept private and untyped to avoid a public dependency on
-        WorkerAgent — /commit and /pr only need the path, not the class.
+        Worker — /commit and /pr only need the path, not the class.
         """
         entity = self.process_manager.entities.get(entity_name)
         if entity is None:
@@ -1212,7 +1212,7 @@ class CommandDispatcher:
                     if wn in entities:
                         w = entities[wn]
                         task_info = ""
-                        if isinstance(w, WorkerAgent) and w.task_id:
+                        if isinstance(w, Worker) and w.task_id:
                             task_info = f" (task #{w.task_id})"
                         lines.append(f"    {wn} [worker] {w.state.value}{task_info}")
         return "\n".join(lines) if lines else "No entities running."

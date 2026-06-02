@@ -51,7 +51,7 @@ from hive.models.entity import (
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.claude_session import ClaudeSession
 from hive.process.worktree import WorktreeManager
@@ -628,7 +628,7 @@ class ProcessManager:
 
         cwd = (
             Path(entity.worktree_path)
-            if isinstance(entity, WorkerAgent) and entity.worktree_path
+            if isinstance(entity, Worker) and entity.worktree_path
             else None
         )
         config = _adapter_config_from_entity(entity)
@@ -1096,9 +1096,9 @@ class ProcessManager:
         notification dispatcher instead.
         """
         from hive.models.team_lead import TeamLead
-        from hive.models.worker import WorkerAgent
+        from hive.models.worker import Worker
 
-        if isinstance(entity, WorkerAgent):
+        if isinstance(entity, Worker):
             return entity.lead_name or None
         if isinstance(entity, TeamLead):
             return entity.maestro_name or None
@@ -1389,7 +1389,7 @@ class ProcessManager:
         task_id: int | None = None,
         display_name: str | None = None,
         personality: str | None = None,
-    ) -> WorkerAgent:
+    ) -> Worker:
         """Spawn a worker under a team lead.
 
         If worker_name is None, auto-generates ``w1``, ``w2``, etc.
@@ -1429,7 +1429,7 @@ class ProcessManager:
         if self.worktree_mgr:
             worktree_path = await self.worktree_mgr.create(full_name, branch=f"hive/{full_name}")
 
-        worker = WorkerAgent(
+        worker = Worker(
             name=full_name,
             team_name=lead.team_name,
             lead_name=lead_name,
@@ -1514,14 +1514,14 @@ class ProcessManager:
         entity = self._entities.get(name)
         if entity:
             # Clean up worktree for workers
-            if isinstance(entity, WorkerAgent) and entity.worktree_path and self.worktree_mgr:
+            if isinstance(entity, Worker) and entity.worktree_path and self.worktree_mgr:
                 try:
                     await self.worktree_mgr.remove(name)
                 except Exception:
                     logger.exception("Failed to remove worktree for %s", name)
 
             # Remove worker from parent lead's and team's worker lists
-            if isinstance(entity, WorkerAgent) and entity.lead_name:
+            if isinstance(entity, Worker) and entity.lead_name:
                 lead = self._entities.get(entity.lead_name)
                 if isinstance(lead, TeamLead) and name in lead.workers:
                     lead.workers.remove(name)
@@ -1616,7 +1616,7 @@ class ProcessManager:
             return "user"
         if entity.role == "lead" and isinstance(entity, TeamLead):
             return entity.maestro_name
-        if entity.role == "worker" and isinstance(entity, WorkerAgent):
+        if entity.role == "worker" and isinstance(entity, Worker):
             return entity.lead_name
         raise ValueError(
             f"Cannot determine approver for entity {entity.name!r} (role={entity.role!r})"
@@ -2168,7 +2168,7 @@ class ProcessManager:
     def _task_id_for(self, entity_name: str) -> int | None:
         """Return the active task_id bound to an entity, if it's a worker."""
         entity = self._entities.get(entity_name)
-        if isinstance(entity, WorkerAgent):
+        if isinstance(entity, Worker):
             return entity.task_id
         return None
 
@@ -2180,7 +2180,7 @@ class ProcessManager:
         reaches the top.
         """
         entity = self._entities.get(entity_name)
-        if isinstance(entity, WorkerAgent):
+        if isinstance(entity, Worker):
             return entity.lead_name
         if isinstance(entity, TeamLead):
             return entity.maestro_name
@@ -2452,7 +2452,7 @@ class ProcessManager:
 
         # Second pass: attach Workers to their leads and teams
         for entity in self._entities.values():
-            if isinstance(entity, WorkerAgent) and entity.lead_name:
+            if isinstance(entity, Worker) and entity.lead_name:
                 lead = self._entities.get(entity.lead_name)
                 if isinstance(lead, TeamLead) and entity.name not in lead.workers:
                     lead.workers.append(entity.name)

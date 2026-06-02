@@ -12,7 +12,7 @@ from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.router import MessageRouter
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -48,7 +48,7 @@ def _populate_org(manager: ProcessManager) -> None:
     """Register a minimal maestro/lead/worker tree."""
     maestro = Maestro(name="dev")
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    worker = WorkerAgent(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
+    worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
     for e in (maestro, lead, worker):
         manager._entities[e.name] = e
         manager.router.register(e.name)

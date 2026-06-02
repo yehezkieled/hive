@@ -18,7 +18,7 @@ from hive.bus.vault_store import VaultStore
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -55,7 +55,7 @@ def _populate_org_with_vault(manager: ProcessManager) -> None:
     """Register a minimal maestro/lead/worker tree plus a Vault entity."""
     maestro = Maestro(name="dev")
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    worker = WorkerAgent(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
+    worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
     vault = Vault(name="vault")
     for e in (maestro, lead, worker, vault):
         manager._entities[e.name] = e

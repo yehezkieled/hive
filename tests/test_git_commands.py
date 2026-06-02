@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 
 from hive.bus.router import MessageRouter
-from hive.models.worker import WorkerAgent
+from hive.models.worker import Worker
 from hive.process.manager import ProcessManager
 from hive.telegram.bridge import TelegramBridge
 
@@ -38,10 +38,10 @@ def bridge(manager: ProcessManager) -> TelegramBridge:
 
 
 @pytest.fixture
-def worker_with_worktree(manager: ProcessManager, tmp_path: Path) -> WorkerAgent:
+def worker_with_worktree(manager: ProcessManager, tmp_path: Path) -> Worker:
     wt = tmp_path / "wt"
     wt.mkdir()
-    w = WorkerAgent(
+    w = Worker(
         name="dev.backend.w1",
         team_name="backend",
         lead_name="dev.backend",
@@ -70,7 +70,7 @@ async def test_commit_unknown_entity(bridge: TelegramBridge) -> None:
 async def test_commit_entity_without_worktree(
     bridge: TelegramBridge, manager: ProcessManager
 ) -> None:
-    w = WorkerAgent(name="dev.backend.nowt", team_name="backend", lead_name="dev.backend")
+    w = Worker(name="dev.backend.nowt", team_name="backend", lead_name="dev.backend")
     manager._entities[w.name] = w
     manager.router.register(w.name)
     result = await bridge.dispatcher._execute_commit(w.name, '"message"')
@@ -79,7 +79,7 @@ async def test_commit_entity_without_worktree(
 
 async def test_commit_success(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[list[str]] = []
@@ -107,7 +107,7 @@ async def test_commit_success(
 
 async def test_commit_propagates_git_failure(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
@@ -128,7 +128,7 @@ async def test_commit_propagates_git_failure(
 
 async def test_pr_pushes_and_creates(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorded: list[list[str]] = []
@@ -154,7 +154,7 @@ async def test_pr_pushes_and_creates(
 
 async def test_pr_without_title_uses_fill(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorded: list[list[str]] = []
@@ -175,7 +175,7 @@ async def test_pr_without_title_uses_fill(
 
 async def test_pr_detached_head_error(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
@@ -195,7 +195,7 @@ async def test_pr_detached_head_error(
 
 async def test_merge_disabled_by_default(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("hive.commands.dispatch.ALLOW_AUTO_MERGE", False)
@@ -206,7 +206,7 @@ async def test_merge_disabled_by_default(
 
 async def test_merge_when_enabled(
     bridge: TelegramBridge,
-    worker_with_worktree: WorkerAgent,
+    worker_with_worktree: Worker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("hive.commands.dispatch.ALLOW_AUTO_MERGE", True)
