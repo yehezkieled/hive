@@ -120,7 +120,6 @@ POSTGRES_DB=hive
 POSTGRES_USER=hive
 POSTGRES_PASSWORD=hive
 
-HIVE_USE_PTY=true               # PTY harness path (plan-billed)
 OPENAI_API_KEY=<optional>       # blueprint embeddings
 ```
 
