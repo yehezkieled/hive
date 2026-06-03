@@ -12,4 +12,4 @@ marked with ✱.
 | 004 | [Break up `process/manager.py`](004-manager-py-breakup/) | 2026-Q2-S3 | done | #41–#45 |
 | 005 | [Consolidate the Vault](005-vault-consolidation/) | 2026-Q2-S4 | planned | — |
 | 006 | [Rename `WorkerAgent` → `Worker`](006-worker-rename/) | 2026-Q2-S3 | done | — |
-| 007 ✱ | [Remove the headless (non-PTY) runtime path](007-remove-headless-runtime/) | 2026-Q2-S3 | in progress | — |
+| 007 ✱ | [Remove the headless (non-PTY) runtime path](007-remove-headless-runtime/) | 2026-Q2-S3 | done | #52 |
