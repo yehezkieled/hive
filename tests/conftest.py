@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from testcontainers.postgres import PostgresContainer
-
-# Hermetic test config: pin HIVE_USE_PTY before importing any hive module.
-# hive.config calls load_dotenv(), which walks UP the directory tree and — when
-# tests run from a git worktree — picks up the main checkout's .env, where
-# HIVE_USE_PTY=true (the deployed PTY runtime). That flips
-# ProcessManager.send_to_entity onto the real PtySession path, so unit tests
-# that mock the subprocess layer spawn an actual `claude` process and hang on
-# read(). Pin subprocess mode for the unit suite; the real-PTY path has its own
-# `integration`-marked tests. setdefault, not assignment: an explicit
-# `export HIVE_USE_PTY=true` still wins for anyone who wants PTY mode.
-os.environ.setdefault("HIVE_USE_PTY", "false")
 
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
@@ -31,6 +19,26 @@ from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.knowledge.blueprints import BlueprintStore
+
+
+@pytest.fixture(autouse=True)
+def _no_real_pty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail fast if a test drives ``send_to_entity`` without injecting a fake.
+
+    Post-Ticket-007 the only runtime is a real PTY session; an un-injected
+    ``_get_or_create_adapter`` would spawn an actual ``claude`` and hang on
+    ``read()`` (the failure the old ``HIVE_USE_PTY=false`` pin guarded against).
+    ``tests.fakes.using_adapter`` sets a per-instance override that shadows this
+    class-level guard, so injected tests are unaffected.
+    """
+
+    async def _guard(self, entity):  # noqa: ANN001
+        raise RuntimeError(
+            f"{getattr(entity, 'name', entity)}: real PTY adapter requested in a "
+            "unit test — inject a fake via tests.fakes.using_adapter()."
+        )
+
+    monkeypatch.setattr("hive.process.manager.ProcessManager._get_or_create_adapter", _guard)
 
 
 @pytest.fixture

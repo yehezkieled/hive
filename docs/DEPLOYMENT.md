@@ -29,8 +29,9 @@ commands below use a venv at `.venv/`.
 
 ### Authentication
 
-- **Claude Code CLI** — `claude -p` must work on this host. The orchestrator
-  spawns it as a subprocess for every maestro.
+- **Claude Code CLI** — the `claude` CLI must work on this host. Each entity
+  runs as a persistent interactive PTY session (`claude --continue`); the
+  advisor MCP server additionally uses a one-shot `claude -p` call.
 - **Telegram bot token** — create a bot via BotFather, paste the token into
   `.env` (see Section 2).
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
@@ -226,8 +227,8 @@ Endpoints that accept input from the browser tab:
   (Tailscale bind is the gate); read-only.
 
 **New-maestro permission default (2026-04-26).** `register_maestro`
-sets `permission_mode = "yolo"` on freshly created maestros so headless
-`claude -p` tool calls aren't auto-denied. Existing maestros restored
+sets `permission_mode = "yolo"` on freshly created maestros so their
+tool calls aren't auto-denied. Existing maestros restored
 from postgres keep their persisted mode unchanged. Promote an existing
 maestro explicitly with `/m:<name> mode yolo` when needed.
 
@@ -1088,7 +1089,6 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_VAULT_DAILY_CAP_CENTS` | `5000` ($50) | Daily spend cap (rolling 24h) enforced when approving a `request_payment` action. Applies to each currency in the allow-list separately. Set to `0` to disable. |
 | `HIVE_VAULT_MONTHLY_CAP_CENTS` | `50000` ($500) | Monthly spend cap (rolling 30d). Same per-currency-independent semantics as the daily cap. Set to `0` to disable. |
 | `HIVE_VAULT_PROVIDER` | `stub` | Payment provider name. Sprint 25 ships only `stub`. Unknown names fall back to stub with a warning. |
-| `HIVE_USE_PTY` | `false` | **Must be flipped to `true` before 2026-06-15.** When `true`, every entity runs as a persistent PTY session (`claude --continue`) instead of a `claude -p` subprocess-per-turn, keeping usage plan-billed after Anthropic's billing change (Sprint 30). |
 
 If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
 CLI instead of starting the Telegram bridge — useful for debugging.
@@ -1104,17 +1104,16 @@ become no-ops — Hive still boots.
 
 ## 10. Known limitations (as of 2026-04-26)
 
-- **One-shot subprocess model** — each `send_to_entity` spawns a fresh
-  `claude -p` subprocess, uses it, and kills it. The `--resume
-  <session_id>` flag preserves conversation context across calls (added
-  in Sprint 3a), but there are no long-running entity processes. Entity
-  state stays `idle` between calls — this is expected, not a bug.
-- **`/cost` shows API-equivalent cost only** — `total_cost_usd` comes
-  straight from the `claude -p` result event and is labeled as
-  "equivalent API cost (covered by Max subscription)". It is not money
-  actually spent. Token counts are the real accountability number.
-- **No multi-LLM routing** — all entities use Claude via `claude -p`.
-  Routing to different LLM providers (OpenAI, Gemini) is not
+- **Persistent PTY model** — each entity runs as a long-lived `claude` PTY
+  session (Ticket 007 removed the old `claude -p` subprocess-per-turn path).
+  Conversation context carries across turns via `claude --continue`. Entity
+  state still goes `idle` between turns — this is expected, not a bug.
+- **`/cost` shows token counts, not dollars** — the PTY path is plan-billed,
+  so per-turn `cost_usd` is `None`; token counts are the real accountability
+  number. (The advisor's one-shot `claude -p` is the only remaining metered
+  call.)
+- **No multi-LLM routing** — all entities run on the Claude Code PTY harness.
+  Routing to other providers (Codex, OpenCode) is Phase 4, not yet
   implemented.
 - **Blueprints require `VOYAGE_API_KEY`** — without it, `/blueprint save|search`
   and auto-retrieval of blueprints into agent prompts are disabled silently.

@@ -11,17 +11,8 @@ critical section in the orchestrator lives here. Each block is a verbatim
 copy from the original ``ProcessManager`` — guarding only synchronous dict
 mutations, never holding the lock across an ``await``. The single
 non-reentrant ``asyncio.Lock`` stays facade-owned; this collaborator
-acquires it through ``self._mgr``. ``spawn_entity``'s atomic entity+session
-insert and ``kill_entity``'s separate pop blocks are load-bearing — do not
-reorder or add awaits inside them.
-
-``_get_or_create_adapter`` and ``spawn_entity`` read ``ClaudeSession``,
-``HIVE_USE_PTY``, ``ADVISOR_ENABLED``, ``generate_mcp_config``, and
-``ClaudeAdapter`` through the ``hive.process.manager`` module namespace
-(resolved lazily via ``_manager_module``), so existing tests that
-``patch("hive.process.manager.ClaudeSession")`` etc. still affect the moved
-code. The lazy import is function-scoped, so it never creates a load-time
-cycle (``manager.py`` already imports this module at load).
+acquires it through ``self._mgr``. ``kill_entity``'s pop block is
+load-bearing — do not reorder or add awaits inside it.
 """
 
 from __future__ import annotations
@@ -31,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hive.config import ADVISOR_ENABLED, DEFAULT_MAESTRO
+from hive.config import ADVISOR_ENABLED
 from hive.models.entity import (
     Entity,
     EntityState,
@@ -43,25 +34,9 @@ from hive.models.worker import Worker
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
 
 if TYPE_CHECKING:
-    from hive.process.claude_session import ClaudeSession
     from hive.process.manager import ProcessManager
 
 logger = logging.getLogger(__name__)
-
-
-def _manager_module():
-    """Return the ``hive.process.manager`` module, imported lazily.
-
-    ``ClaudeSession``, ``HIVE_USE_PTY``, ``ADVISOR_ENABLED``,
-    ``generate_mcp_config``, and ``ClaudeAdapter`` are read off this module
-    at call time so ``patch("hive.process.manager.X")`` (used by existing
-    tests such as ``test_preempt`` and ``test_advisor_mcp``) affects the
-    moved spawn/adapter code. The import is function-scoped to avoid a
-    load-time cycle.
-    """
-    from hive.process import manager
-
-    return manager
 
 
 def _render_auto_personality(
@@ -211,40 +186,6 @@ class LifecycleManager:
         except OSError:
             logger.exception("Failed to delete personality file %s", path)
 
-    async def _preempt_for_priority(self, priority: int) -> str | None:
-        """Try to free a session slot by killing the lowest-priority running entity.
-
-        Returns the name of the killed entity, or None if no preemption is
-        possible (under capacity, or no RUNNING entity is strictly worse
-        than the requested priority). The default maestro is never
-        preempted — it's the org's root and killing it would break every
-        downstream entity. Only RUNNING entities are considered because
-        IDLE entities don't hold a session slot.
-        """
-        if self._mgr.active_count < self._mgr.max_sessions:
-            return None
-
-        worst_name: str | None = None
-        worst_priority = -1
-        for name, entity in self._mgr._entities.items():
-            if name == DEFAULT_MAESTRO:
-                continue
-            if entity.state == EntityState.RUNNING and entity.current_priority > worst_priority:
-                worst_priority = entity.current_priority
-                worst_name = name
-
-        if worst_name is None or worst_priority <= priority:
-            return None
-
-        await self._mgr.kill_entity(worst_name)
-        await self._mgr._audit(
-            "entity.kill",
-            target=worst_name,
-            details={"reason": "preempt", "preempted_priority": worst_priority},
-            actor="system",
-        )
-        return worst_name
-
     async def register_maestro(
         self,
         name: str,
@@ -296,107 +237,15 @@ class LifecycleManager:
         self._mgr.router.register(entity.name)
         logger.info("Registered entity: %s (role=%s)", entity.name, entity.role)
 
-    async def spawn_entity(self, entity: Entity, cwd: Path | None = None) -> ClaudeSession:
-        """Spawn a Claude Code subprocess for an entity.
-
-        Loads personality, builds CLI args, creates session, and starts it.
-        Preemption is the last-resort safety net — the maestro is the
-        primary capacity manager via the priority scheduler. When at cap
-        and HIVE_PRIORITY_PREEMPT_ENABLED, try to free a slot by killing
-        the lowest-priority RUNNING entity worse than this one.
-        """
-        _mgr_mod = _manager_module()
-
-        if self._mgr.active_count >= self._mgr.max_sessions:
-            from hive.config import PRIORITY_PREEMPT_ENABLED
-
-            preempted: str | None = None
-            if PRIORITY_PREEMPT_ENABLED:
-                preempted = await self._mgr._preempt_for_priority(entity.current_priority)
-            if preempted is None:
-                raise RuntimeError(
-                    f"Max concurrent sessions ({self._mgr.max_sessions}) reached. "
-                    "Kill an entity first."
-                )
-            logger.info(
-                "Preempted %s (p%s) to free a slot for %s (p%s)",
-                preempted,
-                "?",
-                entity.name,
-                entity.current_priority,
-            )
-
-        if entity.name in self._mgr._sessions and self._mgr._sessions[entity.name].is_alive:
-            raise RuntimeError(f"Entity {entity.name!r} is already running.")
-
-        # Load personality if available
-        entity.load_personality()
-
-        # Write per-entity MCP config so Claude Code can connect to the advisor server
-        if _mgr_mod.ADVISOR_ENABLED:
-            _mgr_mod.generate_mcp_config(entity.name, entity.mcp_config_path)
-
-        # Build CLI args
-        args = entity.build_cli_args()
-
-        # Transition state
-        entity.transition_to(EntityState.STARTING)
-        await self._mgr._persist(entity)
-
-        # Create and start session
-        session = _mgr_mod.ClaudeSession(args=args, cwd=cwd)
-        try:
-            await session.start()
-            entity.pid = session.pid
-            entity.transition_to(EntityState.RUNNING)
-        except Exception as exc:
-            entity.transition_to(EntityState.ERROR)
-            await self._mgr._persist(entity)
-            await self._mgr._audit(
-                "entity.error",
-                target=entity.name,
-                details={"phase": "spawn", "error": str(exc)},
-            )
-            raise
-
-        # Register in router for message delivery
-        self._mgr.router.register(entity.name)
-
-        # Track — entity + session must appear together so callers don't
-        # observe an entity in RUNNING state without its session.
-        async with self._mgr._state_lock:
-            self._mgr._entities[entity.name] = entity
-            self._mgr._sessions[entity.name] = session
-
-        await self._mgr._persist(entity)
-        await self._mgr._audit(
-            "entity.spawn",
-            target=entity.name,
-            details={"role": entity.role, "model": entity.model, "pid": entity.pid},
-        )
-
-        logger.info(
-            "Spawned entity %s (role=%s, model=%s, pid=%s)",
-            entity.name,
-            entity.role,
-            entity.model,
-            entity.pid,
-        )
-        return session
-
     async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
-        """Return a live adapter for entity, creating one if needed.
+        """Return a live PTY adapter for entity, creating one if needed.
 
-        In PTY mode (HIVE_USE_PTY=True) adapters are cached per entity so
-        the same persistent PTY process handles all turns. In subprocess mode
-        a fresh adapter is built per call (stateless, backward-compatible).
+        Adapters are cached per entity so the same persistent PTY process
+        handles all of that entity's turns.
         """
-        _mgr_mod = _manager_module()
-
-        if _mgr_mod.HIVE_USE_PTY:
-            existing = self._mgr._adapters.get(entity.name)
-            if existing is not None and existing.is_alive():
-                return existing
+        existing = self._mgr._adapters.get(entity.name)
+        if existing is not None and existing.is_alive():
+            return existing
 
         cwd = (
             Path(entity.worktree_path)
@@ -404,20 +253,16 @@ class LifecycleManager:
             else None
         )
         config = _adapter_config_from_entity(entity)
-        adapter = _mgr_mod.ClaudeAdapter(
+        adapter = ClaudeAdapter(
             config,
             cwd=cwd,
-            session_factory=lambda args, c: _mgr_mod.ClaudeSession(args=args, cwd=c),
-            initial_session_id=entity.session_id if not _mgr_mod.HIVE_USE_PTY else None,
-            use_pty=_mgr_mod.HIVE_USE_PTY,
             gate_coordinator=self._mgr.gate_coordinator,
             entity_name=entity.name,
             on_gate_state=self._mgr._on_gate_state,
         )
         await adapter.start()
-        if _mgr_mod.HIVE_USE_PTY:
-            async with self._mgr._state_lock:
-                self._mgr._adapters[entity.name] = adapter
+        async with self._mgr._state_lock:
+            self._mgr._adapters[entity.name] = adapter
         return adapter
 
     async def create_team(
@@ -597,12 +442,6 @@ class LifecycleManager:
         """
         self._maybe_delete_auto_personality(name)
 
-        session = self._mgr._sessions.get(name)
-        if session:
-            await session.kill()
-            async with self._mgr._state_lock:
-                self._mgr._sessions.pop(name, None)
-
         adapter = self._mgr._adapters.pop(name, None)
         if adapter is not None:
             try:
@@ -644,7 +483,7 @@ class LifecycleManager:
                     except KeyError:
                         pass
 
-            # Clear session_id so a stale --resume isn't persisted to DB
+            # Clear the transcript session_id so a stale resume isn't persisted to DB
             entity.session_id = None
 
             if entity.state == EntityState.RUNNING:
@@ -672,20 +511,12 @@ class LifecycleManager:
             await self._mgr.kill_entity(name)
 
     async def stop_all(self) -> None:
-        """Stop all entity subprocesses without deleting DB rows.
+        """Stop all entity PTY adapters without deleting DB rows.
 
         Used on graceful shutdown so entities can be restored on next boot
         via restore() + rebuild_hierarchy(). Preserves session_id so the
-        next spawn can --resume the prior conversation.
+        next session can --continue the prior conversation.
         """
-        for name, session in list(self._mgr._sessions.items()):
-            try:
-                await session.kill()
-            except Exception:
-                logger.exception("Failed to kill session for %s on shutdown", name)
-        async with self._mgr._state_lock:
-            self._mgr._sessions.clear()
-
         for name, adapter in list(self._mgr._adapters.items()):
             try:
                 await adapter.stop()

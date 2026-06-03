@@ -1,6 +1,6 @@
 """Pre-deploy smoke test: spawn real claude, verify PTY idle glyph detection.
 
-Run before flipping HIVE_USE_PTY=true to confirm:
+Run to confirm the PTY harness works on this host:
   1. Claude Code starts and reaches the idle prompt within 20 seconds
   2. The '❯' glyph is present in output
   3. Trust prompt ("Do you trust") behaviour matches expectations

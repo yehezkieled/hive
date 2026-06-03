@@ -11,6 +11,7 @@ from hive.bus.audit_log import AuditLog
 from hive.bus.permissions import can_message, can_request_decision, cc_targets_for
 from hive.bus.router import MessageRouter
 from hive.process.manager import ProcessManager
+from tests.fakes import FakeAdapter, using_adapter
 
 # ---- can_message peer rules ----
 
@@ -241,36 +242,15 @@ class TestPeerDirectory:
 
 async def test_send_to_entity_prepends_peer_directory(
     manager: ProcessManager,
-    monkeypatch,
 ) -> None:
     await manager.register_maestro("dev")
     await manager.create_team("dev", "backend")
     await manager.spawn_worker("dev.backend", worker_name="w1")
     await manager.spawn_worker("dev.backend", worker_name="w2")
 
-    captured: dict[str, str] = {}
+    with using_adapter(manager, FakeAdapter("")) as adapter:
+        await manager.send_to_entity("dev.backend.w1", "do work")
 
-    class FakeSession:
-        session_id = None
-        last_usage = None
-        pid = 12345
-
-        def __init__(self, args, cwd=None):
-            self.is_alive = True
-
-        async def start(self):
-            return None
-
-        async def send_prompt(self, prompt):
-            captured["prompt"] = prompt
-            return ""
-
-        async def kill(self):
-            self.is_alive = False
-
-    monkeypatch.setattr("hive.process.manager.ClaudeSession", FakeSession)
-
-    await manager.send_to_entity("dev.backend.w1", "do work")
-
-    assert "dev.backend.w2" in captured["prompt"]
-    assert "Peers you can message" in captured["prompt"]
+    captured_prompt = adapter.prompts[-1]
+    assert "dev.backend.w2" in captured_prompt
+    assert "Peers you can message" in captured_prompt

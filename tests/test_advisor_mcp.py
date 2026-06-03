@@ -234,13 +234,20 @@ class TestAdvisorTool:
         # wire it like __init__ does, or the adapter call below raises.
         pm.lifecycle = LifecycleManager(pm)
 
-        mock_session = MagicMock()
-        mock_session.start = AsyncMock()
-        mock_session.send_prompt = AsyncMock(return_value="pong")
-        mock_session.kill = AsyncMock()
-        mock_session.session_id = None
-        mock_session.last_usage = None
-        mock_session.messages = []
+        # Ticket 007: the headless ClaudeSession is gone; send_to_entity now
+        # drives a PTY ClaudeAdapter via _get_or_create_adapter. Inject a
+        # FakeAdapter the same way using_adapter does — this __new__-built
+        # manager has _adapters, so set the instance override directly.
+        from tests.fakes import FakeAdapter
+
+        fake = FakeAdapter("pong")
+
+        async def _get(entity):
+            pm._adapters[entity.name] = fake
+            return fake
+
+        pm._adapters = {}
+        pm._get_or_create_adapter = _get
 
         pm._record_usage = AsyncMock()
         pm._persist = AsyncMock()
@@ -251,7 +258,6 @@ class TestAdvisorTool:
         with (
             patch("hive.process.manager.generate_mcp_config", side_effect=fake_generate),
             patch("hive.process.manager.ADVISOR_ENABLED", True),
-            patch("hive.process.manager.ClaudeSession", return_value=mock_session),
             patch("hive.process.manager.can_message", return_value=(True, "")),
             patch.object(type(maestro), "mcp_config_path", new_callable=lambda: mcp_prop),
         ):

@@ -3,15 +3,14 @@
 These exercise ``LifecycleManager`` in isolation against a *stub* manager —
 no real ProcessManager, no Postgres, no Claude subprocess. The stub exposes
 only the surface the lifecycle code reaches through ``self._mgr``: the
-``_entities`` / ``_sessions`` / ``_adapters`` registries, the single
-``_state_lock``, the router, the optional stores/worktree manager, and the
-``_persist`` / ``_audit`` / ``_notify`` recorders.
+``_entities`` / ``_adapters`` registries, the single ``_state_lock``, the
+router, the optional stores/worktree manager, and the ``_persist`` /
+``_audit`` / ``_notify`` recorders.
 
-The big DB-backed suites (``test_process_manager``, ``test_preempt``,
-``test_advisor_mcp``) still cover the same flows end-to-end through the
-facade; these add fast, hermetic unit coverage of the moved code and prove
-the composition pattern (collaborator reaching shared state via
-``self._mgr``).
+The big DB-backed suites (``test_process_manager``, ``test_advisor_mcp``)
+still cover the same flows end-to-end through the facade; these add fast,
+hermetic unit coverage of the moved code and prove the composition pattern
+(collaborator reaching shared state via ``self._mgr``).
 
 A focused lock-discipline check at the bottom asserts there is no ``await``
 inside any ``async with self._mgr._state_lock`` block — the load-bearing
@@ -30,13 +29,13 @@ import pytest
 
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
 from hive.models.worker import Worker
 from hive.process.lifecycle_manager import (
     LifecycleManager,
     _adapter_config_from_entity,
     _render_auto_personality,
 )
+from tests.fakes import FakeAdapter
 
 # ---------------------------------------------------------------------------
 # Stub manager + fakes
@@ -58,22 +57,6 @@ class FakeRouter:
         self.unregistered.append(name)
 
 
-class FakeSession:
-    """Stand-in for ClaudeSession — async start/kill, alive flag, pid."""
-
-    def __init__(self, *, alive: bool = True, pid: int = 4242) -> None:
-        self.is_alive = alive
-        self.pid = pid
-        self.started = False
-        self.killed = False
-
-    async def start(self) -> None:
-        self.started = True
-
-    async def kill(self) -> None:
-        self.killed = True
-
-
 class StubManager:
     """Minimal stand-in for ProcessManager's lifecycle-facing surface.
 
@@ -86,7 +69,6 @@ class StubManager:
 
     def __init__(self, *, max_sessions: int = 3) -> None:
         self._entities: dict[str, object] = {}
-        self._sessions: dict[str, object] = {}
         self._adapters: dict[str, object] = {}
         self._state_lock = asyncio.Lock()
         self.max_sessions = max_sessions
@@ -106,7 +88,7 @@ class StubManager:
 
     @property
     def active_count(self) -> int:
-        return sum(1 for s in self._sessions.values() if s.is_alive)
+        return sum(1 for a in self._adapters.values() if a.is_alive())
 
     async def _persist(self, entity: object) -> None:
         self.persisted.append(entity)
@@ -128,14 +110,11 @@ class StubManager:
         return "summary text"
 
     async def kill_entity(self, name: str) -> None:
-        # Default behaviour for cross-method calls (kill_team, kill_idle,
-        # preempt): drop the entity + session like the real facade does.
+        # Default behaviour for cross-method calls (kill_team, kill_idle):
+        # drop the entity + adapter like the real facade does.
         self.killed.append(name)
         self._entities.pop(name, None)
-        self._sessions.pop(name, None)
-
-    async def _preempt_for_priority(self, priority: int) -> str | None:
-        return await self.lifecycle._preempt_for_priority(priority)
+        self._adapters.pop(name, None)
 
 
 @pytest.fixture
@@ -231,12 +210,12 @@ async def test_register_maestro_rejects_duplicate(
 
 
 async def test_register_entity_idle_no_spawn(lifecycle: LifecycleManager, mgr: StubManager) -> None:
-    """register_entity adds a pre-built entity without spawning a session."""
+    """register_entity adds a pre-built entity without spawning an adapter."""
     worker = Worker(name="dev.team.w1", lead_name="dev.team")
     await lifecycle.register_entity(worker)
     assert mgr._entities["dev.team.w1"] is worker
     assert "dev.team.w1" in mgr.router.registered
-    assert "dev.team.w1" not in mgr._sessions
+    assert "dev.team.w1" not in mgr._adapters
 
 
 async def test_register_entity_rejects_duplicate(
@@ -246,109 +225,6 @@ async def test_register_entity_rejects_duplicate(
     await lifecycle.register_entity(worker)
     with pytest.raises(ValueError, match="already exists"):
         await lifecycle.register_entity(worker)
-
-
-# ---------------------------------------------------------------------------
-# spawn_entity — capacity guard, atomic insert, error path
-# ---------------------------------------------------------------------------
-
-
-async def test_spawn_entity_tracks_entity_and_session(
-    lifecycle: LifecycleManager, mgr: StubManager, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A successful spawn registers the entity + session together and audits."""
-    fake = FakeSession()
-    monkeypatch.setattr("hive.process.manager.ClaudeSession", lambda **kw: fake)
-
-    maestro = Maestro(name="dev", model="sonnet")
-    session = await lifecycle.spawn_entity(maestro)
-
-    assert session is fake
-    assert fake.started
-    assert mgr._entities["dev"] is maestro
-    assert mgr._sessions["dev"] is fake
-    assert maestro.state == EntityState.RUNNING
-    actions = [a for (a, _t, _d) in mgr.audit_calls]
-    assert "entity.spawn" in actions
-
-
-async def test_spawn_entity_raises_at_cap_without_preemption(
-    lifecycle: LifecycleManager, mgr: StubManager
-) -> None:
-    """At max sessions with no preemption candidate, spawn raises RuntimeError."""
-    for i in range(mgr.max_sessions):
-        mgr._sessions[f"busy{i}"] = FakeSession(alive=True)
-
-    maestro = Maestro(name="dev", model="sonnet")
-    with pytest.raises(RuntimeError, match="Max concurrent sessions"):
-        await lifecycle.spawn_entity(maestro)
-
-
-async def test_spawn_entity_error_path_audits_and_reraises(
-    lifecycle: LifecycleManager, mgr: StubManager, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """If session.start() fails, the entity goes ERROR, is audited, and re-raises."""
-
-    class BoomSession(FakeSession):
-        async def start(self) -> None:
-            raise RuntimeError("spawn boom")
-
-    monkeypatch.setattr("hive.process.manager.ClaudeSession", lambda **kw: BoomSession())
-
-    maestro = Maestro(name="dev", model="sonnet")
-    with pytest.raises(RuntimeError, match="spawn boom"):
-        await lifecycle.spawn_entity(maestro)
-
-    assert maestro.state == EntityState.ERROR
-    actions = [a for (a, _t, _d) in mgr.audit_calls]
-    assert "entity.error" in actions
-    # The entity was never tracked, since the atomic insert is post-start.
-    assert "dev" not in mgr._sessions
-
-
-# ---------------------------------------------------------------------------
-# _preempt_for_priority
-# ---------------------------------------------------------------------------
-
-
-async def test_preempt_returns_none_under_capacity(
-    lifecycle: LifecycleManager, mgr: StubManager
-) -> None:
-    """Below cap, no preemption is attempted."""
-    assert await lifecycle._preempt_for_priority(0) is None
-
-
-async def test_preempt_kills_worst_running_entity(
-    lifecycle: LifecycleManager, mgr: StubManager
-) -> None:
-    """At cap, the lowest-priority (highest number) RUNNING entity is killed."""
-    victim = TeamLead(name="dev.victim", maestro_name="dev", model="sonnet")
-    victim.state = EntityState.RUNNING
-    victim.current_priority = 4
-    mgr._entities["dev.victim"] = victim
-    for i in range(mgr.max_sessions):
-        mgr._sessions[f"busy{i}"] = FakeSession(alive=True)
-
-    result = await lifecycle._preempt_for_priority(0)
-    assert result == "dev.victim"
-    assert "dev.victim" in mgr.killed
-    actions = [a for (a, _t, _d) in mgr.audit_calls]
-    assert "entity.kill" in actions
-
-
-async def test_preempt_skips_when_no_worse_candidate(
-    lifecycle: LifecycleManager, mgr: StubManager
-) -> None:
-    """A tied/better priority is never preempted."""
-    boss = TeamLead(name="dev.boss", maestro_name="dev", model="sonnet")
-    boss.state = EntityState.RUNNING
-    boss.current_priority = 0
-    mgr._entities["dev.boss"] = boss
-    for i in range(mgr.max_sessions):
-        mgr._sessions[f"busy{i}"] = FakeSession(alive=True)
-
-    assert await lifecycle._preempt_for_priority(0) is None
-    assert "dev.boss" not in mgr.killed
 
 
 # ---------------------------------------------------------------------------
@@ -406,47 +282,25 @@ async def test_spawn_worker_enforces_max(lifecycle: LifecycleManager, mgr: StubM
 # ---------------------------------------------------------------------------
 
 
-async def test_kill_entity_pops_session_and_unregisters(
+async def test_kill_entity_stops_adapter_and_unregisters(
     lifecycle: LifecycleManager, mgr: StubManager
 ) -> None:
-    """kill_entity kills + drops the session, removes the entity, audits."""
+    """kill_entity stops + drops the adapter, removes the entity, audits."""
     maestro = Maestro(name="dev", model="sonnet")
     maestro.state = EntityState.RUNNING
-    session = FakeSession()
+    adapter = FakeAdapter()
     mgr._entities["dev"] = maestro
-    mgr._sessions["dev"] = session
+    mgr._adapters["dev"] = adapter
 
     await lifecycle.kill_entity("dev")
 
-    assert session.killed
-    assert "dev" not in mgr._sessions
+    assert adapter.stopped
+    assert "dev" not in mgr._adapters
     assert "dev" not in mgr._entities
     assert maestro.session_id is None
     assert "dev" in mgr.router.unregistered
     actions = [a for (a, _t, _d) in mgr.audit_calls]
     assert "entity.kill" in actions
-
-
-async def test_kill_entity_stops_cached_adapter(
-    lifecycle: LifecycleManager, mgr: StubManager
-) -> None:
-    """A cached adapter is stopped and dropped on kill."""
-
-    class FakeAdapter:
-        def __init__(self) -> None:
-            self.stopped = False
-
-        async def stop(self) -> None:
-            self.stopped = True
-
-    maestro = Maestro(name="dev", model="sonnet")
-    mgr._entities["dev"] = maestro
-    adapter = FakeAdapter()
-    mgr._adapters["dev"] = adapter
-
-    await lifecycle.kill_entity("dev")
-    assert adapter.stopped
-    assert "dev" not in mgr._adapters
 
 
 async def test_kill_all_kills_every_entity(lifecycle: LifecycleManager, mgr: StubManager) -> None:
@@ -457,20 +311,20 @@ async def test_kill_all_kills_every_entity(lifecycle: LifecycleManager, mgr: Stu
     assert set(mgr.killed) == {"a", "b"}
 
 
-async def test_stop_all_clears_sessions_keeps_entities(
+async def test_stop_all_clears_adapters_keeps_entities(
     lifecycle: LifecycleManager, mgr: StubManager
 ) -> None:
-    """stop_all kills sessions and clears the registry but keeps entities."""
+    """stop_all stops adapters and clears the registry but keeps entities."""
     maestro = Maestro(name="dev", model="sonnet")
-    session = FakeSession()
+    adapter = FakeAdapter()
     mgr._entities["dev"] = maestro
-    mgr._sessions["dev"] = session
+    mgr._adapters["dev"] = adapter
 
     await lifecycle.stop_all()
 
-    assert session.killed
-    assert mgr._sessions == {}
-    # Entities survive — restore() rebuilds sessions on next boot.
+    assert adapter.stopped
+    assert mgr._adapters == {}
+    # Entities survive — restore() rebuilds adapters on next boot.
     assert "dev" in mgr._entities
 
 
@@ -589,8 +443,9 @@ def test_no_await_inside_state_lock_blocks() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.AsyncWith) and is_state_lock_with(node)
     ]
-    # Sanity: the slice owns multiple lock sections.
-    assert len(lock_blocks) >= 8, f"expected the lock-heavy slice's blocks, got {len(lock_blocks)}"
+    # Sanity: the slice owns multiple lock sections. (Ticket 007 removed
+    # spawn_entity's entity+session insert block, dropping the count from 8.)
+    assert len(lock_blocks) >= 7, f"expected the lock-heavy slice's blocks, got {len(lock_blocks)}"
 
     for block in lock_blocks:
         for inner in ast.walk(block):
@@ -627,10 +482,8 @@ def test_facade_delegations_are_bound_methods() -> None:
 
     pm = ProcessManager(router=SimpleNamespace(register=lambda n: None))
     # Private + public delegated names resolve on the instance.
-    assert callable(pm.spawn_entity)
     assert callable(pm.kill_entity)
     assert callable(pm._get_or_create_adapter)
-    assert callable(pm._preempt_for_priority)
     # The collaborator is wired and back-references the facade.
     assert isinstance(pm.lifecycle, LifecycleManager)
     assert pm.lifecycle._mgr is pm

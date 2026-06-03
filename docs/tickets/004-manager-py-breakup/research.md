@@ -94,7 +94,7 @@ Lessons to apply for `manager.py`:
 
 | Flag | Severity | Notes |
 |---|---|---|
-| Non-reentrant `asyncio.Lock` | Medium | `_state_lock` guards `_entities/_sessions` mutations (~lines 221–227). **Do not await across this lock in extracted modules.** Critical sections only. |
+| Non-reentrant `asyncio.Lock` | Medium | `_state_lock` guards `_entities/_sessions` mutations (~lines 221–227). **Do not await across this lock in extracted modules.** Critical sections only. _Note (Ticket 007):_ `_sessions` is the headless-era dict — always empty under PTY (only the now-removed `spawn_entity` wrote it). 007 deletes `spawn_entity`/`_sessions` and re-points `active_count`/`get_status`/`health_check` onto `_adapters`, so the lock then guards `_entities` only. |
 | Detached task tracking | Medium | Kickoff tasks (`_kickoff_tasks`, ~line 1074) and wake tasks (`_wake_tasks`, ~line 1276) are fire-and-forget but tracked to prevent GC. Splits must preserve the tracking. |
 | Mutable shared state in `_handle_actions` | Low-Medium | Lines 822–829 reset `_last_*` lists on every dispatch. Tests rely on this for assertions. Extracts must expose equivalent introspection. |
 | Parse-failure debounce dict | Low | Lines 244–248 — `_parse_failure_budget` deque per entity. Must remain central, or pass as context to extracts. |
