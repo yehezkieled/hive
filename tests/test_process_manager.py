@@ -19,6 +19,7 @@ from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 from hive.process.worktree import WorktreeManager
+from tests.fakes import FakeAdapter, using_adapter
 
 
 class _CapturingChannel:
@@ -141,117 +142,6 @@ async def test_health_check_writes_error_audit_event(
     assert events[0]["action"] == "entity.error"
     assert events[0]["target"] == "dev"
     assert events[0]["details"] == {"phase": "health"}
-
-
-class TestResumeSession:
-    """Test that send_to_entity passes --resume on subsequent calls."""
-
-    async def test_first_send_has_no_resume_flag(self, manager: ProcessManager) -> None:
-        """First message to an entity should NOT include --resume."""
-        entity = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = entity
-        manager.router.register("dev")
-
-        captured_args: list[str] = []
-
-        async def fake_send(prompt: str) -> str:
-            return "hello"
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_session_cls:
-            instance = mock_session_cls.return_value
-            instance.start = AsyncMock()
-            instance.send_prompt = AsyncMock(return_value="hello")
-            instance.kill = AsyncMock()
-            instance.session_id = "sess-new"
-            instance.last_usage = None
-
-            def capture_args(args, **kwargs):
-                captured_args.extend(args)
-                return instance
-
-            mock_session_cls.side_effect = capture_args
-
-            await manager.send_to_entity("dev", "hello")
-
-        assert "--resume" not in captured_args
-
-    async def test_second_send_includes_resume_flag(self, manager: ProcessManager) -> None:
-        """After first send stores session_id, second send should include --resume."""
-        entity = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = entity
-        manager.router.register("dev")
-
-        all_args: list[list[str]] = []
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_session_cls:
-            instance = mock_session_cls.return_value
-            instance.start = AsyncMock()
-            instance.send_prompt = AsyncMock(return_value="response")
-            instance.kill = AsyncMock()
-            instance.session_id = "sess-abc"
-            instance.last_usage = None
-
-            def capture_args(args, **kwargs):
-                all_args.append(list(args))
-                return instance
-
-            mock_session_cls.side_effect = capture_args
-
-            await manager.send_to_entity("dev", "first message")
-            await manager.send_to_entity("dev", "second message")
-
-        # First call: no --resume
-        assert "--resume" not in all_args[0]
-        # Second call: --resume sess-abc
-        assert "--resume" in all_args[1]
-        resume_idx = all_args[1].index("--resume")
-        assert all_args[1][resume_idx + 1] == "sess-abc"
-
-    async def test_kill_entity_clears_session_id(self, manager: ProcessManager) -> None:
-        """kill_entity should clear the stored session_id."""
-        entity = Maestro(name="dev", model="sonnet")
-        entity.session_id = "sess-old"
-        manager._entities["dev"] = entity
-        manager.router.register("dev")
-
-        await manager.kill_entity("dev")
-
-        # Entity is removed from manager, but we can verify the field was cleared
-        # by checking a fresh entity registered after kill would not carry it
-        assert "dev" not in manager.entities
-
-    async def test_session_id_persisted_after_send(
-        self,
-        router: MessageRouter,
-        entity_store: EntityStore,
-    ) -> None:
-        """send_to_entity should persist the session_id to the entity store."""
-        mgr = ProcessManager(router=router, entity_store=entity_store, max_sessions=2)
-        entity = Maestro(name="dev", model="sonnet")
-        mgr._entities["dev"] = entity
-        mgr.router.register("dev")
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_session_cls:
-            instance = mock_session_cls.return_value
-            instance.start = AsyncMock()
-            instance.send_prompt = AsyncMock(return_value="response")
-            instance.kill = AsyncMock()
-            instance.session_id = "sess-persisted"
-            instance.last_usage = None
-
-            mock_session_cls.side_effect = lambda args, **kw: instance
-
-            await mgr.send_to_entity("dev", "hello")
-
-        # Entity should have the session_id set
-        assert entity.session_id == "sess-persisted"
-
-        # Should also be persisted in the DB
-        loaded = await entity_store.load("dev")
-        assert loaded is not None
-        assert loaded.session_id == "sess-persisted"
-
-        await mgr.kill_all()
 
 
 class TestTeamManagement:
@@ -688,20 +578,21 @@ class TestStopAll:
         router: MessageRouter,
         entity_store: EntityStore,
     ) -> None:
-        """stop_all should call session.kill() on every active session and clear the dict."""
+        """stop_all should call stop() on every active adapter and clear the dict."""
         mgr = ProcessManager(router=router, entity_store=entity_store)
 
         entity = Maestro(name="dev", model="sonnet")
         mgr._entities["dev"] = entity
         mgr.router.register("dev")
 
-        fake_session = AsyncMock()
-        mgr._sessions["dev"] = fake_session
+        fake_adapter = FakeAdapter()
+        await fake_adapter.start()
+        mgr._adapters["dev"] = fake_adapter
 
         await mgr.stop_all()
 
-        fake_session.kill.assert_awaited_once()
-        assert mgr._sessions == {}
+        assert fake_adapter.stopped
+        assert mgr._adapters == {}
 
     async def test_stop_all_then_restore_round_trip(
         self,
@@ -756,56 +647,6 @@ class TestMaxWorkersEnforcement:
         assert w2.name == "dev.backend.w2"
 
 
-class TestPreemption:
-    """Test priority-based preemption logic."""
-
-    async def test_preempt_returns_none_when_under_capacity(self, manager: ProcessManager) -> None:
-        """No preemption needed when under max_sessions."""
-        result = await manager._preempt_for_priority(0)
-        assert result is None
-
-    async def test_preempt_kills_lowest_priority_entity(self, router: MessageRouter) -> None:
-        """When at capacity, preemption should kill the lowest-priority entity."""
-        mgr = ProcessManager(router=router, max_sessions=1)
-
-        # Manually register a "running" entity with low priority
-        entity = Maestro(name="low", model="sonnet")
-        entity.current_priority = 4
-        entity.transition_to(EntityState.STARTING)
-        entity.transition_to(EntityState.RUNNING)
-        mgr._entities["low"] = entity
-        mgr.router.register("low")
-        # Fake a session so active_count == 1
-        mock_session = AsyncMock()
-        mock_session.is_alive = True
-        mock_session.kill = AsyncMock()
-        mgr._sessions["low"] = mock_session
-
-        result = await mgr._preempt_for_priority(0)
-        assert result == "low"
-        assert "low" not in mgr.entities
-
-    async def test_preempt_returns_none_when_all_higher_priority(
-        self, router: MessageRouter
-    ) -> None:
-        """Cannot preempt when all running entities are same or higher priority."""
-        mgr = ProcessManager(router=router, max_sessions=1)
-
-        entity = Maestro(name="high", model="sonnet")
-        entity.current_priority = 0
-        entity.transition_to(EntityState.STARTING)
-        entity.transition_to(EntityState.RUNNING)
-        mgr._entities["high"] = entity
-        mgr.router.register("high")
-        mock_session = AsyncMock()
-        mock_session.is_alive = True
-        mgr._sessions["high"] = mock_session
-
-        result = await mgr._preempt_for_priority(0)
-        assert result is None
-        await mgr.kill_all()
-
-
 class TestRegisterMaestro:
     """Test register_maestro method for /new maestro."""
 
@@ -834,16 +675,6 @@ class TestRegisterMaestro:
 class TestPendingMessageInjection:
     """Test that pending inter-agent messages are prepended to prompts."""
 
-    def _mock_session(self, response: str = "response") -> AsyncMock:
-        """Create a mock ClaudeSession that returns the given response."""
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value=response)
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = None
-        return instance
-
     async def test_pending_messages_prepended(self, manager: ProcessManager) -> None:
         """Pending messages should be prepended to the prompt."""
         maestro = Maestro(name="dev", model="sonnet")
@@ -853,23 +684,13 @@ class TestPendingMessageInjection:
         # Queue a message for the maestro
         await manager.router.route("dev.backend", "dev", "Migration done")
 
-        captured_prompts: list[str] = []
-        instance = self._mock_session()
-
-        async def capture_prompt(prompt: str) -> str:
-            captured_prompts.append(prompt)
-            return "thanks"
-
-        instance.send_prompt = AsyncMock(side_effect=capture_prompt)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter("thanks")) as adapter:
             await manager.send_to_entity("dev", "How's the project?")
 
-        assert len(captured_prompts) == 1
-        assert "[Message from dev.backend]" in captured_prompts[0]
-        assert "Migration done" in captured_prompts[0]
-        assert "How's the project?" in captured_prompts[0]
+        assert len(adapter.prompts) == 1
+        assert "[Message from dev.backend]" in adapter.prompts[0]
+        assert "Migration done" in adapter.prompts[0]
+        assert "How's the project?" in adapter.prompts[0]
 
     async def test_no_pending_prompt_unchanged(self, manager: ProcessManager) -> None:
         """Without pending messages, the user's prompt is preserved verbatim
@@ -879,21 +700,11 @@ class TestPendingMessageInjection:
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
-        captured_prompts: list[str] = []
-        instance = self._mock_session()
-
-        async def capture_prompt(prompt: str) -> str:
-            captured_prompts.append(prompt)
-            return "ok"
-
-        instance.send_prompt = AsyncMock(side_effect=capture_prompt)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter("ok")) as adapter:
             await manager.send_to_entity("dev", "Hello")
 
-        assert captured_prompts[0].endswith("Hello")
-        assert "[Message from" not in captured_prompts[0]
+        assert adapter.prompts[0].endswith("Hello")
+        assert "[Message from" not in adapter.prompts[0]
 
     async def test_multiple_pending_all_included(self, manager: ProcessManager) -> None:
         """Multiple pending messages should all appear in the prompt."""
@@ -904,36 +715,17 @@ class TestPendingMessageInjection:
         await manager.router.route("dev.backend", "dev", "DB migrated")
         await manager.router.route("dev.frontend", "dev", "UI updated")
 
-        captured_prompts: list[str] = []
-        instance = self._mock_session()
-
-        async def capture_prompt(prompt: str) -> str:
-            captured_prompts.append(prompt)
-            return "got it"
-
-        instance.send_prompt = AsyncMock(side_effect=capture_prompt)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter("got it")) as adapter:
             await manager.send_to_entity("dev", "Status?")
 
-        assert "[Message from dev.backend]" in captured_prompts[0]
-        assert "DB migrated" in captured_prompts[0]
-        assert "[Message from dev.frontend]" in captured_prompts[0]
-        assert "UI updated" in captured_prompts[0]
+        assert "[Message from dev.backend]" in adapter.prompts[0]
+        assert "DB migrated" in adapter.prompts[0]
+        assert "[Message from dev.frontend]" in adapter.prompts[0]
+        assert "UI updated" in adapter.prompts[0]
 
 
 class TestActionRouting:
     """Test that <hive_actions> in entity responses are parsed and routed."""
-
-    def _mock_session(self, response: str) -> AsyncMock:
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value=response)
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = None
-        return instance
 
     async def test_message_routed_to_recipient(self, manager: ProcessManager) -> None:
         """A valid message action should be routed to the recipient's queue."""
@@ -950,10 +742,7 @@ class TestActionRouting:
             '[{"type": "message", "to": "dev.backend", "text": "Start migration"}]\n'
             "</hive_actions>"
         )
-        instance = self._mock_session(response_text)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response_text)):
             result = await manager.send_to_entity("dev", "Review the project")
 
         # Clean text returned (no hive_actions block)
@@ -987,10 +776,7 @@ class TestActionRouting:
             '[{"type": "message", "to": "dev.frontend", "text": "Hey"}]\n'
             "</hive_actions>"
         )
-        instance = self._mock_session(response_text)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response_text)):
             await manager.send_to_entity("dev.backend.w1", "Do work")
 
         assert not manager.router.has_pending("dev.frontend")
@@ -1007,10 +793,7 @@ class TestActionRouting:
             '[{"type": "message", "to": "dev.nonexistent", "text": "hello"}]\n'
             "</hive_actions>"
         )
-        instance = self._mock_session(response_text)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response_text)):
             result = await manager.send_to_entity("dev", "Go")
 
         assert "Done." in result
@@ -1031,10 +814,7 @@ class TestActionRouting:
             '[{"type": "message", "to": "dev.backend", "text": "go"}]\n'
             "</hive_actions>"
         )
-        instance = self._mock_session(response_text)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response_text)):
             result = await manager.send_to_entity("dev", "Analyze")
 
         assert result == "Here's my analysis."
@@ -1055,10 +835,7 @@ class TestActionRouting:
             '[{"type": "message", "to": "dev.backend", "text": "go"}]\n'
             "</hive_actions>"
         )
-        instance = self._mock_session(response_text)
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response_text)):
             await manager.send_to_entity("dev", "Go")
 
         assert manager._last_routed_actions == ["dev.backend"]
@@ -1069,10 +846,7 @@ class TestActionRouting:
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
-        instance = self._mock_session("Just a plain response.")
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter("Just a plain response.")):
             result = await manager.send_to_entity("dev", "Hello")
 
         assert result == "Just a plain response."
@@ -1098,15 +872,7 @@ class TestActionRouting:
             '[{"type": "message", "to": "dev.backend", "text": "migrate"}]\n'
             "</hive_actions>"
         )
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value=response_text)
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = None
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(mgr, FakeAdapter(response_text)):
             await mgr.send_to_entity("dev", "Go")
 
         events = await audit_log.recent(action_prefix="peer_message_")
@@ -1124,19 +890,8 @@ class TestActionRouting:
 class TestAutonomousDispatch:
     """Maestro/lead emitting spawn_team/spawn_worker/kill_entity actions."""
 
-    def _mock_session(self, response: str) -> AsyncMock:
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value=response)
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = None
-        return instance
-
     async def _send(self, manager: ProcessManager, name: str, response: str) -> str:
-        instance = self._mock_session(response)
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response)):
             return await manager.send_to_entity(name, "go")
 
     async def test_maestro_spawn_team_creates_lead(self, manager: ProcessManager) -> None:
@@ -1343,9 +1098,7 @@ class TestAutonomousDispatch:
         response = (
             '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
         )
-        instance = self._mock_session(response)
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(mgr, FakeAdapter(response)):
             await mgr.send_to_entity("dev", "go")
 
         events = await audit_log.recent(action_prefix="entity.spawn_team")
@@ -1376,9 +1129,7 @@ class TestAutonomousDispatch:
             f'[{{"type": "kill_entity", "target": "{DEFAULT_MAESTRO}"}}]\n'
             "</hive_actions>"
         )
-        instance = self._mock_session(response)
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(mgr, FakeAdapter(response)):
             await mgr.send_to_entity("ops", "go")
 
         events = await audit_log.recent(action_prefix="entity.kill_denied")
@@ -1403,9 +1154,7 @@ class TestAutonomousDispatch:
         response = (
             '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
         )
-        instance = self._mock_session(response)
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response)):
             await manager.send_to_entity("dev", "go")
             # Capture before draining — kickoff task itself dispatches and
             # resets _last_kickoffs when it runs.
@@ -1425,9 +1174,7 @@ class TestAutonomousDispatch:
         response = (
             '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
         )
-        instance = self._mock_session(response)
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = lambda args, **kw: instance
+        with using_adapter(manager, FakeAdapter(response)):
             await manager.send_to_entity("dev", "go")
             recorded = list(manager._last_kickoffs)
             if manager._kickoff_tasks:
@@ -1477,25 +1224,8 @@ class TestCompactEntity:
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
-        call_count = 0
-
-        def make_session(args, **kw):
-            nonlocal call_count
-            call_count += 1
-            instance = AsyncMock()
-            instance.start = AsyncMock()
-            instance.kill = AsyncMock()
-            instance.last_usage = None
-            if call_count == 1:
-                instance.send_prompt = AsyncMock(return_value="- Key point A\n- Point B")
-                instance.session_id = "sess-summary"
-            else:
-                instance.send_prompt = AsyncMock(return_value="Resumed OK")
-                instance.session_id = "sess-new"
-            return instance
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.side_effect = make_session
+        # Sequence: turn 1 = summarise, turn 2 = reseed the fresh session.
+        with using_adapter(manager, FakeAdapter(["- Key point A\n- Point B", "Resumed OK"])):
             summary = await manager.compact_entity("dev")
 
         assert "Key point A" in summary
@@ -1511,36 +1241,22 @@ class TestAutoCompact:
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
-        call_count = 0
-
-        def make_session(args, **kw):
-            nonlocal call_count
-            call_count += 1
-            instance = AsyncMock()
-            instance.start = AsyncMock()
-            instance.kill = AsyncMock()
-            if call_count == 1:
-                # Main send — high token count triggers compact
-                instance.send_prompt = AsyncMock(return_value="response")
-                instance.session_id = "sess-1"
-                instance.last_usage = {"input_tokens": 60000, "output_tokens": 100}
-            else:
-                # Compact summarize + seed calls
-                instance.send_prompt = AsyncMock(return_value="summary")
-                instance.session_id = f"sess-{call_count}"
-                instance.last_usage = None
-            return instance
+        # input_tokens=60000 > threshold=50000 on the main send trips the
+        # compact. The entity is guarded by ``_compacting`` while it runs, so
+        # the compact's own two turns (summarise + reseed) don't re-trigger.
+        adapter = FakeAdapter(
+            ["response", "summary"], usage={"input_tokens": 60000, "output_tokens": 100}
+        )
 
         with (
-            patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls,
+            using_adapter(manager, adapter),
             patch("hive.process.manager.AUTO_COMPACT_ENABLED", True),
             patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
         ):
-            mock_cls.side_effect = make_session
             await manager.send_to_entity("dev", "hello")
 
-        # Compact creates 2 additional sessions (summarize + seed)
-        assert call_count == 3
+        # Main send + 2 compact turns (summarise + seed) = 3 turns total.
+        assert len(adapter.prompts) == 3
 
     async def test_auto_compact_skips_when_disabled(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
@@ -1548,23 +1264,18 @@ class TestAutoCompact:
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value="response")
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = {"input_tokens": 60000, "output_tokens": 100}
+        # input_tokens=60000 is above threshold, but compaction is disabled.
+        adapter = FakeAdapter("response", usage={"input_tokens": 60000, "output_tokens": 100})
 
         with (
-            patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls,
+            using_adapter(manager, adapter),
             patch("hive.process.manager.AUTO_COMPACT_ENABLED", False),
             patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
         ):
-            mock_cls.return_value = instance
             await manager.send_to_entity("dev", "hello")
 
-        # Only 1 call — no compact triggered
-        mock_cls.assert_called_once()
+        # Only 1 turn — no compact triggered.
+        assert len(adapter.prompts) == 1
 
     async def test_auto_compact_skips_below_threshold(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
@@ -1572,22 +1283,18 @@ class TestAutoCompact:
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value="response")
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = {"input_tokens": 30000, "output_tokens": 100}
+        # input_tokens=30000 is below threshold=50000 — no compact.
+        adapter = FakeAdapter("response", usage={"input_tokens": 30000, "output_tokens": 100})
 
         with (
-            patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls,
+            using_adapter(manager, adapter),
             patch("hive.process.manager.AUTO_COMPACT_ENABLED", True),
             patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
         ):
-            mock_cls.return_value = instance
             await manager.send_to_entity("dev", "hello")
 
-        mock_cls.assert_called_once()
+        # Only 1 turn — below threshold, no compact triggered.
+        assert len(adapter.prompts) == 1
 
 
 class TestSendToEntityActivityTracking:
@@ -1599,15 +1306,7 @@ class TestSendToEntityActivityTracking:
         manager.router.register("dev")
         assert maestro.last_activity_at is None
 
-        instance = AsyncMock()
-        instance.start = AsyncMock()
-        instance.send_prompt = AsyncMock(return_value="response")
-        instance.kill = AsyncMock()
-        instance.session_id = "sess-1"
-        instance.last_usage = None
-
-        with patch("hive.process.manager.ClaudeSession", autospec=True) as mock_cls:
-            mock_cls.return_value = instance
+        with using_adapter(manager, FakeAdapter("response")):
             await manager.send_to_entity("dev", "hello")
 
         assert maestro.last_activity_at is not None

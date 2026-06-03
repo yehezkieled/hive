@@ -124,7 +124,6 @@ def test_collaborators_dont_import_manager_at_module_load() -> None:
         # Config flags / helpers tests patch as hive.process.manager.X so
         # the moved code (which resolves them through this module) sees the
         # patch. Removing any re-export silently breaks those patches.
-        "ClaudeSession",
         "ADVISOR_ENABLED",
         "AUTO_COMPACT_ENABLED",
         "AUTO_COMPACT_THRESHOLD",
@@ -133,7 +132,6 @@ def test_collaborators_dont_import_manager_at_module_load() -> None:
         "AUTO_RETRIEVE_INCLUDE_ATTACHMENTS",
         "AUTO_RETRIEVE_MAX_DISTANCE",
         "AUTO_RETRIEVE_TOP_K",
-        "HIVE_USE_PTY",
         "generate_mcp_config",
         "can_message",
         "ClaudeAdapter",

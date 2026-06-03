@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.router import MessageRouter
 from hive.knowledge.blueprints import BlueprintStore
 from hive.models.maestro import Maestro
 from hive.process.manager import ProcessManager
+from tests.fakes import FakeAdapter, using_adapter
 
 
 async def test_auto_retrieve_prepends_blueprints_to_prompt(
@@ -28,25 +27,12 @@ async def test_auto_retrieve_prepends_blueprints_to_prompt(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured = {}
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "add rate limiting")
 
-    async def fake_send(self, prompt):
-        captured["prompt"] = prompt
-        return "ok"
-
-    monkeypatch.setattr("hive.process.claude_session.ClaudeSession.send_prompt", fake_send)
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.start",
-        AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.kill",
-        AsyncMock(return_value=None),
-    )
-
-    await mgr.send_to_entity("dev", "add rate limiting")
-    assert "OAuth redirect pattern" in captured["prompt"]
-    assert "add rate limiting" in captured["prompt"]
+    prompt = adapter.prompts[0]
+    assert "OAuth redirect pattern" in prompt
+    assert "add rate limiting" in prompt
 
 
 async def test_auto_retrieve_disabled_by_config(
@@ -64,24 +50,10 @@ async def test_auto_retrieve_disabled_by_config(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured = {}
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "add rate limiting")
 
-    async def fake_send(self, prompt):
-        captured["prompt"] = prompt
-        return "ok"
-
-    monkeypatch.setattr("hive.process.claude_session.ClaudeSession.send_prompt", fake_send)
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.start",
-        AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.kill",
-        AsyncMock(return_value=None),
-    )
-
-    await mgr.send_to_entity("dev", "add rate limiting")
-    assert "OAuth redirect" not in captured["prompt"]
+    assert "OAuth redirect" not in adapter.prompts[0]
 
 
 async def test_auto_retrieve_max_distance_filters_unrelated_blueprint(
@@ -111,49 +83,18 @@ async def test_auto_retrieve_max_distance_filters_unrelated_blueprint(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured = {}
-
-    async def fake_send(self, prompt):
-        captured["prompt"] = prompt
-        return "ok"
-
-    monkeypatch.setattr("hive.process.claude_session.ClaudeSession.send_prompt", fake_send)
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.start",
-        AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.kill",
-        AsyncMock(return_value=None),
-    )
-
     # send_to_entity → embed call #1 → query vec[1]=1; orthogonal to vec[0].
-    await mgr.send_to_entity("dev", "completely different topic")
-    assert "OAuth redirect" not in captured["prompt"]
-    assert "completely different topic" in captured["prompt"]
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "completely different topic")
+
+    prompt = adapter.prompts[0]
+    assert "OAuth redirect" not in prompt
+    assert "completely different topic" in prompt
 
 
 # -----------------------------------------------------------------------------
 # Sprint 18 — attachment block alongside blueprints
 # -----------------------------------------------------------------------------
-
-
-def _patch_session(monkeypatch, captured: dict) -> None:
-    """Stub ClaudeSession.start/send_prompt/kill — captures the prompt."""
-
-    async def fake_send(self, prompt):
-        captured["prompt"] = prompt
-        return "ok"
-
-    monkeypatch.setattr("hive.process.claude_session.ClaudeSession.send_prompt", fake_send)
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.start",
-        AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        "hive.process.claude_session.ClaudeSession.kill",
-        AsyncMock(return_value=None),
-    )
 
 
 async def _seed_attachment(
@@ -206,11 +147,10 @@ async def test_auto_retrieve_includes_attachment_block(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured: dict = {}
-    _patch_session(monkeypatch, captured)
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "add rate limiting")
 
-    await mgr.send_to_entity("dev", "add rate limiting")
-    prompt = captured["prompt"]
+    prompt = adapter.prompts[0]
     assert "Relevant past blueprints" in prompt
     assert "OAuth redirect pattern" in prompt
     assert "Relevant uploaded files" in prompt
@@ -246,12 +186,12 @@ async def test_auto_retrieve_attachments_disabled_by_config(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured: dict = {}
-    _patch_session(monkeypatch, captured)
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "add rate limiting")
 
-    await mgr.send_to_entity("dev", "add rate limiting")
-    assert "Relevant uploaded files" not in captured["prompt"]
-    assert "rate-limit playbook" not in captured["prompt"]
+    prompt = adapter.prompts[0]
+    assert "Relevant uploaded files" not in prompt
+    assert "rate-limit playbook" not in prompt
 
 
 async def test_auto_retrieve_attachment_search_failure_isolated(
@@ -282,12 +222,12 @@ async def test_auto_retrieve_attachment_search_failure_isolated(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured: dict = {}
-    _patch_session(monkeypatch, captured)
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "add rate limiting")
 
-    await mgr.send_to_entity("dev", "add rate limiting")
-    assert "OAuth redirect pattern" in captured["prompt"]
-    assert "Relevant uploaded files" not in captured["prompt"]
+    prompt = adapter.prompts[0]
+    assert "OAuth redirect pattern" in prompt
+    assert "Relevant uploaded files" not in prompt
 
 
 # -----------------------------------------------------------------------------
@@ -311,11 +251,10 @@ async def test_auto_retrieve_includes_search_hint_on_first_turn(
     maestro = Maestro(name="dev", model="sonnet", system_prompt="", allowed_tools=[])
     await mgr.register_entity(maestro)
 
-    captured: dict = {}
-    _patch_session(monkeypatch, captured)
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "add rate limiting")
 
-    await mgr.send_to_entity("dev", "add rate limiting")
-    assert "search_knowledge" in captured["prompt"]
+    assert "search_knowledge" in adapter.prompts[0]
 
 
 async def test_auto_retrieve_skips_after_first_turn(
@@ -336,12 +275,12 @@ async def test_auto_retrieve_skips_after_first_turn(
     maestro.session_id = "abc-resume-id"
     await mgr.register_entity(maestro)
 
-    captured: dict = {}
-    _patch_session(monkeypatch, captured)
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "follow-up question")
 
-    await mgr.send_to_entity("dev", "follow-up question")
-    assert "OAuth redirect" not in captured["prompt"]
-    assert "Relevant past blueprints" not in captured["prompt"]
+    prompt = adapter.prompts[0]
+    assert "OAuth redirect" not in prompt
+    assert "Relevant past blueprints" not in prompt
 
 
 async def test_auto_retrieve_first_turn_only_disabled_runs_every_turn(
@@ -362,11 +301,10 @@ async def test_auto_retrieve_first_turn_only_disabled_runs_every_turn(
     maestro.session_id = "abc-resume-id"  # not first turn
     await mgr.register_entity(maestro)
 
-    captured: dict = {}
-    _patch_session(monkeypatch, captured)
+    with using_adapter(mgr, FakeAdapter("ok")) as adapter:
+        await mgr.send_to_entity("dev", "another question")
 
-    await mgr.send_to_entity("dev", "another question")
-    assert "OAuth redirect pattern" in captured["prompt"]
+    assert "OAuth redirect pattern" in adapter.prompts[0]
 
 
 def test_auto_personality_includes_knowledge_search_section() -> None:

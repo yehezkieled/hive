@@ -44,11 +44,6 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
-[tool.ruff.lint.per-file-ignores]
-# conftest.py pins HIVE_USE_PTY in os.environ before importing hive (see the
-# comment there) — that one statement legitimately precedes the module imports.
-"tests/conftest.py" = ["E402"]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

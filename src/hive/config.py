@@ -180,10 +180,6 @@ AUTO_RETRIEVE_INCLUDE_ATTACHMENTS = (
     os.environ.get("HIVE_AUTO_RETRIEVE_INCLUDE_ATTACHMENTS", "true").lower() == "true"
 )
 
-# PTY harness — set to "true" after 2026-06-15 billing cutover to route all
-# send_turn calls through persistent PTY sessions instead of claude -p.
-HIVE_USE_PTY = os.environ.get("HIVE_USE_PTY", "false").lower() == "true"
-
 # QuotaMonitor. Polls Anthropic's plan-quota OAuth endpoint every
 # HIVE_QUOTA_POLL_SECONDS and alerts at 80/90/100 thresholds on both
 # the 5-hour and 7-day rolling windows. See
@@ -211,7 +207,6 @@ ADVISOR_CONTEXT_MESSAGES = int(os.environ.get("HIVE_ADVISOR_CONTEXT_MESSAGES", "
 # maestro can do per eval window — runaway-loop guard.
 PRIORITY_EVAL_INTERVAL_MINUTES = int(os.environ.get("HIVE_PRIORITY_EVAL_INTERVAL_MINUTES", "120"))
 AUTONOMOUS_SPAWN_LIMIT = int(os.environ.get("HIVE_AUTONOMOUS_SPAWN_LIMIT", "3"))
-PRIORITY_PREEMPT_ENABLED = os.environ.get("HIVE_PRIORITY_PREEMPT_ENABLED", "true").lower() == "true"
 
 # Vault / payment lead (Sprint 25). The default vault is opt-in until a
 # real provider ships — flip HIVE_VAULT_ENABLED=true to register the

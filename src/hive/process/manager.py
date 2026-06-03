@@ -1,4 +1,4 @@
-"""Process manager — spawns, tracks, and kills Claude Code agent subprocesses."""
+"""Process manager — registers, tracks, and kills Hive entities and their PTY adapters."""
 
 from __future__ import annotations
 
@@ -39,7 +39,6 @@ from hive.config import (
     AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,  # noqa: F401  re-exported; read via this module
     AUTO_RETRIEVE_MAX_DISTANCE,  # noqa: F401  re-exported; read via this module
     AUTO_RETRIEVE_TOP_K,  # noqa: F401  re-exported; read via this module
-    HIVE_USE_PTY,  # noqa: F401  re-exported; LifecycleManager reads it via this module
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import (
@@ -54,7 +53,6 @@ from hive.models.team_lead import TeamLead
 from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.approval_handler import ApprovalHandler
-from hive.process.claude_session import ClaudeSession
 from hive.process.lifecycle_manager import (
     LifecycleManager,
     _adapter_config_from_entity,  # noqa: F401  re-exported for `from ...manager import`
@@ -81,7 +79,7 @@ logger = logging.getLogger(__name__)
 
 
 class ProcessManager:
-    """Manages all Claude Code subprocesses for Hive entities."""
+    """Manages Hive entities and their persistent PTY adapters."""
 
     def __init__(
         self,
@@ -121,14 +119,12 @@ class ProcessManager:
         self.notification_dispatcher = notification_dispatcher
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
-        self._sessions: dict[str, ClaudeSession] = {}
         self._adapters: dict[str, ClaudeAdapter] = {}
-        # Single asyncio.Lock guards mutations to _entities / _sessions when
-        # those mutations need to be consistent (e.g. entity + session
-        # registered together on spawn). Single-key reads do not acquire
-        # this lock — CPython dict get/set on a single key is atomic under
-        # the GIL. asyncio.Lock is NOT re-entrant; never hold it across an
-        # await that calls back into ProcessManager (deadlock).
+        # Single asyncio.Lock guards mutations to _entities / _adapters when
+        # those mutations need to be consistent. Single-key reads do not
+        # acquire this lock — CPython dict get/set on a single key is atomic
+        # under the GIL. asyncio.Lock is NOT re-entrant; never hold it across
+        # an await that calls back into ProcessManager (deadlock).
         self._state_lock: asyncio.Lock = asyncio.Lock()
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
@@ -296,10 +292,7 @@ class ProcessManager:
 
     @property
     def active_count(self) -> int:
-        return sum(1 for s in self._sessions.values() if s.is_alive)
-
-    async def _preempt_for_priority(self, priority: int) -> str | None:
-        return await self.lifecycle._preempt_for_priority(priority)
+        return sum(1 for a in self._adapters.values() if a.is_alive())
 
     async def register_maestro(
         self,
@@ -311,9 +304,6 @@ class ProcessManager:
 
     async def register_entity(self, entity: Entity) -> None:
         return await self.lifecycle.register_entity(entity)
-
-    async def spawn_entity(self, entity: Entity, cwd: Path | None = None) -> ClaudeSession:
-        return await self.lifecycle.spawn_entity(entity, cwd)
 
     async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
         return await self.lifecycle._get_or_create_adapter(entity)
@@ -486,7 +476,7 @@ class ProcessManager:
         # but a snapshot prevents "dictionary changed size during iteration"
         # if another coroutine mutates _entities while we iterate.
         for name, entity in list(self._entities.items()):
-            session = self._sessions.get(name)
+            adapter = self._adapters.get(name)
             statuses.append(
                 {
                     "name": name,
@@ -494,14 +484,14 @@ class ProcessManager:
                     "state": entity.state.value,
                     "model": entity.model,
                     "pid": entity.pid,
-                    "alive": session.is_alive if session else False,
+                    "alive": adapter.is_alive() if adapter else False,
                     "uptime": entity.uptime_seconds,
                 }
             )
         return statuses
 
     async def health_check(self) -> list[str]:
-        """Check which sessions are dead but entities think they're running.
+        """Check which adapters are dead but entities think they're running.
 
         Returns list of entity names that need attention.
         """
@@ -511,8 +501,8 @@ class ProcessManager:
         async with self._state_lock:
             entries = list(self._entities.items())
         for name, entity in entries:
-            session = self._sessions.get(name)
-            if entity.state == EntityState.RUNNING and (session is None or not session.is_alive):
+            adapter = self._adapters.get(name)
+            if entity.state == EntityState.RUNNING and (adapter is None or not adapter.is_alive()):
                 unhealthy.append(name)
                 entity.transition_to(EntityState.ERROR)
                 await self._persist(entity)
