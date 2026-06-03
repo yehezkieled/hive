@@ -57,9 +57,8 @@ Hive parses it and routes the actions.
 **Interactive gate**:
 A point mid-Turn where the Harness pauses for human input rather than
 completing the Turn — plan-mode approval (`ExitPlanMode`), an
-`AskUserQuestion` call, or a permission prompt. On the interactive PTY
-Harness a gate blocks the Turn until answered; the same points resolved
-non-interactively under headless `claude -p`.
+`AskUserQuestion` call, or a permission prompt. On the PTY Harness a gate
+blocks the Turn until answered and Hive bridges it (hold-and-inject).
 _Avoid_: prompt, menu, interrupt
 
 ### Billing
