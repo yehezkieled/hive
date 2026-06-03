@@ -290,29 +290,6 @@ class ProcessManager:
         except Exception:
             logger.exception("Failed to record token usage for %s", entity.name)
 
-    def _personality_path(self, entity_name: str) -> Path:
-        return self.lifecycle._personality_path(entity_name)
-
-    def _maybe_write_auto_personality(
-        self,
-        *,
-        entity_name: str,
-        role: str,
-        model: str,
-        display_name: str | None,
-        personality: str | None,
-    ) -> Path | None:
-        return self.lifecycle._maybe_write_auto_personality(
-            entity_name=entity_name,
-            role=role,
-            model=model,
-            display_name=display_name,
-            personality=personality,
-        )
-
-    def _maybe_delete_auto_personality(self, entity_name: str) -> None:
-        return self.lifecycle._maybe_delete_auto_personality(entity_name)
-
     @property
     def entities(self) -> dict[str, Entity]:
         return dict(self._entities)
@@ -370,9 +347,6 @@ class ProcessManager:
         have no Hive parent — callers escalate to ``user`` via the
         notification dispatcher instead.
         """
-        from hive.models.team_lead import TeamLead
-        from hive.models.worker import Worker
-
         if isinstance(entity, Worker):
             return entity.lead_name or None
         if isinstance(entity, TeamLead):
