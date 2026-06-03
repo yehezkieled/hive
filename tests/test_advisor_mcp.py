@@ -186,6 +186,7 @@ class TestAdvisorTool:
 
         from hive.models.maestro import Maestro
         from hive.process.manager import ProcessManager
+        from hive.process.message_dispatcher import MessageDispatcher
 
         maestro = Maestro(name="dev", role="maestro")
         # Override mcp_config_path to use tmp_path so we don't touch /tmp
@@ -223,6 +224,10 @@ class TestAdvisorTool:
         # Ticket 003: _get_or_create_adapter threads gate_coordinator into the
         # adapter; this __new__-shortcut manager must set it like __init__ does.
         pm.gate_coordinator = None
+        # Ticket 004: send_to_entity delegates to the MessageDispatcher
+        # collaborator; this __new__-shortcut manager must wire it like
+        # __init__ does.
+        pm.dispatcher = MessageDispatcher(pm)
 
         mock_session = MagicMock()
         mock_session.start = AsyncMock()

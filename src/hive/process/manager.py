@@ -9,18 +9,22 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from hive.bus.actions import Action, neutralize_action_tags, parse_actions
+from hive.bus.actions import (
+    Action,
+    neutralize_action_tags,  # noqa: F401  re-exported; moved to MessageDispatcher
+    parse_actions,  # noqa: F401  re-exported; moved to MessageDispatcher
+)
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.permissions import (
-    can_kill,
-    can_message,
-    can_request_decision,
-    can_spawn_team,
-    can_spawn_worker,
-    cc_targets_for,
+    can_kill,  # noqa: F401  re-exported; moved to MessageDispatcher
+    can_message,  # noqa: F401  re-exported; moved to MessageDispatcher (patched in test_advisor_mcp)
+    can_request_decision,  # noqa: F401  re-exported; moved to MessageDispatcher
+    can_spawn_team,  # noqa: F401  re-exported; moved to MessageDispatcher
+    can_spawn_worker,  # noqa: F401  re-exported; moved to MessageDispatcher
+    cc_targets_for,  # noqa: F401  re-exported; moved to MessageDispatcher
 )
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
@@ -28,18 +32,20 @@ from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.config import (
     ADVISOR_ENABLED,
-    AUTO_COMPACT_ENABLED,
-    AUTO_COMPACT_THRESHOLD,
-    AUTO_RETRIEVE_ENABLED,
-    AUTO_RETRIEVE_FIRST_TURN_ONLY,
-    AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,
-    AUTO_RETRIEVE_MAX_DISTANCE,
-    AUTO_RETRIEVE_TOP_K,
+    AUTO_COMPACT_ENABLED,  # noqa: F401  re-exported; MessageDispatcher reads it via this module
+    AUTO_COMPACT_THRESHOLD,  # noqa: F401  re-exported; read via this module
+    AUTO_RETRIEVE_ENABLED,  # noqa: F401  re-exported; read via this module
+    AUTO_RETRIEVE_FIRST_TURN_ONLY,  # noqa: F401  re-exported; read via this module
+    AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,  # noqa: F401  re-exported; read via this module
+    AUTO_RETRIEVE_MAX_DISTANCE,  # noqa: F401  re-exported; read via this module
+    AUTO_RETRIEVE_TOP_K,  # noqa: F401  re-exported; read via this module
     DEFAULT_MAESTRO,
     HIVE_USE_PTY,
 )
 from hive.knowledge.blueprints import BlueprintStore
-from hive.mcp.config import generate_mcp_config
+from hive.mcp.config import (
+    generate_mcp_config,  # noqa: F401  re-exported; MessageDispatcher reads it via this module
+)
 from hive.models.entity import (
     Entity,
     EntityState,
@@ -51,6 +57,11 @@ from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.approval_handler import ApprovalHandler
 from hive.process.claude_session import ClaudeSession
+from hive.process.message_dispatcher import (
+    _PARSE_FAILURE_MAX_PER_WINDOW,  # noqa: F401  re-exported for `from ...manager import`
+    _PARSE_FAILURE_WINDOW_SECONDS,  # noqa: F401  re-exported for `from ...manager import`
+    MessageDispatcher,
+)
 from hive.process.wake_scheduler import (
     _WAKE_ON_INBOUND_TEXT,  # noqa: F401  re-exported for `from ...manager import` in tests
     WakeScheduler,
@@ -62,16 +73,6 @@ from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
 
 logger = logging.getLogger(__name__)
-
-# Parse-failure feedback loop. When an entity's <hive_actions> block
-# is malformed, the orchestrator routes a system->entity message with
-# the error so the sender can retry. To avoid feedback->bad-retry
-# loops chewing tokens silently, we cap retries to 3 per 5 minutes
-# per entity. Beyond the cap we stop sending feedback and escalate
-# one notification to the entity's parent (lead->maestro,
-# worker->lead, maestro->user) so a human can intervene.
-_PARSE_FAILURE_WINDOW_SECONDS = 300
-_PARSE_FAILURE_MAX_PER_WINDOW = 3
 
 
 def _render_auto_personality(
@@ -244,6 +245,7 @@ class ProcessManager:
         # this manager. They reach all shared state via ``self._mgr``; the
         # facade thin-delegates every externally-referenced method to them.
         self.approvals = ApprovalHandler(self)
+        self.dispatcher = MessageDispatcher(self)
         self.wake = WakeScheduler(self)
 
     async def _persist(self, entity: Entity) -> None:
@@ -546,9 +548,6 @@ class ProcessManager:
         entity.load_personality()
 
         # Write per-entity MCP config so Claude Code can connect to the advisor server
-        from hive.config import ADVISOR_ENABLED
-        from hive.mcp.config import generate_mcp_config
-
         if ADVISOR_ENABLED:
             generate_mcp_config(entity.name, entity.mcp_config_path)
 
@@ -634,157 +633,12 @@ class ProcessManager:
                 self._adapters[entity.name] = adapter
         return adapter
 
+    # -----------------------------------------------------------------
+    # Outbound sends + inbound action routing (Ticket 004 — MessageDispatcher)
+    # -----------------------------------------------------------------
+
     async def send_to_entity(self, entity_name: str, prompt: str) -> str:
-        """Send a prompt to an entity and get the response.
-
-        Each call spawns a fresh subprocess. If the entity has a stored
-        session_id from a previous call, ``--resume`` is passed so the
-        Claude CLI resumes the prior conversation context.
-
-        Pending inter-agent messages are prepended to the prompt.
-        After the response, any ``<hive_actions>`` block is parsed and
-        routed to the appropriate recipients.
-        """
-        entity = self._entities.get(entity_name)
-        if entity is None:
-            raise KeyError(f"Entity {entity_name!r} not found.")
-
-        # Track activity for idle-kill detection
-        entity.last_activity_at = datetime.now(UTC)
-
-        # --- Phase 2: drain pending inter-agent messages ---
-        pending: list[str] = []
-        while self.router.has_pending(entity_name):
-            msg = await self.router.get_next(entity_name, timeout=0.1)
-            if msg:
-                pending.append(f"[Message from {msg.sender}]: {msg.content}")
-        if pending:
-            inbox = "\n".join(pending)
-            prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
-
-        # --- Sprint 11: auto-retrieve top-K blueprints as context ---
-        # --- Sprint 18: also pull semantically-related uploaded files. ---
-        # --- Sprint 27: dialed down — top_k=1, first-turn only. Smarter
-        #     agents call the ``search_knowledge`` MCP tool when they need
-        #     more or different context.
-        prepended_blocks: list[str] = []
-        directory_block = self._peer_directory_for(entity_name)
-        if directory_block:
-            prepended_blocks.append(directory_block)
-
-        # ``session_id`` is set after the first prompt of an activation, so
-        # ``is None`` is the cheapest signal for "first turn this session."
-        is_first_turn = entity.session_id is None
-        auto_retrieve_active = (
-            AUTO_RETRIEVE_ENABLED
-            and prompt.strip()
-            and (is_first_turn or not AUTO_RETRIEVE_FIRST_TURN_ONLY)
-        )
-
-        if auto_retrieve_active:
-            knowledge_blocks: list[str] = []
-
-            if self.blueprint_store is not None:
-                try:
-                    blueprint_hits = await self.blueprint_store.search(
-                        prompt,
-                        limit=AUTO_RETRIEVE_TOP_K,
-                        max_distance=AUTO_RETRIEVE_MAX_DISTANCE,
-                    )
-                except Exception:
-                    logger.exception("auto-retrieve failed; continuing without blueprints")
-                    blueprint_hits = []
-                if blueprint_hits:
-                    bp_lines = ["Relevant past blueprints (retrieved automatically):"]
-                    for h in blueprint_hits:
-                        # Sprint 26: render the matching chunk only, not the
-                        # full body — sharper context, less prompt bloat.
-                        bp_lines.append(f"\n### {h['title']}\n{h['chunk_text']}")
-                    knowledge_blocks.append("\n".join(bp_lines))
-
-            if AUTO_RETRIEVE_INCLUDE_ATTACHMENTS and self.attachment_store is not None:
-                try:
-                    attachment_hits = await self.attachment_store.search(
-                        prompt,
-                        limit=AUTO_RETRIEVE_TOP_K,
-                        max_distance=AUTO_RETRIEVE_MAX_DISTANCE,
-                    )
-                except Exception:
-                    logger.exception("auto-retrieve failed; continuing without attachments")
-                    attachment_hits = []
-                if attachment_hits:
-                    file_lines = ["Relevant uploaded files (retrieved automatically):"]
-                    for h in attachment_hits:
-                        # Sprint 28: render the matching chunk text instead
-                        # of a 200-char prefix of the whole embed_text.
-                        chunk = (h.get("chunk_text") or "").replace("\n", " ").strip()
-                        name = h.get("original_name") or h["file_path"]
-                        mime = h.get("mime_type") or "unknown"
-                        file_lines.append(
-                            f"- {h['file_path']} ({mime}, original: {name})"
-                            + (f' — snippet: "{chunk}"' if chunk else "")
-                        )
-                    knowledge_blocks.append("\n".join(file_lines))
-
-            if knowledge_blocks:
-                # Sprint 27: nudge the agent toward search_knowledge for
-                # mid-conversation lookups when the auto-block doesn't match.
-                knowledge_blocks.append(
-                    "(Need different context? Call the `search_knowledge` "
-                    "MCP tool with your own query.)"
-                )
-                prepended_blocks.extend(knowledge_blocks)
-
-        if prepended_blocks:
-            context_block = "\n\n---\n\n".join(prepended_blocks)
-            prompt = f"{context_block}\n\n---\n\n{prompt}"
-
-        if ADVISOR_ENABLED:
-            generate_mcp_config(entity.name, entity.mcp_config_path)
-
-        adapter = await self._get_or_create_adapter(entity)
-        response, usage = await adapter.send_turn(prompt)
-        await self._record_usage(entity, usage)
-
-        # Auto-compact if context is too large
-        if (
-            AUTO_COMPACT_ENABLED
-            and entity_name not in self._compacting
-            and usage.get("input_tokens", 0) > AUTO_COMPACT_THRESHOLD
-        ):
-            input_tokens = usage["input_tokens"]
-            logger.info(
-                "Auto-compacting %s (input_tokens=%d > threshold=%d)",
-                entity_name,
-                input_tokens,
-                AUTO_COMPACT_THRESHOLD,
-            )
-            self._compacting.add(entity_name)
-            try:
-                await self.compact_entity(entity_name)
-                await self._notify(
-                    f"Auto-compacted {entity_name} (context: {input_tokens:,} tokens)"
-                )
-                await self._audit(
-                    "entity.auto_compact",
-                    target=entity_name,
-                    details={"input_tokens": input_tokens},
-                )
-            except Exception:
-                logger.exception("Auto-compact failed for %s", entity_name)
-            finally:
-                self._compacting.discard(entity_name)
-
-        # Store session_id for resume on next call
-        if usage.get("session_id"):
-            entity.session_id = usage["session_id"]
-            await self._persist(entity)
-
-        # --- Phase 3: parse and route actions from response ---
-        clean_text, actions, parse_errors = parse_actions(response)
-        return await self._handle_actions(
-            entity_name, clean_text, actions, parse_errors=parse_errors
-        )
+        return await self.dispatcher.send_to_entity(entity_name, prompt)
 
     async def _handle_actions(
         self,
@@ -794,285 +648,12 @@ class ProcessManager:
         *,
         parse_errors: list[str] | None = None,
     ) -> str:
-        """Route parsed actions to the appropriate handlers.
+        return await self.dispatcher._handle_actions(
+            entity_name, clean_text, actions, parse_errors=parse_errors
+        )
 
-        Extracted from ``send_to_entity`` so tests can drive the
-        dispatch loop directly without going through a real Claude
-        subprocess.
-
-        ``parse_errors`` is the list returned by ``parse_actions`` when
-        an <hive_actions> block was malformed. Each entry is a
-        human-readable description (bad JSON, missing field, unknown
-        type). When non-empty, after action dispatch we either route a
-        ``system -> entity`` feedback message so the sender can retry,
-        or, if the entity has hit ``_PARSE_FAILURE_MAX_PER_WINDOW`` in
-        the rolling window, escalate to the parent and stop sending
-        feedback.
-        """
-        entity = self._entities.get(entity_name)
-        if entity is None:
-            return clean_text
-
-        self._last_routed_actions = []
-        self._last_mode_requests = []
-        self._last_failure_reports = []
-        self._last_spawned_teams = []
-        self._last_spawned_workers = []
-        self._last_killed_entities = []
-        self._last_vault_requests = []
-        self._last_kickoffs = []
-        pending_kickoffs: list[str] = []
-        for action in actions:
-            if action.type == "message":
-                recipient = self._entities.get(action.to) if action.to else None
-                if not recipient:
-                    logger.warning("Unknown recipient: %s", action.to)
-                    continue
-                if not can_message(entity.role, entity.name, recipient.role, recipient.name):
-                    logger.warning("Permission denied: %s -> %s", entity.name, action.to)
-                    await self._audit(
-                        "peer_message_blocked",
-                        target=action.to,
-                        details={"sender": entity_name, "reason": "permission_denied"},
-                        actor=entity_name,
-                    )
-                    continue
-                body = action.text or ""
-                await self.router.route(entity_name, action.to, body)
-                self._last_routed_actions.append(action.to)
-                await self._audit(
-                    "peer_message_sent",
-                    target=action.to,
-                    details={"sender": entity_name, "text": body[:200]},
-                    actor=entity_name,
-                )
-                cc_targets = cc_targets_for(
-                    entity.role, entity.name, recipient.role, recipient.name
-                )
-                cc_body = f"[CC: {entity.name} -> {action.to}] {body}"
-                for cc_name in cc_targets:
-                    if cc_name not in self._entities:
-                        continue
-                    await self.router.route(entity_name, cc_name, cc_body)
-                    await self._audit(
-                        "peer_message_cc_inserted",
-                        target=cc_name,
-                        details={
-                            "sender": entity_name,
-                            "recipient": action.to,
-                            "text": body[:200],
-                        },
-                        actor=entity_name,
-                    )
-            elif action.type == "request_decision":
-                if not action.to:
-                    continue
-                recipient = self._entities.get(action.to)
-                if not recipient:
-                    logger.warning("Unknown request_decision recipient: %s", action.to)
-                    continue
-                if not can_request_decision(entity.role, entity.name, action.to):
-                    logger.warning("request_decision denied: %s -> %s", entity.name, action.to)
-                    await self._audit(
-                        "request_decision_blocked",
-                        target=action.to,
-                        details={"sender": entity_name, "reason": "permission_denied"},
-                        actor=entity_name,
-                    )
-                    continue
-                body = f"[DECISION REQUEST] {action.text or ''}"
-                await self.router.route(entity_name, action.to, body)
-                self._last_routed_actions.append(action.to)
-                await self._audit(
-                    "request_decision_sent",
-                    target=action.to,
-                    details={"sender": entity_name, "text": (action.text or "")[:200]},
-                    actor=entity_name,
-                )
-            elif action.type == "request_mode_change":
-                if not action.requested_mode:
-                    continue
-                try:
-                    req_id = await self.request_mode_change(
-                        entity_name,
-                        action.requested_mode,
-                        reason=action.reason,
-                    )
-                    self._last_mode_requests.append(req_id)
-                except (KeyError, ValueError) as exc:
-                    logger.warning("request_mode_change from %s failed: %s", entity_name, exc)
-            elif action.type == "request_payment":
-                try:
-                    action_id = await self.request_payment(
-                        entity_name,
-                        amount_cents=action.amount_cents or 0,
-                        currency=action.currency or "USD",
-                        recipient=action.recipient or "",
-                        idempotency_key=action.idempotency_key or "",
-                        reason=action.reason or "",
-                    )
-                    if action_id is not None:
-                        self._last_vault_requests.append(action_id)
-                except (KeyError, ValueError, PermissionError) as exc:
-                    logger.warning("request_payment from %s rejected: %s", entity_name, exc)
-            elif action.type == "report_failure":
-                reason = action.reason or "(no reason given)"
-                task_id = action.task_id
-                if task_id is None:
-                    task_id = self._task_id_for(entity_name)
-                if task_id is None:
-                    logger.warning(
-                        "report_failure from %s with no task_id and entity has no bound task",
-                        entity_name,
-                    )
-                    continue
-                try:
-                    await self.handle_task_failure(task_id, reason)
-                    self._last_failure_reports.append(task_id)
-                except Exception:
-                    logger.exception("handle_task_failure failed for task %s", task_id)
-            elif action.type == "spawn_team":
-                if not action.team_name:
-                    continue
-                if not can_spawn_team(entity.role, entity.name):
-                    logger.warning("spawn_team denied: %s (role=%s)", entity.name, entity.role)
-                    await self._audit(
-                        "entity.spawn_team_denied",
-                        target=action.team_name,
-                        details={"reason": "role_not_permitted", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    continue
-                if self.scheduler is not None and not self.scheduler.can_autospawn(entity_name):
-                    logger.warning("spawn_team rate-limited: %s", entity_name)
-                    await self._audit(
-                        "entity.spawn_rate_limited",
-                        target=action.team_name,
-                        details={"action_type": "spawn_team", "limit": self.scheduler.spawn_limit},
-                        actor=entity_name,
-                    )
-                    continue
-                try:
-                    lead = await self.create_team(
-                        entity_name,
-                        action.team_name,
-                        model=action.model or "sonnet",
-                        display_name=action.display_name,
-                        personality=action.personality,
-                    )
-                    self._last_spawned_teams.append(lead.name)
-                    if self.scheduler is not None:
-                        self.scheduler.record_autospawn(entity_name)
-                    await self._audit(
-                        "entity.spawn_team",
-                        target=lead.name,
-                        details={"team": action.team_name, "maestro": entity_name},
-                        actor=entity_name,
-                    )
-                    pending_kickoffs.append(lead.name)
-                except (KeyError, TypeError, ValueError) as exc:
-                    logger.warning("spawn_team from %s failed: %s", entity_name, exc)
-            elif action.type == "spawn_worker":
-                # `lead` is optional in the protocol — leads pattern-match
-                # the field name "lead" instead of substituting the
-                # placeholder, so requiring it produces `{"lead": "lead"}`.
-                # Infer it from the actor: a lead spawns under itself; a
-                # maestro must specify (we can't guess which team).
-                if not action.lead:
-                    if entity.role == "lead":
-                        action.lead = entity.name
-                    else:
-                        logger.warning(
-                            "spawn_worker from %s missing `lead` field (role=%s)",
-                            entity.name,
-                            entity.role,
-                        )
-                        await self._audit(
-                            "entity.spawn_worker_denied",
-                            target=None,
-                            details={"reason": "missing_lead", "role": entity.role},
-                            actor=entity_name,
-                        )
-                        continue
-                if not can_spawn_worker(entity.role, entity.name, action.lead):
-                    logger.warning("spawn_worker denied: %s -> %s", entity.name, action.lead)
-                    await self._audit(
-                        "entity.spawn_worker_denied",
-                        target=action.lead,
-                        details={"reason": "scope_violation", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    continue
-                if self.scheduler is not None and not self.scheduler.can_autospawn(entity_name):
-                    logger.warning("spawn_worker rate-limited: %s", entity_name)
-                    await self._audit(
-                        "entity.spawn_rate_limited",
-                        target=action.lead,
-                        details={
-                            "action_type": "spawn_worker",
-                            "limit": self.scheduler.spawn_limit,
-                        },
-                        actor=entity_name,
-                    )
-                    continue
-                try:
-                    worker = await self.spawn_worker(
-                        action.lead,
-                        worker_name=action.worker_name,
-                        task_id=action.task_id,
-                        display_name=action.display_name,
-                        personality=action.personality,
-                    )
-                    self._last_spawned_workers.append(worker.name)
-                    if self.scheduler is not None:
-                        self.scheduler.record_autospawn(entity_name)
-                    await self._audit(
-                        "entity.autonomous_spawn_worker",
-                        target=worker.name,
-                        details={"lead": action.lead, "task_id": action.task_id},
-                        actor=entity_name,
-                    )
-                    pending_kickoffs.append(worker.name)
-                except (KeyError, TypeError, RuntimeError) as exc:
-                    logger.warning("spawn_worker from %s failed: %s", entity_name, exc)
-            elif action.type == "kill_entity":
-                if not action.target:
-                    continue
-                if not can_kill(entity.role, entity.name, action.target, DEFAULT_MAESTRO):
-                    logger.warning("kill_entity denied: %s -> %s", entity.name, action.target)
-                    await self._audit(
-                        "entity.kill_denied",
-                        target=action.target,
-                        details={"reason": "permission_denied", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    continue
-                if action.target not in self._entities:
-                    logger.warning("kill_entity target not found: %s", action.target)
-                    continue
-                try:
-                    await self.kill_entity(action.target)
-                    self._last_killed_entities.append(action.target)
-                    await self._audit(
-                        "entity.autonomous_kill",
-                        target=action.target,
-                        details={"actor_role": entity.role},
-                        actor=entity_name,
-                    )
-                except Exception:
-                    logger.exception("kill_entity from %s failed", entity_name)
-
-        if pending_kickoffs:
-            self._last_kickoffs = list(pending_kickoffs)
-            for target in pending_kickoffs:
-                task = asyncio.create_task(self._auto_kickoff(target))
-                self._kickoff_tasks.add(task)
-                task.add_done_callback(self._kickoff_tasks.discard)
-
-        if parse_errors:
-            await self._handle_parse_errors(entity, parse_errors)
-
-        return clean_text
+    async def _handle_parse_errors(self, entity: Entity, parse_errors: list[str]) -> None:
+        return await self.dispatcher._handle_parse_errors(entity, parse_errors)
 
     def _parent_of(self, entity: Entity) -> str | None:
         """Return the entity's direct parent for escalation, or None.
@@ -1089,100 +670,6 @@ class ProcessManager:
         if isinstance(entity, TeamLead):
             return entity.maestro_name or None
         return None
-
-    async def _handle_parse_errors(self, entity: Entity, parse_errors: list[str]) -> None:
-        """Route parse-error feedback to the sender, with overflow escalation.
-
-        Two paths:
-        1. Under cap: route a ``system -> entity`` message containing
-           the human-readable parse errors. The wake-on-inbound hook
-           auto-spawns the entity, the drain phase prepends the message
-           to its next prompt, and it can retry with corrected JSON.
-        2. At cap (>= ``_PARSE_FAILURE_MAX_PER_WINDOW`` in
-           ``_PARSE_FAILURE_WINDOW_SECONDS``): suppress the feedback
-           message and notify the parent (lead -> maestro,
-           worker -> lead, maestro -> user) once. This breaks the loop
-           when a model is stuck producing the same malformed output.
-        """
-        now = datetime.now(UTC)
-        cutoff = now - timedelta(seconds=_PARSE_FAILURE_WINDOW_SECONDS)
-        window = self._parse_failure_budget[entity.name]
-        while window and window[0] < cutoff:
-            window.popleft()
-        window.append(now)
-
-        # Tag names rendered with spaces (`< hive_actions >`) so this
-        # feedback cannot be re-parsed when the entity's terminal
-        # screen-echoes it back into the next turn's prompt — the
-        # every-2h self-feedback loop in prod. See
-        # ``neutralize_action_tags`` for the rationale.
-        feedback_body = neutralize_action_tags(
-            "Your last response contained a malformed <hive_actions> "
-            "block. The orchestrator could not parse it, so the actions "
-            "did NOT execute. Errors:\n"
-            + "\n".join(f"- {err}" for err in parse_errors)
-            + "\n\nFix the JSON and resend the actions in a new "
-            "<hive_actions> block. Common causes: unescaped newlines/"
-            "quotes inside multi-line `personality` strings (use \\n "
-            'and \\"), wrong closing tag (must be </hive_actions>, not '
-            "</invoke>), or missing required fields. (Tag names above "
-            "are shown with spaces — emit them without spaces, exactly "
-            "as in the protocol spec.)"
-        )
-
-        if len(window) > _PARSE_FAILURE_MAX_PER_WINDOW:
-            # Cap exceeded — escalate once, drop the feedback message
-            # so we don't keep waking a stuck entity.
-            parent = self._parent_of(entity)
-            escalation_msg = neutralize_action_tags(
-                f"{entity.name} has emitted {len(window)} malformed "
-                f"<hive_actions> blocks in the last "
-                f"{_PARSE_FAILURE_WINDOW_SECONDS // 60} min. "
-                "Suppressing parse-feedback to avoid a loop. "
-                "Please intervene — kill, reset, or guide the entity. "
-                f"Latest errors:\n" + "\n".join(f"- {err}" for err in parse_errors)
-            )
-            if parent and parent in self._entities:
-                await self.router.route("system", parent, escalation_msg)
-            else:
-                # Maestro (or detached entity) — surface to the user.
-                await self._notify(
-                    escalation_msg,
-                    kind="warning",
-                    data={"entity": entity.name, "kind": "parse_failure_cap"},
-                )
-            await self._audit(
-                "entity.parse_failure_capped",
-                target=entity.name,
-                details={
-                    "window_size": len(window),
-                    "escalated_to": parent or "user",
-                },
-            )
-            logger.warning(
-                "Parse-failure cap hit for %s (%d in window) — escalated to %s",
-                entity.name,
-                len(window),
-                parent or "user",
-            )
-            return
-
-        # Under cap — send feedback so the sender can self-correct.
-        await self.router.route("system", entity.name, feedback_body)
-        await self._audit(
-            "entity.parse_failure_feedback",
-            target=entity.name,
-            details={
-                "window_size": len(window),
-                "error_count": len(parse_errors),
-            },
-        )
-        logger.warning(
-            "Parse-failure feedback sent to %s (%d errors, window=%d)",
-            entity.name,
-            len(parse_errors),
-            len(window),
-        )
 
     # -----------------------------------------------------------------
     # Wake-on-inbound + spawn-kickoff (Ticket 004 — WakeScheduler)
@@ -1545,11 +1032,7 @@ class ProcessManager:
     # -----------------------------------------------------------------
 
     def _task_id_for(self, entity_name: str) -> int | None:
-        """Return the active task_id bound to an entity, if it's a worker."""
-        entity = self._entities.get(entity_name)
-        if isinstance(entity, Worker):
-            return entity.task_id
-        return None
+        return self.dispatcher._task_id_for(entity_name)
 
     def _escalation_target_for(self, entity_name: str) -> str:
         return self.approvals._escalation_target_for(entity_name)
