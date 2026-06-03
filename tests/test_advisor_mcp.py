@@ -185,6 +185,7 @@ class TestAdvisorTool:
         import asyncpg
 
         from hive.models.maestro import Maestro
+        from hive.process.lifecycle_manager import LifecycleManager
         from hive.process.manager import ProcessManager
         from hive.process.message_dispatcher import MessageDispatcher
 
@@ -228,6 +229,10 @@ class TestAdvisorTool:
         # collaborator; this __new__-shortcut manager must wire it like
         # __init__ does.
         pm.dispatcher = MessageDispatcher(pm)
+        # Ticket 004 slice 4: _get_or_create_adapter moved to the
+        # LifecycleManager collaborator; the __new__-shortcut manager must
+        # wire it like __init__ does, or the adapter call below raises.
+        pm.lifecycle = LifecycleManager(pm)
 
         mock_session = MagicMock()
         mock_session.start = AsyncMock()
