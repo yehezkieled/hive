@@ -43,11 +43,6 @@ from hive.config import (
     SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
-    VAULT_CAP_CURRENCIES,
-    VAULT_DAILY_CAP_CENTS,
-    VAULT_ENABLED,
-    VAULT_MONTHLY_CAP_CENTS,
-    VAULT_PROVIDER,
     WEB_HOST,
     WEB_PORT,
 )
@@ -60,6 +55,7 @@ from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
 from hive.runtime import QuotaMonitor
 from hive.runtime.gate_coordinator import GateCoordinator
+from hive.vault.config import VaultConfig
 from hive.vault.provider import build_provider
 
 logger = logging.getLogger("hive")
@@ -186,7 +182,8 @@ async def main() -> None:
             mode = "console" if digest.console_mode else "smtp"
             logger.info("Email digest channel registered (mode=%s, to=%s)", mode, EMAIL_TO)
 
-    payment_provider = build_provider(VAULT_PROVIDER) if VAULT_ENABLED else None
+    vault_cfg = VaultConfig.from_env()
+    payment_provider = build_provider(vault_cfg.provider) if vault_cfg.enabled else None
     process_manager = ProcessManager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
@@ -199,9 +196,9 @@ async def main() -> None:
         task_store=task_store,
         vault_store=vault_store,
         payment_provider=payment_provider,
-        vault_daily_cap_cents=VAULT_DAILY_CAP_CENTS,
-        vault_monthly_cap_cents=VAULT_MONTHLY_CAP_CENTS,
-        vault_cap_currencies=VAULT_CAP_CURRENCIES,
+        vault_daily_cap_cents=vault_cfg.daily_cap_cents,
+        vault_monthly_cap_cents=vault_cfg.monthly_cap_cents,
+        vault_cap_currencies=vault_cfg.cap_currencies,
         notification_dispatcher=notification_dispatcher,
     )
 
@@ -277,7 +274,7 @@ async def main() -> None:
     # Ensure default vault exists when the Vault subsystem is enabled.
     # Opt-in until a real provider ships; the role-vault personality
     # provides the locked-down JD.
-    if VAULT_ENABLED and "vault" not in process_manager.entities:
+    if vault_cfg.enabled and "vault" not in process_manager.entities:
         vault_personality = PERSONALITIES_DIR / "role-vault.md"
         vault = Vault(
             name="vault",
@@ -288,7 +285,7 @@ async def main() -> None:
             vault.load_personality()
         await process_manager.register_entity(vault)
         await process_manager._persist(vault)
-        logger.info("Registered default vault entity (provider=%s)", VAULT_PROVIDER)
+        logger.info("Registered default vault entity (provider=%s)", vault_cfg.provider)
 
     # Determine mode: Telegram or local CLI
     use_telegram = bool(TELEGRAM_BOT_TOKEN)
