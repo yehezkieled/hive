@@ -1,58 +1,51 @@
-# 005 — Consolidate the Vault
+# 005 — Consolidate the Vault (config submodule)
 
 ## What
 
-Co-locate Vault logic that currently spans 8 layers of the codebase.
-Cut the three-layer cross-import loop between `process/manager.py`,
-`vault/spend_caps.py`, and `bus/vault_store.py`. Extract Vault-specific
-methods from `ProcessManager` into a `VaultOrchestrator` (or
-equivalent) so the main process module no longer owns payment-policy
-knowledge.
+Gather the Vault's configuration into a single `vault/` submodule. The
+five Vault config vars currently sit interleaved with unrelated config
+in `config.py` (~lines 206–234); move them behind one `VaultConfig`
+(or equivalent) under `src/hive/vault/`, so the security-gated payment
+boundary's configuration reads in one place.
 
 Zero behaviour change. All existing Vault tests pass unmodified.
 
+> **Re-scoped 2026-06-04.** This ticket originally aimed to extract the
+> Vault payment methods from `ProcessManager` into a `VaultOrchestrator`
+> and cut the `manager.py ↔ spend_caps.py ↔ vault_store.py` import loop.
+> **Ticket 004 already delivered both** as a side effect of the
+> `manager.py` breakup: `request_payment` / `approve_vault_action` /
+> `deny_vault_action` now live in `process/approval_handler.py` (the
+> facade delegates), and `spend_caps.check_caps()` is a pure function
+> taking `vault_store` as an argument, so the loop is a one-way path,
+> not a cycle. A separate `VaultOrchestrator` would now violate
+> [ADR 0006](../../adr/0006-god-object-breakup-composition.md)
+> (collaborators don't call each other). So this ticket shrinks to the
+> one genuine remainder — the scattered config. File co-location of
+> `models/vault.py` + `bus/vault_store.py` is dropped as not worth it.
+
 ## Why
 
-The Vault is a security-gated payment Entity — approvals route through
-Telegram and the web dashboard, spend caps gate every action, and the
-flow persists in `vault_actions`. Today its logic is scattered
-horizontally across config, models, bus, vault, process, commands,
-web, and `__main__`. That spread:
-
-- makes the trust boundary hard to read at a glance,
-- forces every change to touch 3+ modules,
-- creates a cross-layer import loop (`process/manager.py` ↔
-  `vault/spend_caps.py` ↔ `bus/vault_store.py`) that constrains
-  future refactors,
-- duplicates wiring across `commands/dispatch.py`,
-  `telegram/bridge.py`, and `web/app.py`.
-
-A consolidated boundary is also the natural prep work for two
-roadmap items: the planned spend-cap policy rework, and bringing the
-Vault into the same shape as `mode_requests` (already the cleaner
-sibling pattern).
+The Vault is a security-gated payment Entity. Its config being
+interleaved with unrelated settings in `config.py` makes the trust
+boundary harder to read than it should be — for the one part of Hive
+that spends real money, the configuration surface should be obvious and
+in one place.
 
 ## Acceptance
 
-- All Vault config lives under one section / submodule, not
-  interleaved with unrelated config in `config.py`.
-- One module owns the read/write interface to the `vault_actions`
-  table. Spend caps consult that module, not the store directly.
-- `ProcessManager` calls a `VaultOrchestrator` for `request_payment`,
-  `approve_vault_action`, `deny_vault_action` — it does not implement
-  them.
-- Three-layer import loop is gone (verified by import graph or `pydeps`).
-- Wiring in `commands/dispatch.py`, `telegram/bridge.py`, and
-  `web/app.py` calls the consolidated boundary, not `vault_store`
-  directly.
-- All 7 existing Vault test files pass unmodified. Any new module
-  gets its own focused tests.
-- A full vault approval round-trip works end-to-end on Telegram +
-  web (smoke test, not test-suite-only).
+- The five Vault config vars (`VAULT_ENABLED`, `VAULT_CAP_CURRENCIES`,
+  `VAULT_DAILY_CAP_CENTS`, `VAULT_MONTHLY_CAP_CENTS`, `VAULT_PROVIDER`)
+  live behind one Vault config module/section under `src/hive/vault/`,
+  not interleaved in `config.py`.
+- Readers (`__main__` wiring, spend caps) consume the consolidated
+  config, not the scattered vars.
+- All 7 existing Vault test files pass unmodified.
+- `ruff check` + `ruff format --check` + full `pytest -m "not integration"`
+  green.
 
 ## Sprint
 
-Drafted during Phase 2 scoping; **deferred to Sprint 2026-Q2-S4** to
-give Ticket 004 room in S3. Research captured (see `research.md`);
-`design.md`, `outline.md`, `plan.md` get authored when the ticket is
-grabbed.
+Committed to Sprint **2026-Q2-S4** as the Phase 2 close-out item.
+Research captured (see `research.md`, written pre-004 — the re-scope
+note above supersedes its `VaultOrchestrator` framing).
