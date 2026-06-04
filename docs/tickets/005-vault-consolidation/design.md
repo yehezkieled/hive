@@ -110,6 +110,29 @@ extra cost is three lines in `__main__` (`from_env()` + field access).
   `.env`, deploy config, and the `spend_caps` error message stay valid.
 - **No test changes.** No test imports the old constants.
 
+## Relationship to ADR 0006
+
+The re-scope note in `ticket.md` cites
+[ADR 0006](../../adr/0006-god-object-breakup-composition.md) to explain
+why a `VaultOrchestrator` was dropped. That ADR governs the breakup of a
+**stateful god object** (`ProcessManager`): collaborators reach shared
+mutable state through the facade's back-ref and never call each other.
+**This config work does not fall under those rules** — `VaultConfig` is
+an immutable value object built once at the composition root
+(`__main__`), not a collaborator. It holds no back-reference, calls no
+collaborator, and `ProcessManager` neither imports it nor changes its
+signature (it still receives the three cap scalars as kwargs). So 0006's
+"collaborator-to-collaborator" and "facade-is-the-state-holder"
+constraints are not in play.
+
+Nor is it the "separate `ProcessState` object" that 0006 *rejected*:
+that was a **mutable** shared-state holder threaded through the facade
+and its collaborators at runtime (added indirection, no caller benefit).
+`VaultConfig` is **frozen**, never held by `ProcessManager`, and groups
+startup env-reads — the pattern the codebase already uses for
+`ClaudeAdapterConfig` / `PersonalityConfig`. No conflict; no new ADR
+needed.
+
 ## Side-effect docs
 
 None. No new glossary term (Vault is not being redefined); not ADR-scale
