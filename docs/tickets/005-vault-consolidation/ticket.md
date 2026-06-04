@@ -38,8 +38,10 @@ in one place.
   `VAULT_DAILY_CAP_CENTS`, `VAULT_MONTHLY_CAP_CENTS`, `VAULT_PROVIDER`)
   live behind one Vault config module/section under `src/hive/vault/`,
   not interleaved in `config.py`.
-- Readers (`__main__` wiring, spend caps) consume the consolidated
-  config, not the scattered vars.
+- The reader (`__main__` wiring) consumes the consolidated config, not
+  the scattered vars. (Correction 2026-06-04: `spend_caps.check_caps()`
+  is **not** a config reader — post-004 it receives caps as function
+  arguments. `__main__.py` is the only reader of these vars.)
 - All 7 existing Vault test files pass unmodified.
 - `ruff check` + `ruff format --check` + full `pytest -m "not integration"`
   green.

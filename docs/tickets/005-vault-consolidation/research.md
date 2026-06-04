@@ -1,108 +1,92 @@
-# Research — Vault consolidation
+# Research — Vault config consolidation
 
-Investigated 2026-05-30 by an Explore agent during Phase 2 scoping.
-All file references verified against `main` at that date.
+Regenerated 2026-06-04 against current `main` (post-004, post-007).
+Supersedes the original 2026-05-30 research, which predated Ticket 004
+and framed the work around a `VaultOrchestrator` that the re-scope
+dropped. This version is config-only, matching the re-scoped ticket.
 
-## What is "the Vault"?
+All line numbers verified on this date.
 
-The Vault is three things at once:
+## The five vars and where they live now
 
-1. **A security-gated Entity class** — `src/hive/models/vault.py`
-   defines `Vault(Entity)`. From its docstring:
-   > Security-critical entity with locked-down permissions. Cannot
-   > run Bash, Write, or Edit. Cannot be killed by non-user actors.
-   > All actions require user approval via Telegram.
-2. **A persistent approval flow** — `VaultStore` in
-   `src/hive/bus/vault_store.py` provides CRUD over the
-   `vault_actions` table (migrations `009_vault_actions.sql` and
-   `022_vault_actions_payment_fields.sql`).
-3. **A payment subsystem** — `src/hive/vault/` contains the
-   `PaymentProvider` protocol, a `StubPaymentProvider`, and
-   `check_caps()` for per-currency daily/monthly cap enforcement.
+`src/hive/config.py` is a flat module of `NAME = os.environ.get(...)`
+constants (234 lines, no settings object). `load_dotenv()` runs at
+import time (`config.py:52`). The Vault block sits at the **end** of the
+file, interleaved with unrelated settings:
 
-## Where it lives now (8 layers)
-
-| Layer | Files | Role |
+| Line | Var | Parse |
 |---|---|---|
-| Entity class | `src/hive/models/vault.py` | `Vault(Entity)` dataclass |
-| Storage | `src/hive/bus/vault_store.py`, `bus/migrations/009_*.sql`, `bus/migrations/022_*.sql` | CRUD + schema |
-| Payment | `src/hive/vault/provider.py`, `vault/spend_caps.py`, `vault/__init__.py` | Provider protocol, stub, cap logic |
-| Config | `src/hive/config.py` lines 216–239 | 5 env vars (`VAULT_ENABLED`, `VAULT_PROVIDER`, `VAULT_DAILY_CAP_CENTS`, …) |
-| Orchestration | `src/hive/process/manager.py` ~lines 1680–1940 | Holds `vault_store`, `payment_provider`, cap constants; implements `request_payment`, `approve_vault_action`, `deny_vault_action` |
-| Telegram | `src/hive/commands/dispatch.py` lines 904–969, `telegram/commands.py`, `telegram/help_text.py` | `/vault approve|deny|status|log` |
-| Web | `src/hive/web/app.py` lines 336–368, `web/view_model.py`, `web/templates/_partials/vault.html` | HTTP endpoints + UI |
-| Bootstrap | `src/hive/__main__.py` lines 46–50, 162–276 | Builds VaultStore + provider, wires into ProcessManager, registers default `vault` entity |
+| `config.py:222` | `VAULT_ENABLED` | `… == "true"` (bool) |
+| `config.py:223–231` | `VAULT_CAP_CURRENCIES` | sorted, upper-cased, de-duped `tuple[str, ...]` from a comma list (default `AUD,USD`) |
+| `config.py:232` | `VAULT_DAILY_CAP_CENTS` | `int` (default 5000) |
+| `config.py:233` | `VAULT_MONTHLY_CAP_CENTS` | `int` (default 50000) |
+| `config.py:234` | `VAULT_PROVIDER` | `str` (default `stub`) |
 
-## What "consolidate" implies here
+A descriptive comment block precedes them (`config.py:211–221`). The
+move removes lines **211–234** from `config.py`.
 
-Five concrete improvements, each addressable separately:
+## Readers — exactly one
 
-1. **Group Vault config.** Move the 5 env vars to a `vault.config`
-   submodule or a `VaultConfig` dataclass — separate from unrelated
-   config.
-2. **Co-locate the approval flow.** Place `VaultStore`, the Entity
-   class, and command wiring under one boundary.
-3. **Cut the cross-layer loop.** Today
-   `process/manager.py` → `vault/spend_caps.py` → `bus/vault_store.py`
-   forms a 3-layer chain reading the same table. Refactor so one
-   module owns the table interface; spend caps consult it.
-4. **Extract from `ProcessManager`.** Move `request_payment`,
-   `approve_vault_action`, `deny_vault_action`, and the cap constants
-   into a `VaultOrchestrator`. `ProcessManager` calls it.
-5. **Align with `mode_requests`.** The mode-request flow is the
-   cleaner sibling pattern; Vault should converge on the same shape
-   for consistency and to halve the surface area future contributors
-   need to learn.
+`grep` for all five names across `src/` and `tests/`:
 
-## Coupling
+- **`src/hive/__main__.py` — the only real reader.** Imports all five
+  (`__main__.py:46–50`) and uses them in `main()`:
+  - `build_provider(VAULT_PROVIDER) if VAULT_ENABLED else None` (`:189`)
+  - `ProcessManager(vault_daily_cap_cents=…, vault_monthly_cap_cents=…,
+    vault_cap_currencies=…)` (`:202–204`)
+  - register default `vault` entity `if VAULT_ENABLED` (`:280`),
+    logging `VAULT_PROVIDER` (`:291`)
+- **`src/hive/vault/spend_caps.py:65` — NOT a reader.** The only hit is
+  the env-var *name* embedded in a `ValueError` message ("Add it to
+  `HIVE_VAULT_CAP_CURRENCIES`…"). Post-004 `check_caps()` takes
+  `daily_cap_cents`, `monthly_cap_cents`, `cap_currencies` as **function
+  arguments** (`spend_caps.py:41–51`). It never reads config. → The env
+  name stays as-is; no edit needed.
+- **No test reads them.** No `tests/` file imports these constants
+  (verified across all seven vault test files). The vault tests that
+  touch `hive.vault.*` import `provider` / `spend_caps` / `check_caps`
+  only.
 
-**Readers:**
+This corrects the original ticket acceptance, which listed "spend caps"
+as a reader.
 
-- `ProcessManager` — direct; `vault_store.create_action`, `get`,
-  `approve`, `deny`, `mark_executed`, `mark_failed`.
-- `CommandDispatcher` and web endpoints — `vault_store.pending()`,
-  `vault_store.log()`.
-- `spend_caps.check_caps()` — calls
-  `vault_store.spend_total_cents()` to enforce caps.
+## Form precedent in the codebase
 
-**Writers:**
+- Grouped settings → **`@dataclass`** is the established pattern:
+  `ClaudeAdapterConfig` (`runtime/claude_adapter.py:24`) and
+  `PersonalityConfig` (`models/entity.py:57`).
+- `src/hive/mcp/config.py` exists but is **not** a settings holder — it
+  is a JSON-file *generator* (`generate_mcp_config`). Not a model here.
+- Dominant import style elsewhere is flat `from hive.config import X`.
 
-- Only `ProcessManager.request_payment()` creates actions, gated by
-  `isinstance(entity, Vault)`.
-- Only `ProcessManager.approve_vault_action()` /
-  `deny_vault_action()` mutate.
+So both a `VaultConfig` dataclass and a flat `vault/config.py` constants
+module have precedent; the dataclass matches the "group related
+settings" pattern and the ticket's "one `VaultConfig`" phrasing.
 
-**Circular risk:** the `process/manager.py` ↔ `vault/spend_caps.py` ↔
-`bus/vault_store.py` chain crosses three layers. Today's import order
-works, but any new caller hitting the table directly is a future hazard.
+## Env-load ordering
 
-## Existing tests (full coverage — safe to refactor under)
+`from_env()` reads `os.environ`. Today `.env` is loaded by
+`config.py:52` at import time, and `__main__.py:19` imports `hive.config`
+before `main()` runs — so ordering happens to work. To remove the
+hidden dependency, the new module's `from_env()` calls `load_dotenv()`
+itself (idempotent, `override=False`), making `vault/config.py`
+self-contained with **zero import dependency on `hive.config`**.
 
-- `tests/test_vault.py` — Entity class
-- `tests/test_vault_store.py` — CRUD
-- `tests/test_vault_provider.py` — StubPaymentProvider behaviour
-- `tests/test_vault_spend_caps.py` — cap enforcement
-- `tests/test_vault_payment_request.py` — request flow
-- `tests/test_vault_approval_flow.py` — full approval lifecycle
-- `tests/test_web_vault_endpoints.py` — HTTP endpoints
+## Tests (safe to refactor under — all unmodified)
 
-## Recommended staging (design-stage input)
+`tests/test_vault.py`, `test_vault_store.py`, `test_vault_provider.py`,
+`test_vault_spend_caps.py`, `test_vault_payment_request.py`,
+`test_vault_approval_flow.py`, `test_web_vault_endpoints.py`.
 
-1. Introduce `VaultConfig` dataclass; migrate config readers.
-2. Introduce `VaultOrchestrator`; move `request_payment` first
-   (smallest, well-tested).
-3. Migrate `approve_vault_action` / `deny_vault_action`.
-4. Refactor `spend_caps.check_caps()` to consult the orchestrator,
-   not the store directly. Loop broken at this step.
-5. Update `commands/dispatch.py`, `telegram/bridge.py`, `web/app.py`
-   to call the orchestrator boundary.
+None import the config constants, so all pass unmodified. The change
+adds a module and moves env reads; it does not touch the vault public
+API (`provider`, `spend_caps`, `check_caps`, the `Vault` entity).
 
-Each step lands as its own PR; tests stay green between them.
+## Decided in design
 
-## Open question for design stage
-
-Should `Vault` Entity, `VaultOrchestrator`, `VaultConfig`, and
-`VaultStore` live together under `src/hive/vault/`? Today the Entity
-class lives in `models/` and the store in `bus/`. Moving them is
-mechanical but cosmetic — design stage should decide based on the
-project's general placement rules (models vs. domain-package layout).
+- **Form:** `VaultConfig` frozen dataclass + `from_env()` classmethod,
+  in `src/hive/vault/config.py`.
+- **Side-effect docs:** none. "Vault" is not a glossary term being
+  changed; a zero-behaviour config relocation is not ADR-scale (cf.
+  ADR 0006 / 0007). CONTEXT.md and `docs/adr/` are untouched.
+- **Lane:** direct — one PR, three files.
