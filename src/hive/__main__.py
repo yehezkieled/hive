@@ -314,6 +314,11 @@ async def main() -> None:
             notification_dispatcher.channel_count,
         )
 
+        # Declared here so both the web-dashboard block and the
+        # auto-management block append to the same list, which the cleanup
+        # loop cancels on shutdown.
+        background_tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
+
         # Start web dashboard if configured
         if WEB_PORT > 0:
             import uvicorn
@@ -365,7 +370,7 @@ async def main() -> None:
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)
-            asyncio.create_task(server.serve())
+            background_tasks.append(asyncio.create_task(server.serve()))
             logger.info("Web dashboard started on %s:%d", WEB_HOST, WEB_PORT)
 
         # Keep running until interrupted
@@ -379,7 +384,6 @@ async def main() -> None:
             loop.add_signal_handler(sig, _signal_handler)
 
         # Start background auto-management tasks
-        background_tasks: list[asyncio.Task] = []  # type: ignore[type-arg]
         if AUTO_KILL_IDLE_ENABLED:
             background_tasks.append(
                 asyncio.create_task(idle_checker(process_manager, DEFAULT_MAESTRO, stop_event))
