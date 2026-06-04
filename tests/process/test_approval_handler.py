@@ -54,6 +54,8 @@ class StubManager:
         self.vault_monthly_cap_cents = 0
         self.vault_cap_currencies: tuple[str, ...] = ("AUD", "USD")
 
+        self._gate_tasks: set[asyncio.Task] = set()
+
         self.audit_calls: list[tuple[str, str | None, dict | None]] = []
         self.notify_calls: list[tuple[str, str, dict | None]] = []
         self.persisted: list[object] = []
@@ -429,6 +431,31 @@ async def test_on_gate_state_gated_transitions_and_notifies(
     # Let the detached _notify_gate_waiting task run.
     await asyncio.sleep(0)
     mgr.notification_dispatcher.dispatch.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_on_gate_state_gated_tracks_then_discards_task(
+    handler: ApprovalHandler, mgr: StubManager
+) -> None:
+    # The detached notify task must be held in _gate_tasks while in-flight so
+    # it can't be GC'd, then dropped by the done-callback once it completes.
+    entity = Worker(name="dev.backend.w1", lead_name="dev.backend")
+    entity.state = EntityState.RUNNING
+    mgr._entities[entity.name] = entity
+    mgr.notification_dispatcher = AsyncMock()
+
+    handler._on_gate_state("dev.backend.w1", "gated")
+
+    # Tracked while the task is still running.
+    assert len(mgr._gate_tasks) == 1
+
+    # Drive the task to completion, then let the done-callback fire.
+    task = next(iter(mgr._gate_tasks))
+    await task
+    await asyncio.sleep(0)
+
+    # Discarded once it's done — no lingering reference.
+    assert mgr._gate_tasks == set()
 
 
 def test_on_gate_state_running_transitions_back(handler: ApprovalHandler, mgr: StubManager) -> None:

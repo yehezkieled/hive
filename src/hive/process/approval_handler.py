@@ -454,7 +454,9 @@ class ApprovalHandler:
         except Exception:
             logger.exception("gate transition to %s failed for %s", target, entity_name)
         if state == "gated":
-            asyncio.create_task(self._notify_gate_waiting(entity_name))
+            task = asyncio.create_task(self._notify_gate_waiting(entity_name))
+            self._mgr._gate_tasks.add(task)
+            task.add_done_callback(self._mgr._gate_tasks.discard)
 
     async def _notify_gate_waiting(self, entity_name: str) -> None:
         """Push the initial 'a gate is waiting' surface to the user (#22/#23)."""

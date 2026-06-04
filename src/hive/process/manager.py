@@ -141,6 +141,9 @@ class ProcessManager:
         # router hook itself is opt-in via enable_wake_on_inbound() so
         # tests that seed queues with router.route() aren't disturbed.
         self._wake_tasks: set[asyncio.Task] = set()
+        # Detached interactive-gate notification tasks (Ticket 003/008),
+        # tracked so they aren't GC'd mid-flight.
+        self._gate_tasks: set[asyncio.Task] = set()
         self._wake_budget: dict[str, deque[datetime]] = defaultdict(deque)
         # Per-entity sliding window of parse-failure timestamps. Bounds
         # the feedback->retry loop when a model keeps emitting malformed
