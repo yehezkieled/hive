@@ -49,5 +49,5 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 30
 markers = [
-    "integration: tests that require real claude -p sessions (skipped in CI)",
+    "integration: tests that drive real external processes or services (e.g. a live Harness); skipped in CI. Hermetic multi-component round-trips do NOT use this marker.",
 ]
