@@ -14,7 +14,7 @@ marked with ✱.
 | 006 | [Rename `WorkerAgent` → `Worker`](006-worker-rename/) | 2026-Q2-S3 | done | — |
 | 007 ✱ | [Remove the headless (non-PTY) runtime path](007-remove-headless-runtime/) | 2026-Q2-S3 | done | #52 |
 | 008 | [Track untracked fire-and-forget tasks](008-track-background-tasks/) | 2026-Q2-S4 | done | — |
-| 009 ✱ | [Pin & align the fleet's Claude Code version](009-pin-claude-version/) | 2026-Q2-S4 | planned | — |
+| 009 ✱ | [Pin & align the fleet's Claude Code version](009-pin-claude-version/) | 2026-Q2-S4 | in progress | — |
 | 010 | [Repair the stale lead-worker integration test](010-repair-integration-test/) | 2026-Q2-S4 | done | #58 |
 | 011 | [Add a CI coverage floor](011-ci-coverage-floor/) | 2026-Q2-S4 | planned | — |
 | 012 | [Curate & expose CC skills to Entities](012-entity-skill-inheritance/) | 2026-Q2-S4 | planned | — |
