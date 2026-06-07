@@ -18,3 +18,4 @@ marked with ✱.
 | 010 | [Repair the stale lead-worker integration test](010-repair-integration-test/) | 2026-Q2-S4 | done | #58 |
 | 011 | [Add a CI coverage floor](011-ci-coverage-floor/) | 2026-Q2-S4 | planned | — |
 | 012 | [Curate & expose CC skills to Entities](012-entity-skill-inheritance/) | 2026-Q2-S4 | planned | — |
+| 013 ✱ | [Retire custom advisor for CC native `/advisor`](013-retire-custom-advisor/) | 2026-Q2-S5 | planned | — |
