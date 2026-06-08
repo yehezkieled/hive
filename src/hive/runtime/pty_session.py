@@ -7,12 +7,15 @@ import atexit
 import json
 import logging
 import os
+import re
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from threading import Thread
 
 from ptyprocess import PtyProcess
 
+from hive.config import CLAUDE_BINARY
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.gates import GateDetector
 from hive.runtime.transcript_reader import Gated, TranscriptReader
@@ -59,6 +62,48 @@ def _has_prior_session(cwd: Path) -> bool:
     return projects_dir.is_dir() and any(projects_dir.glob("*.jsonl"))
 
 
+_VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
+
+
+def _looks_like_version(text: str) -> bool:
+    """True if text is a bare semver-ish string like ``2.1.162``."""
+    return bool(_VERSION_RE.fullmatch(text))
+
+
+def _resolve_claude_version(binary: str) -> tuple[str, str]:
+    """Return ``(resolved_path, version)`` for the spawned ``claude`` binary.
+
+    Cheap path first: the native installer symlinks ``~/.local/bin/claude`` at a
+    ``versions/<X>`` file, so ``realpath`` + ``basename`` yields the version with
+    no subprocess. Falls back to ``claude --version`` when the resolved basename
+    isn't a recognizable version (e.g. an npm wrapper, or a bare PATH lookup).
+    """
+    resolved = os.path.realpath(binary)
+    version = os.path.basename(resolved)
+    if not _looks_like_version(version):
+        version = _claude_version_subprocess(binary)
+    return resolved, version
+
+
+def _claude_version_subprocess(binary: str) -> str:
+    """Return the version from ``<binary> --version``, or ``"unknown"`` on failure.
+
+    A version probe must never block or crash a spawn: a short timeout bounds it
+    and any error (binary missing, slow, garbled output) degrades to ``"unknown"``.
+    """
+    try:
+        result = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    match = _VERSION_RE.search(result.stdout)
+    return match.group(0) if match else "unknown"
+
+
 def _build_spawn_args(
     model: str,
     cwd: Path | None,
@@ -68,7 +113,7 @@ def _build_spawn_args(
 ) -> list[str]:
     from hive.models.entity import DANGEROUS_MODES
 
-    args = ["claude", "--model", model]
+    args = [CLAUDE_BINARY, "--model", model]
     if permission_mode in DANGEROUS_MODES or permission_mode == "bypassPermissions":
         # bypassPermissions bypasses tool-permission prompts but NOT the first-run
         # trust dialog; --dangerously-skip-permissions skips both.
@@ -174,6 +219,15 @@ class PtySession:
                 self._permission_mode,
             )
             logger.info("PtySession: spawning %s", " ".join(args[:5]))
+            # Log the resolved binary + version every spawn so version drift
+            # between dev and the fleet is visible in the journal (Ticket 009).
+            bin_path, version = _resolve_claude_version(CLAUDE_BINARY)
+            logger.info(
+                "PtySession: %s on claude %s (%s)",
+                self._entity_name or "entity",
+                version,
+                bin_path,
+            )
             self._proc = PtyProcess.spawn(
                 args,
                 cwd=self._cwd,

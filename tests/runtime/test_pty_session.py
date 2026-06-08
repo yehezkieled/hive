@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from hive.runtime.pty_session import PtySession, _claude_projects_dir
+from hive.runtime.pty_session import (
+    PtySession,
+    _build_spawn_args,
+    _claude_projects_dir,
+    _resolve_claude_version,
+)
 
 
 def test_claude_projects_dir_replaces_slashes_and_dots() -> None:
@@ -361,3 +368,89 @@ async def test_send_chunks_large_payload(
     end = all_written.find(b"\x1b[201~")
     payload = all_written[start:end]
     assert payload == large_prompt.encode("utf-8")
+
+
+# --- Claude binary resolution + version logging (Ticket 009) -----------------
+
+
+def test_resolve_claude_version_reads_symlink_target(tmp_path: Path) -> None:
+    """Native-install happy path: a symlink resolves to versions/<X>; basename is the version.
+
+    Mirrors ~/.local/bin/claude -> ~/.local/share/claude/versions/2.1.162 with no
+    subprocess — the cheap path resolves the real symlink on disk.
+    """
+    versions = tmp_path / "share" / "claude" / "versions"
+    versions.mkdir(parents=True)
+    version_file = versions / "2.1.162"
+    version_file.write_text("#!/bin/sh\n")  # stand-in for the real binary
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    symlink = bin_dir / "claude"
+    symlink.symlink_to(version_file)
+
+    path, version = _resolve_claude_version(str(symlink))
+
+    assert version == "2.1.162"
+    assert path == str(version_file)
+
+
+def test_resolve_claude_version_falls_back_to_subprocess(tmp_path: Path) -> None:
+    """Non-version basename (e.g. an npm wrapper) shells out to `claude --version`."""
+    binary = tmp_path / "claude"  # real file; basename "claude" is not a version
+    binary.write_text("#!/bin/sh\n")
+
+    with patch("hive.runtime.pty_session.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="2.1.140 (Claude Code)\n", returncode=0)
+        path, version = _resolve_claude_version(str(binary))
+
+    assert version == "2.1.140"
+    assert path == str(binary)
+    # the probe targets the same binary we resolve
+    assert mock_run.call_args[0][0][0] == str(binary)
+    assert "--version" in mock_run.call_args[0][0]
+
+
+def test_resolve_claude_version_subprocess_failure_returns_unknown(tmp_path: Path) -> None:
+    """A timed-out / failed version probe degrades to "unknown" — never crashes a spawn."""
+    binary = tmp_path / "claude"
+    binary.write_text("#!/bin/sh\n")
+
+    with patch(
+        "hive.runtime.pty_session.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=5.0),
+    ):
+        path, version = _resolve_claude_version(str(binary))
+
+    assert version == "unknown"
+    assert path == str(binary)
+
+
+def test_build_spawn_args_uses_configured_binary(monkeypatch) -> None:
+    """argv[0] is the configured CLAUDE_BINARY, not a hardcoded bare 'claude'."""
+    monkeypatch.setattr("hive.runtime.pty_session.CLAUDE_BINARY", "/home/hezki/.local/bin/claude")
+    args = _build_spawn_args("opus", None, [], [])
+    assert args[0] == "/home/hezki/.local/bin/claude"
+
+
+def test_build_spawn_args_defaults_to_bare_claude(monkeypatch) -> None:
+    """Unset knob keeps the legacy bare-'claude' PATH lookup (back-compatible)."""
+    monkeypatch.setattr("hive.runtime.pty_session.CLAUDE_BINARY", "claude")
+    args = _build_spawn_args("opus", None, [], [])
+    assert args[0] == "claude"
+
+
+async def test_start_logs_resolved_claude_version(mock_spawn, tmp_path: Path, caplog) -> None:
+    """Every spawn logs the entity, resolved version, and binary path (drift is visible)."""
+    mock_cls, proc = mock_spawn
+    session = PtySession(model="sonnet", cwd=tmp_path, entity_name="worker-3")
+
+    with patch(
+        "hive.runtime.pty_session._resolve_claude_version",
+        return_value=("/home/hezki/.local/share/claude/versions/2.1.162", "2.1.162"),
+    ):
+        with caplog.at_level(logging.INFO, logger="hive.runtime.pty_session"):
+            await session.start()
+
+    assert any(
+        "worker-3" in m and "2.1.162" in m and "versions/2.1.162" in m for m in caplog.messages
+    )
