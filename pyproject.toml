@@ -51,3 +51,11 @@ timeout = 30
 markers = [
     "integration: tests that drive real external processes or services (e.g. a live Harness); skipped in CI. Hermetic multi-component round-trips do NOT use this marker.",
 ]
+
+[tool.coverage.run]
+source = ["src/hive"]
+
+[tool.coverage.report]
+# Ratchet floor, not a target. Current coverage ~77.4% (ticket 011);
+# raise this when coverage climbs durably, never lower it to pass a build.
+fail_under = 75
