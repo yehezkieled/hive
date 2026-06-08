@@ -37,6 +37,40 @@ commands below use a venv at `.venv/`.
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
 
+### Claude Code version policy
+
+The fleet resolves the `claude` binary from `HIVE_CLAUDE_BINARY` (in `.env`),
+**not** from an ambiguous PATH lookup. This exists because the host carries two
+independent installs — the native installer (`~/.local/bin/claude`,
+self-updating) and an npm global (`/usr/bin/claude`, frozen until a manual
+`npm i -g`) — and the `hive.service` PATH omits `~/.local/bin`, so a bare
+`claude` silently runs the **stale npm one** while dev runs the native one. The
+PTY harness scrapes the Claude Code TUI to detect gates and turn completion
+(see [ADR 0001](adr/0001-harness-agnostic-runtime.md)), so a version skew can
+break gate detection in the fleet and never show in dev.
+
+- **Policy = track-latest (default).** Point the knob at the native
+  self-updating **symlink** so the fleet always runs exactly the version dev
+  tests against — no promotion ritual:
+
+  ```bash
+  HIVE_CLAUDE_BINARY=/home/hezki/.local/bin/claude
+  ```
+
+  Unset, it defaults to the bare `"claude"` (legacy PATH-lookup behaviour).
+- **The version is logged at every spawn.** Confirm which version the fleet
+  actually resolved:
+
+  ```bash
+  journalctl --user -u hive.service | grep "on claude"
+  # … PtySession: worker-3 on claude 2.1.162 (…/versions/2.1.162)
+  ```
+
+- **To freeze an exact version** (rarely needed): the native installer prunes
+  old `versions/X` files, so a real freeze means the **npm** install — point the
+  knob at the npm path (`/usr/bin/claude`) and bump deliberately with
+  `npm i -g @anthropic-ai/claude-code@<version>`.
+
 ---
 
 ## 2. First-time setup
@@ -80,6 +114,11 @@ POSTGRES_PORT=5433
 POSTGRES_DB=hive
 POSTGRES_USER=hive
 POSTGRES_PASSWORD=hive
+
+# Claude Code binary the fleet spawns — point at the native self-updating
+# symlink so the fleet tracks the version dev tests against (see
+# "Claude Code version policy" in Section 1).
+HIVE_CLAUDE_BINARY=/home/hezki/.local/bin/claude
 ```
 
 `.env` is gitignored. Do not commit it.
