@@ -35,3 +35,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Claude Code local config (machine-specific, not shared)
+.claude/
