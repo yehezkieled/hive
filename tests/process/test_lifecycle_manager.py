@@ -182,6 +182,41 @@ def test_adapter_config_maps_entity_fields() -> None:
     assert config.role == "maestro"
 
 
+def test_worker_config_denies_thinking_and_prototype_skills() -> None:
+    """A worker's spawn args carry both the thinking + prototype deny tokens.
+
+    Exercises the full seam: entity -> _adapter_config_from_entity ->
+    ClaudeAdapter._build_pty_extra_args -> --disallowedTools (Ticket 012).
+    """
+    from hive.runtime.claude_adapter import ClaudeAdapter
+
+    worker = Worker(name="dev.backend.w1", lead_name="dev.backend")
+    config = _adapter_config_from_entity(worker)
+    args = ClaudeAdapter(config)._build_pty_extra_args()
+
+    assert "--disallowedTools" in args
+    assert "Skill(grill-me)" in args
+    assert "Skill(prototype)" in args
+
+
+def test_maestro_config_denies_prototype_but_keeps_thinking_skills() -> None:
+    """A maestro keeps the thinking skills; only Skill(prototype) is denied.
+
+    Pre-existing disallowed tokens (Agent/Task) survive the merge.
+    """
+    from hive.runtime.claude_adapter import ClaudeAdapter
+
+    maestro = Maestro(name="dev", model="opus", disallowed_tools=["Agent", "Task"])
+    config = _adapter_config_from_entity(maestro)
+    args = ClaudeAdapter(config)._build_pty_extra_args()
+
+    assert "Skill(prototype)" in args
+    assert "Skill(grill-me)" not in args
+    # Pre-existing tokens are preserved alongside the skill tokens.
+    assert "Agent" in args
+    assert "Task" in args
+
+
 # ---------------------------------------------------------------------------
 # register_maestro / register_entity
 # ---------------------------------------------------------------------------

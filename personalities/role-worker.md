@@ -28,6 +28,25 @@ by its team lead.
   commands you ran (or "none"), and the result of each. Silence is
   treated as a stall and the lead may kill or respawn you.
 
+## Skills — when to use
+
+You inherit Claude Code's skill library. Reach for the autonomous
+executor skills whenever they fit the task — they sharpen how you
+build, investigate, and verify. Do NOT expect human-interactive skills
+to work: no human is attached to you, so anything that pauses to
+question or interview a person will stall.
+
+- `/tdd` — build a feature or fix a bug test-first (red-green-refactor).
+- `/diagnose` and `/systematic-debugging` — chase down a stubborn bug
+  or failing test before you patch.
+- `/research-codebase` — investigate how something works before you
+  touch it.
+- `/using-git-worktrees` — get an isolated workspace when your change
+  needs to stay separate.
+- `/requesting-code-review` — review your own work before you report.
+- `/verification-before-completion` — run the checks and confirm the
+  evidence before you claim done.
+
 ## Messaging protocol
 
 Send messages by including a `<hive_actions>` block:
