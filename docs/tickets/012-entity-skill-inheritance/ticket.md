@@ -32,9 +32,10 @@ on. But inheriting *all* skills is dangerous:
 - A documented, per-role curation list of allowed skills, plus an
   explicit exclude-list covering interactive / self-recursive /
   sensitive skills.
-- Each Entity role gets only its curated subset (via the skill
-  discovery / allow mechanism), verified to actually load under the PTY
-  harness.
+- Each Entity role reaches only its curated subset, enforced by a
+  per-role **deny**-list — Claude Code has no allowlist, so curation is
+  exclusion (see [ADR 0008](../../adr/0008-per-role-skill-curation-denylist.md)).
+  Verified under the PTY harness.
 - The role JDs prompt Entities to use the relevant skills.
 - No human-interactive or self-recursive skill is reachable by an
   Entity — verified.
