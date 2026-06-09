@@ -173,28 +173,29 @@ Lona and Wonder run on isolated per-bot state dirs. Always use the
 
 ## Active work
 
-**Phase 2 — Restructure** (Sprint
-[`2026-Q2-S4`](docs/sprints/2026-Q2-S4.md), 2026-06-04 → 2026-06-18) —
-close-out + hardening. Phase 2's structural work shipped in S3: the
-`process/manager.py` god object is split into a facade + four
-collaborators (Ticket [`004`](docs/tickets/004-manager-py-breakup/),
+**Phase 2 — Restructure** is **✅ done** — closed Sprint
+[`2026-Q2-S4`](docs/sprints/2026-Q2-S4.md) on 2026-06-09 (goal met).
+The `process/manager.py` god object became a facade + four collaborators
+(Ticket [`004`](docs/tickets/004-manager-py-breakup/),
 [ADR 0006](docs/adr/0006-god-object-breakup-composition.md)),
 `WorkerAgent` → `Worker` (Ticket
-[`006`](docs/tickets/006-worker-rename/)), and the headless runtime is
-gone — PTY-only (Ticket
-[`007`](docs/tickets/007-remove-headless-runtime/), ADR 0007). S4
-finishes the phase and hardens the live fleet: Vault config submodule
-(Ticket [`005`](docs/tickets/005-vault-consolidation/) — re-scoped, 004
-absorbed the rest), track untracked async tasks
-([`008`](docs/tickets/008-track-background-tasks/)), pin the fleet's
-Claude Code version
-([`009`](docs/tickets/009-pin-claude-version/)), repair the stale
+[`006`](docs/tickets/006-worker-rename/)), the headless runtime is gone —
+PTY-only (Ticket
+[`007`](docs/tickets/007-remove-headless-runtime/), ADR 0007), and S4
+hardened the live fleet: Vault config consolidated
+([`005`](docs/tickets/005-vault-consolidation/)), tracked async tasks
+([`008`](docs/tickets/008-track-background-tasks/)), pinned Claude Code
+version ([`009`](docs/tickets/009-pin-claude-version/)), repaired
 integration test
-([`010`](docs/tickets/010-repair-integration-test/)), a CI coverage
-floor ([`011`](docs/tickets/011-ci-coverage-floor/)), and curated
-Entity skill inheritance
-([`012`](docs/tickets/012-entity-skill-inheritance/)). Phase 3
-(dashboard → PWA) opens next.
+([`010`](docs/tickets/010-repair-integration-test/)), CI coverage floor
+([`011`](docs/tickets/011-ci-coverage-floor/)), and per-role skill
+curation
+([`012`](docs/tickets/012-entity-skill-inheritance/), ADR 0008).
+
+**Phase 3 (dashboard → PWA) opens next** — Sprint S5 not yet planned
+(Tickets [`013`](docs/tickets/013-retire-custom-advisor/) and
+[`014`](docs/tickets/014-trim-vps-skill-library/) pre-assigned). When
+S5 is opened, update the sprint `@`-reference at the top of this file.
 
 Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
 and plan-billed in production (Tickets 001 + 003); the headless

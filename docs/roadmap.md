@@ -16,13 +16,15 @@ cutoff that moves headless `claude -p` to API billing no longer
 threatens Hive; retiring the leftover headless path is Phase 2 cleanup
 (Ticket 007).
 
-## Phase 2 — Restructure  ·  IN PROGRESS
+## Phase 2 — Restructure  ·  ✅ DONE 2026-06-09
 
-Hive is cleanly structured and properly documented — maintainable,
-easy for humans and agents to navigate. Targets: break up
-`manager.py` (god object), consolidate the Vault, resolve naming
-drift (`WorkerAgent` → `Worker`), and retire the superseded headless
-runtime path.
+Hive is cleanly structured and documented: the `manager.py` god object
+is a facade + collaborators (004), the Vault is consolidated (005),
+naming drift is resolved (`WorkerAgent` → `Worker`, 006), and the
+headless runtime is gone — PTY-only (007). Sprint S4 hardened the live
+fleet — tracked async tasks (008), pinned Claude version (009),
+repaired integration test (010), CI coverage floor (011), and per-role
+skill curation (012). Phase 3 (PWA) opens next.
 
 ## Phase 3 — Web dashboard to PWA
 

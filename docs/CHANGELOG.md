@@ -11,6 +11,7 @@ of the legacy Sprints 0–31 lives in
 
 ## 2026-06
 
+- **2026-06-09** — Sprint 2026-Q2-S4: closed out Phase 2 Restructure and hardened the live fleet — consolidated the Vault config (Ticket 005), tracked the fire-and-forget async tasks (008), pinned & logged the fleet's Claude Code version (009), repaired the stale lead-worker integration test (010), added a CI coverage floor (011), and curated Claude Code skills per Entity role via a stall-based denylist (012, ADR 0008). Zero behaviour change on refactors; 1118 tests green, coverage 77.49%; deployed to production. Closed early on goal-met — **Phase 2 complete**.
 - **2026-06-04** — Sprint 2026-Q2-S3: advanced Phase 2 Restructure — broke up the `process/manager.py` god object into a thin facade + four tested collaborators (Ticket 004, ADR 0006), renamed `WorkerAgent` → `Worker` (006), and removed the headless `claude -p` runtime for PTY-only (Ticket 007, ADR 0007). Zero behaviour change; 1146 tests green; deployed to production. Closed early on goal-met.
 - **2026-06-01** — Sprint 2026-Q2-S2: hardened the PTY runtime — the interactive-gate bridge (Ticket 003) detects plan-mode and `AskUserQuestion` gates from the transcript, holds the Turn open, surfaces it on Telegram + web, and injects the user's decision back into the live PTY. Permission gate deferred (ADR 0005). Sprint closed early on goal-met; Phase 1 (Runtime migration) complete.
 
