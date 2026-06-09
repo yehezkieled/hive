@@ -61,6 +61,17 @@ completing the Turn — plan-mode approval (`ExitPlanMode`), an
 blocks the Turn until answered and Hive bridges it (hold-and-inject).
 _Avoid_: prompt, menu, interrupt
 
+**Thinking skill**:
+A Claude Code skill that pauses mid-Turn to involve a human — an
+interview/Q&A, an `AskUserQuestion` selection, or a STOP/approval
+checkpoint. Reachable only by a Maestro, whose gates bridge to the user on
+Telegram; a Team Lead or Worker would stall on one, since its gate
+escalates to a parent Entity that cannot answer. Contrast an *autonomous*
+skill, which runs to completion without a human. Per-role exposure is set
+by the skill-curation denylist (Ticket 012, ADR 0008).
+_Note_: the blocking test is liveness (does it wait for a human?), not
+side-effects or fan-out.
+
 ### Billing
 
 **Plan-billed**:
