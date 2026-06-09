@@ -31,6 +31,7 @@ from hive.models.entity import (
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import Worker
+from hive.process.skill_curation import skill_denylist_for
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
 
 if TYPE_CHECKING:
@@ -108,11 +109,17 @@ def _render_auto_personality(
 
 def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
     """Map an Entity to the ClaudeAdapterConfig needed by ClaudeAdapter."""
+    # Merge the per-role skill denylist (Ticket 012) into the entity's own
+    # disallowed tools, preserving existing tokens (e.g. Agent/Task for
+    # maestro/lead) and de-duplicating while keeping first-seen order.
+    disallowed_tools = list(
+        dict.fromkeys(list(entity.disallowed_tools) + skill_denylist_for(entity.role))
+    )
     return ClaudeAdapterConfig(
         model=entity.model,
         system_prompt=entity.system_prompt,
         allowed_tools=list(entity.allowed_tools),
-        disallowed_tools=list(entity.disallowed_tools),
+        disallowed_tools=disallowed_tools,
         permission_mode=entity.permission_mode,
         loop_mode=entity.loop_mode,
         role=entity.role,
