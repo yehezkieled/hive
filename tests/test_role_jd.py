@@ -87,10 +87,20 @@ class TestRepoLevelRoleFiles:
         assert "spawn_team" in text
         assert "hive_actions" in text
 
-    def test_lead_jd_documents_spawn_worker(self) -> None:
+    def test_lead_jd_documents_workflow_leaf_path(self) -> None:
+        """The lead JD teaches the Workflow leaf engine (ADR 0010):
+        fan out via the Workflow tool, sync-wait on TaskOutput, isolate
+        file-mutating agents per worktree, cancel with TaskStop — while
+        still documenting spawn_worker as the demoted legacy path and
+        keeping the hive_actions reporting contract.
+        """
         repo_root = Path(__file__).parent.parent
         text = (repo_root / "personalities" / "role-lead.md").read_text()
-        assert "spawn_worker" in text
+        assert "Workflow" in text
+        assert "TaskOutput" in text
+        assert "TaskStop" in text
+        assert "isolation" in text
+        assert "spawn_worker" in text  # demoted legacy, removed by 016
         assert "hive_actions" in text
 
     def test_worker_jd_omits_spawn_actions(self) -> None:

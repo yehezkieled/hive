@@ -339,8 +339,8 @@ class TestCurrentPriority:
 class TestMessagingPromptInjection:
     """Every entity gets identity + loop + role JD as appended prompts.
     The role JD encodes the messaging protocol and any role-specific
-    autonomy actions (e.g. spawn_team for maestros, spawn_worker for leads,
-    no autonomy for workers).
+    autonomy actions (e.g. spawn_team for maestros, the Workflow leaf
+    path for leads, no autonomy for workers).
     """
 
     def test_maestro_includes_role_jd_with_spawn_team(self) -> None:
@@ -353,14 +353,17 @@ class TestMessagingPromptInjection:
         assert any("hive_actions" in a for a in appended)
         assert any("spawn_team" in a for a in appended)
 
-    def test_lead_includes_role_jd_with_spawn_worker(self) -> None:
+    def test_lead_includes_role_jd_with_workflow_leaf_path(self) -> None:
+        """The lead JD (ADR 0010: Workflow leaf engine) rides in as the
+        3rd appended block — the JD reframe must not add a 4th.
+        """
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
         args = lead.build_cli_args()
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert len(indices) == 3
         appended = [args[i + 1] for i in indices]
         assert any("hive_actions" in a for a in appended)
-        assert any("spawn_worker" in a for a in appended)
+        assert any("Workflow" in a and "TaskOutput" in a for a in appended)
 
     def test_worker_includes_role_jd_no_spawn(self) -> None:
         w = Worker(name="dev.backend.w1")
