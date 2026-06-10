@@ -24,21 +24,30 @@ naming drift is resolved (`WorkerAgent` → `Worker`, 006), and the
 headless runtime is gone — PTY-only (007). Sprint S4 hardened the live
 fleet — tracked async tasks (008), pinned Claude version (009),
 repaired integration test (010), CI coverage floor (011), and per-role
-skill curation (012). Phase 3 (PWA) opens next.
+skill curation (012). Phase 3 (Workflow-native orchestration) opens next.
 
-## Phase 3 — Web dashboard to PWA
+## Phase 3 — Workflow-native orchestration  ·  IN PROGRESS · deadline 2026-06-23
+
+Hive stops hand-rolling its leaf-agent coordination and runs it on Claude
+Code's Workflow primitive: Leads fan out deterministic, cheap, reliable
+work; persistent Workers retire; a progress bridge keeps every run visible
+and (later) steerable from your phone; and a library of interaction
+patterns — debate, blackboard, tournament — becomes the shared vocabulary
+Leads compose with.
+
+## Phase 4 — Web dashboard to PWA
 
 Control Hive from a phone, off Telegram. The existing dashboard
 becomes a responsive installable PWA — one codebase, no app store.
 
-## Phase 4 — Codex + OpenCode adapters
+## Phase 5 — Codex + OpenCode adapters
 
 Vendor independence — the ability to pivot the fleet off Claude.
 Build the `codex` adapter (ChatGPT/Codex plan) and the `opencode`
 adapter (provider-agnostic, cheap models such as GLM). Automatic
 quota-failover once both adapters exist.
 
-## Phase 5 — Features (ideas)
+## Phase 6 — Features (ideas)
 
 Each becomes a Ticket when its time comes; until then, just a
 one-line bullet here.
@@ -54,6 +63,6 @@ one-line bullet here.
 
 ## Priority note
 
-Phases 3 and 4 can swap. Phase 3 (PWA) is daily-use value; Phase 4
+Phases 4 and 5 can swap. Phase 4 (PWA) is daily-use value; Phase 5
 (extra harnesses) is insurance against Claude quota becoming a real
 ceiling. That ordering is a judgement call.
