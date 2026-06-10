@@ -32,6 +32,7 @@ from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.worker import Worker
 from hive.process.skill_curation import skill_denylist_for
+from hive.process.tool_policy import role_tool_denylist
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
 
 if TYPE_CHECKING:
@@ -54,27 +55,13 @@ def _render_auto_personality(
     files with this flag are deleted on kill. User-authored files (no
     frontmatter) are always preserved.
 
-    Maestros and leads default to read-only tools (Read, Grep, Glob)
-    so the role boundary holds — they cannot drift into hands-on
-    coding because Edit/Write/Bash aren't available. Workers and other
-    roles inherit the platform default toolkit.
-
-    The ``disallowedTools`` line blocks Claude Code's internal
-    subagent tools (``Agent``/``Task``) and TodoWrite-family tools for
-    coordinator roles. ``allowedTools`` alone is bypassed when the
-    entity runs under ``--dangerously-skip-permissions`` (yolo mode);
-    ``disallowedTools`` is still honored. Without this guard, a yolo
-    lead spawns Claude Code's own subagents instead of Hive workers
-    and the org never grows.
+    No ``## Tools`` section is emitted. The role tool guard lives in
+    ``tool_policy.role_tool_denylist`` (Ticket 015, ADR 0010), merged
+    into the adapter config on every spawn — restart included — so it
+    no longer depends on a personality file existing. A hand-written
+    personality's ``## Tools`` section still works, as a per-Entity
+    override.
     """
-    tools_section = ""
-    if role in ("maestro", "lead"):
-        tools_section = (
-            "\n## Tools\n"
-            "- allowedTools: Read Grep Glob\n"
-            "- disallowedTools: Agent Task ExitPlanMode TodoWrite TaskCreate "
-            "TaskUpdate TaskList TaskGet TaskOutput TaskStop\n"
-        )
     knowledge_section = (
         "\n## Knowledge search\n"
         "You have a `search_knowledge(query, kind, limit)` MCP tool "
@@ -102,18 +89,22 @@ def _render_auto_personality(
         "## System Prompt\n"
         f"You are {display_name}.\n\n"
         f"{personality}\n"
-        f"{tools_section}"
         f"{knowledge_section}"
     )
 
 
 def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
     """Map an Entity to the ClaudeAdapterConfig needed by ClaudeAdapter."""
-    # Merge the per-role skill denylist (Ticket 012) into the entity's own
-    # disallowed tools, preserving existing tokens (e.g. Agent/Task for
-    # maestro/lead) and de-duplicating while keeping first-seen order.
+    # Merge three deny sources, de-duplicating while keeping first-seen
+    # order: the entity's own tokens (personality ``## Tools`` override),
+    # the role tool guard (Ticket 015, ADR 0010 — runs on every spawn,
+    # restart included), and the per-role skill denylist (Ticket 012).
     disallowed_tools = list(
-        dict.fromkeys(list(entity.disallowed_tools) + skill_denylist_for(entity.role))
+        dict.fromkeys(
+            list(entity.disallowed_tools)
+            + role_tool_denylist(entity.role)
+            + skill_denylist_for(entity.role)
+        )
     )
     return ClaudeAdapterConfig(
         model=entity.model,
