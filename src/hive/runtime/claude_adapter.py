@@ -116,6 +116,15 @@ class ClaudeAdapter(Runtime):
     def is_alive(self) -> bool:
         return self._pty is not None and self._pty.is_alive()
 
+    def is_busy(self) -> bool:
+        """True while a turn is in flight (``send_turn`` holds the lock).
+
+        The idle reaper checks this so an entity mid-turn — e.g. a lead
+        blocked on a Workflow sync-wait (ADR 0010) — is never killed on a
+        stale ``last_activity_at``, which only updates at turn start.
+        """
+        return self._lock.locked()
+
     async def send_turn(self, prompt: str) -> tuple[str, dict]:
         async with self._lock:
             assert self._pty is not None, "PtySession not started — call start() first"

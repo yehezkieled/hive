@@ -158,3 +158,14 @@ async def test_start_threads_gate_wiring_into_pty() -> None:
     assert kwargs["gate_coordinator"] is coordinator
     assert kwargs["entity_name"] == "dev"
     assert kwargs["on_gate_state"] is on_state
+
+
+async def test_is_busy_reflects_in_flight_turn() -> None:
+    """is_busy() is True exactly while a turn holds the adapter lock —
+    the idle reaper uses it to never kill an entity mid-turn (ADR 0010)."""
+    adapter = ClaudeAdapter(_config())
+
+    assert adapter.is_busy() is False
+    async with adapter._lock:
+        assert adapter.is_busy() is True
+    assert adapter.is_busy() is False
