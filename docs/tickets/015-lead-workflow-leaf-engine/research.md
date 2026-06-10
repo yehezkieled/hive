@@ -116,7 +116,7 @@ which is premise 2.
 Agent/Task subagenting. **No ADR, comment, or ticket** anywhere considered that
 `TaskOutput`/`TaskStop` are also how a CC session monitors and cancels a
 background task. So pruning them (design Q2a) reverses an unconsidered
-side-effect, not a deliberate decision — and ADR 0009 becomes the first written
+side-effect, not a deliberate decision — and ADR 0010 becomes the first written
 record of the whole guard's rationale.
 
 ## JD + test impact (inventoried for the build)

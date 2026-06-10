@@ -1,7 +1,7 @@
 # 015 — Outline (implementation structure)
 
 Single PR (DIRECT lane). Approach in [`design.md`](design.md); decision in
-[ADR 0009](../../adr/0009-leads-orchestrate-via-workflow.md). Five independent
+[ADR 0010](../../adr/0010-leads-orchestrate-via-workflow.md). Five independent
 seams; commit order is bottom-up so each commit is green on its own.
 
 ## Seam map

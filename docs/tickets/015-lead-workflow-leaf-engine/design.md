@@ -1,7 +1,7 @@
 # 015 — Design (chosen approach)
 
 Seeded by [`ticket.md`](ticket.md); grounded in [`research.md`](research.md);
-decision recorded in [ADR 0009](../../adr/0009-leads-orchestrate-via-workflow.md).
+decision recorded in [ADR 0010](../../adr/0010-leads-orchestrate-via-workflow.md).
 
 ## Decision in one line
 
@@ -145,12 +145,12 @@ accept a turn while the last assistant entry has an unanswered `tool_use`
 180s timeout count **no-progress** (reset while a tool is pending or the
 transcript moves), so a 30-min fan-out doesn't trip a wall-clock limit.
 
-### Q7 — One ADR (0009)
+### Q7 — One ADR (0010)
 
 Carry-back, fencing, worktree floor, and idle-kill are all mechanisms of one
 decision — "Leads orchestrate leaf work via in-session Workflow agents instead
 of persistent Workers." One ADR keeps the rationale whole; since the original
-guard was never ADR'd, 0009 is also its first written record.
+guard was never ADR'd, 0010 is also its first written record.
 
 ### Q8 — Usage undercount: known limitation, not fixed here
 

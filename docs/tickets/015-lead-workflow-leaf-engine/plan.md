@@ -2,7 +2,7 @@
 
 DIRECT lane — single PR. Approach in [`design.md`](design.md); commit sequence
 in [`outline.md`](outline.md); decision in
-[ADR 0009](../../adr/0009-leads-orchestrate-via-workflow.md).
+[ADR 0010](../../adr/0010-leads-orchestrate-via-workflow.md).
 
 **Dependency:** none blocking (015 is the S5 foundation). Assumes CC ≥ 2.1.101
 on the fleet (Ticket 009 — pinned 2.1.170, verified).
@@ -23,7 +23,7 @@ on the fleet (Ticket 009 — pinned 2.1.170, verified).
 | `tests/runtime/test_transcript_reader.py` | modify/create — pending `TaskOutput` → no accept; resolved → accept real final turn | c4 |
 | `tests/test_role_jd.py` | modify — lead JD asserts Workflow guidance | c5 |
 | `tests/test_entity.py` | modify — lead JD content updated; still **3** prompt blocks | c5 |
-| `docs/adr/0009-leads-orchestrate-via-workflow.md` | created (committed) | — |
+| `docs/adr/0010-leads-orchestrate-via-workflow.md` | created (committed) | — |
 
 ## Verification
 
@@ -63,7 +63,7 @@ on the fleet (Ticket 009 — pinned 2.1.170, verified).
 
 ## Cross-cutting impact
 
-- **ADR:** 0009 (created).
+- **ADR:** 0010 (created).
 - **Reference docs:** none required by 015. (`docs/DEPLOYMENT.md` mentions the
   advisor, not the lead guard; no change here.)
 - **Glossary:** no `CONTEXT.md` change in 015 — "Turn" is preserved by the

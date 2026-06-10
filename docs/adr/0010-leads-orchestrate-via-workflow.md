@@ -1,4 +1,4 @@
-# ADR 0009 — Leads orchestrate leaf work via Claude Code Workflow
+# ADR 0010 — Leads orchestrate leaf work via Claude Code Workflow
 
 - **Status:** Accepted
 - **Date:** 2026-06-10
