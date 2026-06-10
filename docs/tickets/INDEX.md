@@ -24,3 +24,4 @@ marked with ✱.
 | 016 ✱ | [Migrate leaf dispatch: `spawn_worker` → Workflow](016-migrate-leaf-dispatch-to-workflow/) | 2026-Q2-S5 | planned | — |
 | 017 ✱ | [Bridge Workflow progress to dashboard + Telegram](017-bridge-workflow-progress/) | 2026-Q2-S5 | planned | — |
 | 018 | [Retire the persistent Worker entity](018-retire-worker-entity/) | 2026-Q2-S5 | planned | — |
+| 019 | [Maestro phase-confirmation gate](019-maestro-phase-confirmation/) | S6 (cand.) | planned | — |
