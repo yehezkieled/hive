@@ -363,6 +363,252 @@ async def test_await_returns_text_not_gated_for_normal_turn_with_detector(
     assert text == "all done"
 
 
+async def test_pending_tool_use_in_last_assistant_entry_is_not_accepted(
+    tmp_path: Path,
+) -> None:
+    """A Turn blocked on an in-flight tool call must NOT be accepted early.
+
+    A long sync-wait (e.g. Workflow ``TaskOutput``) writes an assistant entry
+    with a ``tool_use`` block, then the file goes quiet while the tool runs.
+    Quiescence alone would accept that intermediate entry — the mis-attribution
+    race. The reader must keep polling while the LAST assistant entry holds a
+    ``tool_use`` with no matching ``tool_result`` anywhere in the file.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("fan out the leaf work")])
+
+    pending_assistant = _assistant_entry(
+        "kicking off the run...",
+        session_id="sess-pend",
+        extra_blocks=[
+            {
+                "type": "tool_use",
+                "id": "tool-pending",
+                "name": "TaskOutput",
+                "input": {"task_id": "wf-1"},
+            }
+        ],
+    )
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(pending_assistant) + "\n")
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    # The reader must still be polling well after the quiescence window —
+    # the outer wait_for cancels it, proving the entry was never accepted.
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            reader.await_next_assistant_turn(session, timeout=5.0, quiescence_ms=50),
+            timeout=0.5,
+        )
+    await write_task
+
+
+async def test_accepts_true_final_entry_after_pending_tool_resolves(
+    tmp_path: Path,
+) -> None:
+    """When the tool_result lands and a final entry follows, accept THAT entry.
+
+    The quiet stretch between the tool_use and its result is longer than the
+    quiescence window, so without the pending-tool guard the reader would have
+    returned the intermediate entry. It must instead return the final entry's
+    text and usage.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("fan out the leaf work")])
+
+    pending_assistant = _assistant_entry(
+        "launching the workflow...",
+        session_id="sess-wf",
+        input_tokens=100,
+        output_tokens=50,
+        extra_blocks=[
+            {
+                "type": "tool_use",
+                "id": "tool-wf",
+                "name": "TaskOutput",
+                "input": {"task_id": "wf-1"},
+            }
+        ],
+    )
+    tool_result_user = {
+        "type": "user",
+        "sessionId": "sess-wf",
+        "uuid": "uuid-u-wf",
+        "timestamp": "2026-06-10T00:00:01.000Z",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tool-wf", "content": "done"}],
+        },
+    }
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(pending_assistant) + "\n")
+        # Quiet stretch well beyond quiescence — the tool is "running".
+        await asyncio.sleep(0.25)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(tool_result_user) + "\n")
+            fh.write(
+                json.dumps(
+                    _assistant_entry(
+                        "All leaf agents finished.",
+                        session_id="sess-wf",
+                        input_tokens=300,
+                        output_tokens=80,
+                        cache_creation=7,
+                        cache_read=9,
+                    )
+                )
+                + "\n"
+            )
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    text, usage = await reader.await_next_assistant_turn(session, timeout=2.0, quiescence_ms=50)
+    await write_task
+
+    assert text == "All leaf agents finished."
+    # Usage must come from the final entry, not the intermediate one.
+    assert usage["input_tokens"] == 300
+    assert usage["output_tokens"] == 80
+    assert usage["cache_creation_input_tokens"] == 7
+    assert usage["cache_read_input_tokens"] == 9
+    assert usage["session_id"] == "sess-wf"
+
+
+async def test_gate_detection_wins_over_pending_tool_guard(tmp_path: Path) -> None:
+    """An unanswered gate must surface as Gated even though it is ALSO a
+    pending tool_use.
+
+    A gate (ExitPlanMode / AskUserQuestion) is itself a tool_use with no
+    tool_result. If the pending-tool guard ran before gate detection, the
+    reader would poll forever instead of returning Gated — gates would never
+    surface. Pin the order: gate check first.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("plan it")])
+
+    gated_assistant = _assistant_entry(
+        "Here is my plan.",
+        session_id="sess-order",
+        extra_blocks=[
+            # A non-gate pending tool_use alongside the gate — the guard
+            # alone would hold the Turn open on either of these.
+            {
+                "type": "tool_use",
+                "id": "tu-bash",
+                "name": "Bash",
+                "input": {"command": "ls"},
+            },
+            {
+                "type": "tool_use",
+                "id": "tu-plan",
+                "name": "ExitPlanMode",
+                "input": {"plan": "1. build the spine"},
+            },
+        ],
+    )
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(gated_assistant) + "\n")
+
+    reader = TranscriptReader(tmp_path, gate_detector=GateDetector())
+    write_task = asyncio.create_task(writer())
+    result = await reader.await_next_assistant_turn(session, timeout=2.0, quiescence_ms=50)
+    await write_task
+
+    assert isinstance(result, Gated)
+    assert result.gate.kind == "plan"
+    assert "build the spine" in result.gate.payload["plan"]
+
+
+async def test_timeout_resets_while_a_tool_is_pending(tmp_path: Path) -> None:
+    """``timeout`` is a no-progress deadline: an in-flight tool counts as progress.
+
+    The transcript sits quiet with a pending tool_use for longer than the
+    whole timeout window. A wall-clock timeout would raise mid-wait; the
+    no-progress deadline must keep resetting and accept the final entry once
+    the tool resolves.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("run the long fan-out")])
+
+    pending_assistant = _assistant_entry(
+        "working...",
+        session_id="sess-long",
+        extra_blocks=[
+            {
+                "type": "tool_use",
+                "id": "tool-long",
+                "name": "TaskOutput",
+                "input": {"task_id": "wf-long"},
+            }
+        ],
+    )
+    tool_result_user = {
+        "type": "user",
+        "sessionId": "sess-long",
+        "uuid": "uuid-u-long",
+        "timestamp": "2026-06-10T00:00:01.000Z",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "tool-long", "content": "ok"}],
+        },
+    }
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(pending_assistant) + "\n")
+        # Quiet for LONGER than the 0.3s timeout window — only the pending
+        # tool keeps the deadline alive.
+        await asyncio.sleep(0.6)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(tool_result_user) + "\n")
+            fh.write(json.dumps(_assistant_entry("run complete", session_id="sess-long")) + "\n")
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    text, _usage = await reader.await_next_assistant_turn(session, timeout=0.3, quiescence_ms=50)
+    await write_task
+
+    assert text == "run complete"
+
+
+async def test_timeout_resets_when_transcript_advances(tmp_path: Path) -> None:
+    """A transcript write (mtime advance) resets the no-progress deadline.
+
+    The file is touched at ~0.2s — no assistant entry, no pending tool, just
+    movement. The 0.3s deadline must restart from that write, so the
+    TimeoutError fires at ~0.5s, not at the original 0.3s mark.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("anyone home?")])
+
+    async def writer() -> None:
+        await asyncio.sleep(0.2)
+        with session.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(_user_entry("still streaming context...")) + "\n")
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        await reader.await_next_assistant_turn(session, timeout=0.3, quiescence_ms=50)
+    elapsed = time.monotonic() - start
+    await write_task
+
+    # Reset at ~0.2s + a fresh 0.3s window = ~0.5s minimum.
+    assert 0.45 <= elapsed < 1.5
+
+
 async def test_usage_dict_has_exactly_the_five_contract_keys(tmp_path: Path) -> None:
     """The usage dict must contain EXACTLY 5 keys with the contracted shape.
 

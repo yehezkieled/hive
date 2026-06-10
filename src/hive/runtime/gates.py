@@ -24,6 +24,26 @@ from typing import Any, Literal
 GateKind = Literal["plan", "ask", "permission"]
 
 
+def resolved_tool_use_ids(entries: list[dict]) -> set[str]:
+    """All ``tool_use_id``s that have a matching ``tool_result``.
+
+    The tool_use/tool_result pairing shared by gate detection and the
+    transcript reader's pending-tool accept-guard (ADR 0010): a ``tool_use``
+    block whose ``id`` is absent from this set is still in flight.
+    """
+    resolved: set[str] = set()
+    for entry in entries:
+        content = (entry.get("message") or {}).get("content") or []
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                tool_use_id = block.get("tool_use_id")
+                if tool_use_id is not None:
+                    resolved.add(tool_use_id)
+    return resolved
+
+
 @dataclass(frozen=True)
 class Gate:
     """An unanswered interactive gate detected in the transcript.
@@ -62,7 +82,7 @@ class GateDetector:
             if isinstance(attachment, dict) and attachment.get("type") == "plan_mode":
                 return Gate(kind="plan", payload={"plan": attachment.get("plan", "")})
 
-        resolved_ids = self._resolved_tool_use_ids(entries)
+        resolved_ids = resolved_tool_use_ids(entries)
         for tool_use in self._tool_use_blocks(entries):
             if tool_use.get("id") in resolved_ids:
                 continue
@@ -119,21 +139,6 @@ class GateDetector:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     blocks.append(block)
         return blocks
-
-    @staticmethod
-    def _resolved_tool_use_ids(entries: list[dict]) -> set[str]:
-        """All ``tool_use_id``s that have a matching ``tool_result``."""
-        resolved: set[str] = set()
-        for entry in entries:
-            content = (entry.get("message") or {}).get("content") or []
-            if not isinstance(content, list):
-                continue
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    tool_use_id = block.get("tool_use_id")
-                    if tool_use_id is not None:
-                        resolved.add(tool_use_id)
-        return resolved
 
 
 # TUI control sequences. Carriage return submits the selected menu row; the
