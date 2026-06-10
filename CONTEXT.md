@@ -72,6 +72,15 @@ by the skill-curation denylist (Ticket 012, ADR 0008).
 _Note_: the blocking test is liveness (does it wait for a human?), not
 side-effects or fan-out.
 
+**Advisor**:
+Claude Code's native `/advisor` tool — a stronger model (Opus) the
+executor consults at decision points for a second opinion. Enabled
+per-Entity by the role file's `**Advisor**:` field (`--advisor <model>`
+at spawn); model-driven and Plan-billed. _Note_: from Ticket 013 this is
+the **native** tool. The retired *custom advisor* (a Hive MCP server that
+spawned a `claude -p` subprocess) is gone — do not conflate them.
+_Avoid_: custom advisor, advisor MCP server, `claude -p` advisor.
+
 ### Billing
 
 **Plan-billed**:
