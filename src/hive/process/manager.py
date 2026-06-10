@@ -31,7 +31,6 @@ from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.config import (
-    ADVISOR_ENABLED,  # noqa: F401  re-exported; LifecycleManager reads it via this module (patched in test_advisor_mcp)
     AUTO_COMPACT_ENABLED,  # noqa: F401  re-exported; MessageDispatcher reads it via this module
     AUTO_COMPACT_THRESHOLD,  # noqa: F401  re-exported; read via this module
     AUTO_RETRIEVE_ENABLED,  # noqa: F401  re-exported; read via this module
@@ -43,6 +42,7 @@ from hive.config import (
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import (
     generate_mcp_config,  # noqa: F401  re-exported; MessageDispatcher + LifecycleManager read it via this module
+    mcp_servers_enabled,  # noqa: F401  re-exported; MessageDispatcher reads it via this module
 )
 from hive.models.entity import (
     Entity,

@@ -207,7 +207,9 @@ class TestKnowledgeServerRegistration:
         generate_mcp_config("dev", str(config_path))
         data = json.loads(config_path.read_text())
 
-        assert "hive" in data["mcpServers"]
+        # The custom advisor server ("hive") was retired in Ticket 013 — the
+        # knowledge server is the only one left.
+        assert "hive" not in data["mcpServers"]
         assert "hive-knowledge" in data["mcpServers"]
 
         knowledge = data["mcpServers"]["hive-knowledge"]
@@ -217,13 +219,13 @@ class TestKnowledgeServerRegistration:
         idx = knowledge["args"].index("--entity")
         assert knowledge["args"][idx + 1] == "dev"
 
-    def test_knowledge_server_disabled_via_env(self, tmp_path: Path, monkeypatch) -> None:
-        from hive.mcp.config import generate_mcp_config
+    def test_no_config_written_when_no_server_enabled(self, tmp_path: Path, monkeypatch) -> None:
+        # With the advisor retired and knowledge disabled, no server remains, so
+        # generate_mcp_config writes nothing and the fleet skips --mcp-config.
+        from hive.mcp.config import generate_mcp_config, mcp_servers_enabled
 
         monkeypatch.setenv("HIVE_KNOWLEDGE_MCP_ENABLED", "false")
+        assert mcp_servers_enabled() is False
         config_path = tmp_path / "mcp.json"
         generate_mcp_config("dev", str(config_path))
-        data = json.loads(config_path.read_text())
-
-        assert "hive" in data["mcpServers"]
-        assert "hive-knowledge" not in data["mcpServers"]
+        assert not config_path.exists()

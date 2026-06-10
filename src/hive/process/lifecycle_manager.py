@@ -22,11 +22,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hive.config import ADVISOR_ENABLED
+from hive.mcp.config import mcp_servers_enabled
 from hive.models.entity import (
     Entity,
     EntityState,
     is_auto_generated_personality,
+    resolve_advisor,
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
@@ -124,7 +125,8 @@ def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
         loop_mode=entity.loop_mode,
         role=entity.role,
         name=entity.name,
-        mcp_config_path=Path(entity.mcp_config_path) if ADVISOR_ENABLED else None,
+        mcp_config_path=Path(entity.mcp_config_path) if mcp_servers_enabled() else None,
+        advisor=resolve_advisor(entity.model, entity.advisor, entity.role),
     )
 
 

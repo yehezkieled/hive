@@ -4,6 +4,10 @@
 - **Name**: <Name>
 - **Role**: maestro | lead | worker
 - **Model**: opus | sonnet | haiku
+- **Advisor**: opus | sonnet | off  *(optional — Claude Code's native
+  `/advisor`, a stronger model consulted at decision points. Omit to use the
+  default: off for workers and for an Opus main; `opus` for a sub-Opus
+  maestro/lead. An explicit value always wins.)*
 
 ## System Prompt
 <System prompt defining this entity's personality, behavior, and purpose.>

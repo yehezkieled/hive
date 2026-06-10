@@ -199,12 +199,6 @@ HIVE_CLAUDE_CREDENTIALS_PATH = Path(
     )
 )
 
-# Advisor MCP server (Sprint 13)
-ADVISOR_ENABLED = os.environ.get("HIVE_ADVISOR_ENABLED", "true").lower() == "true"
-ADVISOR_COOLDOWN_SECONDS = int(os.environ.get("HIVE_ADVISOR_COOLDOWN_SECONDS", "300"))
-ADVISOR_DAILY_LIMIT = int(os.environ.get("HIVE_ADVISOR_DAILY_LIMIT", "20"))
-ADVISOR_CONTEXT_MESSAGES = int(os.environ.get("HIVE_ADVISOR_CONTEXT_MESSAGES", "5"))
-
 # Maestro autonomy / priority scheduler (Sprint 19). The scheduler pokes
 # each alive maestro every PRIORITY_EVAL_INTERVAL_MINUTES with a "facts"
 # prompt (free slots, pending tasks by priority, org snapshot, 24h cost).

@@ -64,6 +64,7 @@ class PersonalityConfig:
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
     constraints: str = ""
+    advisor: str = ""
 
 
 def parse_personality(path: Path) -> PersonalityConfig:
@@ -89,6 +90,7 @@ def parse_personality(path: Path) -> PersonalityConfig:
     name = extract_field(r"\*\*Name\*\*:\s*(.+)")
     role = extract_field(r"\*\*Role\*\*:\s*(.+)")
     model = extract_field(r"\*\*Model\*\*:\s*(.+)")
+    advisor = extract_field(r"\*\*Advisor\*\*:\s*(.+)")
 
     # Extract system prompt: everything between ## System Prompt and the next ##
     prompt_match = re.search(
@@ -118,7 +120,34 @@ def parse_personality(path: Path) -> PersonalityConfig:
         allowed_tools=allowed_tools,
         disallowed_tools=disallowed_tools,
         constraints=constraints,
+        advisor=advisor,
     )
+
+
+def resolve_advisor(model: str, advisor_field: str | None, role: str | None = None) -> str | None:
+    """Resolve the advisor model for an entity (Ticket 013, ADR 0009).
+
+    An explicit ``**Advisor**:`` field always wins — a model name turns the
+    native advisor on, ``off`` turns it off. With no explicit field the default
+    is:
+
+    - **Workers** run one short leaf task where an advisor adds little, so they
+      default off (they are also being retired in Phase 3).
+    - Otherwise **model-aware**: an advisor only helps when stronger than the
+      main model, so a sub-Opus main (Sonnet/Haiku) gets an Opus advisor while
+      an Opus (or higher) main gets none — avoiding a same-tier double pass.
+
+    Returns the advisor model, or ``None`` for off.
+    """
+    if advisor_field and advisor_field.strip():
+        value = advisor_field.strip().lower()
+        return None if value == "off" else value
+    if role == "worker":
+        return None
+    main = (model or "").lower()
+    if "opus" in main or "fable" in main:
+        return None
+    return "opus"
 
 
 _AUTO_GENERATED_FRONTMATTER = re.compile(
@@ -175,6 +204,7 @@ class Entity:
     role: str  # "maestro", "lead", "worker"
     personality_path: Path | None = None
     model: str = "sonnet"
+    advisor: str | None = None
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
     state: EntityState = field(default=EntityState.IDLE)
@@ -223,6 +253,7 @@ class Entity:
 
         config = parse_personality(self.personality_path)
         self.model = config.model or self.model
+        self.advisor = config.advisor or self.advisor
         self.allowed_tools = config.allowed_tools or self.allowed_tools
         self.disallowed_tools = config.disallowed_tools or self.disallowed_tools
         self.system_prompt = config.system_prompt
@@ -277,10 +308,14 @@ class Entity:
         if self.role in ("maestro", "lead", "worker"):
             args.extend(["--append-system-prompt", load_role_jd(self.role)])
 
-        from hive.config import ADVISOR_ENABLED
+        from hive.mcp.config import mcp_servers_enabled
 
-        if ADVISOR_ENABLED:
+        if mcp_servers_enabled():
             args.extend(["--mcp-config", self.mcp_config_path])
+
+        advisor = resolve_advisor(self.model, self.advisor, self.role)
+        if advisor:
+            args.extend(["--advisor", advisor])
 
         return args
 

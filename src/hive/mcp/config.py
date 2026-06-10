@@ -8,31 +8,33 @@ import sys
 from pathlib import Path
 
 
+def _knowledge_enabled() -> bool:
+    return os.environ.get("HIVE_KNOWLEDGE_MCP_ENABLED", "true").lower() == "true"
+
+
+def mcp_servers_enabled() -> bool:
+    """True iff at least one MCP server would be configured for an entity.
+
+    The custom advisor server was retired (Ticket 013, ADR 0009); the
+    knowledge server is the only remaining one. The fleet passes
+    ``--mcp-config`` iff this is True, so no empty config is ever written or
+    handed to Claude Code.
+    """
+    return _knowledge_enabled()
+
+
 def generate_mcp_config(entity_name: str, config_path: str | Path) -> None:
     """Write a Claude Code --mcp-config JSON for one entity.
 
-    Two stdio MCP servers are launched per entity:
-    - ``hive``: advisor (one-shot Opus review). Sprint 13.
-    - ``hive-knowledge``: ``search_knowledge`` over blueprints + attachments. Sprint 27.
+    One stdio MCP server may be launched per entity:
+    - ``hive-knowledge``: ``search_knowledge`` over blueprints + attachments
+      (Sprint 27), gated by ``HIVE_KNOWLEDGE_MCP_ENABLED``.
 
-    The knowledge server is gated by ``HIVE_KNOWLEDGE_MCP_ENABLED`` so it can
-    be killed independently of the advisor. Uses ``sys.executable`` so the
-    same venv Python runs both servers.
+    Uses ``sys.executable`` so the same venv Python runs the server. Writes
+    nothing when no server is enabled — callers gate on ``mcp_servers_enabled``.
     """
-    knowledge_enabled = os.environ.get("HIVE_KNOWLEDGE_MCP_ENABLED", "true").lower() == "true"
-
-    servers: dict[str, dict] = {
-        "hive": {
-            "command": sys.executable,
-            "args": [
-                "-m",
-                "hive.mcp.advisor_server",
-                "--entity",
-                entity_name,
-            ],
-        }
-    }
-    if knowledge_enabled:
+    servers: dict[str, dict] = {}
+    if _knowledge_enabled():
         servers["hive-knowledge"] = {
             "command": sys.executable,
             "args": [
@@ -42,6 +44,9 @@ def generate_mcp_config(entity_name: str, config_path: str | Path) -> None:
                 entity_name,
             ],
         }
+
+    if not servers:
+        return
 
     config = {"mcpServers": servers}
     fd = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)

@@ -195,7 +195,7 @@ class MessageDispatcher:
             context_block = "\n\n---\n\n".join(prepended_blocks)
             prompt = f"{context_block}\n\n---\n\n{prompt}"
 
-        if _mgr_mod.ADVISOR_ENABLED:
+        if _mgr_mod.mcp_servers_enabled():
             _mgr_mod.generate_mcp_config(entity.name, entity.mcp_config_path)
 
         adapter = await self._mgr._get_or_create_adapter(entity)
