@@ -151,7 +151,7 @@ src/hive/
 ├── vault/             # security-gated payment Entity
 ├── notifications/
 ├── observability/     # /status, /cost, daily summary, heartbeat
-├── mcp/               # MCP advisor server
+├── mcp/               # MCP config + hive-knowledge server
 └── cli/               # local readline CLI fallback
 ```
 

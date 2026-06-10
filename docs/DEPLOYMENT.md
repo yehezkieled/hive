@@ -30,8 +30,13 @@ commands below use a venv at `.venv/`.
 ### Authentication
 
 - **Claude Code CLI** — the `claude` CLI must work on this host. Each entity
-  runs as a persistent interactive PTY session (`claude --continue`); the
-  advisor MCP server additionally uses a one-shot `claude -p` call.
+  runs as a persistent interactive PTY session (`claude --continue`). A
+  stronger second opinion comes from Claude Code's native `/advisor`
+  (Ticket 013): Hive enables it per-entity by passing `--advisor <model>` at
+  spawn, with a model-aware default (off for workers and Opus mains, `opus`
+  for a sub-Opus maestro/lead; override per entity with the `**Advisor**:`
+  field). **Remove any global `advisorModel` from `~/.claude/settings.json`** —
+  otherwise it re-enables the advisor on entities Hive deliberately leaves off.
 - **Telegram bot token** — create a bot via BotFather, paste the token into
   `.env` (see Section 2).
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
@@ -89,8 +94,9 @@ pip install -e ".[dev]"
 The dev extras pull in `pytest`, `testcontainers[postgres]`, and `ruff`.
 
 **Sprint 13 note**: `mcp` was added as a runtime dependency in `pyproject.toml`
-(the MCP advisor server runs as a stdio subprocess per entity). It is installed
-automatically via `pip install -e .` — no manual step required.
+(the per-entity `hive-knowledge` MCP server runs as a stdio subprocess; the
+custom advisor server it once also carried was retired in Ticket 013). It is
+installed automatically via `pip install -e .` — no manual step required.
 
 ### Create `.env`
 
@@ -1102,14 +1108,10 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `AUTO_RETRIEVE_TOP_K` | `1` | Number of blueprints (and attachments) to retrieve per kind. Default lowered from 3 → 1 in Sprint 27 — agents call `search_knowledge` for more. |
 | `AUTO_RETRIEVE_MAX_DISTANCE` | `0.5` | Maximum cosine distance for an auto-retrieved blueprint. 0=identical, 1=orthogonal. Default tightened from 0.6 → 0.5 in Sprint 27. |
 | `AUTO_RETRIEVE_FIRST_TURN_ONLY` | `true` | When true (default), auto-retrieve only fires on the first prompt of a fresh entity activation (signalled by `entity.session_id is None`). Subsequent turns rely on the agent calling `search_knowledge` itself (Sprint 27). |
-| `HIVE_KNOWLEDGE_MCP_ENABLED` | `true` | When true (default), spawns the per-entity `hive-knowledge` MCP server alongside the advisor, exposing `search_knowledge(query, kind, limit)` to entities (Sprint 27). Set to `false` to ship advisor-only. |
+| `HIVE_KNOWLEDGE_MCP_ENABLED` | `true` | When true (default), spawns the per-entity `hive-knowledge` MCP server, exposing `search_knowledge(query, kind, limit)` to entities (Sprint 27). Since Ticket 013 it is the *only* MCP server; when `false`, no `--mcp-config` is passed at all. |
 | `HIVE_ALLOW_AUTO_MERGE` | `0` | When `1`, enables `/merge <entity>`. Off by default so a fat-fingered Telegram message can't ship code. |
 | `HIVE_HEARTBEAT_ENABLED` | `false` | `true` to enable periodic status pings to Telegram. |
 | `HIVE_HEARTBEAT_INTERVAL_MINUTES` | `30` | Ping interval in minutes. |
-| `HIVE_ADVISOR_ENABLED` | `true` | `false` to disable the per-entity MCP advisor server. |
-| `HIVE_ADVISOR_COOLDOWN_SECONDS` | `300` | Minimum seconds between advisor calls per entity. |
-| `HIVE_ADVISOR_DAILY_LIMIT` | `20` | Max advisor calls per entity per day. |
-| `HIVE_ADVISOR_CONTEXT_MESSAGES` | `5` | Number of recent messages fed to advisor as context. |
 | `HIVE_WEB_TOKEN` | *(empty)* | Bearer token for the web write surface (Sprint 15). Empty disables `POST /api/command` and `/sse/notifications` entirely. |
 | `HIVE_EMAIL_ENABLED` | `false` | Enable the email digest channel (Sprint 15). |
 | `HIVE_EMAIL_TO` | *(empty)* | Recipient address for digests. Required when enabled. |
@@ -1149,8 +1151,8 @@ become no-ops — Hive still boots.
   state still goes `idle` between turns — this is expected, not a bug.
 - **`/cost` shows token counts, not dollars** — the PTY path is plan-billed,
   so per-turn `cost_usd` is `None`; token counts are the real accountability
-  number. (The advisor's one-shot `claude -p` is the only remaining metered
-  call.)
+  number. (Ticket 013 retired the advisor's one-shot `claude -p`; native
+  `/advisor` is plan-billed in-session, so no metered call remains.)
 - **No multi-LLM routing** — all entities run on the Claude Code PTY harness.
   Routing to other providers (Codex, OpenCode) is Phase 4, not yet
   implemented.

@@ -34,6 +34,7 @@ class ClaudeAdapterConfig:
     role: str = "worker"
     name: str = ""
     mcp_config_path: Path | None = None
+    advisor: str | None = None
 
 
 class ClaudeAdapter(Runtime):
@@ -86,6 +87,10 @@ class ClaudeAdapter(Runtime):
             args.extend(["--allowedTools", *cfg.allowed_tools])
         if cfg.disallowed_tools:
             args.extend(["--disallowedTools", *cfg.disallowed_tools])
+        if cfg.advisor:
+            # Native /advisor (Ticket 013): a stronger model the executor
+            # consults at decision points. Off when None (no flag).
+            args.extend(["--advisor", cfg.advisor])
         if cfg.mcp_config_path is not None:
             # --strict-mcp-config: load only this file, not the user's global
             # MCP servers (those add minutes of cold-start latency per spawn).

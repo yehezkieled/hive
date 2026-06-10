@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import atexit
-import json
 import logging
 import os
 import re
@@ -19,8 +17,6 @@ from hive.config import CLAUDE_BINARY
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.gates import GateDetector
 from hive.runtime.transcript_reader import Gated, TranscriptReader
-
-_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +168,6 @@ class PtySession:
         self._buf: bytearray = bytearray()
         self._closed: bool = False
         self._reader_task: asyncio.Task | None = None
-        self._advisor_original: str | None = None  # set only if we removed it
-        self._atexit_registered: bool = False
         # Transcript-as-source-of-truth: snapshot project_dir's *.jsonl BEFORE
         # spawn, identify this session's file on first send(), then read every
         # turn's response + usage from there. Replaces screen-scraping.
@@ -184,62 +178,52 @@ class PtySession:
 
     async def start(self) -> None:
         """Spawn Claude Code in a PTY and handle the initial trust prompt."""
-        self._suppress_advisor()
-        if not self._atexit_registered:
-            atexit.register(self._restore_advisor)
-            self._atexit_registered = True
-        try:
-            cwd = Path(self._cwd) if self._cwd else None
-            # Snapshot the project-dir *.jsonl set BEFORE spawning so the
-            # TranscriptReader can identify this session's file (a brand-new
-            # one or a --continue'd one that grows past its snapshot size).
-            effective_cwd = cwd if cwd is not None else Path(os.getcwd())
-            self._project_dir = _claude_projects_dir(effective_cwd)
-            self._before_sizes = {}
-            if self._project_dir.is_dir():
-                for p in self._project_dir.glob("*.jsonl"):
-                    try:
-                        self._before_sizes[p] = p.stat().st_size
-                    except OSError:
-                        continue
-            # Wire gate detection only when a coordinator can act on it; this
-            # keeps the reader's two-outcome contract for sessions that don't
-            # bridge gates.
-            gate_detector = GateDetector() if self._gate_coordinator is not None else None
-            self._transcript_reader = TranscriptReader(
-                self._project_dir, gate_detector=gate_detector
-            )
-            self._session_path = None  # identified lazily on first send()
+        cwd = Path(self._cwd) if self._cwd else None
+        # Snapshot the project-dir *.jsonl set BEFORE spawning so the
+        # TranscriptReader can identify this session's file (a brand-new
+        # one or a --continue'd one that grows past its snapshot size).
+        effective_cwd = cwd if cwd is not None else Path(os.getcwd())
+        self._project_dir = _claude_projects_dir(effective_cwd)
+        self._before_sizes = {}
+        if self._project_dir.is_dir():
+            for p in self._project_dir.glob("*.jsonl"):
+                try:
+                    self._before_sizes[p] = p.stat().st_size
+                except OSError:
+                    continue
+        # Wire gate detection only when a coordinator can act on it; this
+        # keeps the reader's two-outcome contract for sessions that don't
+        # bridge gates.
+        gate_detector = GateDetector() if self._gate_coordinator is not None else None
+        self._transcript_reader = TranscriptReader(self._project_dir, gate_detector=gate_detector)
+        self._session_path = None  # identified lazily on first send()
 
-            args = _build_spawn_args(
-                self._model,
-                cwd,
-                self._append_system_prompts,
-                self._extra_args,
-                self._permission_mode,
-            )
-            logger.info("PtySession: spawning %s", " ".join(args[:5]))
-            # Log the resolved binary + version every spawn so version drift
-            # between dev and the fleet is visible in the journal (Ticket 009).
-            bin_path, version = _resolve_claude_version(CLAUDE_BINARY)
-            logger.info(
-                "PtySession: %s on claude %s (%s)",
-                self._entity_name or "entity",
-                version,
-                bin_path,
-            )
-            self._proc = PtyProcess.spawn(
-                args,
-                cwd=self._cwd,
-                dimensions=(_PTY_ROWS, _PTY_COLS),
-            )
-            self._buf = bytearray()
-            self._closed = False
-            self._reader_task = asyncio.create_task(self._reader())
-            await self._handle_trust_prompt()
-        except Exception:
-            self._restore_advisor()
-            raise
+        args = _build_spawn_args(
+            self._model,
+            cwd,
+            self._append_system_prompts,
+            self._extra_args,
+            self._permission_mode,
+        )
+        logger.info("PtySession: spawning %s", " ".join(args[:5]))
+        # Log the resolved binary + version every spawn so version drift
+        # between dev and the fleet is visible in the journal (Ticket 009).
+        bin_path, version = _resolve_claude_version(CLAUDE_BINARY)
+        logger.info(
+            "PtySession: %s on claude %s (%s)",
+            self._entity_name or "entity",
+            version,
+            bin_path,
+        )
+        self._proc = PtyProcess.spawn(
+            args,
+            cwd=self._cwd,
+            dimensions=(_PTY_ROWS, _PTY_COLS),
+        )
+        self._buf = bytearray()
+        self._closed = False
+        self._reader_task = asyncio.create_task(self._reader())
+        await self._handle_trust_prompt()
 
     async def stop(self) -> None:
         """Send /exit and wait for the process to close."""
@@ -252,7 +236,6 @@ class PtySession:
             pass
         if self._proc.isalive():
             self._proc.terminate(force=True)
-        self._restore_advisor()
 
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.isalive()
@@ -352,37 +335,6 @@ class PtySession:
             except Exception:
                 logger.exception("PtySession: recovery attempt failed")
         raise RuntimeError("PtySession: failed to recover after 3 attempts")
-
-    def _suppress_advisor(self) -> None:
-        """Remove advisorModel from ~/.claude/settings.json before spawning.
-
-        The Advisor Tool invokes Opus before every response, adding >90s latency
-        per turn. We snapshot the original value and restore it exactly on stop().
-        This is a global mutation — safe for single-session use.
-        """
-        if not _SETTINGS_PATH.exists():
-            return
-        try:
-            settings = json.loads(_SETTINGS_PATH.read_text())
-            if "advisorModel" in settings:
-                self._advisor_original = settings.pop("advisorModel")
-                _SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
-                logger.debug("PtySession: advisorModel suppressed for session")
-        except (OSError, json.JSONDecodeError):
-            logger.warning("PtySession: could not suppress advisorModel", exc_info=True)
-
-    def _restore_advisor(self) -> None:
-        """Restore the original advisorModel value to ~/.claude/settings.json."""
-        if self._advisor_original is None:
-            return
-        try:
-            settings = json.loads(_SETTINGS_PATH.read_text()) if _SETTINGS_PATH.exists() else {}
-            settings["advisorModel"] = self._advisor_original
-            _SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
-            self._advisor_original = None
-            logger.debug("PtySession: advisorModel restored")
-        except (OSError, json.JSONDecodeError):
-            logger.warning("PtySession: could not restore advisorModel", exc_info=True)
 
     async def _reader(self) -> None:
         """Dispatch blocking PTY reads to a daemon thread; copy bytes into _buf.
