@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -1798,3 +1798,37 @@ class TestGateStateWiring:
 
     async def test_unknown_entity_is_noop(self, manager: ProcessManager) -> None:
         manager._on_gate_state("ghost", "gated")  # must not raise
+
+
+class TestIdleKillSkipsBusyAdapter:
+    """An entity whose adapter has a turn in flight must never be idle-reaped,
+    however stale its last_activity_at — the stamp only updates at turn start,
+    so a long sync-wait turn (a lead's Workflow fan-out, ADR 0010) looks idle
+    while it is actively working."""
+
+    async def test_busy_adapter_not_killed(self, manager: ProcessManager) -> None:
+        entity = Entity(name="worker", role="worker")
+        entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        busy_adapter = MagicMock()
+        busy_adapter.is_busy.return_value = True
+        manager._adapters["worker"] = busy_adapter
+
+        killed = await manager.kill_idle_entities(30)
+        assert killed == []
+        assert "worker" in manager.entities
+
+    async def test_idle_adapter_still_killed(self, manager: ProcessManager) -> None:
+        entity = Entity(name="worker", role="worker")
+        entity.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
+        manager._entities["worker"] = entity
+        manager.router.register("worker")
+
+        idle_adapter = MagicMock()
+        idle_adapter.is_busy.return_value = False
+        manager._adapters["worker"] = idle_adapter
+
+        killed = await manager.kill_idle_entities(30)
+        assert "worker" in killed

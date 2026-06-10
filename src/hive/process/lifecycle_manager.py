@@ -621,6 +621,13 @@ class LifecycleManager:
             # never be reaped, regardless of exempt_names.
             if entity.state == EntityState.GATED:
                 continue
+            # An adapter with a turn in flight is working, not idle —
+            # last_activity_at only updates at turn start, so a long turn
+            # (a lead's Workflow sync-wait, ADR 0010) looks stale while
+            # actively running.
+            adapter = self._mgr._adapters.get(name)
+            if adapter is not None and adapter.is_busy():
+                continue
             if entity.last_activity_at is None:
                 continue
             if entity.last_activity_at < cutoff:

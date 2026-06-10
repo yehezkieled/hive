@@ -47,6 +47,11 @@ class FakeAdapter:
     def is_alive(self) -> bool:
         return self.started and not self.stopped
 
+    def is_busy(self) -> bool:
+        # Fake turns resolve synchronously, so a FakeAdapter is never
+        # mid-turn when the idle reaper looks at it.
+        return False
+
     @property
     def session_id(self) -> str | None:
         return self._session_id
