@@ -245,9 +245,19 @@ class LifecycleManager:
         if existing is not None and existing.is_alive():
             return existing
 
+        # Worktree floor across restarts (Ticket 015, ADR 0010): the entity
+        # store round-trips worktree_path for Workers only, so a lead
+        # restored from persistence comes back path-less. Lazily (re-)
+        # provision here — WorktreeManager.create is idempotent and hands
+        # back the existing path when the worktree survived the restart.
+        if isinstance(entity, TeamLead) and entity.worktree_path is None and self._mgr.worktree_mgr:
+            entity.worktree_path = await self._mgr.worktree_mgr.create(
+                entity.name, branch=f"hive/{entity.name}"
+            )
+
         cwd = (
             Path(entity.worktree_path)
-            if isinstance(entity, Worker) and entity.worktree_path
+            if isinstance(entity, (Worker, TeamLead)) and entity.worktree_path
             else None
         )
         config = _adapter_config_from_entity(entity)
@@ -291,12 +301,23 @@ class LifecycleManager:
         team = entity.create_team(team_name)
 
         lead_name = f"{maestro_name}.{team_name}"
+
+        # Worktree floor (Ticket 015, ADR 0010): the lead runs in its own
+        # worktree, so leaf agents launched from its session — even
+        # non-isolated ones — never write to the live checkout.
+        worktree_path = None
+        if self._mgr.worktree_mgr:
+            worktree_path = await self._mgr.worktree_mgr.create(
+                lead_name, branch=f"hive/{lead_name}"
+            )
+
         lead = TeamLead(
             name=lead_name,
             team_name=team_name,
             maestro_name=maestro_name,
             model=model,
             permission_mode=entity.permission_mode,
+            worktree_path=worktree_path,
         )
         team.lead = lead_name
 
@@ -449,8 +470,12 @@ class LifecycleManager:
 
         entity = self._mgr._entities.get(name)
         if entity:
-            # Clean up worktree for workers
-            if isinstance(entity, Worker) and entity.worktree_path and self._mgr.worktree_mgr:
+            # Clean up worktree for workers and leads (worktree floor, 015)
+            if (
+                isinstance(entity, (Worker, TeamLead))
+                and entity.worktree_path
+                and self._mgr.worktree_mgr
+            ):
                 try:
                     await self._mgr.worktree_mgr.remove(name)
                 except Exception:

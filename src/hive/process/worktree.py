@@ -41,6 +41,23 @@ class WorktreeManager:
         )
         stdout, stderr = await proc.communicate()
 
+        if proc.returncode != 0 and branch and "already exists" in stderr.decode():
+            # Idempotent re-create: ``remove()`` never deletes the branch,
+            # so a name reused after a kill hits "a branch named '...'
+            # already exists" on ``-b``. Attach to the surviving branch
+            # instead of failing.
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "worktree",
+                "add",
+                str(wt_path),
+                branch,
+                cwd=str(self.repo_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+
         if proc.returncode != 0:
             error = stderr.decode().strip()
             raise RuntimeError(f"Failed to create worktree {name}: {error}")

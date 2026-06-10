@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from hive.models.entity import Entity
 
@@ -13,6 +14,10 @@ class TeamLead(Entity):
 
     Named ``maestro.team`` (e.g., "dev.backend"). Tracks its parent
     maestro and the workers it manages.
+
+    Runs in its own git worktree (the worktree floor, Ticket 015,
+    ADR 0010) so leaf agents launched from its session never write to
+    the live checkout.
     """
 
     role: str = "lead"
@@ -20,3 +25,4 @@ class TeamLead(Entity):
     maestro_name: str = ""
     workers: list[str] = field(default_factory=list)
     max_workers: int = 2
+    worktree_path: Path | None = None

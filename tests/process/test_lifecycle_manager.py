@@ -58,6 +58,22 @@ class FakeRouter:
         self.unregistered.append(name)
 
 
+class FakeWorktreeManager:
+    """Records create/remove calls and hands back deterministic paths."""
+
+    def __init__(self, base: Path) -> None:
+        self.base = base
+        self.created: list[tuple[str, str | None]] = []
+        self.removed: list[str] = []
+
+    async def create(self, name: str, branch: str | None = None) -> Path:
+        self.created.append((name, branch))
+        return self.base / name
+
+    async def remove(self, name: str) -> None:
+        self.removed.append(name)
+
+
 class StubManager:
     """Minimal stand-in for ProcessManager's lifecycle-facing surface.
 
@@ -79,6 +95,7 @@ class StubManager:
         self.scheduler = None
         self.quota_monitor = None
         self.gate_coordinator = None
+        self._on_gate_state = None
         self.personalities_dir = Path("personalities")
 
         self.audit_calls: list[tuple[str, str | None, dict | None]] = []
@@ -533,6 +550,168 @@ async def test_kill_idle_skips_gated_and_exempt(
     assert killed == ["idle"]
     assert "gated" not in mgr.killed
     assert "exempt" not in mgr.killed
+
+
+# ---------------------------------------------------------------------------
+# Worktree floor — every Lead gets its own worktree cwd (Ticket 015, ADR 0010)
+# ---------------------------------------------------------------------------
+
+
+def test_team_lead_carries_worktree_path() -> None:
+    """TeamLead carries an optional worktree path, mirroring Worker.
+
+    A Lead spawned with ``cwd=None`` inherits the service's working
+    directory — the live checkout the deployed service imports from. The
+    worktree floor (ADR 0010) hangs off this field.
+    """
+    bare = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    assert bare.worktree_path is None
+
+    housed = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+        worktree_path=Path("/tmp/worktrees/dev.backend"),
+    )
+    assert housed.worktree_path == Path("/tmp/worktrees/dev.backend")
+
+
+async def test_create_team_provisions_lead_worktree(
+    lifecycle: LifecycleManager, mgr: StubManager, tmp_path: Path
+) -> None:
+    """With a worktree manager configured, the lead gets its own worktree.
+
+    Mirrors the Worker pattern: named after the lead, on branch
+    ``hive/<lead_name>``, path stored on the entity.
+    """
+    mgr.worktree_mgr = FakeWorktreeManager(tmp_path / "worktrees")
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
+
+    assert mgr.worktree_mgr.created == [("dev.backend", "hive/dev.backend")]
+    assert lead.worktree_path == tmp_path / "worktrees" / "dev.backend"
+
+
+async def test_create_team_without_worktree_mgr_leaves_path_none(
+    lifecycle: LifecycleManager, mgr: StubManager
+) -> None:
+    """No worktree manager configured → no worktree, nothing breaks."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
+
+    assert lead.worktree_path is None
+
+
+class _RecordingAdapter:
+    """Stand-in for ``ClaudeAdapter`` that records the cwd it was given."""
+
+    def __init__(
+        self,
+        config: object,
+        *,
+        cwd: Path | None = None,
+        gate_coordinator: object = None,
+        entity_name: str | None = None,
+        on_gate_state: object = None,
+    ) -> None:
+        self.config = config
+        self.cwd = cwd
+        self.started = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    def is_alive(self) -> bool:
+        return self.started
+
+
+async def test_adapter_for_lead_uses_worktree_cwd(
+    lifecycle: LifecycleManager,
+    mgr: StubManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lead with a worktree path spawns its adapter inside that worktree.
+
+    Today the cwd selection is Worker-only — a lead falls through to
+    ``cwd=None`` and inherits the service's WorkingDirectory, the live
+    checkout (ADR 0010 context #2).
+    """
+    monkeypatch.setattr("hive.process.lifecycle_manager.ClaudeAdapter", _RecordingAdapter)
+    lead = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+        worktree_path=tmp_path / "worktrees" / "dev.backend",
+    )
+    mgr._entities["dev.backend"] = lead
+
+    adapter = await lifecycle._get_or_create_adapter(lead)
+
+    assert adapter.cwd == tmp_path / "worktrees" / "dev.backend"
+
+
+async def test_adapter_without_worktree_path_keeps_cwd_none(
+    lifecycle: LifecycleManager,
+    mgr: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entities without a worktree path behave as before — cwd stays None."""
+    monkeypatch.setattr("hive.process.lifecycle_manager.ClaudeAdapter", _RecordingAdapter)
+    maestro = Maestro(name="dev", model="sonnet")
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    mgr._entities.update({"dev": maestro, "dev.backend": lead})
+
+    assert (await lifecycle._get_or_create_adapter(maestro)).cwd is None
+    # No worktree manager configured → nothing to lazily provision either.
+    assert (await lifecycle._get_or_create_adapter(lead)).cwd is None
+
+
+async def test_kill_lead_removes_worktree(
+    lifecycle: LifecycleManager, mgr: StubManager, tmp_path: Path
+) -> None:
+    """kill_entity on a lead removes its worktree, mirroring Worker cleanup."""
+    mgr.worktree_mgr = FakeWorktreeManager(tmp_path / "worktrees")
+    lead = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+        worktree_path=tmp_path / "worktrees" / "dev.backend",
+    )
+    mgr._entities["dev.backend"] = lead
+
+    await lifecycle.kill_entity("dev.backend")
+
+    assert mgr.worktree_mgr.removed == ["dev.backend"]
+
+
+async def test_restored_lead_lazily_regains_worktree_cwd(
+    lifecycle: LifecycleManager,
+    mgr: StubManager,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lead restored from persistence still spawns inside a worktree.
+
+    ``entity_store`` round-trips ``worktree_path`` for Workers only, so a
+    restored lead comes back with ``worktree_path=None``. The floor must
+    hold across restarts: the adapter path lazily (re-)provisions the
+    worktree — ``WorktreeManager.create`` is idempotent, returning the
+    existing path when the worktree survived the restart.
+    """
+    monkeypatch.setattr("hive.process.lifecycle_manager.ClaudeAdapter", _RecordingAdapter)
+    mgr.worktree_mgr = FakeWorktreeManager(tmp_path / "worktrees")
+    # As _row_to_entity rebuilds a lead: hierarchy fields, no worktree_path.
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    mgr._entities["dev.backend"] = lead
+
+    adapter = await lifecycle._get_or_create_adapter(lead)
+
+    assert mgr.worktree_mgr.created == [("dev.backend", "hive/dev.backend")]
+    assert lead.worktree_path == tmp_path / "worktrees" / "dev.backend"
+    assert adapter.cwd == tmp_path / "worktrees" / "dev.backend"
 
 
 # ---------------------------------------------------------------------------
