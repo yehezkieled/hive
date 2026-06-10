@@ -1,11 +1,38 @@
 # Plan — Ticket 015: Lead leaf engine (orchestrate via CC Workflow)
 
-DIRECT lane — single PR. Approach in [`design.md`](design.md); commit sequence
-in [`outline.md`](outline.md); decision in
-[ADR 0010](../../adr/0010-leads-orchestrate-via-workflow.md).
+FAN-OUT lane (converted from direct at build time — the owner opted for a
+PRD + issues + fleet build). Approach in [`design.md`](design.md); seam map in
+[`outline.md`](outline.md); decision in
+[ADR 0010](../../adr/0010-leads-orchestrate-via-workflow.md); PRD in
+issue [#74](https://github.com/yehezkieled/hive/issues/74).
 
 **Dependency:** none blocking (015 is the S5 foundation). Assumes CC ≥ 2.1.101
 on the fleet (Ticket 009 — pinned 2.1.170, verified).
+
+## Slices
+
+| Summary (what the slice delivers) | Issue | Type | Blocked by |
+|-----------------------------------|-------|------|------------|
+| Role tool-policy in code: prune lead `TaskOutput`/`TaskStop`, deny maestro `Workflow`, close both guard holes | [#75](https://github.com/yehezkieled/hive/issues/75) | AFK | — |
+| Worktree floor: every Team Lead spawns in its own worktree | [#76](https://github.com/yehezkieled/hive/issues/76) | AFK | — |
+| Idle-reaper exempts Entities with a Turn in flight | [#77](https://github.com/yehezkieled/hive/issues/77) | AFK | — |
+| Transcript reader: pending-tool accept-guard + no-progress timeout | [#78](https://github.com/yehezkieled/hive/issues/78) | AFK | — |
+| Lead JD reframe: Workflow is the leaf-execution path | [#79](https://github.com/yehezkieled/hive/issues/79) | AFK | #75 |
+
+## Execution waves
+
+- Wave 1: #75, #76, #77, #78 (parallel — #75/#76/#77 overlap on
+  `lifecycle_manager.py`, which is merge-order territory, not a logical blocker)
+- Wave 2: #79
+
+## Conventions
+
+- Branch `ticket-015/issue-<n>-<slug>`, target `main`, squash-merge
+- Validation gate (every PR): `ruff check src/ tests/ && ruff format --check
+  src/ tests/` + `pytest -m "not integration"` (75% coverage floor)
+- Autonomy: all AFK — auto-merge on green CI (owner preapproved this run)
+
+To build: run the fleet Workflow against this `plan.md`.
 
 ## Files this Ticket creates / modifies
 
