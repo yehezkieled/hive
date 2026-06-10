@@ -29,6 +29,7 @@ import pytest
 
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
+from hive.models.team_lead import TeamLead
 from hive.models.worker import Worker
 from hive.process.lifecycle_manager import (
     LifecycleManager,
@@ -148,17 +149,24 @@ def test_render_auto_personality_has_knowledge_section() -> None:
     assert "search_knowledge" in body
 
 
-def test_render_auto_personality_locks_tools_for_coordinators() -> None:
-    """Maestro/lead get read-only allowedTools + a disallowedTools guard."""
-    body = _render_auto_personality(
-        entity_name="dev.backend",
-        role="lead",
-        model="sonnet",
-        display_name="Backend",
-        personality="Lead the team.",
-    )
-    assert "allowedTools: Read Grep Glob" in body
-    assert "disallowedTools: Agent Task" in body
+def test_render_auto_personality_no_tools_section_for_coordinators() -> None:
+    """Auto-personalities carry no ``## Tools`` section, even for lead/maestro.
+
+    The role tool guard moved from markdown into code (Ticket 015,
+    ADR 0010) — ``role_tool_denylist`` merges it at every spawn, asserted
+    in ``test_tool_policy.py``. Markdown ``## Tools`` survives only in
+    hand-written personality files, as a per-Entity override.
+    """
+    for role in ("lead", "maestro"):
+        body = _render_auto_personality(
+            entity_name="dev.backend",
+            role=role,
+            model="sonnet",
+            display_name="Backend",
+            personality="Lead the team.",
+        )
+        assert "## Tools" not in body
+        assert "disallowedTools" not in body
 
 
 def test_render_auto_personality_no_tools_section_for_worker() -> None:
@@ -215,6 +223,90 @@ def test_maestro_config_denies_prototype_but_keeps_thinking_skills() -> None:
     # Pre-existing tokens are preserved alongside the skill tokens.
     assert "Agent" in args
     assert "Task" in args
+
+
+def test_adapter_config_merges_entity_role_and_skill_denylists() -> None:
+    """disallowed_tools = entity tokens + role policy + skill denylist.
+
+    Three sources merge in that order (Ticket 015, ADR 0010), de-duplicated
+    keeping the first-seen position — an entity token that also appears in
+    the role policy (here ``Agent``) is not repeated later.
+    """
+    from hive.process.skill_curation import skill_denylist_for
+    from hive.process.tool_policy import role_tool_denylist
+
+    lead = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+        disallowed_tools=["CustomTool", "Agent"],
+    )
+    config = _adapter_config_from_entity(lead)
+
+    role_deny = role_tool_denylist("lead")
+    skill_deny = skill_denylist_for("lead")
+    expected = ["CustomTool", "Agent"]
+    expected += [t for t in role_deny if t not in expected]
+    expected += [t for t in skill_deny if t not in expected]
+    assert config.disallowed_tools == expected
+    # First-seen wins: the entity's own ``Agent`` is the only occurrence.
+    assert config.disallowed_tools.count("Agent") == 1
+
+
+def test_bare_lead_config_gets_role_guard_without_sync_wait_verbs() -> None:
+    """A lead with no personality file still gets the role guard (hole A).
+
+    The guard used to be written into auto-personality markdown — skipped
+    entirely when a lead was spawned without ``display_name``/``personality``.
+    Now it comes from ``role_tool_denylist`` on every spawn: ``Agent``/``Task``
+    stay denied, while the Workflow sync-wait verbs (``TaskOutput``/
+    ``TaskStop``) are allowed (ADR 0010).
+    """
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    assert lead.disallowed_tools == []  # nothing from a personality file
+
+    config = _adapter_config_from_entity(lead)
+
+    assert "Agent" in config.disallowed_tools
+    assert "Task" in config.disallowed_tools
+    assert "TaskOutput" not in config.disallowed_tools
+    assert "TaskStop" not in config.disallowed_tools
+
+
+def test_maestro_config_denies_workflow() -> None:
+    """A maestro's adapter config denies ``Workflow`` (ADR 0010).
+
+    Fan-out belongs to leads — a Maestro running Workflow itself would
+    bypass the Lead layer, so the chain stays Maestro → Lead → Workflow.
+    """
+    maestro = Maestro(name="dev", model="opus")
+    config = _adapter_config_from_entity(maestro)
+    assert "Workflow" in config.disallowed_tools
+
+
+def test_personality_tools_override_survives_merge_first_seen() -> None:
+    """Per-Entity ``## Tools`` markdown still reaches the adapter config.
+
+    ``models/entity.py`` parses a hand-written personality's ``## Tools``
+    section into ``entity.disallowed_tools``; this test sets that field
+    directly and asserts the tokens lead the merged list (first-seen) —
+    including ``TaskOutput``, which the lead *role* policy no longer
+    denies, proving the per-Entity override can tighten the role guard.
+    """
+    lead = TeamLead(
+        name="dev.backend",
+        team_name="backend",
+        maestro_name="dev",
+        disallowed_tools=["WebFetch", "TaskOutput"],
+    )
+    config = _adapter_config_from_entity(lead)
+
+    # Override tokens come first, in the entity's own order.
+    assert config.disallowed_tools[:2] == ["WebFetch", "TaskOutput"]
+    # The role guard is still appended after them.
+    assert "Agent" in config.disallowed_tools
+    assert config.disallowed_tools.count("WebFetch") == 1
+    assert config.disallowed_tools.count("TaskOutput") == 1
 
 
 # ---------------------------------------------------------------------------
