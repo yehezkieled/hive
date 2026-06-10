@@ -27,3 +27,4 @@ marked with ✱.
 | 019 | [Maestro phase-confirmation gate](019-maestro-phase-confirmation/) | S6 (cand.) | planned | — |
 | 020 | [Adapter liveness escalation: auto-bounce jammed PTY sessions](020-adapter-liveness-escalation/) | S6 (cand.) | planned | — |
 | 021 | [Route maestro→user messages first-class](021-router-user-queue/) | S6 (cand.) | planned | — |
+| 022 | [Maestro delegates research (un-bridged interactive gate)](022-maestro-research-delegation/) | S6 (cand.) | planned | — |

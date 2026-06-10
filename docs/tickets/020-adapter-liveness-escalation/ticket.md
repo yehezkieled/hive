@@ -10,30 +10,42 @@ conversation), notify the user, and retry or surface cleanly. Today a
 jammed session stays jammed forever; every send burns the full
 no-progress window (180s) and fails, until a human kills the PID.
 
-## Why — incident 2026-06-10 22:43 UTC
+## Why — incident 2026-06-10 (corrected after fuller diagnosis)
 
-The first live test after the 015 deploy failed with
-`No completed assistant turn … within 180.0s`. Diagnosis (session
-`77fab09d…`, maestro `otter`):
+Live tests of maestro `otter` failed with
+`No completed assistant turn … within 180.0s`. The **corrected** root
+cause (an earlier draft of this ticket guessed OAuth expiry — that was
+wrong; the trigger is detailed in Ticket 022):
 
-- otter's turns worked 22:39–22:42, then the 22:43:31 prompt was
-  accepted (user entry written) and the model **never made an API
-  call** — zero sockets, zero CPU, event loop idle.
-- Every later injection was swallowed **before reaching the
-  transcript** — the session's input was jammed, not slow.
-- Timing: the shared OAuth token (`~/.claude/.credentials.json`,
-  8-hour lifetime) expired at ≈22:43 — the exact failure minute. Best
-  explanation: the in-session refresh lost a rotation race to a
-  sibling CC process (the VPS runs many long-lived sessions on one
-  credentials file) and CC parked on a **login modal** — invisible to
-  the transcript, same family as ADR 0005's permission gates.
-- Fix was surgical: `kill <pid>` → next send auto-respawned with
-  fresh credentials → same probe answered in 8s.
+- The jam is an **un-bridged interactive permission prompt**. CC's own
+  session-state file is authoritative:
+  `~/.claude/sessions/<pid>.json` showed
+  `"status": "waiting", "waitingFor": "permission prompt"` for the
+  stuck session.
+- It is **not** OAuth, **not** version drift (jammed identically on
+  2.1.170 *and* 2.1.172), and **not** caused by Ticket 015. The
+  trigger is the maestro doing interactive work itself — see
+  Ticket 022.
+- Permission prompts are not transcript-detectable (ADR 0005), so the
+  reader sees genuine no-progress and times out at 180s — **correct**
+  behaviour. What's missing is escalation: a jammed PTY stays jammed
+  until a human kills the PID. The manual fix was `kill <pid>` → Hive
+  auto-respawned via `--continue` → next prompt answered in ~8s.
 
-The reader's timeout behaved correctly (it *is* genuine no-progress);
-what's missing is the escalation. An auto-bounce converts this entire
-class — any transcript-invisible modal or wedged TUI state — from
-"jammed until a human notices" into "self-heals in minutes."
+An auto-bounce converts this whole class — any transcript-invisible
+prompt or wedged TUI state — from "jammed until a human notices" into
+"self-heals in minutes." It is the **generic recovery net**; Ticket 022
+prevents this specific trigger.
+
+### New detection signal (supersedes ADR 0005's "not detectable")
+
+ADR 0005 concluded permission prompts can't be detected from the
+**transcript**. They now surface in a different channel: CC writes
+`~/.claude/sessions/<pid>.json` with live `status` /`waitingFor`
+fields (`"waitingFor": "permission prompt"`). This makes the
+auto-bounce trigger precise — bounce when `waitingFor` is set, rather
+than guessing from N blind timeouts — and is worth confirming as a
+stable interface during research.
 
 ## Acceptance
 
@@ -64,5 +76,8 @@ class — any transcript-invisible modal or wedged TUI state — from
 ## Notes
 
 Found while diagnosing the failed 015 live smoke test. The reader's
-no-progress semantics (issue #78) are the detection layer this ticket
-builds escalation on.
+no-progress semantics (issue #78) are the timeout layer; the
+`sessions/<pid>.json` `waitingFor` field (above) is the sharper
+trigger. Paired with Ticket 022 (which prevents the specific trigger):
+022 stops the maestro from hitting the prompt; 020 recovers any
+session that hits one anyway. Both are S6 candidates.
