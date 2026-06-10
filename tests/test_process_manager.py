@@ -311,7 +311,10 @@ class TestWorktreeIntegration:
 
         worker = await mgr.spawn_worker("dev.backend", "w1")
 
-        wt_mgr.create.assert_awaited_once_with("dev.backend.w1", branch="hive/dev.backend.w1")
+        # create_team provisions the lead's worktree too (Ticket 015,
+        # ADR 0010 worktree floor); the worker's is the most recent await.
+        wt_mgr.create.assert_any_await("dev.backend", branch="hive/dev.backend")
+        wt_mgr.create.assert_awaited_with("dev.backend.w1", branch="hive/dev.backend.w1")
         assert worker.worktree_path == wt_path
 
         await mgr.kill_all()
