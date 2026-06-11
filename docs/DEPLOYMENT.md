@@ -578,6 +578,12 @@ they can address.
 > `request_decision_blocked`. The legacy `message.autonomous` event is
 > replaced by `peer_message_sent` (only consumers were the test
 > suite).
+>
+> *Ticket 023 (2026-06-11):* `peer_message_blocked` is replaced by
+> `action_rejected`, which also covers unknown recipients; every
+> rejection now additionally feeds a `system → sender` note back so
+> the sender can self-correct (see ADR 0011's sibling decisions in
+> `docs/tickets/023-activate-worktree-floor/design.md`).
 
 **New env vars** (all optional — sensible defaults):
 
