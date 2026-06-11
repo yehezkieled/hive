@@ -280,32 +280,50 @@ class MessageDispatcher:
         pending_kickoffs: list[str] = []
         for action in actions:
             if action.type == "message":
-                recipient = self._mgr._entities.get(action.to) if action.to else None
+                requested_to = action.to or ""
+                recipient_name = self._resolve_message_alias(entity, requested_to)
+                recipient = self._mgr._entities.get(recipient_name) if recipient_name else None
                 if not recipient:
-                    logger.warning("Unknown recipient: %s", action.to)
-                    continue
-                if not can_message(entity.role, entity.name, recipient.role, recipient.name):
-                    logger.warning("Permission denied: %s -> %s", entity.name, action.to)
-                    await self._mgr._audit(
-                        "peer_message_blocked",
-                        target=action.to,
-                        details={"sender": entity_name, "reason": "permission_denied"},
-                        actor=entity_name,
+                    logger.warning("Unknown recipient: %s", requested_to)
+                    await self._reject_action(
+                        entity,
+                        "message",
+                        requested_to,
+                        f"unknown recipient {recipient_name or requested_to!r}. "
+                        + self._addressing_hint(entity),
                     )
                     continue
+                if not can_message(entity.role, entity.name, recipient.role, recipient.name):
+                    logger.warning("Permission denied: %s -> %s", entity.name, recipient_name)
+                    if recipient.name == entity.name:
+                        # The self-message ban (bus/permissions.py) caught an
+                        # alias that resolved back to the sender — explain the
+                        # resolution, not just the denial.
+                        reason = (
+                            f"{requested_to!r} resolves to yourself "
+                            f"({entity.name}); self-messages are not allowed. "
+                            + self._addressing_hint(entity)
+                        )
+                    else:
+                        reason = (
+                            f"permission denied: {entity.name} may not message "
+                            f"{recipient_name!r}. " + self._addressing_hint(entity)
+                        )
+                    await self._reject_action(entity, "message", requested_to, reason)
+                    continue
                 body = action.text or ""
-                await self._mgr.router.route(entity_name, action.to, body)
-                self._mgr._last_routed_actions.append(action.to)
+                await self._mgr.router.route(entity_name, recipient_name, body)
+                self._mgr._last_routed_actions.append(recipient_name)
                 await self._mgr._audit(
                     "peer_message_sent",
-                    target=action.to,
+                    target=recipient_name,
                     details={"sender": entity_name, "text": body[:200]},
                     actor=entity_name,
                 )
                 cc_targets = cc_targets_for(
                     entity.role, entity.name, recipient.role, recipient.name
                 )
-                cc_body = f"[CC: {entity.name} -> {action.to}] {body}"
+                cc_body = f"[CC: {entity.name} -> {recipient_name}] {body}"
                 for cc_name in cc_targets:
                     if cc_name not in self._mgr._entities:
                         continue
@@ -315,7 +333,7 @@ class MessageDispatcher:
                         target=cc_name,
                         details={
                             "sender": entity_name,
-                            "recipient": action.to,
+                            "recipient": recipient_name,
                             "text": body[:200],
                         },
                         actor=entity_name,
@@ -634,6 +652,69 @@ class MessageDispatcher:
             len(parse_errors),
             len(window),
         )
+
+    def _resolve_message_alias(self, sender: Entity, to: str) -> str:
+        """Resolve the ``maestro``/``parent`` addressing aliases.
+
+        ``to:"maestro"`` resolves to the sender's org root (the first dotted
+        segment); ``to:"parent"`` to its immediate parent (the sender's name
+        minus the last segment), so an entity never has to remember — or
+        invent — a dotted name (Ticket 023, design D2). An org root has no
+        parent, so its ``to:"parent"`` resolves to the empty string and is
+        rejected by the recipient lookup. Any other value passes through
+        unchanged: no fuzzy matching, because a silent misdelivery is worse
+        than a drop.
+        """
+        if to == "maestro":
+            return sender.name.split(".")[0]
+        if to == "parent":
+            return ".".join(sender.name.split(".")[:-1])
+        return to
+
+    async def _reject_action(
+        self,
+        sender: Entity,
+        action_type: str,
+        attempted_to: str,
+        reason: str,
+    ) -> None:
+        """Audit a rejected action and feed the failure back to the sender.
+
+        Two halves (Ticket 023, design D2 — failure F2 was a silent drop):
+        an ``action_rejected`` audit entry (actor = sender, target = the
+        recipient as the sender wrote it), and a ``system -> sender`` note
+        naming what failed and the correct form. The note lands in the
+        sender's queue, wake-on-inbound delivers it, and the sender can
+        self-correct next turn. Runaway correction loops are capped by the
+        existing wake budget.
+        """
+        await self._mgr._audit(
+            "action_rejected",
+            target=attempted_to,
+            details={
+                "sender": sender.name,
+                "action_type": action_type,
+                "reason": reason,
+            },
+            actor=sender.name,
+        )
+        note = neutralize_action_tags(
+            f"[action rejected] your {action_type} to {attempted_to!r} was not delivered: {reason}"
+        )
+        await self._mgr.router.route("system", sender.name, note)
+
+    def _addressing_hint(self, sender: Entity) -> str:
+        """One-line 'correct form' hint appended to rejection feedback."""
+        parts = sender.name.split(".")
+        if len(parts) == 1:
+            return (
+                "You are an org root: address entities in your org by "
+                'their full dotted name (e.g. "yourname.team").'
+            )
+        parent = ".".join(parts[:-1])
+        if sender.role == "lead":
+            return f'Your maestro is {parent!r} — address it as to:"maestro" (no name needed).'
+        return f'Your parent is {parent!r} — address it as to:"parent" (no name needed).'
 
     def _task_id_for(self, entity_name: str) -> int | None:
         """Return the active task_id bound to an entity, if it's a worker."""

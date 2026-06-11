@@ -103,6 +103,25 @@ class TestRepoLevelRoleFiles:
         assert "spawn_worker" in text  # demoted legacy, removed by 016
         assert "hive_actions" in text
 
+    def test_lead_jd_teaches_maestro_alias(self) -> None:
+        """The lead JD teaches the addressing alias (Ticket 023, design D2):
+        a lead addresses its maestro as ``"maestro"`` — no dotted name to
+        remember or invent.
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-lead.md").read_text()
+        assert '"to": "maestro"' in text
+        assert "no name needed" in text
+
+    def test_worker_jd_teaches_parent_alias(self) -> None:
+        """The worker JD teaches the addressing alias (Ticket 023, design
+        D2): a worker addresses its lead as ``"parent"``.
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-worker.md").read_text()
+        assert '"to": "parent"' in text
+        assert "no name needed" in text
+
     def test_worker_jd_omits_spawn_actions(self) -> None:
         repo_root = Path(__file__).parent.parent
         text = (repo_root / "personalities" / "role-worker.md").read_text()

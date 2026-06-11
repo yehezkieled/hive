@@ -162,6 +162,74 @@ class TestPeerMessageRouting:
         assert not manager.router.has_pending("ops.deploy.w1")
 
 
+class TestAliasAndRejectionFeedback:
+    """Ticket 023 (design D2): addressing aliases + rejection feedback,
+    end-to-end through the real router so the note sits in the queue that
+    wake-on-inbound drains.
+    """
+
+    async def test_lead_maestro_alias_delivers_to_org_root(self, manager: ProcessManager) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+
+        action = Action(type="message", to="maestro", text="breakdown proposal")
+        await manager._handle_actions("dev.backend", "", [action])
+
+        assert manager.router.has_pending("dev")
+        msg = await manager.router.get_next("dev", timeout=0.1)
+        assert msg is not None
+        assert msg.sender == "dev.backend"
+        assert msg.content == "breakdown proposal"
+
+    async def test_worker_parent_alias_delivers_to_lead(self, manager: ProcessManager) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+
+        action = Action(type="message", to="parent", text="done")
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert manager.router.has_pending("dev.backend")
+
+    async def test_unknown_recipient_queues_feedback_note_for_sender(
+        self, manager: ProcessManager
+    ) -> None:
+        """The rejection note lands in the sender's own queue — the same
+        queue wake-on-inbound watches — so the sender self-corrects next
+        turn instead of waiting forever (failure F2).
+        """
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+
+        action = Action(type="message", to="maestro.strutils", text="breakdown")
+        await manager._handle_actions("dev.backend", "", [action])
+
+        assert not manager.router.has_pending("dev")
+        assert manager.router.has_pending("dev.backend")
+        note = await manager.router.get_next("dev.backend", timeout=0.1)
+        assert note is not None
+        assert note.sender == "system"
+        assert "[action rejected]" in note.content
+        assert "maestro" in note.content  # the correct form
+
+    async def test_permission_denied_queues_feedback_note_for_sender(
+        self, manager: ProcessManager
+    ) -> None:
+        await manager.register_maestro("dev")
+        await manager.create_team("dev", "backend")
+        await manager.spawn_worker("dev.backend", worker_name="w1")
+
+        action = Action(type="message", to="maestro", text="skip the chain")
+        await manager._handle_actions("dev.backend.w1", "", [action])
+
+        assert not manager.router.has_pending("dev")
+        assert manager.router.has_pending("dev.backend.w1")
+        note = await manager.router.get_next("dev.backend.w1", timeout=0.1)
+        assert note is not None
+        assert note.sender == "system"
+        assert "dev.backend" in note.content  # the correct form: its parent
+
+
 class TestRequestDecision:
     async def test_worker_to_own_lead_allowed(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
