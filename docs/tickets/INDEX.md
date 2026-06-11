@@ -28,4 +28,4 @@ marked with ✱.
 | 020 | [Adapter liveness escalation: auto-bounce jammed PTY sessions](020-adapter-liveness-escalation/) | S6 (cand.) | planned | — |
 | 021 | [Route maestro→user messages first-class](021-router-user-queue/) | S6 (cand.) | planned | — |
 | 022 | [Maestro delegates research (un-bridged interactive gate)](022-maestro-research-delegation/) | S6 (cand.) | planned | — |
-| 023 | [Activate the worktree floor (isolate leaf work) — 015 follow-up](023-activate-worktree-floor/) | S6 (cand.) | planned | — |
+| 023 | [Activate the worktree floor (isolate leaf work) — 015 follow-up](023-activate-worktree-floor/) | 2026-Q2-S5 | in progress | — |
