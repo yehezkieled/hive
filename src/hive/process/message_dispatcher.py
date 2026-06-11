@@ -417,7 +417,11 @@ class MessageDispatcher:
                     lead = await self._mgr.create_team(
                         entity_name,
                         action.team_name,
-                        model=action.model or "sonnet",
+                        # Opus is the fleet default for every spawn (the Opus
+                        # advisor that Sonnet leads relied on is unavailable —
+                        # Ticket 013 post-mortem). A maestro may still pin a
+                        # cheaper model explicitly via the action.
+                        model=action.model or "opus",
                         display_name=action.display_name,
                         personality=action.personality,
                     )

@@ -161,6 +161,25 @@ class TestTeamManagement:
         assert "dev.backend" in manager.entities
         assert "backend" in maestro.teams
 
+    async def test_create_team_defaults_to_opus(self, manager: ProcessManager) -> None:
+        """A team's lead defaults to Opus — the fleet default for every spawn
+        (Ticket 013 post-mortem). Guards the facade default layer."""
+        maestro = Maestro(name="dev", model="opus")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        lead = await manager.create_team("dev", "backend")
+        assert lead.model == "opus"
+
+    async def test_create_team_honours_explicit_model(self, manager: ProcessManager) -> None:
+        """A maestro may still pin a cheaper model explicitly."""
+        maestro = Maestro(name="dev", model="opus")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+
+        lead = await manager.create_team("dev", "backend", model="sonnet")
+        assert lead.model == "sonnet"
+
     async def test_create_team_missing_maestro_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if maestro doesn't exist."""
         with pytest.raises(KeyError, match="not found"):
@@ -913,6 +932,10 @@ class TestAutonomousDispatch:
         assert "dev.backend" in manager.entities
         assert manager._last_spawned_teams == ["dev.backend"]
         assert "backend" in maestro.teams
+        # The spawn_team dispatch path (action.model or default) must default
+        # the lead to Opus — this is the layer that silently kept leads on
+        # Sonnet after the create_team default was changed (Ticket 013 fix).
+        assert manager.entities["dev.backend"].model == "opus"
 
     async def test_lead_spawn_team_denied(self, manager: ProcessManager) -> None:
         """Leads can't spawn teams — they should be rejected silently and audited."""
