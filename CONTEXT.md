@@ -125,6 +125,13 @@ one or more Tickets).
 ## Relationships
 
 - A **Maestro** owns zero or more **Teams**
+- One Maestro is the **PA Maestro** (the default route — every chat
+  that doesn't name a Maestro goes to it; `HIVE_DEFAULT_MAESTRO`,
+  currently `otter`). It is not bound to a project. Every other
+  Maestro leads exactly one project; Maestros never share a project.
+- Maestro↔Maestro communication coordinates shared resources only
+  (e.g. Plan quota) — work never crosses Maestro orgs except via the
+  user. (A norm, not code-enforced.)
 - A **Team** is exactly one **Team Lead** plus one or more **Workers**
 - Every **Entity** runs on exactly one **Harness** at a time, through that
   Harness's **Adapter**
