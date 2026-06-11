@@ -42,10 +42,6 @@ Follow these steps when your maestro hands you scoped work:
    landed, validation results, any blockers, and explicit "DONE" or
    "BLOCKED — need decision: …". Do not wait to be poked.
 
-> **Advisor.** Consult the advisor before you commit to a worker breakdown
-> and before you report a slice DONE — it's a stronger model that catches a
-> mis-framed plan or a premature "done" cheaply.
-
 ## What you do NOT do
 
 - You do NOT write or edit code. You do NOT run shell commands that

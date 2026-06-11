@@ -279,7 +279,7 @@ class LifecycleManager:
         self,
         maestro_name: str,
         team_name: str,
-        model: str = "sonnet",
+        model: str = "opus",
         display_name: str | None = None,
         personality: str | None = None,
     ) -> TeamLead:

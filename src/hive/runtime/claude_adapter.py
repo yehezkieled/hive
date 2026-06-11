@@ -10,15 +10,44 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
+from hive.config import CLAUDE_BINARY
 from hive.runtime.base import Runtime
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _claude_supports_advisor() -> bool:
+    """Whether the fleet's ``claude`` binary accepts the ``--advisor`` flag.
+
+    Ticket 013 added ``--advisor <model>`` on the premise that Claude Code
+    exposes native advisor as a CLI flag. No installed CC build (2.1.168–172)
+    actually does, so passing it makes ``claude`` exit immediately with
+    ``error: unknown option '--advisor'`` — which killed every advisor-enabled
+    spawn (leads). This guard probes ``--help`` once and skips the flag when
+    the binary doesn't advertise it, so an unsupported build degrades to "no
+    advisor" instead of crashing. Re-enables itself for free if a future CC
+    ships the flag.
+    """
+    try:
+        out = subprocess.run(
+            [CLAUDE_BINARY, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return "--advisor" in out.stdout
+    except Exception:
+        logger.warning("could not probe %s --help for --advisor support", CLAUDE_BINARY)
+        return False
 
 
 @dataclass
@@ -87,10 +116,19 @@ class ClaudeAdapter(Runtime):
             args.extend(["--allowedTools", *cfg.allowed_tools])
         if cfg.disallowed_tools:
             args.extend(["--disallowedTools", *cfg.disallowed_tools])
-        if cfg.advisor:
+        if cfg.advisor and _claude_supports_advisor():
             # Native /advisor (Ticket 013): a stronger model the executor
-            # consults at decision points. Off when None (no flag).
+            # consults at decision points. Off when None (no flag). Guarded
+            # by a capability probe — no shipped CC build has --advisor, and
+            # passing an unknown option crashes the spawn.
             args.extend(["--advisor", cfg.advisor])
+        elif cfg.advisor:
+            logger.warning(
+                "advisor %r requested but %s has no --advisor flag; skipping "
+                "(Ticket 013 follow-up)",
+                cfg.advisor,
+                CLAUDE_BINARY,
+            )
         if cfg.mcp_config_path is not None:
             # --strict-mcp-config: load only this file, not the user's global
             # MCP servers (those add minutes of cold-start latency per spawn).
