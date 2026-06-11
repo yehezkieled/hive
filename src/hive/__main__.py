@@ -7,6 +7,7 @@ import logging
 import signal
 from datetime import UTC, datetime
 
+from hive.bootstrap import build_process_manager
 from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
@@ -184,7 +185,12 @@ async def main() -> None:
 
     vault_cfg = VaultConfig.from_env()
     payment_provider = build_provider(vault_cfg.provider) if vault_cfg.enabled else None
-    process_manager = ProcessManager(
+    # Composition factory (Ticket 023): builds the manager WITH the worktree
+    # floor (a real WorktreeManager) so spawned leads never run in the live
+    # checkout. Keep construction here factory-only — inline ProcessManager
+    # wiring is how the floor shipped dead in 015 (guarded by
+    # tests/test_bootstrap.py).
+    process_manager = build_process_manager(
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
         entity_store=entity_store,
