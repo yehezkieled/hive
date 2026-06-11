@@ -127,27 +127,24 @@ def parse_personality(path: Path) -> PersonalityConfig:
 def resolve_advisor(model: str, advisor_field: str | None, role: str | None = None) -> str | None:
     """Resolve the advisor model for an entity (Ticket 013, ADR 0009).
 
-    An explicit ``**Advisor**:`` field always wins — a model name turns the
-    native advisor on, ``off`` turns it off. With no explicit field the default
-    is:
+    **Default OFF.** Native ``--advisor`` exists in no shipped CC build the
+    fleet runs (2.1.168–172), so auto-enabling it crashed every spawn that
+    resolved an advisor — leads got an Opus advisor under the old model-aware
+    default and died on ``error: unknown option '--advisor'``. Advisor is now
+    opt-in only: an explicit ``**Advisor**:`` field turns it on (a model name)
+    or off (``off``); with no field it stays off. The adapter additionally
+    guards the flag behind a binary capability probe, so even an explicit
+    opt-in won't crash an unsupported build. See the Ticket 013 post-mortem.
 
-    - **Workers** run one short leaf task where an advisor adds little, so they
-      default off (they are also being retired in Phase 3).
-    - Otherwise **model-aware**: an advisor only helps when stronger than the
-      main model, so a sub-Opus main (Sonnet/Haiku) gets an Opus advisor while
-      an Opus (or higher) main gets none — avoiding a same-tier double pass.
+    ``model`` and ``role`` are retained for signature compatibility and for a
+    future model-aware default once native advisor is actually supported.
 
     Returns the advisor model, or ``None`` for off.
     """
     if advisor_field and advisor_field.strip():
         value = advisor_field.strip().lower()
         return None if value == "off" else value
-    if role == "worker":
-        return None
-    main = (model or "").lower()
-    if "opus" in main or "fable" in main:
-        return None
-    return "opus"
+    return None
 
 
 _AUTO_GENERATED_FRONTMATTER = re.compile(
@@ -203,7 +200,10 @@ class Entity:
     name: str
     role: str  # "maestro", "lead", "worker"
     personality_path: Path | None = None
-    model: str = "sonnet"
+    # Opus is the fleet default for every spawn. Ticket 013's native advisor
+    # (an Opus second-opinion for Sonnet executors) is unavailable on the
+    # fleet's CC, so entities run on Opus directly rather than via an advisor.
+    model: str = "opus"
     advisor: str | None = None
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
