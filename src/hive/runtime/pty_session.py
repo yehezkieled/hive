@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from threading import Thread
@@ -36,6 +38,25 @@ _TRUST_PROMPT = "trust this folder"
 # _handle_trust_prompt declares startup complete. 1.5s is empirically needed
 # to outlast the welcome banner's full render; override in tests via patch.
 _STARTUP_QUIET_S = 1.5
+
+
+# Session pinning (ADR 0011): how long to poll ~/.claude/sessions/<pid>.json
+# for the sessionId after spawn, and at what cadence. The file can lag the
+# spawn by a moment; past the timeout the reader falls back to the directory
+# heuristic (loudly).
+_PIN_POLL_TIMEOUT_S = 10.0
+_PIN_POLL_INTERVAL_S = 0.1
+
+
+def _claude_sessions_dir() -> Path:
+    """Default location of Claude Code's per-process session-state files.
+
+    ``~/.claude/sessions/<pid>.json`` carries ``{pid, sessionId, cwd, ...}``
+    for every live ``claude`` process (verified on the fleet's pinned binary,
+    ADR 0011). Undocumented interface — accepted with a fallback and the
+    version pin from Ticket 009.
+    """
+    return Path.home() / ".claude" / "sessions"
 
 
 def _claude_projects_dir(cwd: Path) -> Path:
@@ -149,8 +170,13 @@ class PtySession:
         entity_name: str | None = None,
         gate_approver: str = "user",
         on_gate_state: Callable[[str, str], None] | None = None,
+        sessions_dir: Path | None = None,
     ) -> None:
         self._model = model
+        # Where Claude Code keeps its per-process session-state files
+        # (ADR 0011). Injectable so tests can fake the pid → sessionId pin;
+        # production uses the real ~/.claude/sessions.
+        self._sessions_dir = sessions_dir if sessions_dir is not None else _claude_sessions_dir()
         self._cwd = str(cwd) if cwd else None
         self._append_system_prompts = append_system_prompts or []
         self._extra_args = extra_args or []
@@ -196,7 +222,9 @@ class PtySession:
         # bridge gates.
         gate_detector = GateDetector() if self._gate_coordinator is not None else None
         self._transcript_reader = TranscriptReader(self._project_dir, gate_detector=gate_detector)
-        self._session_path = None  # identified lazily on first send()
+        # The pin is per-PROCESS (ADR 0011): clear it on every (re)spawn so
+        # the next send() re-resolves against the NEW pid's state file.
+        self._session_path = None  # resolved lazily on first send()
 
         args = _build_spawn_args(
             self._model,
@@ -264,12 +292,19 @@ class PtySession:
 
         await self._inject(prompt)
 
-        # Identify this session's .jsonl lazily — Claude Code only creates the
-        # file once it has user input to log. After _inject the file either
-        # appears (fresh session) or the --continue'd file has grown.
+        # Resolve this session's .jsonl lazily — Claude Code only creates the
+        # file once it has user input to log. Preferred path (ADR 0011): pin
+        # to the exact sessionId from ~/.claude/sessions/<pid>.json. Fallback:
+        # the new-or-growing heuristic over the project dir, which needs
+        # _inject to have happened (the file appears / grows on input). The
+        # pin is per-process — start() clears _session_path, so a respawn
+        # (new pid) re-pins.
         if self._session_path is None:
+            pid = getattr(self._proc, "pid", None)
+            session_id = await self._read_session_id(pid) if isinstance(pid, int) else None
             self._session_path = await asyncio.to_thread(
-                self._transcript_reader.identify_session,
+                self._transcript_reader.resolve_session,
+                session_id,
                 self._before_sizes,
                 timeout=10.0,
             )
@@ -287,6 +322,46 @@ class PtySession:
             if not isinstance(outcome, Gated):
                 return outcome
             await self._handle_gate(outcome)
+
+    async def _read_session_id(self, pid: int) -> str | None:
+        """Poll for the sessionId Claude Code records for our child pid (ADR 0011).
+
+        ``<sessions_dir>/<pid>.json`` can lag the spawn by a moment, so poll
+        briefly (``_PIN_POLL_TIMEOUT_S`` at ``_PIN_POLL_INTERVAL_S``). A
+        missing, malformed, or sessionId-less file counts as "not yet usable"
+        and polling continues — a partial write may complete a moment later.
+        Returns None past the timeout; the caller then falls back to the
+        directory heuristic (which logs its own loud warning at the bind).
+        """
+        state_path = self._sessions_dir / f"{pid}.json"
+        deadline = time.monotonic() + _PIN_POLL_TIMEOUT_S
+        while True:
+            session_id = self._parse_session_id(state_path)
+            if session_id is not None:
+                return session_id
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "PtySession: no usable session-state file at %s within %.1fs — "
+                    "session pin unavailable (ADR 0011)",
+                    state_path,
+                    _PIN_POLL_TIMEOUT_S,
+                )
+                return None
+            await asyncio.sleep(_PIN_POLL_INTERVAL_S)
+
+    @staticmethod
+    def _parse_session_id(state_path: Path) -> str | None:
+        """The sessionId in a session-state file, or None if unreadable/absent."""
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        session_id = data.get("sessionId")
+        if isinstance(session_id, str) and session_id:
+            return session_id
+        return None
 
     async def _handle_gate(self, gated: Gated) -> None:
         """Park on the gate, inject the user's decision, resume the Turn.
