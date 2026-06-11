@@ -205,9 +205,13 @@ class LifecycleManager:
             model=model,
             personality_path=personality_path,
         )
-        # New maestros default to `yolo` so first-message tool calls
-        # don't get auto-denied under headless `claude -p`. Existing
-        # maestros restored from postgres keep their persisted mode.
+        # INTENTIONAL SHADOW (Ticket 023, design D6): this overrides the
+        # Entity-level default (`Entity.permission_mode = "default"`,
+        # models/entity.py) for newly registered maestros only. First-spawn
+        # safety: a brand-new maestro's first turn must not stall on
+        # permission prompts before any gate bridge exists for it. Existing
+        # maestros restored from postgres keep their persisted mode. Do not
+        # "fix" this back to the Entity default without revisiting D6.
         maestro.permission_mode = "yolo"
         if personality_path and personality_path.exists():
             maestro.load_personality()
