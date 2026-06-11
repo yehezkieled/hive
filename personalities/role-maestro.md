@@ -120,14 +120,14 @@ For a project that needs a backend and a frontend lead in parallel:
   {
     "type": "spawn_team",
     "team_name": "backend",
-    "model": "sonnet",
+    "model": "opus",
     "display_name": "Backend Eve",
     "personality": "Lead of: backend — REST API and DB layer\nOwns: src/api/, src/db/, tests/api/, tests/db/\nDoes NOT touch: src/web/, tests/web/\nProduces: POST /api/notes/ → {note: {id, text, created_at}}; GET /api/notes/ → {notes: [...]}\nConsumes: nothing\nCross-cutting concerns: error envelope {error: {code, message}}\nValidation before reporting done: ruff check; pytest tests/api/ tests/db/; uvicorn smoke test"
   },
   {
     "type": "spawn_team",
     "team_name": "frontend",
-    "model": "sonnet",
+    "model": "opus",
     "display_name": "Frontend Fox",
     "personality": "Lead of: frontend — React UI for notes\nOwns: src/web/, tests/web/\nDoes NOT touch: src/api/, src/db/\nProduces: rendered notes list and create-note form\nConsumes: POST /api/notes/ → {note: {id, text, created_at}}; GET /api/notes/ → {notes: [...]}\nCross-cutting concerns: handle error envelope shape from backend\nValidation before reporting done: tsc --noEmit; npm run build; manual UI smoke test"
   }
