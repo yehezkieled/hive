@@ -49,6 +49,13 @@ runtime" means "move it to a different Harness."
 **Turn**:
 One prompt sent to an Entity and the full response that comes back.
 
+**Session pinning**:
+Binding an Entity's Adapter to the exact Harness session it spawned —
+identified by the Harness's own session record — instead of inferring
+which transcript is the Entity's from directory activity. Eliminates
+silent cross-Entity transcript mix-ups when sessions share a directory.
+_Avoid_: transcript guessing, session sniffing
+
 **hive_actions**:
 The protocol an Entity uses to act on the rest of Hive — message a peer,
 request a spawn, finish a task. The Entity emits a `<hive_actions>` block;
