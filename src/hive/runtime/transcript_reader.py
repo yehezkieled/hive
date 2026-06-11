@@ -57,13 +57,47 @@ class TranscriptReader:
         self._project_dir = project_dir
         self._gate_detector = gate_detector
 
+    def resolve_session(
+        self,
+        session_id: str | None,
+        before_sizes: dict[Path, int],
+        *,
+        timeout: float = 10.0,
+    ) -> Path:
+        """Resolve this session's transcript path — pinned by session id (ADR 0011).
+
+        When the caller knows the harness process's sessionId (from Claude
+        Code's per-process state file ``~/.claude/sessions/<pid>.json``), the
+        transcript is ``<project_dir>/<session_id>.jsonl`` exactly — no
+        directory scanning, immune to sibling sessions growing files in a
+        shared project dir (failure F3, ticket 023). The file may not exist
+        yet (Claude Code creates it lazily on first input); that's fine —
+        ``await_next_assistant_turn`` polls until it appears.
+
+        With no session id, falls back to the new-or-growing heuristic
+        (``identify_session``), which can mis-bind in a shared dir.
+        """
+        if session_id:
+            return self._project_dir / f"{session_id}.jsonl"
+        logger.warning(
+            "session pin unavailable, falling back to directory heuristic in %s "
+            "— in a shared project dir this bind can silently mis-attribute "
+            "turns (F3, ticket 023)",
+            self._project_dir,
+        )
+        return self.identify_session(before_sizes, timeout=timeout)
+
     def identify_session(
         self,
         before_sizes: dict[Path, int],
         *,
         timeout: float = 10.0,
     ) -> Path:
-        """Find this session's .jsonl by comparing against the pre-spawn snapshot.
+        """FALLBACK ONLY — find the .jsonl by comparing against the pre-spawn snapshot.
+
+        Prefer ``resolve_session`` with a pinned session id (ADR 0011): in a
+        project dir shared by several sessions this heuristic can bind to a
+        sibling's growing transcript, silently (failure F3, ticket 023).
 
         before_sizes: {path: size_in_bytes} for every *.jsonl present in
             project_dir at snapshot time (just before spawning the harness).

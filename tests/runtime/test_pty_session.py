@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +18,35 @@ from hive.runtime.pty_session import (
     _claude_projects_dir,
     _resolve_claude_version,
 )
+
+
+def _user_line(text: str, session_id: str) -> str:
+    """One transcript line: a user entry (the shape CC writes on input)."""
+    entry = {
+        "type": "user",
+        "sessionId": session_id,
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+    }
+    return json.dumps(entry) + "\n"
+
+
+def _assistant_line(text: str, session_id: str) -> str:
+    """One transcript line: a completed assistant entry with usage."""
+    entry = {
+        "type": "assistant",
+        "sessionId": session_id,
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": text}],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
+        },
+    }
+    return json.dumps(entry) + "\n"
 
 
 def test_claude_projects_dir_replaces_slashes_and_dots() -> None:
@@ -84,7 +115,7 @@ def mock_transcript_reader():
     """
     with patch("hive.runtime.pty_session.TranscriptReader") as mock_reader_cls:
         mock_reader = mock_reader_cls.return_value
-        mock_reader.identify_session.return_value = Path("/tmp/fake-session.jsonl")
+        mock_reader.resolve_session.return_value = Path("/tmp/fake-session.jsonl")
         mock_reader.await_next_assistant_turn = AsyncMock(
             return_value=(
                 "canned response",
@@ -221,10 +252,10 @@ async def test_send_returns_text_and_usage_from_transcript(
     assert usage["session_id"] == "sess-mock"
 
 
-async def test_send_identifies_session_only_on_first_call(
+async def test_send_resolves_session_only_on_first_call(
     mock_spawn, mock_transcript_reader, tmp_path: Path
 ) -> None:
-    """identify_session should run on the FIRST send() only; cached thereafter."""
+    """Session resolution should run on the FIRST send() only; cached thereafter."""
     session = PtySession(model="sonnet", cwd=tmp_path)
     await session.start()
 
@@ -232,7 +263,7 @@ async def test_send_identifies_session_only_on_first_call(
     await session.send("second")
     await session.send("third")
 
-    assert mock_transcript_reader.identify_session.call_count == 1
+    assert mock_transcript_reader.resolve_session.call_count == 1
 
 
 async def test_send_handles_plan_gate_then_resumes(mock_spawn, tmp_path: Path) -> None:
@@ -259,7 +290,7 @@ async def test_send_handles_plan_gate_then_resumes(mock_spawn, tmp_path: Path) -
 
     with patch("hive.runtime.pty_session.TranscriptReader") as mock_reader_cls:
         mock_reader = mock_reader_cls.return_value
-        mock_reader.identify_session.return_value = Path("/tmp/fake.jsonl")
+        mock_reader.resolve_session.return_value = Path("/tmp/fake.jsonl")
         mock_reader.await_next_assistant_turn = AsyncMock(side_effect=[Gated(plan_gate), real_turn])
 
         # Coordinator resolves the gate to the approve keypress.
@@ -454,3 +485,233 @@ async def test_start_logs_resolved_claude_version(mock_spawn, tmp_path: Path, ca
     assert any(
         "worker-3" in m and "2.1.162" in m and "versions/2.1.162" in m for m in caplog.messages
     )
+
+
+# --- Session pinning (Ticket 023, ADR 0011) ----------------------------------
+
+
+async def test_send_reads_pinned_transcript_while_decoy_grows(tmp_path: Path) -> None:
+    """F3 reproduction (ADR 0011): read the pinned transcript, never a dir guess.
+
+    Two sessions share one project dir. A DECOY .jsonl grows first — exactly
+    the bait the new-or-growing heuristic bound to in the 2026-06-11 smoke
+    test, silently feeding the adapter a sibling session's turns. With the
+    pid-state file present (~/.claude/sessions/<pid>.json carrying sessionId),
+    send() must return the turn from <project_dir>/<sessionId>.jsonl — and
+    attribute it to the pinned session.
+    """
+    projects_dir = _claude_projects_dir(tmp_path)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    decoy = projects_dir / "decoy.jsonl"
+    pinned = projects_dir / "pin-sess.jsonl"
+    decoy.write_text(_user_line("sibling chatter", "decoy-sess"))
+    pinned.write_text(_user_line("kickoff", "pin-sess"))
+
+    pid = 4242
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / f"{pid}.json").write_text(
+        json.dumps({"pid": pid, "sessionId": "pin-sess", "status": "busy"})
+    )
+
+    proc = _make_mock_proc()
+    proc.pid = pid
+
+    async def writer() -> None:
+        # The decoy grows FIRST — under the old heuristic this wins the bind.
+        await asyncio.sleep(0.9)
+        with decoy.open("a", encoding="utf-8") as fh:
+            fh.write(_user_line("more sibling chatter", "decoy-sess"))
+        await asyncio.sleep(0.3)
+        with decoy.open("a", encoding="utf-8") as fh:
+            fh.write(_assistant_line("WRONG — a sibling session's answer", "decoy-sess"))
+        await asyncio.sleep(0.3)
+        with pinned.open("a", encoding="utf-8") as fh:
+            fh.write(_assistant_line("the real answer", "pin-sess"))
+
+    try:
+        with patch("hive.runtime.pty_session.PtyProcess") as mock_cls:
+            mock_cls.spawn.return_value = proc
+            session = PtySession(model="sonnet", cwd=tmp_path, sessions_dir=sessions_dir)
+            await session.start()
+            write_task = asyncio.create_task(writer())
+            text, usage = await session.send("do the work")
+            await write_task
+    finally:
+        shutil.rmtree(projects_dir, ignore_errors=True)
+
+    assert text == "the real answer"
+    assert usage["session_id"] == "pin-sess"
+
+
+async def test_send_falls_back_to_heuristic_when_pid_state_file_missing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing/late pid-state file → directory heuristic + loud WARNING.
+
+    Claude Code's sessions file is an undocumented interface (ADR 0011); if
+    it vanishes in an upgrade Hive must keep working. The poll times out, the
+    reader falls back to the new-or-growing heuristic, and the bind is logged
+    loudly so a silent mis-bind is diagnosable from the journal.
+    """
+    projects_dir = _claude_projects_dir(tmp_path)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    transcript = projects_dir / "only-session.jsonl"
+    transcript.write_text(_user_line("kickoff", "sess-fb"))
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()  # exists, but holds no <pid>.json
+
+    proc = _make_mock_proc()
+    proc.pid = 4243
+
+    async def writer() -> None:
+        # The transcript grows on input (the --continue shape the heuristic
+        # was written for), then the assistant answer lands.
+        await asyncio.sleep(1.0)
+        with transcript.open("a", encoding="utf-8") as fh:
+            fh.write(_user_line("do the work", "sess-fb"))
+        await asyncio.sleep(0.8)
+        with transcript.open("a", encoding="utf-8") as fh:
+            fh.write(_assistant_line("answer via fallback", "sess-fb"))
+
+    try:
+        with (
+            patch("hive.runtime.pty_session.PtyProcess") as mock_cls,
+            patch("hive.runtime.pty_session._PIN_POLL_TIMEOUT_S", 0.2),
+        ):
+            mock_cls.spawn.return_value = proc
+            session = PtySession(model="sonnet", cwd=tmp_path, sessions_dir=sessions_dir)
+            await session.start()
+            write_task = asyncio.create_task(writer())
+            with caplog.at_level(logging.WARNING):
+                text, usage = await session.send("do the work")
+            await write_task
+    finally:
+        shutil.rmtree(projects_dir, ignore_errors=True)
+
+    assert text == "answer via fallback"
+    assert usage["session_id"] == "sess-fb"
+    assert any("falling back to directory heuristic" in m for m in caplog.messages)
+
+
+@pytest.mark.parametrize(
+    "state_content",
+    [
+        pytest.param("not json {{{", id="malformed-json"),
+        pytest.param(json.dumps({"pid": 4244, "status": "busy"}), id="missing-sessionId"),
+    ],
+)
+async def test_send_falls_back_when_pid_state_file_unusable(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, state_content: str
+) -> None:
+    """A present-but-unusable pid-state file must degrade to the fallback.
+
+    Undocumented interface (ADR 0011): a CC upgrade could garble the file or
+    drop the sessionId key. Either way the spawn must not crash — heuristic
+    bind + loud warning, same as a missing file.
+    """
+    projects_dir = _claude_projects_dir(tmp_path)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    transcript = projects_dir / "only-session.jsonl"
+    transcript.write_text(_user_line("kickoff", "sess-mal"))
+
+    pid = 4244
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / f"{pid}.json").write_text(state_content)
+
+    proc = _make_mock_proc()
+    proc.pid = pid
+
+    async def writer() -> None:
+        await asyncio.sleep(1.0)
+        with transcript.open("a", encoding="utf-8") as fh:
+            fh.write(_user_line("do the work", "sess-mal"))
+        await asyncio.sleep(0.8)
+        with transcript.open("a", encoding="utf-8") as fh:
+            fh.write(_assistant_line("survived the bad state file", "sess-mal"))
+
+    try:
+        with (
+            patch("hive.runtime.pty_session.PtyProcess") as mock_cls,
+            patch("hive.runtime.pty_session._PIN_POLL_TIMEOUT_S", 0.2),
+        ):
+            mock_cls.spawn.return_value = proc
+            session = PtySession(model="sonnet", cwd=tmp_path, sessions_dir=sessions_dir)
+            await session.start()
+            write_task = asyncio.create_task(writer())
+            with caplog.at_level(logging.WARNING):
+                text, usage = await session.send("do the work")
+            await write_task
+    finally:
+        shutil.rmtree(projects_dir, ignore_errors=True)
+
+    assert text == "survived the bad state file"
+    assert usage["session_id"] == "sess-mal"
+    assert any("falling back to directory heuristic" in m for m in caplog.messages)
+
+
+async def test_respawn_repins_to_new_pid_session(tmp_path: Path) -> None:
+    """The pin is per-PROCESS: a respawn (new pid) must re-pin, not reuse.
+
+    ``--continue`` after a crash produces a new pid and may resume a prior
+    session id (ADR 0011). A pin cached across the respawn would read a dead
+    session's file forever. After recovery, send() must resolve the NEW pid's
+    state file and read the NEW session's transcript.
+    """
+    projects_dir = _claude_projects_dir(tmp_path)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    transcript_a = projects_dir / "sess-A.jsonl"
+    transcript_b = projects_dir / "sess-B.jsonl"
+    transcript_a.write_text(_user_line("kickoff", "sess-A"))
+    transcript_b.write_text(_user_line("kickoff", "sess-B"))
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / "111.json").write_text(json.dumps({"pid": 111, "sessionId": "sess-A"}))
+    (sessions_dir / "222.json").write_text(json.dumps({"pid": 222, "sessionId": "sess-B"}))
+
+    proc_a = _make_mock_proc()
+    proc_a.pid = 111
+    proc_b = _make_mock_proc()
+    proc_b.pid = 222
+    procs = [proc_a, proc_b]
+
+    def _spawn(*args, **kwargs):
+        return procs.pop(0)
+
+    async def append_later(path: Path, line: str, delay: float) -> None:
+        await asyncio.sleep(delay)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+
+    try:
+        with patch("hive.runtime.pty_session.PtyProcess") as mock_cls:
+            mock_cls.spawn.side_effect = _spawn
+            session = PtySession(model="sonnet", cwd=tmp_path, sessions_dir=sessions_dir)
+            await session.start()
+
+            # Turn 1 on pid 111 → pinned to sess-A.
+            writer_1 = asyncio.create_task(
+                append_later(transcript_a, _assistant_line("answer from session A", "sess-A"), 1.0)
+            )
+            text_1, usage_1 = await session.send("first")
+            await writer_1
+
+            # The harness crashes; send() recovers (respawn → pid 222).
+            proc_a.isalive.return_value = False
+            # Recovery sleeps 2.0s before respawning; the new await starts
+            # after inject (~2.6s in) — append well after that.
+            writer_2 = asyncio.create_task(
+                append_later(transcript_b, _assistant_line("answer from session B", "sess-B"), 3.5)
+            )
+            text_2, usage_2 = await session.send("second")
+            await writer_2
+    finally:
+        shutil.rmtree(projects_dir, ignore_errors=True)
+
+    assert text_1 == "answer from session A"
+    assert usage_1["session_id"] == "sess-A"
+    assert text_2 == "answer from session B"
+    assert usage_2["session_id"] == "sess-B"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from pathlib import Path
 
@@ -104,6 +105,42 @@ def test_identify_session_raises_timeout_when_nothing_changes(tmp_path: Path) ->
     elapsed = time.monotonic() - start
     # Should wait roughly the timeout (allow generous slack for poll cadence).
     assert 0.25 <= elapsed < 1.5
+
+
+def test_resolve_session_returns_pinned_path_for_session_id(tmp_path: Path) -> None:
+    """Session pinning (ADR 0011): a known session id maps to an exact path.
+
+    No directory scanning, no waiting — <project_dir>/<session_id>.jsonl is
+    the transcript, even when the file doesn't exist yet (Claude Code creates
+    it lazily on first input) and even while sibling files grow in the dir.
+    """
+    # A decoy that the new-or-growing heuristic WOULD pick (it's brand-new).
+    decoy = tmp_path / "decoy.jsonl"
+    decoy.write_text("sibling session\n")
+
+    reader = TranscriptReader(tmp_path)
+    found = reader.resolve_session("pin-sess", before_sizes={}, timeout=0.1)
+
+    assert found == tmp_path / "pin-sess.jsonl"
+
+
+def test_resolve_session_without_id_falls_back_to_heuristic_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No session id → the new-or-growing heuristic runs, and the bind is LOUD.
+
+    A fallback bind is a directory guess that can silently mis-attribute turns
+    (F3); it must leave a WARNING in the journal so a mis-bind is diagnosable.
+    """
+    fresh = tmp_path / "fresh.jsonl"
+    fresh.write_text("new session\n")
+
+    reader = TranscriptReader(tmp_path)
+    with caplog.at_level(logging.WARNING, logger="hive.runtime.transcript_reader"):
+        found = reader.resolve_session(None, before_sizes={}, timeout=1.0)
+
+    assert found == fresh
+    assert any("session pin unavailable" in m and "falling back" in m for m in caplog.messages)
 
 
 async def test_await_next_assistant_turn_returns_text_and_usage(tmp_path: Path) -> None:
