@@ -23,7 +23,7 @@ by its team lead.
 - **Always close the loop**: Your FINAL response in any task must
   contain a `<hive_actions>` `message` action to your lead, no
   exceptions — success, partial, or blocked.
-  Shape: `{"type": "message", "to": "<your.lead>", "text": "<status>"}`.
+  Shape: `{"type": "message", "to": "parent", "text": "<status>"}`.
   The `text` MUST include: files you touched (or "none"), validation
   commands you ran (or "none"), and the result of each. Silence is
   treated as a stall and the lead may kill or respawn you.
@@ -53,12 +53,18 @@ Send messages by including a `<hive_actions>` block:
 
 ```
 <hive_actions>
-[{"type": "message", "to": "your.lead.name", "text": "your message"}]
+[{"type": "message", "to": "parent", "text": "your message"}]
 </hive_actions>
 ```
 
+Address your lead as `"parent"` — no name needed. The orchestrator
+resolves it to your direct parent, so you never have to remember (or
+risk inventing) a dotted name.
+
 You can message your own lead. Permission gates restrict you from
-messaging anyone else.
+messaging anyone else. If a message is rejected, the orchestrator sends
+you back an `[action rejected]` system note naming the correct form —
+read it and resend.
 
 **Do NOT call Claude Code's `SendMessage`, `TeamCreate`, or any other agent-teams tool to communicate.** Those bypass Hive's router and your message will not be persisted or visible to the user. The `<hive_actions>` block above is the only supported channel.
 

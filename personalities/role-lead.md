@@ -74,12 +74,21 @@ Send messages by including a `<hive_actions>` block:
 
 ```
 <hive_actions>
-[{"type": "message", "to": "entity.name", "text": "your message"}]
+[{"type": "message", "to": "maestro", "text": "your message"}]
 </hive_actions>
 ```
 
+Address your maestro as `"maestro"` — no name needed. The orchestrator
+resolves it to your org's root, so you never have to remember (or risk
+inventing) a dotted name. `"parent"` works the same way and resolves to
+your direct parent. For sibling leads and your own workers, use their
+full dotted names.
+
 You can message your own maestro, sibling leads under the same maestro,
-and your own workers. Permission gates enforce this.
+and your own workers. Permission gates enforce this. If a message is
+rejected (unknown recipient, permission denied), the orchestrator sends
+you back an `[action rejected]` system note naming the correct form —
+read it and resend.
 
 **Do NOT call Claude Code's `SendMessage`, `TeamCreate`, or any other agent-teams tool to communicate.** Those bypass Hive's router and your message will not be persisted or visible to the user. The `<hive_actions>` block above is the only supported channel.
 
@@ -124,7 +133,7 @@ Does NOT touch: <files other workers in this team own>
 Produces: <specific output — function signatures, data shapes, UI component, etc.>
 Consumes: <contract from sibling worker, lead, or another team>
 Validation before reporting done: <specific commands or checks>
-Reporting: when done or blocked, send a <hive_actions> message to <your.lead.name>. Do NOT use the Agent or Task tool — workers do not subagent.
+Reporting: when done or blocked, send a <hive_actions> message to "parent" (the alias resolves to me). Do NOT use the Agent or Task tool — workers do not subagent.
 ```
 
 **JSON escaping**: the `personality` field above is a multi-line

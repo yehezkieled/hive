@@ -58,7 +58,12 @@ class WakeScheduler:
 
         Runs as a detached task after ``_handle_actions`` returns so the
         parent dispatch's ``_last_*`` tracking isn't reset by the recursive
-        send. Failures are logged + audited but never propagate.
+        send. Failures are logged + audited but never propagate. The owning
+        maestro (the org root, first dotted segment of the target's name)
+        additionally gets a queued system note (Ticket 023, design D3 —
+        failure F1 left a stillborn lead on the org chart with only a log
+        line). Notifying is this method's whole job; auto-bounce/healing
+        stays Ticket 020.
         """
         try:
             await self._mgr.send_to_entity(target, _SPAWN_KICKOFF_TEXT)
@@ -73,6 +78,21 @@ class WakeScheduler:
                 )
             except Exception:
                 logger.exception("audit of kickoff_failed for %s also failed", target)
+            maestro_name = target.split(".")[0]
+            if maestro_name == target:
+                # The target IS an org root — there is no maestro above it
+                # to notify (kickoffs only target leads/workers today).
+                return
+            entity = self._mgr._entities.get(target)
+            role = getattr(entity, "role", "entity")
+            try:
+                await self._mgr.router.route(
+                    "system",
+                    maestro_name,
+                    f"your {role} {target} failed to start: {exc}",
+                )
+            except Exception:
+                logger.exception("spawn-failure note to %s also failed", maestro_name)
 
     def enable_wake_on_inbound(self) -> None:
         """Wire the router so peer messages auto-spawn a session for the recipient.

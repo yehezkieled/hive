@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 
@@ -34,22 +33,35 @@ from hive.process.wake_scheduler import (
 # ---------------------------------------------------------------------------
 
 
+class FakeRouter:
+    """Records ``route`` calls; carries the ``wake_callback`` slot that
+    ``enable_wake_on_inbound`` wires."""
+
+    def __init__(self) -> None:
+        self.wake_callback = None
+        self.routed: list[tuple[str, str, str]] = []
+
+    async def route(self, sender: str, recipient: str, content: str) -> None:
+        self.routed.append((sender, recipient, content))
+
+
 class StubManager:
     """Minimal stand-in for ProcessManager's wake-facing surface.
 
     Mirrors exactly the facade-owned state ``WakeScheduler`` mutates via
     ``self._mgr``: ``_entities``, the ``_wake_tasks`` GC set, the
     ``_wake_budget`` rolling-window deque, ``router`` (so
-    ``enable_wake_on_inbound`` has something to wire), and an ``_audit``
-    recorder. ``send_to_entity`` defaults to a no-op recorder; tests swap
-    in their own side effects.
+    ``enable_wake_on_inbound`` has something to wire and the kickoff
+    failure path has somewhere to route), and an ``_audit`` recorder.
+    ``send_to_entity`` defaults to a no-op recorder; tests swap in their
+    own side effects.
     """
 
     def __init__(self) -> None:
         self._entities: dict[str, object] = {}
         self._wake_tasks: set[asyncio.Task] = set()
         self._wake_budget: dict[str, deque[datetime]] = defaultdict(deque)
-        self.router = SimpleNamespace(wake_callback=None)
+        self.router = FakeRouter()
 
         self.audit_calls: list[tuple[str, str | None, dict | None]] = []
         self.sent: list[tuple[str, str]] = []
@@ -245,3 +257,32 @@ async def test_auto_kickoff_audits_failure_without_raising(
     await wake._auto_kickoff("dev.backend")  # must not raise
     actions = [a for (a, _t, _d) in mgr.audit_calls]
     assert actions.count("entity.kickoff_failed") == 1
+
+
+async def test_auto_kickoff_failure_notes_owning_maestro(
+    wake: WakeScheduler, mgr: StubManager
+) -> None:
+    """A failed kickoff routes a system note to the owning maestro.
+
+    Failure F1 (Ticket 023): a stillborn lead left a corpse on the org
+    chart and a warning in a log nobody reads. The org root (first dotted
+    segment of the target's name) now gets a queued note so wake-on-inbound
+    surfaces the failure.
+    """
+    from types import SimpleNamespace
+
+    mgr._entities["dev.backend"] = SimpleNamespace(role="lead")
+
+    async def boom(name: str, text: str) -> None:
+        raise RuntimeError("failed to recover after 3 attempts")
+
+    mgr.send_to_entity = boom  # type: ignore[method-assign]
+    await wake._auto_kickoff("dev.backend")  # must not raise
+
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
+    assert len(notes) == 1
+    note_body = notes[0][2]
+    assert "dev.backend" in note_body
+    assert "lead" in note_body
+    assert "failed to start" in note_body
+    assert "failed to recover after 3 attempts" in note_body

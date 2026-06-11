@@ -232,13 +232,17 @@ async def test_message_action_routes_and_tracks(
 async def test_message_to_unknown_recipient_skipped(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
-    """An unknown recipient is skipped, nothing routed or tracked."""
+    """An unknown recipient is skipped: not delivered, not tracked.
+
+    Since Ticket 023 the drop is no longer silent — the only routed
+    message is the ``system -> sender`` rejection note.
+    """
     mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
 
     actions = [Action(type="message", to="dev.ghost", text="hi")]
     await dispatcher._handle_actions("dev", "done", actions)
 
-    assert mgr.router.routed == []
+    assert [r for r in mgr.router.routed if r[0] != "system"] == []
     assert mgr._last_routed_actions == []
 
 
@@ -328,6 +332,160 @@ async def test_kill_entity_action_tracked(dispatcher: MessageDispatcher, mgr: St
 
     assert mgr.killed == ["dev.backend"]
     assert mgr._last_killed_entities == ["dev.backend"]
+
+
+# ---------------------------------------------------------------------------
+# Alias resolution + rejection feedback (Ticket 023, design D2)
+# ---------------------------------------------------------------------------
+
+
+async def test_lead_maestro_alias_delivers_to_org_root(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A lead's ``to:"maestro"`` resolves to the org root before lookup."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+
+    actions = [Action(type="message", to="maestro", text="proposal")]
+    await dispatcher._handle_actions("dev.backend", "done", actions)
+
+    assert ("dev.backend", "dev", "proposal") in mgr.router.routed
+    assert mgr._last_routed_actions == ["dev"]
+
+
+async def test_unknown_recipient_audits_rejection_and_notes_sender(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """An unknown recipient now feeds back: audit + system note to the sender.
+
+    Before Ticket 023 the message was dropped with only a logger.warning —
+    the sender waited forever (failure F2). The note names the failure and
+    the correct form so the sender can self-correct next turn.
+    """
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+
+    actions = [Action(type="message", to="maestro.strutils", text="breakdown")]
+    await dispatcher._handle_actions("dev.backend", "done", actions)
+
+    # The peer message itself was NOT routed.
+    assert ("dev.backend", "maestro.strutils", "breakdown") not in mgr.router.routed
+    assert mgr._last_routed_actions == []
+
+    # Audit: action_rejected, actor=sender, target=attempted recipient.
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    target, details = rejected[0]
+    assert target == "maestro.strutils"
+    assert details["sender"] == "dev.backend"
+    assert "unknown" in details["reason"]
+
+    # Feedback: a system note to the SENDER naming the failure + correct form.
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend"]
+    assert len(notes) == 1
+    note_body = notes[0][2]
+    assert "[action rejected]" in note_body
+    assert "maestro.strutils" in note_body
+    assert "maestro" in note_body  # the correct form: the alias
+
+
+async def test_permission_denied_audits_rejection_and_notes_sender(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A permission-denied message feeds back the same way as unknown recipient.
+
+    A worker may message only its lead — ``to:"maestro"`` resolves fine but
+    is denied. The worker gets an audit + a system note naming the correct
+    form (its parent) instead of a silent drop.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+    mgr._entities["dev.backend.w1"] = Worker(name="dev.backend.w1", lead_name="dev.backend")
+
+    actions = [Action(type="message", to="maestro", text="skip the chain")]
+    await dispatcher._handle_actions("dev.backend.w1", "done", actions)
+
+    # Not delivered, not tracked.
+    assert ("dev.backend.w1", "dev", "skip the chain") not in mgr.router.routed
+    assert mgr._last_routed_actions == []
+
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    target, details = rejected[0]
+    assert target == "maestro"
+    assert details["sender"] == "dev.backend.w1"
+    assert "permission" in details["reason"]
+
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend.w1"]
+    assert len(notes) == 1
+    note_body = notes[0][2]
+    assert "[action rejected]" in note_body
+    assert "dev.backend" in note_body  # the correct form: its parent
+
+
+async def test_maestro_self_alias_rejected_with_feedback(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A maestro's ``to:"maestro"`` resolves to itself — the existing
+    self-message ban rejects it, and the feedback note explains why
+    instead of dropping silently.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="message", to="maestro", text="hello me")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert ("dev", "dev", "hello me") not in mgr.router.routed
+    assert mgr._last_routed_actions == []
+
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    target, details = rejected[0]
+    assert target == "maestro"
+    assert details["sender"] == "dev"
+
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
+    assert len(notes) == 1
+    note_body = notes[0][2]
+    assert "[action rejected]" in note_body
+    assert "yourself" in note_body  # explains the alias resolved to the sender
+
+
+async def test_maestro_parent_alias_rejected_with_feedback(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A maestro has no parent — ``to:"parent"`` is rejected with feedback."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="message", to="parent", text="anyone up there?")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert mgr._last_routed_actions == []
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
+    assert len(notes) == 1
+
+
+async def test_worker_parent_alias_delivers_to_lead(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A worker's ``to:"parent"`` resolves to its immediate parent (the lead)."""
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+    mgr._entities["dev.backend.w1"] = Worker(name="dev.backend.w1", lead_name="dev.backend")
+
+    actions = [Action(type="message", to="parent", text="done, tests green")]
+    await dispatcher._handle_actions("dev.backend.w1", "done", actions)
+
+    assert ("dev.backend.w1", "dev.backend", "done, tests green") in mgr.router.routed
+    assert mgr._last_routed_actions == ["dev.backend"]
 
 
 # ---------------------------------------------------------------------------
