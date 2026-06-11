@@ -238,9 +238,22 @@ class MessageDispatcher:
 
         # --- Phase 3: parse and route actions from response ---
         clean_text, actions, parse_errors = parse_actions(response)
-        return await self._mgr._handle_actions(
+        result = await self._mgr._handle_actions(
             entity_name, clean_text, actions, parse_errors=parse_errors
         )
+
+        # --- Turn-end inbox check (Ticket 023, design D4) ---
+        # Wake-on-inbound is single-shot: a wake landing while this turn
+        # was in flight was swallowed and nothing retries — the mail would
+        # park until the 120m scheduler tick. The drain phase above ran at
+        # turn START, so anything still queued now arrived DURING the turn.
+        # Runs on every completion path — a turn that parked at an
+        # interactive gate and resumed returns through this same line.
+        # Budget-exhausted recipients are throttled by the scheduler (no
+        # spin); the 120m tick remains the backstop.
+        self._mgr.wake.schedule_wake_if_pending(entity_name)
+
+        return result
 
     async def _handle_actions(
         self,

@@ -105,6 +105,23 @@ class WakeScheduler:
         """
         self._mgr.router.wake_callback = self._on_inbound_wake
 
+    def schedule_wake_if_pending(self, recipient: str) -> None:
+        """Turn-end inbox check (Ticket 023, design D4).
+
+        Wake-on-inbound is single-shot: a wake landing while the
+        recipient is mid-turn is swallowed by the "already running"
+        guard in ``_wake_entity`` and nothing retries — queued mail
+        parks until the 120m scheduler tick. The dispatcher calls this
+        when a turn completes; if mail arrived DURING the turn (the
+        drain phase at turn start emptied everything older), schedule a
+        wake through the same budget machinery as inbound wakes. An
+        exhausted budget throttles (no spin) — the 120m tick remains
+        the backstop. An empty queue is a free no-op.
+        """
+        if not self._mgr.router.has_pending(recipient):
+            return
+        self._on_inbound_wake(recipient)
+
     def _on_inbound_wake(self, recipient: str) -> None:
         """Sync hook called by the router after a message lands in a queue.
 

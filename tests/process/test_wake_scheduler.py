@@ -35,14 +35,23 @@ from hive.process.wake_scheduler import (
 
 class FakeRouter:
     """Records ``route`` calls; carries the ``wake_callback`` slot that
-    ``enable_wake_on_inbound`` wires."""
+    ``enable_wake_on_inbound`` wires.
+
+    ``pending`` backs ``has_pending`` for the turn-end inbox check
+    (Ticket 023, design D4): tests add a recipient name to mark its
+    queue non-empty.
+    """
 
     def __init__(self) -> None:
         self.wake_callback = None
         self.routed: list[tuple[str, str, str]] = []
+        self.pending: set[str] = set()
 
     async def route(self, sender: str, recipient: str, content: str) -> None:
         self.routed.append((sender, recipient, content))
+
+    def has_pending(self, entity_name: str) -> bool:
+        return entity_name in self.pending
 
 
 class StubManager:
@@ -286,3 +295,59 @@ async def test_auto_kickoff_failure_notes_owning_maestro(
     assert "lead" in note_body
     assert "failed to start" in note_body
     assert "failed to recover after 3 attempts" in note_body
+
+
+# ---------------------------------------------------------------------------
+# schedule_wake_if_pending — turn-end inbox check (Ticket 023, design D4)
+# ---------------------------------------------------------------------------
+
+
+async def test_schedule_wake_if_pending_wakes_on_queued_mail(
+    wake: WakeScheduler, mgr: StubManager
+) -> None:
+    """A non-empty queue at turn end schedules a wake through the normal path."""
+    mgr._entities["alice.bob"] = object()
+    mgr.router.pending.add("alice.bob")
+
+    wake.schedule_wake_if_pending("alice.bob")
+    await _drain(mgr)
+
+    assert ("alice.bob", _WAKE_ON_INBOUND_TEXT) in mgr.sent
+    actions = [a for (a, _t, _d) in mgr.audit_calls]
+    assert actions.count("entity.wake_scheduled") == 1
+
+
+def test_schedule_wake_if_pending_noop_on_empty_queue(
+    wake: WakeScheduler, mgr: StubManager
+) -> None:
+    """An empty queue schedules nothing and consumes no budget."""
+    mgr._entities["alice.bob"] = object()
+
+    wake.schedule_wake_if_pending("alice.bob")
+
+    assert mgr._wake_tasks == set()
+    assert mgr._wake_budget == {}
+
+
+async def test_schedule_wake_if_pending_throttled_when_budget_exhausted(
+    wake: WakeScheduler, mgr: StubManager
+) -> None:
+    """An exhausted wake budget throttles the turn-end wake — no spin.
+
+    The helper reuses ``_on_inbound_wake``'s budget machinery, so the
+    same per-recipient window applies: past the cap the wake is dropped
+    with an ``entity.wake_throttled`` audit and the mail waits for the
+    120m scheduler tick (the backstop).
+    """
+    mgr._entities["alice.bob"] = object()
+    mgr.router.pending.add("alice.bob")
+    now = datetime.now(UTC)
+    mgr._wake_budget["alice.bob"].extend([now] * _WAKE_BUDGET_MAX_PER_WINDOW)
+
+    wake.schedule_wake_if_pending("alice.bob")
+    await _drain(mgr)
+
+    assert mgr.sent == []
+    actions = [a for (a, _t, _d) in mgr.audit_calls]
+    assert actions.count("entity.wake_throttled") == 1
+    assert actions.count("entity.wake_scheduled") == 0
