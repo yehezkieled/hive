@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -35,6 +38,11 @@ from hive.process.message_dispatcher import (
     _PARSE_FAILURE_WINDOW_SECONDS,
     MessageDispatcher,
 )
+from hive.process.wake_scheduler import (
+    _WAKE_BUDGET_MAX_PER_WINDOW,
+    _WAKE_ON_INBOUND_TEXT,
+    WakeScheduler,
+)
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -42,16 +50,70 @@ from hive.process.message_dispatcher import (
 
 
 class FakeRouter:
-    """Records ``route`` calls; no real MessageStore needed."""
+    """Records ``route`` calls and holds real per-recipient queues.
+
+    No real MessageStore needed. The queues back ``has_pending`` /
+    ``get_next`` so ``send_to_entity``'s drain phase and the turn-end
+    inbox check (Ticket 023, design D4) see genuine queue state.
+    """
 
     def __init__(self) -> None:
         self.routed: list[tuple[str, str, str]] = []
+        self._queues: dict[str, list[tuple[str, str]]] = defaultdict(list)
 
     async def route(self, sender: str, recipient: str, content: str) -> None:
         self.routed.append((sender, recipient, content))
+        self._queues[recipient].append((sender, content))
 
     def has_pending(self, entity_name: str) -> bool:
-        return False
+        return bool(self._queues.get(entity_name))
+
+    async def get_next(self, entity_name: str, timeout: float | None = None) -> _FakeMessage | None:
+        queue = self._queues.get(entity_name)
+        if not queue:
+            return None
+        sender, content = queue.pop(0)
+        return _FakeMessage(sender=sender, content=content)
+
+
+class _FakeMessage:
+    """Just the two fields the drain phase reads off a routed message."""
+
+    def __init__(self, sender: str, content: str) -> None:
+        self.sender = sender
+        self.content = content
+
+
+class FakeTurnAdapter:
+    """Adapter double for driving ``send_to_entity`` end-to-end.
+
+    ``on_turn`` is an async hook that runs INSIDE the turn (between the
+    drain phase and turn completion) — the seam for delivering mid-turn
+    mail or parking on a fake interactive gate.
+    """
+
+    def __init__(
+        self,
+        response: str = "ok",
+        on_turn: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        self._response = response
+        self._on_turn = on_turn
+        self.prompts: list[str] = []
+
+    async def send_turn(self, prompt: str) -> tuple[str, dict]:
+        self.prompts.append(prompt)
+        if self._on_turn is not None:
+            await self._on_turn()
+        usage: dict = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "session_id": "sess-1",
+            "cost_usd": None,
+        }
+        return self._response, usage
 
 
 class StubManager:
@@ -69,6 +131,23 @@ class StubManager:
         self._entities: dict[str, object] = {}
         self.router = FakeRouter()
         self.scheduler = None
+
+        # --- send_to_entity surface (turn-end inbox check, Ticket 023 D4) ---
+        # A REAL WakeScheduler wired to this stub: the turn-end check must
+        # go through the existing budget machinery, so the tests exercise
+        # the genuine article, not a recorder.
+        self.blueprint_store = None
+        self.attachment_store = None
+        self._compacting: set[str] = set()
+        self._wake_tasks: set[asyncio.Task] = set()
+        self._wake_budget: dict[str, deque[datetime]] = defaultdict(deque)
+        self.wake = WakeScheduler(self)
+        self.adapter = FakeTurnAdapter()
+        # Wake follow-up sends land here (recorder), keeping unit tests
+        # from recursing back into the dispatcher under test.
+        self.sent: list[tuple[str, str]] = []
+        self.persisted: list[object] = []
+        self.usage_records: list[dict] = []
 
         # The eight facade-owned introspection lists. _handle_actions
         # REBINDS each of these (= []) through self._mgr; tests assert the
@@ -141,6 +220,24 @@ class StubManager:
     async def _auto_kickoff(self, target: str) -> None:
         self.kickoffs.append(target)
 
+    # --- send_to_entity surface (turn-end inbox check, Ticket 023 D4) ---
+
+    def _peer_directory_for(self, entity_name: str) -> str:
+        return ""
+
+    async def _persist(self, entity: object) -> None:
+        self.persisted.append(entity)
+
+    async def _record_usage(self, entity: object, usage: dict | None) -> None:
+        if usage is not None:
+            self.usage_records.append(usage)
+
+    async def _get_or_create_adapter(self, entity: object) -> FakeTurnAdapter:
+        return self.adapter
+
+    async def send_to_entity(self, name: str, text: str) -> None:
+        self.sent.append((name, text))
+
 
 @pytest.fixture
 def mgr() -> StubManager:
@@ -149,12 +246,44 @@ def mgr() -> StubManager:
 
 @pytest.fixture
 def dispatcher(mgr: StubManager) -> MessageDispatcher:
-    return MessageDispatcher(mgr)
+    d = MessageDispatcher(mgr)
+    # Mirror the facade thin-delegate so send_to_entity's tail call
+    # (``self._mgr._handle_actions``) reaches the dispatcher under test.
+    mgr._handle_actions = d._handle_actions  # type: ignore[attr-defined]
+    return d
 
 
 async def _drain_kickoffs(mgr: StubManager) -> None:
     while mgr._kickoff_tasks:
         await asyncio.gather(*list(mgr._kickoff_tasks))
+
+
+async def _drain_wakes(mgr: StubManager) -> None:
+    """Await every detached wake task the turn-end check spawned.
+
+    The explicit ``sleep(0)`` matters: gathering an already-finished
+    task returns without yielding to the loop, so the task's
+    ``discard`` done-callback would never run and the loop would spin.
+    """
+    while mgr._wake_tasks:
+        await asyncio.gather(*list(mgr._wake_tasks))
+        await asyncio.sleep(0)
+
+
+@contextmanager
+def _hermetic_send_flags():
+    """Pin the manager-module config flags ``send_to_entity`` reads.
+
+    Auto-retrieve, auto-compact, and MCP config generation are all
+    orthogonal to the turn-end inbox check — disable them so these
+    tests stay hermetic (no knowledge stores, no config files).
+    """
+    with (
+        patch("hive.process.manager.AUTO_RETRIEVE_ENABLED", False),
+        patch("hive.process.manager.AUTO_COMPACT_ENABLED", False),
+        patch("hive.process.manager.mcp_servers_enabled", lambda: False),
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -584,3 +713,167 @@ def test_task_id_for_non_worker(dispatcher: MessageDispatcher, mgr: StubManager)
     mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
     assert dispatcher._task_id_for("dev") is None
     assert dispatcher._task_id_for("nobody") is None
+
+
+# ---------------------------------------------------------------------------
+# Turn-end inbox check (Ticket 023, design D4)
+#
+# Wake-on-inbound is single-shot: a wake landing while the recipient is
+# mid-turn is swallowed and nothing retries — queued mail parks until the
+# 120m scheduler tick. New invariant: when a turn completes and the queue
+# is non-empty, schedule a wake through the EXISTING budget machinery.
+# ---------------------------------------------------------------------------
+
+
+async def test_mail_arriving_mid_turn_wakes_once_at_completion(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """Mail queued while the entity is mid-turn → exactly one wake at turn end.
+
+    The drain phase runs at turn START, so this mail (delivered inside
+    ``send_turn``) is exactly the mail the just-completed turn could not
+    have seen — the case the single-shot wake hole strands for 120m.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    async def deliver_mid_turn() -> None:
+        await mgr.router.route("dev.backend", "dev", "ping from mid-turn")
+
+    mgr.adapter = FakeTurnAdapter(on_turn=deliver_mid_turn)
+
+    with _hermetic_send_flags():
+        await dispatcher.send_to_entity("dev", "go")
+
+    await _drain_wakes(mgr)
+    wakes = [s for s in mgr.sent if s == ("dev", _WAKE_ON_INBOUND_TEXT)]
+    assert len(wakes) == 1
+
+
+async def test_turn_end_wake_uses_existing_budget_bookkeeping(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """The turn-end wake is accounted in the same budget as inbound wakes.
+
+    Two observable consequences of reuse (not a fresh counter):
+    1. the facade-owned ``_wake_budget`` deque gains exactly one
+       timestamp, and the wake audits ``entity.wake_scheduled``;
+    2. it draws down the SAME window inbound wakes use — with one slot
+       left, the turn-end wake consumes it and the next inbound wake
+       is throttled.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    async def deliver_mid_turn() -> None:
+        await mgr.router.route("dev.backend", "dev", "ping from mid-turn")
+
+    mgr.adapter = FakeTurnAdapter(on_turn=deliver_mid_turn)
+    # Leave exactly one slot in the rolling window.
+    now = datetime.now(UTC)
+    mgr._wake_budget["dev"].extend([now] * (_WAKE_BUDGET_MAX_PER_WINDOW - 1))
+
+    with _hermetic_send_flags():
+        await dispatcher.send_to_entity("dev", "go")
+
+    await _drain_wakes(mgr)
+    # (1) one new timestamp in the shared deque + the scheduled audit.
+    assert len(mgr._wake_budget["dev"]) == _WAKE_BUDGET_MAX_PER_WINDOW
+    actions = [a for (a, _t, _d) in mgr.audit_calls]
+    assert actions.count("entity.wake_scheduled") == 1
+
+    # (2) the window is now full — an ordinary inbound wake gets throttled.
+    mgr.wake._on_inbound_wake("dev")
+    await _drain_wakes(mgr)
+    actions = [a for (a, _t, _d) in mgr.audit_calls]
+    assert actions.count("entity.wake_throttled") == 1
+    assert actions.count("entity.wake_scheduled") == 1  # still just the one
+
+
+async def test_empty_queue_at_completion_schedules_no_wake(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A turn that completes with an empty queue must not wake the entity.
+
+    The check is for mail that arrived DURING the turn — a quiet turn
+    must not burn wake budget or spawn a pointless follow-up session.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr.adapter = FakeTurnAdapter()
+
+    with _hermetic_send_flags():
+        await dispatcher.send_to_entity("dev", "go")
+
+    await _drain_wakes(mgr)
+    assert mgr.sent == []
+    actions = [a for (a, _t, _d) in mgr.audit_calls]
+    assert "entity.wake_scheduled" not in actions
+    # No budget consumed either — the check is free when there's no mail.
+    assert len(mgr._wake_budget["dev"]) == 0
+
+
+async def test_exhausted_wake_budget_throttles_turn_end_wake(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """Budget exhausted → the turn-end wake is throttled: no send, no spin.
+
+    Locks in the reuse contract: the check goes through the SAME
+    per-recipient budget as inbound wakes, so an exhausted window drops
+    the wake with a throttle audit. The mail stays queued for the 120m
+    scheduler tick (the backstop) — and the turn itself completes
+    normally, nothing crashes.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    async def deliver_mid_turn() -> None:
+        await mgr.router.route("dev.backend", "dev", "ping from mid-turn")
+
+    mgr.adapter = FakeTurnAdapter(response="all done", on_turn=deliver_mid_turn)
+    now = datetime.now(UTC)
+    mgr._wake_budget["dev"].extend([now] * _WAKE_BUDGET_MAX_PER_WINDOW)
+
+    with _hermetic_send_flags():
+        result = await dispatcher.send_to_entity("dev", "go")
+
+    await _drain_wakes(mgr)
+    assert result == "all done"  # the turn completed normally
+    assert mgr.sent == []  # no wake send
+    actions = [a for (a, _t, _d) in mgr.audit_calls]
+    assert actions.count("entity.wake_throttled") == 1
+    assert actions.count("entity.wake_scheduled") == 0
+    # No spin: the mail is still parked for the scheduler tick to drain.
+    assert mgr.router.has_pending("dev")
+
+
+async def test_gate_resume_completion_also_runs_inbox_check(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A turn that parks at an interactive gate and resumes still wakes.
+
+    On the PTY harness a gate blocks INSIDE ``send_turn`` until bridged
+    (hold-and-inject, Ticket 003); the resumed turn returns through the
+    same completion path. Simulated here by an adapter that parks on an
+    event mid-turn: mail lands while parked, the 'gate' is approved, the
+    turn completes — exactly one wake follows.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    gate_parked = asyncio.Event()
+    gate_approved = asyncio.Event()
+
+    async def park_at_gate() -> None:
+        gate_parked.set()
+        await gate_approved.wait()  # blocked mid-turn, like a real gate
+
+    mgr.adapter = FakeTurnAdapter(on_turn=park_at_gate)
+
+    with _hermetic_send_flags():
+        turn = asyncio.create_task(dispatcher.send_to_entity("dev", "go"))
+        await gate_parked.wait()
+        # Mail arrives while the turn is parked at the gate.
+        await mgr.router.route("dev.backend", "dev", "ping during gate")
+        assert mgr.sent == []  # nothing woke mid-gate
+        gate_approved.set()  # the user approves; the turn resumes
+        await turn
+
+    await _drain_wakes(mgr)
+    wakes = [s for s in mgr.sent if s == ("dev", _WAKE_ON_INBOUND_TEXT)]
+    assert len(wakes) == 1
