@@ -21,7 +21,7 @@ marked with ✱.
 | 013 ✱ | [Retire custom advisor for CC native `/advisor`](013-retire-custom-advisor/) | 2026-Q2-S5 | in progress | #71 |
 | 014 | [Trim the VPS skill library](014-trim-vps-skill-library/) | 2026-Q2-S5 | planned | — |
 | 015 | [Lead leaf engine: orchestrate via CC Workflow](015-lead-workflow-leaf-engine/) | 2026-Q2-S5 | done | #74–#79 |
-| 016 ✱ | [Migrate leaf dispatch: `spawn_worker` → Workflow](016-migrate-leaf-dispatch-to-workflow/) | 2026-Q2-S5 | planned | — |
+| 016 ✱ | [Migrate leaf dispatch: `spawn_worker` → Workflow](016-migrate-leaf-dispatch-to-workflow/) | 2026-Q2-S5 | in progress | — |
 | 017 ✱ | [Bridge Workflow progress to dashboard + Telegram](017-bridge-workflow-progress/) | 2026-Q2-S5 | planned | — |
 | 018 | [Retire the persistent Worker entity](018-retire-worker-entity/) | 2026-Q2-S5 | planned | — |
 | 019 | [Maestro phase-confirmation gate](019-maestro-phase-confirmation/) | S6 (cand.) | planned | — |
