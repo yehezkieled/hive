@@ -86,13 +86,18 @@ class TestRepoLevelRoleFiles:
         text = (repo_root / "personalities" / "role-maestro.md").read_text()
         assert "spawn_team" in text
         assert "hive_actions" in text
+        # Worker creation is retired on all paths (Ticket 016, ADR 0013);
+        # kill_entity stays — maestros still kill leads.
+        assert "spawn_worker" not in text
+        assert "kill_entity" in text
 
     def test_lead_jd_documents_workflow_leaf_path(self) -> None:
         """The lead JD teaches the Workflow leaf engine (ADR 0010):
         fan out via the Workflow tool, sync-wait on TaskOutput, isolate
-        file-mutating agents per worktree, cancel with TaskStop — while
-        still documenting spawn_worker as the demoted legacy path and
-        keeping the hive_actions reporting contract.
+        same-file writers per worktree, cancel with TaskStop — and keeps
+        the hive_actions reporting contract. The spawn_worker legacy
+        path is gone (Ticket 016, ADR 0013): Worker creation is retired
+        on all paths, so the JD must not teach the verb.
         """
         repo_root = Path(__file__).parent.parent
         text = (repo_root / "personalities" / "role-lead.md").read_text()
@@ -100,8 +105,63 @@ class TestRepoLevelRoleFiles:
         assert "TaskOutput" in text
         assert "TaskStop" in text
         assert "isolation" in text
-        assert "spawn_worker" in text  # demoted legacy, removed by 016
+        assert "spawn_worker" not in text  # retired by 016 (ADR 0013)
         assert "hive_actions" in text
+
+    def test_lead_jd_rules_failure_enumeration(self) -> None:
+        """Ticket 016 design D4 rule 1: a failed/unusable leaf result is
+        retried once with a sharpened prompt; still failing, it is named
+        explicitly in the synthesis to the maestro — never silently
+        dropped (replaces the old path's ``report_failure`` escalation).
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-lead.md").read_text()
+        assert "never silently drop" in text
+        assert "sharpened prompt" in text
+
+    def test_lead_jd_rules_bounded_fanout_distilled_results(self) -> None:
+        """Ticket 016 design D4 rule 2: ~10–20 agents per Workflow run,
+        bigger jobs as sequential runs; leaf agents return schema-shaped
+        summaries, never full dumps — the sync-wait returns everything
+        into the lead's context (compaction + 5-hour quota pressure).
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-lead.md").read_text()
+        assert "10–20 agents" in text
+        assert "sequential runs" in text
+        assert "schema-shaped" in text
+        assert "5-hour" in text
+
+    def test_lead_jd_rules_tag_hygiene(self) -> None:
+        """Ticket 016 design D4 rule 3: leaf-agent prompts must forbid
+        emitting ``<hive_actions>`` or any literal angle-bracket tag,
+        and the synthesis paraphrases leaf output rather than quoting
+        raw tags (a nested tag rejects the whole turn).
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-lead.md").read_text()
+        assert "forbid emitting" in text
+        assert "angle-bracket" in text
+        assert "paraphrase" in text
+        assert "never quote raw tags" in text
+
+    def test_lead_jd_rules_worktree_release_granularity(self) -> None:
+        """Ticket 016 design D5: worktree mode follows release
+        granularity, not parallelism. One deliverable split for speed →
+        default: agents edit the lead's worktree on disjoint files, one
+        commit, one PR. Independently-shippable slices →
+        ``isolation: 'worktree'`` per agent + per-slice PRs. Escape-hatch
+        isolation for parallel same-file edits → the lead merges the
+        agent branch back and removes the worktree in the same turn.
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-lead.md").read_text()
+        assert "release granularity" in text
+        assert "disjoint files" in text
+        assert "one commit, one PR" in text
+        assert "Independently-shippable" in text
+        assert "isolation: 'worktree'" in text
+        assert "in the same turn" in text
 
     def test_lead_jd_teaches_maestro_alias(self) -> None:
         """The lead JD teaches the addressing alias (Ticket 023, design D2):

@@ -684,24 +684,17 @@ class CommandDispatcher:
         return f"Unknown team subcommand: {subcommand}"
 
     async def _execute_worker(self, subcommand: str | None, args: str) -> str:
-        """Dispatch a /worker subcommand (spawn | kill)."""
+        """Dispatch a /worker subcommand (kill).
+
+        The spawn arm was removed by Ticket 016 (ADR 0013) — Worker
+        creation is retired on all paths; leads fan out leaf work via
+        the Workflow tool. Kill stays until Ticket 018 deletes the
+        whole command, so pre-existing Worker stragglers can be killed.
+        """
         if not subcommand:
-            return "Usage: /worker spawn <team> [name] | /worker kill <name>"
+            return "Usage: /worker kill <name>"
 
         sub = subcommand.lower()
-
-        if sub == "spawn":
-            parts = args.strip().split(None, 1)
-            if not parts:
-                return "Usage: /worker spawn <team> [name]"
-            team_name = parts[0]
-            worker_name = parts[1] if len(parts) > 1 else None
-            lead_name = f"{self.default_maestro}.{team_name}"
-            try:
-                worker = await self.process_manager.spawn_worker(lead_name, worker_name)
-                return f"Worker {worker.name} spawned."
-            except (KeyError, TypeError) as e:
-                return f"Error: {e}"
 
         if sub == "kill":
             name = args.strip()

@@ -24,9 +24,8 @@ logger = logging.getLogger(__name__)
 
 _SPAWN_KICKOFF_TEXT = (
     "You've been spawned. Your contract is your system prompt — "
-    "read it, plan, and begin executing. Spawn workers if the work "
-    "warrants subdivision; report back when validation passes or "
-    "you hit a blocker."
+    "read it, plan, and begin executing. Report back when validation "
+    "passes or you hit a blocker."
 )
 
 _WAKE_ON_INBOUND_TEXT = (

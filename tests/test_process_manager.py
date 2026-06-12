@@ -954,31 +954,68 @@ class TestAutonomousDispatch:
         assert manager._last_spawned_teams == []
         assert "dev.frontend" not in manager.entities
 
-    async def test_maestro_spawn_worker_under_own_lead(self, manager: ProcessManager) -> None:
+    async def test_maestro_spawn_worker_denied(
+        self, router: MessageRouter, audit_log: AuditLog
+    ) -> None:
+        """Worker creation is retired (ADR 0013) — a maestro's spawn_worker
+        is denied even under its own lead: no worker registered, and the
+        entity.spawn_worker_denied audit (018's drainage proof) is emitted.
+        """
+        mgr = ProcessManager(
+            router=router,
+            audit_log=audit_log,
+            max_sessions=2,
+            notification_dispatcher=NotificationDispatcher(),
+        )
         maestro = Maestro(name="dev", model="sonnet")
-        # First seed a team manually so spawn_worker has a lead to attach to
-        await manager.register_entity(maestro)
-        await manager.create_team("dev", "backend")
+        await mgr.register_entity(maestro)
+        await mgr.create_team("dev", "backend")
 
         response = (
             '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
         )
-        await self._send(manager, "dev", response)
+        try:
+            await self._send(mgr, "dev", response)
 
-        assert manager._last_spawned_workers == ["dev.backend.w1"]
-        assert "dev.backend.w1" in manager.entities
+            assert mgr._last_spawned_workers == []
+            assert "dev.backend.w1" not in mgr.entities
+            events = await audit_log.recent(action_prefix="entity.")
+            denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
+            assert len(denied) == 1
+            assert denied[0]["actor"] == "dev"
+        finally:
+            await mgr.kill_all()
 
-    async def test_lead_spawn_worker_under_self(self, manager: ProcessManager) -> None:
+    async def test_lead_spawn_worker_under_self_denied(
+        self, router: MessageRouter, audit_log: AuditLog
+    ) -> None:
+        """Worker creation is retired (ADR 0013) — a lead's spawn_worker is
+        denied even under itself: no worker registered, denial audited.
+        """
+        mgr = ProcessManager(
+            router=router,
+            audit_log=audit_log,
+            max_sessions=2,
+            notification_dispatcher=NotificationDispatcher(),
+        )
         maestro = Maestro(name="dev", model="sonnet")
-        await manager.register_entity(maestro)
-        await manager.create_team("dev", "backend")
+        await mgr.register_entity(maestro)
+        await mgr.create_team("dev", "backend")
 
         response = (
             '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
         )
-        await self._send(manager, "dev.backend", response)
+        try:
+            await self._send(mgr, "dev.backend", response)
 
-        assert manager._last_spawned_workers == ["dev.backend.w1"]
+            assert mgr._last_spawned_workers == []
+            assert "dev.backend.w1" not in mgr.entities
+            events = await audit_log.recent(action_prefix="entity.")
+            denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
+            assert len(denied) == 1
+            assert denied[0]["actor"] == "dev.backend"
+        finally:
+            await mgr.kill_all()
 
     async def test_lead_spawn_worker_under_other_team_denied(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
@@ -993,12 +1030,12 @@ class TestAutonomousDispatch:
 
         assert manager._last_spawned_workers == []
 
-    async def test_lead_spawn_worker_no_lead_field_uses_self(self, manager: ProcessManager) -> None:
-        """Lead emits spawn_worker with no `lead` field → spawns under itself.
+    async def test_lead_spawn_worker_no_lead_field_denied(self, manager: ProcessManager) -> None:
+        """Lead emits spawn_worker with no `lead` field → still denied.
 
-        The lead can't reliably emit its own dotted name as a JSON value
-        (it pattern-matches on the field name "lead" instead). The manager
-        fills `lead` from `entity.name` so the lead never has to repeat itself.
+        Pre-ADR-0013 the manager inferred `lead = entity.name` and spawned
+        under the lead itself. Worker creation is now retired on every
+        path, so the inference shortcut no longer creates anything.
         """
         maestro = Maestro(name="dev", model="sonnet")
         await manager.register_entity(maestro)
@@ -1007,17 +1044,17 @@ class TestAutonomousDispatch:
         response = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
         await self._send(manager, "dev.backend", response)
 
-        assert manager._last_spawned_workers == ["dev.backend.w1"]
-        assert "dev.backend.w1" in manager.entities
+        assert manager._last_spawned_workers == []
+        assert "dev.backend.w1" not in manager.entities
 
     async def test_maestro_spawn_worker_no_lead_field_audited(
         self, router: MessageRouter, audit_log: AuditLog
     ) -> None:
-        """Maestro emits spawn_worker without `lead` → reject + audit.
+        """Maestro emits spawn_worker without `lead` → denied + audited.
 
-        Maestros can spawn under any of their teams, so they must specify
-        which one. Inferring `lead = entity.name` (the maestro's own name)
-        would be wrong — the maestro is not a lead.
+        The retirement gate (ADR 0013) fires before the old missing-lead
+        guard, so the denial reason is "retired" for every actor — with
+        or without a `lead` field.
         """
         mgr = ProcessManager(
             router=router,
@@ -1038,7 +1075,7 @@ class TestAutonomousDispatch:
             denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
             assert len(denied) == 1
             assert denied[0]["actor"] == "dev"
-            assert denied[0]["details"]["reason"] == "missing_lead"
+            assert denied[0]["details"]["reason"] == "retired"
         finally:
             await mgr.kill_all()
 
@@ -1191,8 +1228,8 @@ class TestAutonomousDispatch:
         assert recorded == ["dev.backend"]
         assert manager.entities["dev.backend"].session_id == "sess-1"
 
-    async def test_spawn_worker_auto_kickoff(self, manager: ProcessManager) -> None:
-        """spawn_worker schedules a kickoff message to the new worker."""
+    async def test_spawn_worker_denied_skips_kickoff(self, manager: ProcessManager) -> None:
+        """spawn_worker is denied (ADR 0013) → no worker, no kickoff scheduled."""
         maestro = Maestro(name="dev", model="sonnet")
         await manager.register_entity(maestro)
         await manager.create_team("dev", "backend")
@@ -1206,8 +1243,8 @@ class TestAutonomousDispatch:
             if manager._kickoff_tasks:
                 await asyncio.gather(*manager._kickoff_tasks)
 
-        assert recorded == ["dev.backend.w1"]
-        assert manager.entities["dev.backend.w1"].session_id == "sess-1"
+        assert recorded == []
+        assert "dev.backend.w1" not in manager.entities
 
     async def test_spawn_team_denied_skips_kickoff(self, manager: ProcessManager) -> None:
         """A lead emitting spawn_team is denied → no kickoff scheduled."""

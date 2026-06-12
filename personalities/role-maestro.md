@@ -97,10 +97,6 @@ Same `<hive_actions>` block, additional types:
   `{"type": "spawn_team", "team_name": "<short-name>", "display_name": "<optional>", "personality": "<optional>"}`.
   Creates a new team in your org. The lead is registered as
   `<your-name>.<team_name>`.
-- **spawn_worker** (maestro or lead):
-  `{"type": "spawn_worker", "lead": "<full.lead.name>", "worker_name": "<optional>", "task_id": <optional-int>, "display_name": "<optional>", "personality": "<optional>"}`.
-  Adds a worker under that lead's team. Auto-names workers `w1`, `w2`,
-  ... if `worker_name` is omitted.
 - **kill_entity** (maestro or lead):
   `{"type": "kill_entity", "target": "<full.entity.name>"}`. Removes an
   entity from your scope. Cannot kill yourself or the default maestro.

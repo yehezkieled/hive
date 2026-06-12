@@ -419,18 +419,19 @@ async def test_report_failure_no_task_skipped(
 
 
 # ---------------------------------------------------------------------------
-# spawn_worker + kickoff — _kickoff_tasks GC-tracking, detached kickoff
+# spawn_worker — retired on every path (ADR 0013): deny, audit, no kickoff
 # ---------------------------------------------------------------------------
 
 
-async def test_spawn_worker_schedules_detached_kickoff(
+async def test_spawn_worker_denied_no_spawn_no_kickoff(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
-    """A spawned worker is tracked in _last_spawned_workers and kicked off.
+    """A lead's spawn_worker is denied (ADR 0013): nothing spawns, no kickoff.
 
-    The kickoff is detached: it's scheduled as a task added to the
-    facade-owned ``_kickoff_tasks`` set with a self-discard callback, and
-    only runs after ``_handle_actions`` returns.
+    The facade's ``spawn_worker`` is never reached, nothing lands in the
+    ``_last_*`` lists, no kickoff task is scheduled, and the
+    ``entity.spawn_worker_denied`` audit (Ticket 018's drainage proof)
+    is emitted.
     """
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
     mgr._entities["dev.backend"] = lead
@@ -438,15 +439,74 @@ async def test_spawn_worker_schedules_detached_kickoff(
     actions = [Action(type="spawn_worker", worker_name="w1", task_id=3)]
     await dispatcher._handle_actions("dev.backend", "done", actions)
 
-    assert mgr._last_spawned_workers == ["dev.backend.w1"]
-    assert mgr._last_kickoffs == ["dev.backend.w1"]
-    # The kickoff task is tracked on the facade-owned set while in flight.
-    assert len(mgr._kickoff_tasks) == 1
-
-    await _drain_kickoffs(mgr)
-    # Self-discard callback released it; the kickoff actually ran.
+    assert mgr.spawned_worker_args == []
+    assert mgr._last_spawned_workers == []
+    assert mgr._last_kickoffs == []
     assert mgr._kickoff_tasks == set()
-    assert mgr.kickoffs == ["dev.backend.w1"]
+    assert mgr.kickoffs == []
+    denied = [(t, d) for (a, t, d) in mgr.audit_calls if a == "entity.spawn_worker_denied"]
+    assert len(denied) == 1
+
+
+async def test_spawn_worker_denied_lead_receives_rejection_note(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """The denied lead RECEIVES the rejection via the _reject_action plumbing.
+
+    A deny without feedback would leave the lead sync-waiting forever on a
+    phantom worker's report (ADR 0013). The note names the replacement —
+    the Workflow tool — and must not invite a retry of spawn_worker.
+    """
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    mgr._entities["dev.backend"] = lead
+
+    actions = [Action(type="spawn_worker", worker_name="w1")]
+    await dispatcher._handle_actions("dev.backend", "done", actions)
+
+    # Feedback: a system note lands in the SENDER's queue.
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend"]
+    assert len(notes) == 1
+    note_body = notes[0][2]
+    assert "[action rejected]" in note_body
+    assert "retired" in note_body
+    assert "ADR 0013" in note_body
+    assert "Workflow" in note_body  # names the replacement
+    # Must NOT invite a retry of spawn_worker.
+    assert "retry" not in note_body.lower()
+    assert "resend" not in note_body.lower()
+
+    # _reject_action's own audit fires alongside the drainage-proof audit.
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    assert rejected[0][1]["action_type"] == "spawn_worker"
+    denied = [(t, d) for (a, t, d) in mgr.audit_calls if a == "entity.spawn_worker_denied"]
+    assert len(denied) == 1
+    assert denied[0][1]["reason"] == "retired"
+
+
+async def test_spawn_worker_denied_maestro_receives_rejection_note(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A maestro's spawn_worker is denied with the same feedback (ADR 0013).
+
+    Even with no ``lead`` field — the retirement deny fires before the
+    old missing-lead guard, so every actor gets the note.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="spawn_worker")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert mgr.spawned_worker_args == []
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
+    assert len(notes) == 1
+    note_body = notes[0][2]
+    assert "[action rejected]" in note_body
+    assert "retired" in note_body
+    assert "Workflow" in note_body
+    denied = [(t, d) for (a, t, d) in mgr.audit_calls if a == "entity.spawn_worker_denied"]
+    assert len(denied) == 1
+    assert denied[0][1]["reason"] == "retired"
 
 
 async def test_kill_entity_action_tracked(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
