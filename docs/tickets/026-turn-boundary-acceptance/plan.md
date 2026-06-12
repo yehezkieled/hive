@@ -1,9 +1,17 @@
 # Plan — Ticket 026: turn-boundary acceptance
 
-Direct lane: one PR. Replace quiescence-primary turn acceptance with the
-sentinel ladder per [`design.md`](design.md) /
+Direct lane: one build PR. Replace quiescence-primary turn acceptance
+with the sentinel ladder per [`design.md`](design.md) /
 [ADR 0012](../../adr/0012-turn-end-sentinel-acceptance.md); structure per
 [`outline.md`](outline.md).
+
+## Issues
+
+| Summary | Issue | Type | Blocked by |
+|---------|-------|------|------------|
+| Sentinel-primary 3-rung acceptance ladder + test matrix | [#104](https://github.com/yehezkieled/hive/issues/104) | AFK | — |
+| Deploy + live verification (023's deferred smoke legs; closes the S5 DoD line) | [#105](https://github.com/yehezkieled/hive/issues/105) | AFK | #104 |
+
 
 ## Files this Ticket creates / modifies
 
