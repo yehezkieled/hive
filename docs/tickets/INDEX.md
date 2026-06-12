@@ -31,4 +31,4 @@ marked with ✱.
 | 023 | [Activate the worktree floor (isolate leaf work) — 015 follow-up](023-activate-worktree-floor/) | 2026-Q2-S5 | done | #92–#95 |
 | 024 | [Project ownership & PA write-policy](024-project-ownership-pa-write-policy/) | S6 (cand.) | planned | — |
 | 025 | [Worktree crash-recovery: entities re-adopt their worktrees](025-worktree-crash-recovery/) | S6 (cand.) | planned | — |
-| 026 | [Turn boundary: reader accepts mid-turn during post-tool thinking gaps](026-turn-boundary-acceptance/) | 2026-Q2-S5 | in progress | #104–#105 |
+| 026 | [Turn boundary: reader accepts mid-turn during post-tool thinking gaps](026-turn-boundary-acceptance/) | 2026-Q2-S5 | done | #104–#105 |
