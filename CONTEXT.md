@@ -23,11 +23,25 @@ _Avoid_: manager, supervisor
 **Worker**:
 A leaf Entity that carries out one assigned task and reports the result.
 A Worker never spawns other Entities.
+_Note_: **retired** — Worker creation is banned on every path (lead,
+maestro, user) per ADR 0013 (Ticket 016); the entity type itself is
+deleted by Ticket 018. Leaf work runs as Leaf agents inside a Lead's
+Workflow run.
 _Avoid_: subagent, WorkerAgent
+
+**Leaf agent**:
+An ephemeral agent spawned inside a Lead's Workflow run to carry out one
+slice of leaf work. Not an Entity — it has no Hive lifecycle, org-tree
+presence, or mailbox; it exists only for the duration of the run and
+returns its result to the Lead.
+_Avoid_: worker, subagent, Workflow worker
 
 **Team**:
 A Team Lead together with the Workers it manages, created by a Maestro to
 pursue a goal.
+_Note_: with Workers retired (ADR 0013), a Team in practice is a Team
+Lead plus its Workflow runs; the term keeps its shape until 018 deletes
+the Worker type.
 
 ### Execution
 
