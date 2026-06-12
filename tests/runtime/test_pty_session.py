@@ -49,6 +49,17 @@ def _assistant_line(text: str, session_id: str) -> str:
     return json.dumps(entry) + "\n"
 
 
+def _sentinel_line(session_id: str) -> str:
+    """One transcript line: the turn-end sentinel Claude Code writes (ADR 0012)."""
+    entry = {
+        "type": "system",
+        "subtype": "turn_duration",
+        "sessionId": session_id,
+        "durationMs": 1000,
+    }
+    return json.dumps(entry) + "\n"
+
+
 def test_claude_projects_dir_replaces_slashes_and_dots() -> None:
     """Regression: Claude Code's slug rule replaces BOTH '/' and '.' with '-'.
 
@@ -528,6 +539,7 @@ async def test_send_reads_pinned_transcript_while_decoy_grows(tmp_path: Path) ->
         await asyncio.sleep(0.3)
         with pinned.open("a", encoding="utf-8") as fh:
             fh.write(_assistant_line("the real answer", "pin-sess"))
+            fh.write(_sentinel_line("pin-sess"))
 
     try:
         with patch("hive.runtime.pty_session.PtyProcess") as mock_cls:
@@ -574,6 +586,7 @@ async def test_send_falls_back_to_heuristic_when_pid_state_file_missing(
         await asyncio.sleep(0.8)
         with transcript.open("a", encoding="utf-8") as fh:
             fh.write(_assistant_line("answer via fallback", "sess-fb"))
+            fh.write(_sentinel_line("sess-fb"))
 
     try:
         with (
@@ -631,6 +644,7 @@ async def test_send_falls_back_when_pid_state_file_unusable(
         await asyncio.sleep(0.8)
         with transcript.open("a", encoding="utf-8") as fh:
             fh.write(_assistant_line("survived the bad state file", "sess-mal"))
+            fh.write(_sentinel_line("sess-mal"))
 
     try:
         with (
@@ -694,7 +708,11 @@ async def test_respawn_repins_to_new_pid_session(tmp_path: Path) -> None:
 
             # Turn 1 on pid 111 → pinned to sess-A.
             writer_1 = asyncio.create_task(
-                append_later(transcript_a, _assistant_line("answer from session A", "sess-A"), 1.0)
+                append_later(
+                    transcript_a,
+                    _assistant_line("answer from session A", "sess-A") + _sentinel_line("sess-A"),
+                    1.0,
+                )
             )
             text_1, usage_1 = await session.send("first")
             await writer_1
@@ -704,7 +722,11 @@ async def test_respawn_repins_to_new_pid_session(tmp_path: Path) -> None:
             # Recovery sleeps 2.0s before respawning; the new await starts
             # after inject (~2.6s in) — append well after that.
             writer_2 = asyncio.create_task(
-                append_later(transcript_b, _assistant_line("answer from session B", "sess-B"), 3.5)
+                append_later(
+                    transcript_b,
+                    _assistant_line("answer from session B", "sess-B") + _sentinel_line("sess-B"),
+                    3.5,
+                )
             )
             text_2, usage_2 = await session.send("second")
             await writer_2

@@ -154,20 +154,20 @@ async def test_await_next_assistant_turn_returns_text_and_usage(tmp_path: Path) 
 
     async def writer() -> None:
         await asyncio.sleep(0.05)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(
-                json.dumps(
-                    _assistant_entry(
-                        "hi there",
-                        session_id="sess-happy",
-                        input_tokens=42,
-                        output_tokens=17,
-                        cache_creation=3,
-                        cache_read=8,
-                    )
-                )
-                + "\n"
-            )
+        _append_jsonl(
+            session,
+            [
+                _assistant_entry(
+                    "hi there",
+                    session_id="sess-happy",
+                    input_tokens=42,
+                    output_tokens=17,
+                    cache_creation=3,
+                    cache_read=8,
+                ),
+                _sentinel_entry(session_id="sess-happy"),
+            ],
+        )
 
     reader = TranscriptReader(tmp_path)
     write_task = asyncio.create_task(writer())
@@ -238,20 +238,20 @@ async def test_await_next_assistant_turn_returns_final_text_after_tool_use(
 
     async def writer() -> None:
         await asyncio.sleep(0.05)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(
-                json.dumps(
-                    _assistant_entry(
-                        "Here is the final answer.",
-                        session_id="sess-tool",
-                        input_tokens=200,
-                        output_tokens=75,
-                        cache_creation=11,
-                        cache_read=22,
-                    )
-                )
-                + "\n"
-            )
+        _append_jsonl(
+            session,
+            [
+                _assistant_entry(
+                    "Here is the final answer.",
+                    session_id="sess-tool",
+                    input_tokens=200,
+                    output_tokens=75,
+                    cache_creation=11,
+                    cache_read=22,
+                ),
+                _sentinel_entry(session_id="sess-tool"),
+            ],
+        )
 
     reader = TranscriptReader(tmp_path)
     write_task = asyncio.create_task(writer())
@@ -267,50 +267,37 @@ async def test_await_next_assistant_turn_returns_final_text_after_tool_use(
     assert usage["session_id"] == "sess-tool"
 
 
-async def test_await_next_assistant_turn_waits_for_quiescence(tmp_path: Path) -> None:
-    """While the file is mid-write (mtime keeps changing), do not return.
+async def test_await_does_not_grab_mid_write_entry_before_sentinel(tmp_path: Path) -> None:
+    """A mid-stream assistant entry without a sentinel must not be returned.
 
-    Simulate: start polling, then write an assistant entry, pause briefly
-    (less than quiescence), append a second assistant entry, then go quiet.
-    The reader must wait until after the SECOND entry's quiescence window
-    and return the SECOND entry's text.
+    Simulate: start polling, write an assistant entry (no sentinel), pause,
+    then append the real final entry together with the turn-end sentinel.
+    The reader must return the SECOND entry's text — the first was a
+    mid-write flush of an unfinished turn.
     """
     session = tmp_path / "session.jsonl"
     # Start with just a user entry — no assistant yet.
     _write_jsonl(session, [_user_entry("hi")])
 
-    quiescence_ms = 150
-    quiescence_s = quiescence_ms / 1000.0
-
     async def writer() -> None:
-        # First assistant entry arrives.
+        # First assistant entry arrives — turn NOT over (no sentinel).
         await asyncio.sleep(0.05)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(_assistant_entry("first chunk", session_id="sess-q")) + "\n")
-        # Mid-stream pause (shorter than quiescence) → reader must NOT return yet.
-        await asyncio.sleep(quiescence_s * 0.4)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(_assistant_entry("final chunk", session_id="sess-q")) + "\n")
-        # Now go quiet.
-
-    reader = TranscriptReader(tmp_path)
-
-    async def runner() -> tuple[str, dict]:
-        return await reader.await_next_assistant_turn(
-            session, timeout=3.0, quiescence_ms=quiescence_ms
+        _append_jsonl(session, [_assistant_entry("first chunk", session_id="sess-q")])
+        await asyncio.sleep(0.2)
+        _append_jsonl(
+            session,
+            [
+                _assistant_entry("final chunk", session_id="sess-q"),
+                _sentinel_entry(session_id="sess-q"),
+            ],
         )
 
+    reader = TranscriptReader(tmp_path)
     write_task = asyncio.create_task(writer())
-    start = time.monotonic()
-    text, _ = await runner()
-    elapsed = time.monotonic() - start
+    text, _ = await reader.await_next_assistant_turn(session, timeout=3.0, quiescence_ms=50)
     await write_task
 
     assert text == "final chunk"
-    # Must wait long enough that the second write's quiescence window passes.
-    # Lower bound: first write at 0.05s + mid pause (0.4*q) + quiescence (q)
-    #            = ~0.05 + 0.06 + 0.15 = 0.26s minimum.
-    assert elapsed >= 0.05 + quiescence_s
 
 
 async def test_await_next_assistant_turn_raises_timeout_when_no_assistant_entry(
@@ -387,8 +374,13 @@ async def test_await_returns_text_not_gated_for_normal_turn_with_detector(
 
     async def writer() -> None:
         await asyncio.sleep(0.05)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(_assistant_entry("all done", session_id="sess-ok")) + "\n")
+        _append_jsonl(
+            session,
+            [
+                _assistant_entry("all done", session_id="sess-ok"),
+                _sentinel_entry(session_id="sess-ok"),
+            ],
+        )
 
     reader = TranscriptReader(tmp_path, gate_detector=GateDetector())
     write_task = asyncio.create_task(writer())
@@ -488,21 +480,21 @@ async def test_accepts_true_final_entry_after_pending_tool_resolves(
             fh.write(json.dumps(pending_assistant) + "\n")
         # Quiet stretch well beyond quiescence — the tool is "running".
         await asyncio.sleep(0.25)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(tool_result_user) + "\n")
-            fh.write(
-                json.dumps(
-                    _assistant_entry(
-                        "All leaf agents finished.",
-                        session_id="sess-wf",
-                        input_tokens=300,
-                        output_tokens=80,
-                        cache_creation=7,
-                        cache_read=9,
-                    )
-                )
-                + "\n"
-            )
+        _append_jsonl(
+            session,
+            [
+                tool_result_user,
+                _assistant_entry(
+                    "All leaf agents finished.",
+                    session_id="sess-wf",
+                    input_tokens=300,
+                    output_tokens=80,
+                    cache_creation=7,
+                    cache_read=9,
+                ),
+                _sentinel_entry(session_id="sess-wf"),
+            ],
+        )
 
     reader = TranscriptReader(tmp_path)
     write_task = asyncio.create_task(writer())
@@ -607,9 +599,14 @@ async def test_timeout_resets_while_a_tool_is_pending(tmp_path: Path) -> None:
         # Quiet for LONGER than the 0.3s timeout window — only the pending
         # tool keeps the deadline alive.
         await asyncio.sleep(0.6)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(tool_result_user) + "\n")
-            fh.write(json.dumps(_assistant_entry("run complete", session_id="sess-long")) + "\n")
+        _append_jsonl(
+            session,
+            [
+                tool_result_user,
+                _assistant_entry("run complete", session_id="sess-long"),
+                _sentinel_entry(session_id="sess-long"),
+            ],
+        )
 
     reader = TranscriptReader(tmp_path)
     write_task = asyncio.create_task(writer())
@@ -677,8 +674,7 @@ async def test_usage_dict_has_exactly_the_five_contract_keys(tmp_path: Path) -> 
 
     async def writer() -> None:
         await asyncio.sleep(0.05)
-        with session.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rich_assistant) + "\n")
+        _append_jsonl(session, [rich_assistant, _sentinel_entry(session_id="sess-keys")])
 
     reader = TranscriptReader(tmp_path)
     write_task = asyncio.create_task(writer())
@@ -697,3 +693,339 @@ async def test_usage_dict_has_exactly_the_five_contract_keys(tmp_path: Path) -> 
     assert usage["cache_creation_input_tokens"] == 3
     assert usage["cache_read_input_tokens"] == 4
     assert usage["session_id"] == "sess-keys"
+
+
+# ---------------------------------------------------------------------------
+# Ticket 026 — sentinel-primary acceptance (ADR 0012)
+# ---------------------------------------------------------------------------
+
+
+def _sentinel_entry(*, session_id: str = "sess-1", duration_ms: int = 1000) -> dict:
+    """The turn-end sentinel Claude Code writes when a turn truly completes."""
+    return {
+        "type": "system",
+        "subtype": "turn_duration",
+        "sessionId": session_id,
+        "uuid": f"uuid-sentinel-{duration_ms}",
+        "timestamp": "2026-05-20T00:00:02.000Z",
+        "durationMs": duration_ms,
+    }
+
+
+def _append_jsonl(path: Path, entries: list[dict]) -> None:
+    with path.open("a", encoding="utf-8") as fh:
+        for entry in entries:
+            fh.write(json.dumps(entry) + "\n")
+
+
+async def test_sentinel_accepts_without_quiescence_wait(tmp_path: Path) -> None:
+    """A turn followed by its sentinel is accepted immediately — no dead-wait.
+
+    quiescence_ms is set far above the timeout: only sentinel acceptance can
+    return in time. The sentinel is deterministic (file order verified
+    1,942/1,942 in research.md), so no quiet period is needed.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("hello")])
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        _append_jsonl(
+            session,
+            [
+                _assistant_entry("final answer", session_id="sess-s1"),
+                _sentinel_entry(session_id="sess-s1"),
+            ],
+        )
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    start = time.monotonic()
+    text, usage = await reader.await_next_assistant_turn(session, timeout=3.0, quiescence_ms=5000)
+    elapsed = time.monotonic() - start
+    await write_task
+
+    assert text == "final answer"
+    assert usage["session_id"] == "sess-s1"
+    assert elapsed < 1.5
+
+
+async def test_sentinel_acceptance_is_count_based(tmp_path: Path) -> None:
+    """--continue shape: stale sentinels from prior turns must not trigger.
+
+    The transcript is pre-seeded with a completed prior turn (assistant +
+    sentinel). The new turn's assistant entry arrives WITHOUT a sentinel
+    first — the reader must keep waiting — then the NEW sentinel lands and
+    only then is the turn accepted, with the NEW text.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(
+        session,
+        [
+            _user_entry("old prompt"),
+            _assistant_entry("old answer", session_id="sess-cont"),
+            _sentinel_entry(session_id="sess-cont", duration_ms=111),
+            _user_entry("new prompt"),
+        ],
+    )
+
+    accepted_at: list[float] = []
+    sentinel_written_at: list[float] = []
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        _append_jsonl(session, [_assistant_entry("new answer", session_id="sess-cont")])
+        # Quiet stretch with a new assistant entry but NO new sentinel: the
+        # reader must not accept on the stale sentinel count.
+        await asyncio.sleep(0.4)
+        sentinel_written_at.append(time.monotonic())
+        _append_jsonl(session, [_sentinel_entry(session_id="sess-cont", duration_ms=222)])
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    text, _usage = await reader.await_next_assistant_turn(session, timeout=3.0, quiescence_ms=5000)
+    accepted_at.append(time.monotonic())
+    await write_task
+
+    assert text == "new answer"
+    # Acceptance must come after the NEW sentinel was written, not before.
+    assert accepted_at[0] >= sentinel_written_at[0]
+
+
+def _tool_use_assistant(text: str, *, tool_id: str, session_id: str = "sess-1") -> dict:
+    """Assistant entry that emits a tool call (stop_reason=tool_use)."""
+    entry = _assistant_entry(
+        text,
+        session_id=session_id,
+        extra_blocks=[],
+    )
+    entry["message"]["content"].append(
+        {"type": "tool_use", "id": tool_id, "name": "Bash", "input": {"command": "ls"}}
+    )
+    entry["message"]["stop_reason"] = "tool_use"
+    return entry
+
+
+def _tool_result_user(tool_id: str, *, session_id: str = "sess-1") -> dict:
+    return {
+        "type": "user",
+        "sessionId": session_id,
+        "uuid": f"uuid-u-{tool_id}",
+        "timestamp": "2026-05-20T00:00:01.000Z",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": tool_id, "content": "ok"}],
+        },
+    }
+
+
+async def test_does_not_accept_during_post_tool_thinking_gap(tmp_path: Path) -> None:
+    """The 023 smoke failure class: a resolved tool followed by silent thinking.
+
+    Once the tool_result lands, the pending-tool guard passes and the file
+    goes quiet while the model thinks — far longer than any quiescence
+    window (fleet p50 = 4.8 s vs the old 500 ms). The reader must NOT
+    accept the intermediate tool-calling entry; it must keep waiting for
+    the real final message (here marked by its sentinel).
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(
+        session,
+        [_user_entry("do the thing", session_id="sess-gap")],
+    )
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        _append_jsonl(
+            session,
+            [
+                _tool_use_assistant("let me check...", tool_id="t-gap", session_id="sess-gap"),
+                _tool_result_user("t-gap", session_id="sess-gap"),
+            ],
+        )
+        # Post-tool thinking: file silent, well beyond the quiescence window.
+        await asyncio.sleep(0.4)
+        _append_jsonl(
+            session,
+            [
+                _assistant_entry("the real final answer", session_id="sess-gap"),
+                _sentinel_entry(session_id="sess-gap"),
+            ],
+        )
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    text, _usage = await reader.await_next_assistant_turn(session, timeout=3.0, quiescence_ms=50)
+    await write_task
+
+    assert text == "the real final answer"
+
+
+async def test_smoke_timeline_replay_yields_final_message(tmp_path: Path) -> None:
+    """The 023 live-smoke incident (transcript a012a36d), replayed as a fixture.
+
+    Real sequence: assistant(thinking) → assistant(text) → assistant(tool_use)
+    → tool_result → 3.2 s silent thinking → final batch (thinking + text with
+    the hive_actions proposal, both stamped end_turn) → sentinel 158 ms later.
+    The old reader accepted during the silent gap and lost the proposal; the
+    sentinel ladder must deliver it.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("status-check the org", session_id="a012a36d")])
+
+    final_text = 'Proposal ready.\n<hive_actions>[{"to": "maestro"}]</hive_actions>'
+
+    def _thinking_entry(stop_reason: str | None) -> dict:
+        entry = _assistant_entry("", session_id="a012a36d")
+        entry["message"]["content"] = [{"type": "thinking", "thinking": "..."}]
+        if stop_reason:
+            entry["message"]["stop_reason"] = stop_reason
+        return entry
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        intermediate_text = _assistant_entry("Let me run a check.", session_id="a012a36d")
+        intermediate_text["message"]["stop_reason"] = "tool_use"
+        _append_jsonl(
+            session,
+            [
+                _thinking_entry("tool_use"),
+                intermediate_text,
+                _tool_use_assistant("", tool_id="t-smoke", session_id="a012a36d"),
+                _tool_result_user("t-smoke", session_id="a012a36d"),
+            ],
+        )
+        # The 3.2 s post-tool thinking gap, scaled down — file totally silent.
+        await asyncio.sleep(0.4)
+        final_entry = _assistant_entry(final_text, session_id="a012a36d")
+        final_entry["message"]["stop_reason"] = "end_turn"
+        _append_jsonl(
+            session,
+            [_thinking_entry("end_turn"), final_entry, _sentinel_entry(session_id="a012a36d")],
+        )
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    text, _usage = await reader.await_next_assistant_turn(session, timeout=3.0, quiescence_ms=50)
+    await write_task
+
+    assert text == final_text
+    assert "<hive_actions>" in text
+
+
+async def test_fallback_accepts_endturn_text_after_window_with_loud_logging(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Sentinel-less transcript: hardened-quiescence fallback, degrade loudly.
+
+    Acceptance requires stop_reason=end_turn + a text block + the fallback
+    window of silence. The FIRST fallback acceptance for a session logs at
+    ERROR (a missing sentinel means the CC transcript format may have
+    changed); subsequent ones drop to WARNING.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("turn one", session_id="sess-fb")])
+
+    def _final(text: str) -> dict:
+        entry = _assistant_entry(text, session_id="sess-fb")
+        entry["message"]["stop_reason"] = "end_turn"
+        return entry
+
+    reader = TranscriptReader(tmp_path)
+
+    async def writer_one() -> None:
+        await asyncio.sleep(0.05)
+        _append_jsonl(session, [_final("first turn answer")])
+
+    with caplog.at_level(logging.WARNING, logger="hive.runtime.transcript_reader"):
+        task = asyncio.create_task(writer_one())
+        text, _usage = await reader.await_next_assistant_turn(
+            session, timeout=3.0, quiescence_ms=50, fallback_quiescence_s=0.2
+        )
+        await task
+        assert text == "first turn answer"
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "sentinel" in errors[0].message.lower()
+
+        # Second turn on the same session: fallback again → WARNING, not ERROR.
+        caplog.clear()
+        _append_jsonl(session, [_user_entry("turn two", session_id="sess-fb")])
+
+        async def writer_two() -> None:
+            await asyncio.sleep(0.05)
+            _append_jsonl(session, [_final("second turn answer")])
+
+        task = asyncio.create_task(writer_two())
+        text, _usage = await reader.await_next_assistant_turn(
+            session, timeout=3.0, quiescence_ms=50, fallback_quiescence_s=0.2
+        )
+        await task
+        assert text == "second turn answer"
+
+        assert not [r for r in caplog.records if r.levelno == logging.ERROR]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "sentinel" in warnings[0].message.lower()
+
+
+async def test_fallback_rejects_tool_use_stamped_entry(tmp_path: Path) -> None:
+    """Sentinel-less + last entry stamped tool_use → never accepted.
+
+    This is the smoke-failure entry shape (the wrongly-accepted entry was
+    stop_reason=tool_use). Even with its tool resolved and the file quiet
+    past the fallback window, a tool_use-stamped entry is intermediate —
+    the reader must hold out to the no-progress timeout rather than
+    deliver it.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(
+        session,
+        [_user_entry("do it", session_id="sess-rej")],
+    )
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        _append_jsonl(
+            session,
+            [
+                _tool_use_assistant("working on it", tool_id="t-rej", session_id="sess-rej"),
+                _tool_result_user("t-rej", session_id="sess-rej"),
+                # No final message, no sentinel: the session died thinking.
+            ],
+        )
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    with pytest.raises(TimeoutError):
+        await reader.await_next_assistant_turn(
+            session, timeout=0.5, quiescence_ms=50, fallback_quiescence_s=0.1
+        )
+    await write_task
+
+
+async def test_fallback_rejects_textless_endturn_entry(tmp_path: Path) -> None:
+    """Sentinel-less + end_turn entry with no text (bare thinking) → not accepted.
+
+    A thinking-only entry can carry the final stop_reason (batch flush stamps
+    every entry of the final response — research.md §3). Accepting it would
+    deliver empty text; the fallback requires a text-bearing entry.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("think hard", session_id="sess-think")])
+
+    async def writer() -> None:
+        await asyncio.sleep(0.05)
+        thinking = _assistant_entry("", session_id="sess-think")
+        thinking["message"]["content"] = [{"type": "thinking", "thinking": "hmm"}]
+        thinking["message"]["stop_reason"] = "end_turn"
+        _append_jsonl(session, [thinking])
+
+    reader = TranscriptReader(tmp_path)
+    write_task = asyncio.create_task(writer())
+    with pytest.raises(TimeoutError):
+        await reader.await_next_assistant_turn(
+            session, timeout=0.5, quiescence_ms=50, fallback_quiescence_s=0.1
+        )
+    await write_task

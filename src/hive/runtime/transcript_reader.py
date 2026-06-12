@@ -56,6 +56,9 @@ class TranscriptReader:
         """
         self._project_dir = project_dir
         self._gate_detector = gate_detector
+        # Sessions that have already used heuristic (sentinel-less) acceptance.
+        # First fallback per session logs ERROR, later ones WARNING (ADR 0012).
+        self._fallback_seen: set[Path] = set()
 
     def resolve_session(
         self,
@@ -135,6 +138,7 @@ class TranscriptReader:
         *,
         timeout: float = 180.0,
         quiescence_ms: int = 500,
+        fallback_quiescence_s: float = 30.0,
     ) -> tuple[str, dict] | Gated:
         """Poll session_path until a completed assistant turn is written.
 
@@ -149,16 +153,29 @@ class TranscriptReader:
               "session_id": str | None,   # from top-level sessionId
           }
 
-        A turn is considered complete when an assistant entry exists in the
-        file AND the file's mtime has been stable for `quiescence_ms`
-        milliseconds (no in-progress writes) AND the last assistant entry has
-        no unresolved ``tool_use`` (a pending tool means the entry is an
-        intermediate step, not the Turn's answer — ADR 0010).
+        Acceptance ladder (ADR 0012), evaluated each poll:
 
-        Third outcome: if a gate_detector was supplied and the (quiescent)
-        transcript shows an unanswered interactive gate, returns ``Gated(gate)``
-        instead — the PTY is frozen on a TUI menu and no further assistant
-        entry will arrive. Without a detector this never happens.
+        1. **Gate check** (quiescence ≥ ``quiescence_ms``): an unanswered
+           interactive gate returns ``Gated(gate)`` — the PTY is frozen on a
+           TUI menu and no further assistant entry will arrive. Requires a
+           gate_detector; without one this never happens. A gated turn never
+           emits a sentinel, so this check must stay heuristic.
+        2. **Sentinel acceptance (primary)**: a new ``turn_duration`` system
+           entry after call start means Claude Code itself recorded the turn
+           as complete. File order guarantees the final assistant entry
+           precedes the sentinel, so there is no quiescence wait. Count-based:
+           a ``--continue`` transcript retains prior turns' sentinels.
+        3. **Hardened fallback (sentinel-less transcripts only)**: after
+           ``fallback_quiescence_s`` of file silence, accept only an entry
+           whose ``stop_reason`` is ``end_turn`` AND that carries non-empty
+           text. Logs ERROR on the first heuristic acceptance per session
+           (the sentinel's absence means the CC transcript format may have
+           changed), WARNING after. Quiescence alone cannot distinguish
+           "turn over" from "model thinking after a tool" — fleet p50
+           thinking gap is 4.8 s (research, ticket 026).
+
+        A pending ``tool_use`` in the last assistant entry blocks acceptance
+        (an in-flight tool means the entry is intermediate — ADR 0010).
 
         `timeout` is a NO-PROGRESS deadline, not a wall clock: it restarts
         whenever the transcript's mtime advances or a tool call is pending
@@ -173,6 +190,9 @@ class TranscriptReader:
         # In production this is normally 0 (we await right after sending a
         # prompt), but tests may pre-seed the file.
         initial_count = self._count_assistant_entries(session_path)
+        # Sentinel snapshot is equally mandatory: a --continue transcript
+        # retains the sentinels of every prior turn (ADR 0012).
+        initial_sentinels = self._count_turn_sentinels(session_path)
         last_mtime = self._stat_mtime(session_path)
 
         while True:
@@ -189,6 +209,17 @@ class TranscriptReader:
                 deadline = now + timeout
 
             current_count = self._count_assistant_entries(session_path)
+
+            # Sentinel acceptance (primary, ADR 0012): Claude Code writes a
+            # turn_duration system entry when the turn truly completes, always
+            # after the final assistant entry in file order — so no quiescence
+            # wait is needed. A gated turn never emits one, hence no conflict
+            # with the gate check below.
+            if (
+                current_count > initial_count
+                and self._count_turn_sentinels(session_path) > initial_sentinels
+            ):
+                return self._extract_last_turn(session_path)
 
             # Strict acceptance: only return when a NEW assistant entry has appeared
             # since call start. Production-safe — on the 2nd turn of any session
@@ -218,7 +249,31 @@ class TranscriptReader:
                         deadline = now + timeout
                         await asyncio.sleep(poll_interval)
                         continue
-                    return self._extract_last_turn(session_path)
+                    # Fallback acceptance (ADR 0012): without a sentinel,
+                    # quiescence alone cannot distinguish "turn over" from
+                    # "model thinking after a tool" (fleet p50 thinking gap
+                    # 4.8 s). Accept heuristically only after a much longer
+                    # quiet window AND only an entry whose stop_reason says
+                    # the API finished (end_turn) and that carries text — a
+                    # tool_use-stamped or text-less entry is intermediate.
+                    if (time.time() - mtime) >= fallback_quiescence_s and (
+                        self._is_heuristic_final(self._last_assistant_entry(entries))
+                    ):
+                        level = (
+                            logging.WARNING
+                            if session_path in self._fallback_seen
+                            else logging.ERROR
+                        )
+                        self._fallback_seen.add(session_path)
+                        logger.log(
+                            level,
+                            "turn-end sentinel absent in %s — acceptance is "
+                            "heuristic (end_turn + %.1fs quiet); the CC "
+                            "transcript format may have changed (ADR 0012)",
+                            session_path,
+                            fallback_quiescence_s,
+                        )
+                        return self._extract_last_turn(session_path)
 
             await asyncio.sleep(poll_interval)
 
@@ -237,7 +292,16 @@ class TranscriptReader:
         return self._gate_detector.detect(entries)
 
     @staticmethod
-    def _has_pending_tool_use(entries: list[dict]) -> bool:
+    def _last_assistant_entry(entries: list[dict]) -> dict | None:
+        """The last assistant entry in file order, or None."""
+        last_assistant: dict | None = None
+        for entry in entries:
+            if entry.get("type") == "assistant":
+                last_assistant = entry
+        return last_assistant
+
+    @classmethod
+    def _has_pending_tool_use(cls, entries: list[dict]) -> bool:
         """True when the LAST assistant entry holds an unresolved ``tool_use``.
 
         Unresolved = a ``tool_use`` block whose id has no matching
@@ -245,10 +309,7 @@ class TranscriptReader:
         tool is still in flight, so the entry is intermediate — not the Turn's
         final answer.
         """
-        last_assistant: dict | None = None
-        for entry in entries:
-            if entry.get("type") == "assistant":
-                last_assistant = entry
+        last_assistant = cls._last_assistant_entry(entries)
         if last_assistant is None:
             return False
 
@@ -261,6 +322,31 @@ class TranscriptReader:
                 if block.get("id") not in resolved:
                     return True
         return False
+
+    @staticmethod
+    def _is_heuristic_final(entry: dict | None) -> bool:
+        """Heuristic-fallback shape: stop_reason says the API finished AND
+        the entry carries non-empty text.
+
+        48 % of end_turn-stamped entries are non-final (multi-block flushes,
+        multi-response turns — research.md §4), so this can never be the
+        primary signal; it only hardens the sentinel-less fallback. The
+        text requirement rejects bare thinking/tool entries.
+        """
+        if entry is None:
+            return False
+        message = entry.get("message") or {}
+        if message.get("stop_reason") != "end_turn":
+            return False
+        content = message.get("content") or []
+        if not isinstance(content, list):
+            return False
+        return any(
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and (block.get("text") or "").strip()
+            for block in content
+        )
 
     @staticmethod
     def _read_entries(session_path: Path) -> list[dict]:
@@ -279,6 +365,26 @@ class TranscriptReader:
             except json.JSONDecodeError:
                 continue
         return entries
+
+    @staticmethod
+    def _count_turn_sentinels(session_path: Path) -> int:
+        """Count turn-end sentinels: system entries with subtype turn_duration."""
+        try:
+            text = session_path.read_text(encoding="utf-8")
+        except OSError:
+            return 0
+        count = 0
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") == "system" and entry.get("subtype") == "turn_duration":
+                count += 1
+        return count
 
     @staticmethod
     def _count_assistant_entries(session_path: Path) -> int:
