@@ -49,6 +49,14 @@ runtime" means "move it to a different Harness."
 **Turn**:
 One prompt sent to an Entity and the full response that comes back.
 
+**Turn-end sentinel**:
+The record a Harness itself writes into its transcript when a Turn truly
+completes — on Claude Code, the `turn_duration` system entry. Written by
+the Harness binary, so it is deterministic: the model cannot forget,
+fake, or race it, unlike anything the model emits. Hive accepts a Turn
+on the sentinel; quiescence guessing is fallback only.
+_Avoid_: done-marker, end-of-turn message
+
 **Session pinning**:
 Binding an Entity's Adapter to the exact Harness session it spawned —
 identified by the Harness's own session record — instead of inferring
