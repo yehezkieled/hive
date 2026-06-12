@@ -39,8 +39,11 @@ work in a directory nothing references.
 ## Non-goals
 
 - The floor wiring + session pinning themselves (023).
-- Cleanup of *changed* leaf-agent worktrees from Workflow runs —
-  commit→PR→merge→remove is 016's scope.
+- The commit→PR→merge→remove *discipline* for changed leaf-agent
+  worktrees — 016 ships it as lead-JD policy (016 design D5). What 025
+  **does** inherit as candidate scope: CC-created leaf worktrees sit
+  outside `WorktreeManager`'s bookkeeping, so the orphan policy above
+  should also sweep siblings a forgetful lead stranded.
 - Backup/restore of worktree contents beyond what git already keeps.
 
 ## Notes
