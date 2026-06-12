@@ -549,12 +549,15 @@ The maestro is the org's CEO. Every
 prompt — free session slots, pending tasks grouped by priority, an org
 snapshot with idle-time per entity, and 24h token cost — and sends it
 to each alive maestro via `send_to_entity`. The maestro decides whether
-to `spawn_team`, `spawn_worker`, `kill_entity`, or do nothing, emitting
+to `spawn_team`, `kill_entity`, or do nothing, emitting
 its decision as a `<hive_actions>` block. The orchestrator is a dumb
 facts pipe; allocation policy lives in the maestro's prompt.
+(`spawn_worker` is retired — Worker creation is denied on every path
+per ADR 0013, Ticket 016; leaf work runs as Workflow runs inside a
+Lead's turn.)
 
 > **Sprint 22 Phase 3:** maestros and leads can include `display_name`
-> and `personality` fields on `spawn_team`/`spawn_worker` actions.
+> and `personality` fields on `spawn_team` actions.
 > When both are present, the orchestrator writes
 > `personalities/<dotted.name>.md` with `auto_generated: true` YAML
 > frontmatter so the freshly-spawned entity loads it on its next
@@ -763,7 +766,7 @@ short-circuits when `otter` is already restored).
 **Organization:**
 `/m:<name> <msg>`, `/t:<maestro>.<team> <msg>`, `/a:<maestro>.<team>.<worker> <msg>`,
 `/kill <entity>`, `/team create|list|kill <name>`, `/teams`,
-`/worker spawn|kill <team> [name]`, `/new maestro <name> [model]`
+`/worker kill <name>`, `/new maestro <name> [model]`
 
 > If `personalities/<name>.md` already exists, `/new maestro` registers the
 > maestro and is done. If the file is missing, the dispatcher walks you

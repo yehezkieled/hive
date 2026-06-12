@@ -354,9 +354,15 @@ class TestActionDispatchWiresFieldsThrough:
         # In-memory load reaches through the dispatch path, not just direct calls
         assert "Methodical." in lifecycle_manager.entities["dev.backend"].system_prompt
 
-    async def test_spawn_worker_action_writes_personality_file(
+    async def test_spawn_worker_action_denied_writes_nothing(
         self, lifecycle_manager: ProcessManager, tmp_path: Path
     ) -> None:
+        """The spawn_worker action arm is retired (ADR 0013): the dispatch
+        path denies before reaching the lifecycle layer, so no worker is
+        registered and no personality file is written. The direct
+        ``lifecycle_manager.spawn_worker`` tests above still exercise the
+        mechanism, which survives until Ticket 018 deletes it.
+        """
         maestro = Maestro(name="dev", model="sonnet")
         lifecycle_manager._entities["dev"] = maestro
         lifecycle_manager.router.register("dev")
@@ -369,7 +375,5 @@ class TestActionDispatchWiresFieldsThrough:
         )
         await lifecycle_manager._handle_actions("dev.backend", "", [action])
 
-        # Worker auto-naming gives w1
-        path = tmp_path / "dev.backend.w1.md"
-        assert path.exists()
-        assert "Migrator Mig" in path.read_text()
+        assert "dev.backend.w1" not in lifecycle_manager.entities
+        assert not (tmp_path / "dev.backend.w1.md").exists()

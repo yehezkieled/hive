@@ -47,16 +47,17 @@ class TestSpawnTeamPermissions:
 
 
 class TestSpawnWorkerPermissions:
-    """Test can_spawn_worker — maestro for any lead in own org; lead for self only."""
+    """Test can_spawn_worker — Worker creation is retired for ALL actors (ADR 0013)."""
 
-    def test_maestro_can_spawn_worker_under_own_lead(self) -> None:
-        assert can_spawn_worker("maestro", "dev", "dev.backend") is True
+    def test_maestro_cannot_spawn_worker_under_own_lead(self) -> None:
+        assert can_spawn_worker("maestro", "dev", "dev.backend") is False
 
     def test_maestro_cannot_spawn_worker_under_other_org_lead(self) -> None:
         assert can_spawn_worker("maestro", "dev", "ops.backend") is False
 
-    def test_lead_can_spawn_worker_under_self(self) -> None:
-        assert can_spawn_worker("lead", "dev.backend", "dev.backend") is True
+    def test_lead_cannot_spawn_worker_under_self(self) -> None:
+        # Even under itself — the lead arm is retired with the rest (ADR 0013).
+        assert can_spawn_worker("lead", "dev.backend", "dev.backend") is False
 
     def test_lead_cannot_spawn_worker_under_other_lead(self) -> None:
         assert can_spawn_worker("lead", "dev.backend", "dev.frontend") is False

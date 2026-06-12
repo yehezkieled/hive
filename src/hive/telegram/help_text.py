@@ -112,12 +112,9 @@ HELP_TEXT: dict[str, HelpEntry] = {
     ),
     "worker": HelpEntry(
         category="Organization",
-        usage="/worker spawn|kill <team> [task_id]",
-        description="Spawn/kill a worker. Autonomous spawn_worker takes display_name+personality.",
-        examples=(
-            "/worker spawn dev.backend",
-            "/worker kill dev.backend.w1",
-        ),
+        usage="/worker kill <name>",
+        description="Kill a pre-existing worker. Creation is retired — leads fan out via Workflow.",
+        examples=("/worker kill dev.backend.w1",),
     ),
     # Messaging — alphabetical: agent, broadcast, message
     "agent": HelpEntry(

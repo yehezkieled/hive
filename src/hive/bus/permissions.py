@@ -6,12 +6,13 @@ Messaging rules:
 - Worker can message its own lead only
 - Cross-org messaging is denied
 
-Lifecycle rules (Sprint 19 — autonomous spawn/kill):
-- Maestro can spawn teams in its own org and workers under any lead in
-  its own org. It can kill anything in its own org except itself and
-  the orchestrator-protected default maestro.
-- Lead can spawn workers under its own team only. It can kill workers
-  in its own team only.
+Lifecycle rules (Sprint 19 — autonomous spawn/kill; amended by ADR 0013):
+- Maestro can spawn teams in its own org. It can kill anything in its
+  own org except itself and the orchestrator-protected default maestro.
+- Worker creation is retired for every actor (ADR 0013, Ticket 016):
+  ``can_spawn_worker`` denies unconditionally. Leads fan out leaf work
+  with the Workflow tool instead.
+- Lead can kill workers in its own team only.
 - Workers cannot spawn or kill anything.
 """
 
@@ -134,14 +135,11 @@ def can_spawn_team(actor_role: str, actor_name: str) -> bool:
 
 
 def can_spawn_worker(actor_role: str, actor_name: str, lead_name: str) -> bool:
-    """Maestros can spawn workers under any lead in their own org.
-    Leads can spawn workers only under themselves.
+    """Worker creation is retired on every path (ADR 0013) — denied for
+    all actors: lead, maestro, everyone. Leads fan out leaf work with the
+    Workflow tool instead. The function survives only so the dispatcher
+    branch stays intact until Ticket 018 deletes both together.
     """
-    if actor_role == "maestro":
-        # Lead must live inside the maestro's org (e.g. dev.backend under dev)
-        return lead_name.startswith(f"{actor_name}.")
-    if actor_role == "lead":
-        return lead_name == actor_name
     return False
 
 

@@ -469,6 +469,37 @@ class MessageDispatcher:
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("spawn_team from %s failed: %s", entity_name, exc)
             elif action.type == "spawn_worker":
+                # Worker creation is retired on every path (ADR 0013,
+                # Ticket 016): ``can_spawn_worker`` denies all actors. The
+                # deny is inseparable from the feedback — a silent deny
+                # would leave the actor sync-waiting forever on a phantom
+                # worker's report. The audit entry is Ticket 018's
+                # drainage proof. Everything below this gate (missing-lead
+                # inference, rate limit, the spawn itself) is
+                # unreachable-but-intact; 018 deletes the whole branch.
+                if not can_spawn_worker(entity.role, entity.name, action.lead or ""):
+                    logger.warning(
+                        "spawn_worker denied (retired, ADR 0013): %s (role=%s)",
+                        entity.name,
+                        entity.role,
+                    )
+                    await self._mgr._audit(
+                        "entity.spawn_worker_denied",
+                        target=action.lead,
+                        details={"reason": "retired", "role": entity.role},
+                        actor=entity_name,
+                    )
+                    await self._reject_action(
+                        entity,
+                        "spawn_worker",
+                        action.lead or entity.name,
+                        "spawn_worker is retired (ADR 0013) — Workers can no "
+                        "longer be created by any entity. Fan out leaf work "
+                        "with the Workflow tool instead; for persistent "
+                        "capacity, a maestro creates another lead via "
+                        "spawn_team.",
+                    )
+                    continue
                 # `lead` is optional in the protocol — leads pattern-match
                 # the field name "lead" instead of substituting the
                 # placeholder, so requiring it produces `{"lead": "lead"}`.
@@ -490,15 +521,6 @@ class MessageDispatcher:
                             actor=entity_name,
                         )
                         continue
-                if not can_spawn_worker(entity.role, entity.name, action.lead):
-                    logger.warning("spawn_worker denied: %s -> %s", entity.name, action.lead)
-                    await self._mgr._audit(
-                        "entity.spawn_worker_denied",
-                        target=action.lead,
-                        details={"reason": "scope_violation", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    continue
                 if self._mgr.scheduler is not None and not self._mgr.scheduler.can_autospawn(
                     entity_name
                 ):

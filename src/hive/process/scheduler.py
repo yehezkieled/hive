@@ -5,8 +5,8 @@ Instead, every ``HIVE_PRIORITY_EVAL_INTERVAL_MINUTES`` the scheduler builds
 a "facts" prompt for each alive maestro (free slots, pending tasks by
 priority, org snapshot, 24h token cost, idle-time per entity) and sends
 it via ``ProcessManager.send_to_entity``. The maestro decides whether to
-emit ``spawn_team`` / ``spawn_worker`` / ``kill_entity`` ``<hive_actions>``
-or do nothing — the orchestrator is a dumb facts pipe.
+emit ``spawn_team`` / ``kill_entity`` ``<hive_actions>`` or do nothing —
+the orchestrator is a dumb facts pipe.
 
 The scheduler also tracks per-maestro autonomous-spawn counts within the
 current eval window. The dispatch site in :class:`ProcessManager` consults
@@ -194,7 +194,7 @@ class PriorityScheduler:
         lines.extend(
             [
                 "",
-                "Decide: emit <hive_actions> with spawn_team / spawn_worker / kill_entity,",
+                "Decide: emit <hive_actions> with spawn_team / kill_entity,",
                 "or respond 'no action needed' if the org is appropriately sized for the workload.",
                 "Brief reasoning in your response is logged in the audit trail.",
             ]
