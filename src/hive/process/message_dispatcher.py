@@ -102,6 +102,24 @@ class MessageDispatcher:
         if entity is None:
             raise KeyError(f"Entity {entity_name!r} not found.")
 
+        # --- Ticket 028: pending-gate guard ---
+        # If a Turn is parked on an interactive gate, the PTY is sitting on a
+        # TUI menu — typing a new-turn prompt into it submits the highlighted
+        # default (the gate's "answer"). Refuse to inject from this shared
+        # chokepoint (scheduler poke / peer mail / user text / eval all flow
+        # here), BEFORE draining the inbox so queued peer mail survives and is
+        # re-delivered after the gate resolves. Gate answers take a separate,
+        # menu-aware path (ring → resolve → inject keys) and are unaffected.
+        if self._mgr.is_parked_at_gate(entity_name):
+            request_id = self._mgr.gate_coordinator.pending_request_id(entity_name)
+            logger.info(
+                "send_to_entity: %s parked at gate %s — not injecting", entity_name, request_id
+            )
+            return (
+                f"<{entity_name} is parked at gate {request_id}; answer it with "
+                f"/approve gate {request_id} or /deny gate {request_id} before sending more>"
+            )
+
         # Track activity for idle-kill detection
         entity.last_activity_at = datetime.now(UTC)
 

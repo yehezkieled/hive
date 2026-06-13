@@ -321,6 +321,21 @@ class ProcessManager:
     # Outbound sends + inbound action routing (Ticket 004 — MessageDispatcher)
     # -----------------------------------------------------------------
 
+    def is_parked_at_gate(self, entity_name: str) -> bool:
+        """True while a Turn is parked on an interactive gate for this entity.
+
+        The coordinator-owned source of truth (Ticket 028):
+        ``pending_request_id`` is non-None exactly between gate-park and
+        gate-resume, for every gate kind (plan / ask / permission). Senders
+        consult this before injecting into the PTY — a poke typed at a parked
+        TUI menu submits the highlighted default (the gate's "answer"), so any
+        new-turn injection must be skipped while parked. Gate *answers* take a
+        separate, menu-aware path (``ring`` → ``resolve`` → inject keys) and are
+        unaffected. Single seam for a future ``waitingFor`` fallback.
+        """
+        gc = self.gate_coordinator
+        return gc is not None and gc.pending_request_id(entity_name) is not None
+
     async def send_to_entity(self, entity_name: str, prompt: str) -> str:
         return await self.dispatcher.send_to_entity(entity_name, prompt)
 

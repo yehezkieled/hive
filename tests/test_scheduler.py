@@ -243,3 +243,56 @@ async def test_run_loop_swallows_run_once_errors(manager: ProcessManager) -> Non
     await asyncio.wait_for(task, timeout=1.0)
     assert calls >= 1
     assert task.exception() is None
+
+
+class _FakeGate:
+    """Gate-coordinator stand-in (Ticket 028): reports parked entities."""
+
+    def __init__(self, parked: set[str] | None = None) -> None:
+        self._parked = parked or set()
+
+    def pending_request_id(self, entity_name: str) -> int | None:
+        return 7 if entity_name in self._parked else None
+
+
+async def test_run_once_skips_maestro_parked_at_gate(manager: ProcessManager) -> None:
+    """A maestro parked at an interactive gate is skipped — never poked.
+
+    Poking a parked PTY submits the gate's highlighted default (an
+    unauthorised decision); the scheduler must step over it.
+    """
+    manager._entities["dev"] = Maestro(name="dev", model="sonnet")
+    manager.router.register("dev")
+    manager._entities["ops"] = Maestro(name="ops", model="sonnet")
+    manager.router.register("ops")
+
+    sent: list[str] = []
+
+    async def fake_send(name: str, prompt: str) -> str:
+        sent.append(name)
+        return ""
+
+    manager.send_to_entity = fake_send  # type: ignore[method-assign]
+    manager.gate_coordinator = _FakeGate(parked={"dev"})  # type: ignore[assignment]
+
+    sched = PriorityScheduler(process_manager=manager)
+    poked = await sched.run_once()
+
+    assert poked == ["ops"]  # dev skipped
+    assert sent == ["ops"]  # dev's PTY never touched
+
+
+async def test_run_once_for_parked_returns_notice_without_poking(
+    manager: ProcessManager,
+) -> None:
+    """Manual /eval on a parked maestro reports the gate, does not poke."""
+    manager._entities["dev"] = Maestro(name="dev", model="sonnet")
+    manager.router.register("dev")
+    manager.send_to_entity = AsyncMock(return_value="")  # type: ignore[method-assign]
+    manager.gate_coordinator = _FakeGate(parked={"dev"})  # type: ignore[assignment]
+
+    sched = PriorityScheduler(process_manager=manager)
+    result = await sched.run_once_for("dev")
+
+    assert "gate" in result.lower()
+    manager.send_to_entity.assert_not_awaited()
