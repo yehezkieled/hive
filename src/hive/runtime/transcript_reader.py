@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,7 @@ class TranscriptReader:
         self,
         project_dir: Path,
         gate_detector: GateDetector | None = None,
+        workflow_active: Callable[[float], bool] | None = None,
     ) -> None:
         """project_dir = ~/.claude/projects/<cwd-slug>/ for this entity.
 
@@ -53,9 +55,20 @@ class TranscriptReader:
         also watches for an unanswered interactive gate and returns ``Gated``
         instead of hanging to the timeout. Off by default so callers that only
         want completed turns keep the original two-outcome contract.
+
+        workflow_active: optional liveness predicate (Ticket 017 §E2). The
+        reader's no-progress deadline keys off the Lead's OWN transcript, but a
+        healthy Workflow run's activity is in other files (the run journal). When
+        this predicate is supplied and returns True at the would-be timeout, the
+        reader treats the live run as progress and RESETS the deadline instead of
+        declaring the healthy Lead dead (027 root cause). Called with the
+        method's own ``timeout`` as the liveness window, so the two never
+        diverge. Off by default — a quiet session with no live run still times
+        out (no-hang).
         """
         self._project_dir = project_dir
         self._gate_detector = gate_detector
+        self._workflow_active = workflow_active
         # Sessions that have already used heuristic (sentinel-less) acceptance.
         # First fallback per session logs ERROR, later ones WARNING (ADR 0012).
         self._fallback_seen: set[Path] = set()
@@ -198,8 +211,19 @@ class TranscriptReader:
         while True:
             now = time.monotonic()
             if now >= deadline:
+                # §E2 (Ticket 017): the no-progress deadline keys off the Lead's
+                # OWN transcript, but a live Workflow run's activity is in other
+                # files (the run journal). If a run is still alive, treat it as
+                # progress and reset the deadline rather than declaring a healthy
+                # Lead dead (027 root cause). A stale orphan returns False → we
+                # fall through and raise (no-hang).
+                if self._workflow_active is not None and self._workflow_active(timeout):
+                    deadline = now + timeout
+                    await asyncio.sleep(poll_interval)
+                    continue
                 raise TimeoutError(
-                    f"No completed assistant turn in {session_path} within {timeout}s"
+                    f"Turn did not complete within {timeout}s. If a Workflow is "
+                    "running it may still be working — check the dashboard."
                 )
 
             mtime = self._stat_mtime(session_path)

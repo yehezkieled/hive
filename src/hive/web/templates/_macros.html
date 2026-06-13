@@ -51,6 +51,23 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro run_card(run) -%}
+{# One aggregate Workflow run-card under the Lead/Maestro (Ticket 017).
+   Leaf agents have no org-tree presence, so this is ONE card per run —
+   never per-agent rows. Shows name · phase/status · N/M with a small bar. #}
+<div class="run-card" data-run-id="{{ run.run_id }}">
+  <div class="run-card__head">
+    <span class="run-card__name">{{ run.name }}</span>
+    <span class="run-card__phase">{{ run.phase if run.phase else run.status }}</span>
+  </div>
+  <div class="run-card__bar">
+    {% set pct = (100 * run.done_count / run.agent_count)|round(0, 'floor')|int if run.agent_count else 0 %}
+    <span class="run-card__bar-fill" style="width: {{ pct }}%;"></span>
+  </div>
+  <div class="run-card__count">{{ run.done_count }}/{{ run.agent_count }} · {{ run.status }}</div>
+</div>
+{%- endmacro %}
+
 {% macro maestro_card(m, pinned=false) -%}
 <div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}">
   {% if pinned %}<span class="maestro-card__pin">PINNED · {{ m.name|upper }}</span>{% endif %}
@@ -63,10 +80,17 @@
     <span class="maestro-card__chip">{{ tasks_chip(m.tasks) }}</span>
   </div>
   <div class="maestro-card__summary">{{ m.summary }}</div>
+  {% if m.runs %}
+  <div class="maestro-card__runs">
+    {% for run in m.runs %}{{ run_card(run) }}{% endfor %}
+  </div>
+  {% endif %}
   <div class="maestro-card__meta">
     <span>updated {{ m.updated }}</span>
     <span class="maestro-card__meta-sep">·</span>
-    <span>{{ m.leads }}L · {{ m.workers }}W</span>
+    {# Leaf agents are not Entities, so a per-lead worker count is always 0
+       (Ticket 016). Show the live-run count instead of the stale "…W". #}
+    <span>{{ m.leads }}L · {{ m.active_runs|default(0) }} run{{ '' if m.active_runs|default(0) == 1 else 's' }}</span>
     <span class="maestro-card__meta-sep">·</span>
     <span>{{ m.mode }}</span>
     <span class="maestro-card__meta-sep">·</span>

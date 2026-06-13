@@ -94,12 +94,46 @@ async def _open_tasks_for(name: str, task_store: TaskStore | None) -> list[dict]
     ]
 
 
-async def _entity_to_card(entity: Entity, *, task_store: TaskStore | None) -> dict:
+def _runs_for(process_manager: ProcessManager | None, name: str) -> list[dict]:
+    """Active Workflow runs for ``name`` from the progress store (Ticket 017).
+
+    Read defensively: the store is set post-construction (like ``quota_monitor``)
+    and is absent during cold starts and in most tests. A missing attribute or a
+    ``None`` store degrades to ``[]`` so the card still renders.
+
+    Leaf agents are not Entities (no org-tree presence), so a Lead's persistent
+    "workers" count is always 0 after Ticket 016. The aggregate run-card replaces
+    that always-zero ``W`` count: one card per active run, never per-agent rows.
+    """
+    store = getattr(process_manager, "progress_store", None)
+    if store is None:
+        return []
+    runs = store.runs_for(name)
+    return [
+        {
+            "run_id": run.run_id,
+            "name": run.name,
+            "phase": run.phase,
+            "status": run.status,
+            "done_count": run.done_count,
+            "agent_count": run.agent_count,
+        }
+        for run in runs
+    ]
+
+
+async def _entity_to_card(
+    entity: Entity,
+    *,
+    task_store: TaskStore | None,
+    process_manager: ProcessManager | None = None,
+) -> dict:
     """Build the card dict consumed by ``_macros.html`` ``maestro_card``."""
-    leads = workers = 0
+    leads = 0
     if isinstance(entity, Maestro):
         leads = len(entity.teams)
-        workers = sum(len(team.workers) for team in entity.teams.values())
+
+    runs = _runs_for(process_manager, entity.name)
 
     tasks = await _open_tasks_for(entity.name, task_store)
     status_word = entity.state.value
@@ -113,7 +147,9 @@ async def _entity_to_card(entity: Entity, *, task_store: TaskStore | None) -> di
         "summary": summary,
         "updated": _relative_time(entity.last_activity_at or entity.started_at),
         "leads": leads,
-        "workers": workers,
+        # Number of active Workflow runs — replaces the always-zero ``W`` count.
+        "active_runs": len(runs),
+        "runs": runs,
         "tasks": tasks,
         "mode": entity.permission_mode,
         "model": entity.model,
@@ -148,7 +184,8 @@ _OTTER_STUB: dict = {
     "summary": ("Otter maestro not yet spawned. Run /m:otter hello in Telegram to register."),
     "updated": "—",
     "leads": 0,
-    "workers": 0,
+    "active_runs": 0,
+    "runs": [],
     "tasks": [],
     "mode": "—",
     "model": "—",
@@ -175,7 +212,10 @@ async def build_landing_view_model(
     for m in maestros:
         (active_maestros if _display_state(m) == "active" else idle_maestros).append(m)
 
-    active_cards = [await _entity_to_card(m, task_store=task_store) for m in active_maestros]
+    active_cards = [
+        await _entity_to_card(m, task_store=task_store, process_manager=process_manager)
+        for m in active_maestros
+    ]
     active_cards.sort(key=lambda c: -sum(1 for t in c["tasks"] if t["priority"] in ("P0", "P1")))
 
     idle_list = [
@@ -196,7 +236,9 @@ async def build_landing_view_model(
     otter_card = (
         dict(_OTTER_STUB)
         if otter_entity is None
-        else await _entity_to_card(otter_entity, task_store=task_store)
+        else await _entity_to_card(
+            otter_entity, task_store=task_store, process_manager=process_manager
+        )
     )
 
     vault_pending: list[dict] = []

@@ -54,6 +54,7 @@ from hive.notifications import EmailDigest, NotificationDispatcher
 from hive.observability.health_monitor import HealthMonitor
 from hive.process.manager import ProcessManager
 from hive.process.scheduler import PriorityScheduler
+from hive.process.workflow_watcher import ProgressStore, WorkflowWatcher
 from hive.runtime import QuotaMonitor
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.vault.config import VaultConfig
@@ -254,6 +255,18 @@ async def main() -> None:
         HIVE_CLAUDE_CREDENTIALS_PATH,
     )
 
+    # WorkflowWatcher (Ticket 017) — global sweeper of in-flight Workflow runs.
+    # Polls each adapter ~2s, keeps the in-memory ProgressStore the dashboard
+    # reads, and emits discrete start/done/fail notifications (never per tick).
+    # Set on the manager post-construction (like quota_monitor) so view_model
+    # reads it via process_manager.progress_store; started + stopped as its own
+    # tracked task (Ticket 008).
+    progress_store = ProgressStore()
+    process_manager.progress_store = progress_store
+    workflow_watcher = WorkflowWatcher(process_manager, progress_store)
+    await workflow_watcher.start()
+    logger.info("WorkflowWatcher started (sweep every %.0fs)", workflow_watcher._interval)
+
     # Restore persisted entities (organizational structure, not running procs)
     for persisted in await entity_store.all():
         process_manager.restore(persisted)
@@ -432,6 +445,7 @@ async def main() -> None:
         await cli.run()
 
     # Cleanup — graceful stop preserves DB rows so entities restore on next boot
+    await workflow_watcher.stop()
     await process_manager.stop_all()
     await store.close()
     logger.info("Hive stopped.")
