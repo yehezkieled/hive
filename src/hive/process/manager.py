@@ -67,6 +67,7 @@ from hive.process.wake_scheduler import (
     _WAKE_ON_INBOUND_TEXT,  # noqa: F401  re-exported for `from ...manager import` in tests
     WakeScheduler,
 )
+from hive.process.workflow_watcher import ProgressStore
 from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import (
     ClaudeAdapter,  # noqa: F401  re-exported; LifecycleManager reads it via this module
@@ -162,6 +163,11 @@ class ProcessManager:
         # (Ticket 003). /approve and /deny on a gate row ring it to wake the
         # parked Turn. Optional — tests construct managers without it.
         self.gate_coordinator: GateCoordinator | None = None
+        # Set after construction by __main__.py (Ticket 017). The in-memory
+        # store of in-flight Workflow runs the WorkflowWatcher fills; the
+        # dashboard view-model reads it via process_manager.progress_store.
+        # Optional — tests construct managers without the watcher.
+        self.progress_store: ProgressStore | None = None
 
         # Collaborators (Ticket 004): focused objects holding a back-ref to
         # this manager. They reach all shared state via ``self._mgr``; the
