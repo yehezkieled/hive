@@ -25,8 +25,8 @@ marked with ✱.
 | 017 ✱ | [Bridge Workflow progress to dashboard + Telegram](017-bridge-workflow-progress/) | 2026-Q2-S5 | done | #116–#119 |
 | 018 | [Retire the persistent Worker entity](018-retire-worker-entity/) | 2026-Q2-S5 | done | #132–#137 |
 | 019 | [Maestro phase-confirmation gate](019-maestro-phase-confirmation/) | S6 (cand.) | planned | — |
-| 020 | [Adapter liveness escalation: auto-bounce jammed PTY sessions](020-adapter-liveness-escalation/) | S6 (cand.) | planned | — |
-| 021 | [Route maestro→user messages first-class](021-router-user-queue/) | S6 (cand.) | planned | — |
+| 020 | [Adapter liveness escalation: auto-bounce jammed PTY sessions](020-adapter-liveness-escalation/) | 2026-Q2-S6 | planned | — |
+| 021 | [Route maestro→user messages first-class](021-router-user-queue/) | 2026-Q2-S6 | planned | — |
 | 022 | [Maestro delegates research (un-bridged interactive gate)](022-maestro-research-delegation/) | S6 (cand.) | planned | — |
 | 023 | [Activate the worktree floor (isolate leaf work) — 015 follow-up](023-activate-worktree-floor/) | 2026-Q2-S5 | done | #92–#95 |
 | 024 | [Project ownership & PA write-policy](024-project-ownership-pa-write-policy/) | S6 (cand.) | planned | — |
@@ -34,4 +34,6 @@ marked with ✱.
 | 026 | [Turn boundary: reader accepts mid-turn during post-tool thinking gaps](026-turn-boundary-acceptance/) | 2026-Q2-S5 | done | #104–#105 |
 | 027 | [No-progress timeout false-fires on Workflow runs](027-workflow-run-false-timeout/) | 2026-Q2-S5 | superseded by 017 | #118 |
 | 028 | [Scheduler poke corrupts an entity parked at a gate](028-scheduler-poke-gate-guard/) | 2026-Q2-S5 | done | #125 |
-| 029 | [Maestro interactive gate not bridged to user (003 gap)](029-maestro-gate-bridge-regression/) | S6 (cand.) | planned | — |
+| 029 ✱ | [Maestro interactive gate not bridged to user (003 gap)](029-maestro-gate-bridge-regression/) | 2026-Q2-S6 | planned | — |
+| 030 | [Workflow-turn no-progress timeout false-fires on long runs](030-workflow-turn-no-progress-timeout/) | 2026-Q2-S6 | planned | — |
+| 031 | [Maestro addresses its own lead as `self.<team>`](031-maestro-lead-addressing/) | 2026-Q2-S6 | planned | — |

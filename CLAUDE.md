@@ -6,7 +6,7 @@ Project-specific rules for any Claude Code session working on Hive.
 
 @CONTEXT.md
 @docs/roadmap.md
-@docs/sprints/2026-Q2-S5.md
+@docs/sprints/2026-Q2-S6.md
 @docs/tickets/INDEX.md
 
 > When the sprint rolls over, update the sprint `@`-reference above.
