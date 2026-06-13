@@ -1892,3 +1892,26 @@ class TestIdleKillSkipsBusyAdapter:
 
         killed = await manager.kill_idle_entities(30)
         assert "worker" in killed
+
+
+class TestIsParkedAtGate:
+    """028 — the pending-gate signal both the send chokepoint and the
+    scheduler consult before injecting into an entity's PTY."""
+
+    async def test_false_when_no_gate_coordinator(self, router: MessageRouter) -> None:
+        mgr = ProcessManager(router=router)
+        assert mgr.gate_coordinator is None
+        assert mgr.is_parked_at_gate("dev") is False
+        await mgr.kill_all()
+
+    async def test_true_when_gate_pending(self, router: MessageRouter) -> None:
+        mgr = ProcessManager(router=router)
+        mgr.gate_coordinator = _FakeGateCoordinator(live={"dev"})  # type: ignore[assignment]
+        assert mgr.is_parked_at_gate("dev") is True
+        await mgr.kill_all()
+
+    async def test_false_when_no_gate_pending(self, router: MessageRouter) -> None:
+        mgr = ProcessManager(router=router)
+        mgr.gate_coordinator = _FakeGateCoordinator(live={"other"})  # type: ignore[assignment]
+        assert mgr.is_parked_at_gate("dev") is False
+        await mgr.kill_all()
