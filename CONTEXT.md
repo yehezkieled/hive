@@ -78,6 +78,16 @@ which transcript is the Entity's from directory activity. Eliminates
 silent cross-Entity transcript mix-ups when sessions share a directory.
 _Avoid_: transcript guessing, session sniffing
 
+**Workflow run**:
+A Lead's single execution of the Claude Code **Workflow** tool — one
+deterministic fan-out of **Leaf agents**, carried out inside one of the
+Lead's **Turns**. It is the unit Hive surfaces as live progress (agent
+count / phase / completion) on the dashboard and Telegram.
+_Note_: observed **read-only** — Hive watches a run, it does not steer it
+(steering is later scope). A run is alive only while its Lead's Turn is in
+flight.
+_Avoid_: job, batch, "the Workflow" (the tool) vs. one run of it.
+
 **hive_actions**:
 The protocol an Entity uses to act on the rest of Hive — message a peer,
 request a spawn, finish a task. The Entity emits a `<hive_actions>` block;
