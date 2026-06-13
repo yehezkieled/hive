@@ -20,6 +20,7 @@ from hive.config import CLAUDE_BINARY
 from hive.runtime.base import Runtime
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
+from hive.runtime.workflow_progress import WorkflowProgress, parse_run_dir, run_active
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,18 @@ class ClaudeAdapter(Runtime):
         stale ``last_activity_at``, which only updates at turn start.
         """
         return self._lock.locked()
+
+    def poll_workflow_progress(self) -> list[WorkflowProgress]:
+        """Read-only snapshot of this entity's in-flight Workflow runs (Ticket
+        017). Fail-soft: never raises; ``[]`` when there is no live session."""
+        session_dir = self._pty.session_dir if self._pty is not None else None
+        return parse_run_dir(session_dir)
+
+    def workflow_active(self, window: float) -> bool:
+        """True iff a Workflow run's files advanced within ``window`` s — the
+        no-hang liveness signal the transcript reader consults (Ticket 017)."""
+        session_dir = self._pty.session_dir if self._pty is not None else None
+        return run_active(session_dir, window)
 
     async def send_turn(self, prompt: str) -> tuple[str, dict]:
         async with self._lock:

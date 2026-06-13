@@ -268,6 +268,20 @@ class PtySession:
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.isalive()
 
+    @property
+    def session_dir(self) -> Path | None:
+        """The session's working dir (holds ``workflows/`` and ``subagents/``),
+        or ``None`` until the session ``.jsonl`` is pinned on first send.
+
+        Claude Code writes a Workflow run's records under
+        ``<session>/workflows/`` and ``<session>/subagents/workflows/`` —
+        siblings of the session transcript. Ticket 017's read-only progress
+        watcher reads them here, never touching the PTY or its lock.
+        """
+        if self._session_path is None:
+            return None
+        return self._session_path.with_suffix("")
+
     async def send(self, prompt: str) -> tuple[str, dict]:
         """Inject prompt; return (response_text, usage) from the .jsonl transcript.
 
