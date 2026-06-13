@@ -19,7 +19,7 @@ marked with ✱.
 | 011 | [Add a CI coverage floor](011-ci-coverage-floor/) | 2026-Q2-S4 | done | #61–#62 |
 | 012 | [Curate & expose CC skills to Entities](012-entity-skill-inheritance/) | 2026-Q2-S4 | done | #67 |
 | 013 ✱ | [Retire custom advisor for CC native `/advisor`](013-retire-custom-advisor/) | 2026-Q2-S5 | done | #71, #73, #89 |
-| 014 | [Trim the VPS skill library](014-trim-vps-skill-library/) | 2026-Q2-S5 | planned | — |
+| 014 | [Trim the VPS skill library](014-trim-vps-skill-library/) | 2026-Q2-S5 | in progress | #129 |
 | 015 | [Lead leaf engine: orchestrate via CC Workflow](015-lead-workflow-leaf-engine/) | 2026-Q2-S5 | done | #74–#79 |
 | 016 ✱ | [Migrate leaf dispatch: `spawn_worker` → Workflow](016-migrate-leaf-dispatch-to-workflow/) | 2026-Q2-S5 | in progress | #109–#111 |
 | 017 ✱ | [Bridge Workflow progress to dashboard + Telegram](017-bridge-workflow-progress/) | 2026-Q2-S5 | done | #116–#119 |
