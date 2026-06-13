@@ -192,10 +192,15 @@ integration test
 curation
 ([`012`](docs/tickets/012-entity-skill-inheritance/), ADR 0008).
 
-**Phase 3 (dashboard → PWA) opens next** — Sprint S5 not yet planned
-(Tickets [`013`](docs/tickets/013-retire-custom-advisor/) and
-[`014`](docs/tickets/014-trim-vps-skill-library/) pre-assigned). When
-S5 is opened, update the sprint `@`-reference at the top of this file.
+**Phase 3 — Workflow-native orchestration** is **in progress**. S5 (closed
+2026-06-13, goal met) shipped the core: Leads orchestrate leaf work through the
+Claude Code **Workflow** tool (015, ADR 0010), the persistent **Worker** entity
+is deleted (016/018, ADR 0013), and a read-only progress bridge surfaces live
+runs (017, ADR 0014). **S6 (active, 2026-06-13 → 06-27)** hardens the
+maestro→user loop (020/021/029/030/031), governs the now-live worktree floor
+(024/025), and adds a maestro phase-confirmation gate (019). **Track 2** — the
+debate/blackboard/tournament interaction-pattern library — is the remaining
+Phase 3 work, deferred to **S7**.
 
 Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
 and plan-billed in production (Tickets 001 + 003); the headless
