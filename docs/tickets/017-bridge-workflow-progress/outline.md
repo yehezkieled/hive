@@ -22,7 +22,7 @@ class WorkflowProgress:
     agent_count: int       # agentCount (M)
     done_count: int        # count(result) in journal (N)
     status: str            # "running" | "completed" | "failed" | ...
-    partials: list | None  # optional, capped — recent result payloads
+    partials: list | None  # last 3 results, ~280 chars each; dashboard-only (never in notifications)
 ```
 
 Harness-neutral. Dashboard + Telegram both consume only this — no caller touches
@@ -31,9 +31,10 @@ CC's file shapes.
 ### ② CC run-record parser — `parse_run_dir(session_dir) -> list[WorkflowProgress]`
 
 Pure function over a session working dir. Globs `workflows/wf_*.json`, reads each
-snapshot, counts journal `result` events for `done_count`. **Fail-soft:** a
-missing dir, a half-written JSON (`JSONDecodeError`), or an unknown shape yields
-`[]`/skip — never raises into the Lead path.
+snapshot, counts journal `result` events for `done_count`, caps `partials` (last
+3, ~280 chars). **Fail-soft is per-file:** an `OSError`/`JSONDecodeError` on one
+`wf_*.json` skips *that* file and continues with the rest; a missing dir or no
+matches → `[]`; a bad journal line is tolerated. Never raises into the Lead path.
 
 - **Why deep:** the entire "what runs exist and what state" question sits behind
   one signature over a directory. Unit-testable with **fixture run dirs**
@@ -56,12 +57,12 @@ count/phase tick. Drops a run on terminal status.
 
 | Seam | Change |
 |------|--------|
-| `runtime/claude_adapter.py` | `poll_workflow_progress()` = `parse_run_dir(self._session_dir())`; `workflow_active()` = "any run journal/state mtime advanced within the window". `is_busy()` already exists. |
+| `runtime/claude_adapter.py` | `poll_workflow_progress()` = `parse_run_dir(self._pty.session_dir)`; `workflow_active(window: float) -> bool` = "any run journal/state mtime **advanced within `window` s**" (existence is not enough — the no-hang guarantee). `is_busy()` already exists. |
+| `runtime/pty_session.py` | Add public `session_dir` (`_session_path.with_suffix("")` or `None`); pass the adapter's `workflow_active` into the `TranscriptReader` it builds. |
 | new `process/workflow_watcher.py` | The sweeper: every ~2s, `for name, adapter in manager._adapters` → duck-type `poll_workflow_progress` → `store.upsert` → for each transition, build a `Notification` and `await manager._notify(...)`. Holds the `ProgressStore`. |
-| `__main__.py` / `process/manager.py` | Construct the watcher; start it as a **tracked** task (ticket 008); expose `watcher.store` to the web view model. |
-| `runtime/transcript_reader.py` | Accept an optional `workflow_active: Callable[[], bool]`. At the deadline (before raising), if `workflow_active()` → `deadline = now + timeout; continue`. Replace the raw `TimeoutError` text with a friendly message. |
-| `runtime/pty_session.py` | Pass `adapter`/`workflow_active` into the `TranscriptReader` it builds. |
-| `web/view_model.py` | Pull active runs from `store` keyed by Lead; replace always-zero `workers` with an active-run indicator. |
+| `__main__.py` / `process/manager.py` | Construct the watcher; start it as a **tracked** task (ticket 008); set `manager.progress_store` (post-construction, like `quota_monitor`/`scheduler`) for `view_model`. |
+| `runtime/transcript_reader.py` | Accept an optional `workflow_active: Callable[[float], bool]`. At the deadline (before raising), if `workflow_active(timeout)` → `deadline = now + timeout; continue`. Replace the raw `TimeoutError` text with a friendly message (no path). |
+| `web/view_model.py` | Pull active runs from `process_manager.progress_store` keyed by Lead; replace always-zero `workers` with an active-run indicator. |
 | `web/templates/_partials/active.html` (+ `_macros.html`) | Render the aggregate run-card (name · phase · ▓ N/M · status). |
 
 ## Data flow
@@ -86,13 +87,17 @@ count/phase tick. Drops a run on terminal status.
 ## Test seams
 
 - **parse_run_dir** — fixture run dirs: a running snapshot (N<M), a completed
-  one, a failed one, a half-written JSON, a missing dir → assert the
-  `WorkflowProgress` list (or `[]`) and that nothing raises.
+  one, a failed one, a half-written JSON, a **corrupt journal line**, a **mixed
+  valid+invalid glob** (assert the valid one survives), a missing dir → assert
+  the `WorkflowProgress` list (or `[]`) and that nothing raises. Plus a
+  **truncation** case: a huge result payload → `partials` capped to 3 × ~280 chars.
 - **ProgressStore** — snapshot sequences → assert the exact transition stream;
   `running`+`not_busy` → `interrupted`; ticks → no transition.
-- **reader liveness-reset** — recorded transcript that goes quiet while
-  `workflow_active()` returns True → assert **no** `TimeoutError`; then
-  `workflow_active()` False past the window → assert the **friendly** error.
+- **reader liveness-reset** — (i) quiet transcript while `workflow_active(t)`=True
+  → **no** `TimeoutError`; (ii) `workflow_active(t)`=False past the window →
+  **friendly** error (no path); (iii) **no-hang**: a stale orphan (file frozen at
+  `status:"running"`, old mtime) → `workflow_active` returns False → reader times
+  out instead of looping forever.
 - **sweeper** — fake adapters returning scripted progress + a fake dispatcher →
   assert `_notify` called once per discrete transition, never per tick.
 - **view_model / template** — store with an active run → assert the Lead card
