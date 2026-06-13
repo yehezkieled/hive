@@ -217,6 +217,13 @@ class PriorityScheduler:
         maestros = [e for e in pm.entities.values() if isinstance(e, Maestro)]
         poked: list[str] = []
         for m in maestros:
+            # Ticket 028: never poke a maestro parked at an interactive gate —
+            # injecting into its PTY submits the gate's highlighted default (an
+            # unauthorised decision). send_to_entity guards this too; skipping
+            # here also avoids building the (DB-backed) facts prompt needlessly.
+            if pm.is_parked_at_gate(m.name):
+                logger.info("scheduler: skipping %s — parked at an interactive gate", m.name)
+                continue
             try:
                 facts = await self.build_facts_prompt(m.name)
                 await pm.send_to_entity(m.name, facts)
@@ -233,6 +240,13 @@ class PriorityScheduler:
         for transparency. Does not reset the spawn-counter window — that
         only happens on the periodic tick.
         """
+        # Ticket 028: don't poke a maestro parked at an interactive gate.
+        if self.process_manager.is_parked_at_gate(maestro_name):
+            notice = (
+                f"{maestro_name} is parked at an interactive gate; skipped (answer the gate first)."
+            )
+            logger.info("scheduler: %s", notice)
+            return notice
         facts = await self.build_facts_prompt(maestro_name)
         await self.process_manager.send_to_entity(maestro_name, facts)
         return facts

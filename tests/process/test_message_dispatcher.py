@@ -116,6 +116,17 @@ class FakeTurnAdapter:
         return self._response, usage
 
 
+class FakeGateCoordinator:
+    """Doorbell-registry stand-in (Ticket 028): reports which entities are
+    parked at an interactive gate via ``pending_request_id``."""
+
+    def __init__(self, parked: set[str] | None = None) -> None:
+        self._parked = parked or set()
+
+    def pending_request_id(self, entity_name: str) -> int | None:
+        return 42 if entity_name in self._parked else None
+
+
 class StubManager:
     """Minimal stand-in for ProcessManager's dispatch-facing surface.
 
@@ -131,6 +142,10 @@ class StubManager:
         self._entities: dict[str, object] = {}
         self.router = FakeRouter()
         self.scheduler = None
+        # Pending-gate guard surface (Ticket 028). None by default = no
+        # coordinator wired, so is_parked_at_gate is always False and the
+        # existing full-turn tests are unaffected.
+        self.gate_coordinator: FakeGateCoordinator | None = None
 
         # --- send_to_entity surface (turn-end inbox check, Ticket 023 D4) ---
         # A REAL WakeScheduler wired to this stub: the turn-end check must
@@ -224,6 +239,10 @@ class StubManager:
 
     def _peer_directory_for(self, entity_name: str) -> str:
         return ""
+
+    def is_parked_at_gate(self, entity_name: str) -> bool:
+        gc = self.gate_coordinator
+        return gc is not None and gc.pending_request_id(entity_name) is not None
 
     async def _persist(self, entity: object) -> None:
         self.persisted.append(entity)
@@ -937,3 +956,46 @@ async def test_gate_resume_completion_also_runs_inbox_check(
     await _drain_wakes(mgr)
     wakes = [s for s in mgr.sent if s == ("dev", _WAKE_ON_INBOUND_TEXT)]
     assert len(wakes) == 1
+
+
+# ---------------------------------------------------------------------------
+# Pending-gate guard (Ticket 028)
+# ---------------------------------------------------------------------------
+
+
+async def test_send_to_entity_skips_when_parked_at_gate(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A send to an entity parked at a gate must NOT reach the PTY.
+
+    Typing a new-turn prompt into a PTY sitting on a TUI menu submits the
+    highlighted default — the gate's "answer". So the chokepoint refuses to
+    inject, returns a notice pointing at /approve, and leaves queued peer
+    mail undrained (it re-delivers after the gate resolves).
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr.adapter = FakeTurnAdapter()
+    mgr.gate_coordinator = FakeGateCoordinator(parked={"dev"})
+    await mgr.router.route("dev.backend", "dev", "queued ping")
+
+    with _hermetic_send_flags():
+        result = await dispatcher.send_to_entity("dev", "facts poke")
+
+    assert mgr.adapter.prompts == []  # PTY never reached
+    assert "42" in result and "/approve" in result  # notice with request id
+    assert mgr.router.has_pending("dev")  # peer mail NOT drained — survives
+
+
+async def test_send_to_entity_proceeds_when_not_parked(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """No pending gate → the turn runs normally (regression guard)."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr.adapter = FakeTurnAdapter(response="did the work")
+    mgr.gate_coordinator = FakeGateCoordinator(parked=set())
+
+    with _hermetic_send_flags():
+        result = await dispatcher.send_to_entity("dev", "go")
+
+    assert len(mgr.adapter.prompts) == 1  # the turn reached the PTY
+    assert result == "did the work"
