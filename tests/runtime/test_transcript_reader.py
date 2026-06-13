@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1005,6 +1006,68 @@ async def test_fallback_rejects_tool_use_stamped_entry(tmp_path: Path) -> None:
     await write_task
 
 
+# ---------------------------------------------------------------------------
+# Ticket 017 §E2 — reader liveness-reset on a live Workflow run (absorbs 027)
+# ---------------------------------------------------------------------------
+
+
+async def test_live_workflow_resets_deadline_instead_of_timing_out(tmp_path: Path) -> None:
+    """A live Workflow run keeps the no-progress deadline open (027 root cause).
+
+    The Lead's transcript is frozen (no new entries, no mtime advance) while the
+    run's journal advances elsewhere. Without the predicate the reader would
+    declare the healthy Lead dead. With ``workflow_active`` returning True it must
+    RESET the deadline at the would-be timeout and keep polling — so NO
+    TimeoutError fires within a multiple of the (tiny) window.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("fan out the leaf work")])
+
+    reader = TranscriptReader(tmp_path, workflow_active=lambda _window: True)
+    # The window is tiny; with the reset the reader keeps polling. Bound the test
+    # with an outer wait_for: it should still be polling when we cancel it.
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            reader.await_next_assistant_turn(session, timeout=0.1, quiescence_ms=50),
+            timeout=0.6,
+        )
+
+
+async def test_quiet_session_still_times_out_when_workflow_inactive(tmp_path: Path) -> None:
+    """No-hang: with ``workflow_active`` False the stale orphan still times out.
+
+    The Lead's Turn died — files frozen, no run alive. The reader must NOT loop
+    forever; the no-progress deadline must fire as before.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("anyone home?")])
+
+    reader = TranscriptReader(tmp_path, workflow_active=lambda _window: False)
+    with pytest.raises(TimeoutError):
+        await reader.await_next_assistant_turn(session, timeout=0.3, quiescence_ms=50)
+
+
+async def test_timeout_message_is_friendly_and_hides_path(tmp_path: Path) -> None:
+    """The TimeoutError message must not leak the transcript path / ``.jsonl``.
+
+    It should name the timeout seconds and point at the dashboard — a Workflow may
+    still be running. The raw file path is an internal detail no user should see.
+    """
+    session = tmp_path / "session.jsonl"
+    _write_jsonl(session, [_user_entry("quiet please")])
+
+    reader = TranscriptReader(tmp_path)
+    with pytest.raises(TimeoutError) as exc_info:
+        await reader.await_next_assistant_turn(session, timeout=0.3, quiescence_ms=50)
+
+    message = str(exc_info.value)
+    assert ".jsonl" not in message
+    assert str(session) not in message
+    assert "0.3" in message or "0.3s" in message
+    assert "dashboard" in message.lower()
+    assert "workflow" in message.lower()
+
+
 async def test_fallback_rejects_textless_endturn_entry(tmp_path: Path) -> None:
     """Sentinel-less + end_turn entry with no text (bare thinking) → not accepted.
 
@@ -1029,3 +1092,66 @@ async def test_fallback_rejects_textless_endturn_entry(tmp_path: Path) -> None:
             session, timeout=0.5, quiescence_ms=50, fallback_quiescence_s=0.1
         )
     await write_task
+
+
+# ---------------------------------------------------------------------------
+# Ticket 017 §E2 — PtySession wires the liveness predicate into the reader
+# ---------------------------------------------------------------------------
+
+
+async def test_pty_session_wires_lazy_workflow_active_into_reader(tmp_path: Path) -> None:
+    """start() must hand the reader a LAZY workflow_active predicate (§E2 wiring).
+
+    ``self.session_dir`` is None until the session is pinned on first send, so the
+    predicate cannot capture a fixed dir at construction — it must be a lambda that
+    reads ``self.session_dir`` and ``run_active`` at CALL time. We capture the
+    predicate start() passes, then prove it is lazy: it's still None-safe before a
+    pin, and after we set ``_session_path`` it forwards (session_dir, window) to
+    ``run_active``.
+    """
+    from hive.runtime.pty_session import PtySession
+
+    captured: dict[str, object] = {}
+
+    def fake_reader_ctor(project_dir: Path, *, gate_detector=None, workflow_active=None):
+        captured["workflow_active"] = workflow_active
+        return MagicMock()
+
+    cwd = tmp_path / "checkout"
+    cwd.mkdir()
+
+    proc = MagicMock()
+    proc.isalive.return_value = True
+    proc.pid = 4321
+    # Let the daemon reader thread exit cleanly instead of blocking on read()
+    # and later poking a closed event loop (cosmetic teardown noise otherwise).
+    proc.read.side_effect = EOFError
+
+    with (
+        patch("hive.runtime.pty_session.PtyProcess") as mock_pty_cls,
+        patch("hive.runtime.pty_session.TranscriptReader", side_effect=fake_reader_ctor),
+        patch.object(PtySession, "_handle_trust_prompt", return_value=None),
+        patch("hive.runtime.pty_session.run_active") as mock_run_active,
+    ):
+        mock_pty_cls.spawn.return_value = proc
+        session = PtySession(cwd=cwd)
+        await session.start()
+
+        predicate = captured["workflow_active"]
+        assert callable(predicate)
+
+        # Lazy + None-safe: no pin yet → session_dir is None → run_active sees None.
+        mock_run_active.return_value = False
+        assert predicate(0.3) is False
+        mock_run_active.assert_called_with(None, 0.3)
+
+        # After a pin, the SAME predicate now forwards the resolved session_dir.
+        session._session_path = tmp_path / "abc-123.jsonl"
+        mock_run_active.return_value = True
+        assert predicate(180.0) is True
+        mock_run_active.assert_called_with(tmp_path / "abc-123", 180.0)
+
+        # Let the daemon reader thread drain its EOF and stop touching the loop.
+        reader_task = session._reader_task
+        if reader_task is not None:
+            await asyncio.gather(reader_task, return_exceptions=True)
