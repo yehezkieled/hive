@@ -68,7 +68,7 @@ async def idle_checker(
     default_maestro: str,
     stop_event: asyncio.Event,
 ) -> None:
-    """Background task: kill idle workers/teams. Maestros are never auto-killed."""
+    """Background task: kill idle leads/teams. Maestros are never auto-killed."""
     while not stop_event.is_set():
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=300)
@@ -266,6 +266,13 @@ async def main() -> None:
     workflow_watcher = WorkflowWatcher(process_manager, progress_store)
     await workflow_watcher.start()
     logger.info("WorkflowWatcher started (sweep every %.0fs)", workflow_watcher._interval)
+
+    # Purge retired Worker rows before restore (Ticket 018): the Worker type
+    # is gone, so a leftover row would zombie-restore as a bare Entity with an
+    # invalid role. Idempotent — a no-op once the table is clean.
+    purged = await entity_store.purge_role("worker")
+    if purged:
+        logger.info("Purged %d retired worker row(s) from the entity store", purged)
 
     # Restore persisted entities (organizational structure, not running procs)
     for persisted in await entity_store.all():

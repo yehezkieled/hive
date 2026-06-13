@@ -9,9 +9,8 @@ from dataclasses import dataclass, field
 class Team:
     """A team within a maestro's organization.
 
-    Naming convention: lead is ``maestro.team``, workers are
-    ``maestro.team.worker``. For example, maestro "dev" with team
-    "backend" has lead "dev.backend" and workers "dev.backend.w1".
+    Naming convention: the lead is ``maestro.team``. For example, maestro
+    "dev" with team "backend" has lead "dev.backend".
     """
 
     name: str

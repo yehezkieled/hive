@@ -2,7 +2,7 @@
 
 Hive is a multi-agent orchestration platform: it runs and coordinates
 a fleet of AI coding agents that you control from Telegram. Each
-Entity (Maestro / Team Lead / Worker) runs on its own Harness —
+Entity (Maestro / Team Lead) runs on its own Harness —
 Claude Code via an interactive PTY session today, with Codex and
 OpenCode adapters planned.
 

@@ -73,7 +73,6 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "priority",
         "task",
         "team",
-        "worker",
         "swarm",
         "new",
         "personality",

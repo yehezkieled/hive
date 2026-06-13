@@ -8,7 +8,7 @@ Supported action types:
 - ``message``: send text to another entity. Fields: ``to``, ``text``.
   Peer routing applies (see ``hive.bus.permissions.can_message``).
 - ``request_decision``: escalate a directional decision to the direct
-  parent (worker → own lead, lead → own maestro). Fields: ``to``,
+  parent (lead → own maestro). Fields: ``to``,
   ``text``. Strict parent-only routing.
 - ``request_mode_change``: ask for an elevated permission mode. Fields:
   ``requested_mode`` (yolo|yotree), ``reason`` (optional).
@@ -17,11 +17,6 @@ Supported action types:
   override (defaults to the entity's current task_id).
 - ``spawn_team``: maestro creates a new team in its own org. Fields:
   ``team_name``; optional ``model`` (default sonnet).
-- ``spawn_worker``: maestro or lead spawns a worker under a team.
-  Fields: optional ``lead`` (full lead name like ``dev.backend``);
-  optional ``worker_name``, ``task_id``. When ``lead`` is omitted, the
-  manager infers it from the actor: a lead spawns under itself; a
-  maestro is rejected (must specify which team).
 - ``kill_entity``: maestro or lead kills an entity in its scope.
   Fields: ``target``.
 - ``request_payment``: vault entity requests a structured payment.
@@ -81,7 +76,6 @@ _MESSAGE_REQUIRED = {"to", "text"}
 _MODE_REQUEST_REQUIRED = {"requested_mode"}
 _FAILURE_REQUIRED = {"reason"}
 _SPAWN_TEAM_REQUIRED = {"team_name"}
-_SPAWN_WORKER_REQUIRED: set[str] = set()
 _KILL_ENTITY_REQUIRED = {"target"}
 _REQUEST_DECISION_REQUIRED = {"to", "text"}
 _REQUEST_PAYMENT_REQUIRED = {
@@ -100,8 +94,8 @@ class Action:
     Only the fields relevant to ``type`` are populated. ``to``/``text``
     are set for ``message`` actions; ``requested_mode``/``reason`` for
     ``request_mode_change``; ``reason``/``task_id`` for ``report_failure``;
-    ``team_name``/``model`` for ``spawn_team``; ``lead``/``worker_name``/
-    ``task_id`` for ``spawn_worker``; ``target`` for ``kill_entity``.
+    ``team_name``/``model`` for ``spawn_team``; ``target`` for
+    ``kill_entity``.
     """
 
     type: str
@@ -112,12 +106,10 @@ class Action:
     task_id: int | None = None
     team_name: str | None = None
     model: str | None = None
-    lead: str | None = None
-    worker_name: str | None = None
     target: str | None = None
     # Phase 3 (autonomous personality generation): parents may include a
     # human-readable label and free-text personality blurb when spawning
-    # a team or worker. Only used to write the auto-generated personality
+    # a team. Only used to write the auto-generated personality
     # file — both fields must be present together for the file to be
     # written (pair-or-nothing).
     display_name: str | None = None
@@ -271,26 +263,6 @@ def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
                     type=atype,
                     team_name=item["team_name"],
                     model=item.get("model"),
-                    display_name=item.get("display_name"),
-                    personality=item.get("personality"),
-                )
-            )
-            continue
-
-        if atype == "spawn_worker":
-            raw_task_id = item.get("task_id")
-            try:
-                task_id_val = int(raw_task_id) if raw_task_id is not None else None
-            except (TypeError, ValueError):
-                errors.append(f"`spawn_worker` has non-integer task_id: {raw_task_id!r}")
-                logger.warning("spawn_worker has non-integer task_id: %r", raw_task_id)
-                task_id_val = None
-            actions.append(
-                Action(
-                    type=atype,
-                    lead=item.get("lead"),
-                    worker_name=item.get("worker_name"),
-                    task_id=task_id_val,
                     display_name=item.get("display_name"),
                     personality=item.get("personality"),
                 )

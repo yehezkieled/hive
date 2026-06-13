@@ -3,7 +3,7 @@
 Hive Entities inherit ``~/.claude/skills`` wholesale. Some skills *pause
 mid-Turn for a human* ("thinking" skills) — fine for the Maestro, whose
 interactive gates bridge to Telegram (Ticket 003), but a deadlock for a
-Lead/Worker, which has no human to answer. This module owns the role-keyed
+Lead, which has no human to answer. This module owns the role-keyed
 denylist of ``Skill()`` tokens that gets merged into ``disallowed_tools`` at
 spawn time (``lifecycle_manager._adapter_config_from_entity``), reusing the
 existing ``--disallowedTools`` path.
@@ -53,7 +53,7 @@ def skill_denylist_for(role: str) -> list[str]:
     """Return the ``Skill()`` deny tokens for a role.
 
     Every role blocks ``_ALL_ROLES_DENY``. Every role *except* the Maestro
-    also blocks ``_THINKING_DENY`` — so lead, worker, vault, and any future
+    also blocks ``_THINKING_DENY`` — so lead, vault, and any future
     non-maestro role lose the human-pausing skills, while the Maestro keeps
     them (its gates bridge to Telegram).
     """

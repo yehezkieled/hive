@@ -16,7 +16,6 @@ from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
-from hive.models.worker import Worker
 
 
 class EntityStore:
@@ -72,8 +71,8 @@ class EntityStore:
             entity.permission_mode,
             entity.loop_mode,
             entity.current_priority,
-            _get_worktree_path(entity),
-            _get_task_id(entity),
+            None,  # worktree_path — was Worker-only; Workers retired (Ticket 018)
+            None,  # task_id — was Worker-only; Workers retired (Ticket 018)
             entity.last_activity_at,
         )
 
@@ -94,34 +93,29 @@ class EntityStore:
         """Remove an entity from the roster."""
         await self.pool.execute("DELETE FROM entities WHERE name = $1", name)
 
+    async def purge_role(self, role: str) -> int:
+        """Delete every row for a retired role; return the count removed.
+
+        Idempotent cleanup for startup — guards against a leftover
+        ``role='worker'`` row (Worker retired, Ticket 018) zombie-restoring
+        as a bare ``Entity`` after the subclass is gone.
+        """
+        result = await self.pool.execute("DELETE FROM entities WHERE role = $1", role)
+        # asyncpg returns a status string like "DELETE 3"
+        return int(result.split()[-1]) if result else 0
+
 
 def _get_parent_name(entity: Entity) -> str | None:
     """Extract the parent_name for DB storage based on entity type."""
     if isinstance(entity, TeamLead):
         return entity.maestro_name or None
-    if isinstance(entity, Worker):
-        return entity.lead_name or None
     return None
 
 
 def _get_team_name(entity: Entity) -> str | None:
     """Extract the team_name for DB storage based on entity type."""
-    if isinstance(entity, (TeamLead, Worker)):
+    if isinstance(entity, TeamLead):
         return entity.team_name or None
-    return None
-
-
-def _get_worktree_path(entity: Entity) -> str | None:
-    """Extract the worktree_path for DB storage (workers only)."""
-    if isinstance(entity, Worker) and entity.worktree_path:
-        return str(entity.worktree_path)
-    return None
-
-
-def _get_task_id(entity: Entity) -> int | None:
-    """Extract the task_id for DB storage (workers only)."""
-    if isinstance(entity, Worker):
-        return entity.task_id
     return None
 
 
@@ -160,14 +154,5 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
             team_name=row["team_name"] or "",
             maestro_name=row["parent_name"] or "",
         )
-    if role == "worker":
-        worktree_path = Path(row["worktree_path"]) if row["worktree_path"] else None
-        return Worker(
-            **common,
-            team_name=row["team_name"] or "",
-            lead_name=row["parent_name"] or "",
-            worktree_path=worktree_path,
-            task_id=row["task_id"],
-        )
-    # Fallback for unknown roles
+    # Fallback for unknown / retired roles
     return Entity(**common, role=role)

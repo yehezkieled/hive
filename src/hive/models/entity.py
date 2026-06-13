@@ -195,10 +195,10 @@ DANGEROUS_MODES: frozenset[str] = frozenset({"yolo", "yotree"})
 
 @dataclass
 class Entity:
-    """Base class for all Hive entities (maestro, lead, worker)."""
+    """Base class for all Hive entities (maestro, lead, vault)."""
 
     name: str
-    role: str  # "maestro", "lead", "worker"
+    role: str  # "maestro", "lead", "vault"
     personality_path: Path | None = None
     # Opus is the fleet default for every spawn. Ticket 013's native advisor
     # (an Opus second-opinion for Sonnet executors) is unavailable on the
@@ -305,7 +305,7 @@ class Entity:
         # Role JD encodes the messaging protocol and any role-specific
         # autonomy actions. Loaded from personalities/role-<role>.md so it
         # can be edited without code changes.
-        if self.role in ("maestro", "lead", "worker"):
+        if self.role in ("maestro", "lead"):
             args.extend(["--append-system-prompt", load_role_jd(self.role)])
 
         from hive.mcp.config import mcp_servers_enabled

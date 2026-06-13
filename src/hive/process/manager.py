@@ -23,7 +23,6 @@ from hive.bus.permissions import (
     can_message,  # noqa: F401  re-exported; moved to MessageDispatcher (patched in test_advisor_mcp)
     can_request_decision,  # noqa: F401  re-exported; moved to MessageDispatcher
     can_spawn_team,  # noqa: F401  re-exported; moved to MessageDispatcher
-    can_spawn_worker,  # noqa: F401  re-exported; moved to MessageDispatcher
     cc_targets_for,  # noqa: F401  re-exported; moved to MessageDispatcher
 )
 from hive.bus.router import MessageRouter
@@ -50,7 +49,6 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.approval_handler import ApprovalHandler
 from hive.process.lifecycle_manager import (
@@ -131,7 +129,6 @@ class ProcessManager:
         self._last_mode_requests: list[int] = []
         self._last_failure_reports: list[int] = []
         self._last_spawned_teams: list[str] = []
-        self._last_spawned_workers: list[str] = []
         self._last_killed_entities: list[str] = []
         self._last_vault_requests: list[int] = []
         self._last_kickoffs: list[str] = []
@@ -245,20 +242,6 @@ class ProcessManager:
                 else:
                     cross_parent.append(f"{name} (cross-maestro — both maestros CC'd)")
             scope_label = "lead peer-to-peer"
-        elif entity.role == "worker":
-            sender_lead = ".".join(entity_name.split(".")[:-1])
-            sender_maestro = entity_name.split(".")[0]
-            parent = sender_lead
-            for name, e in self._entities.items():
-                if e.role != "worker" or name == entity_name:
-                    continue
-                their_lead = ".".join(name.split(".")[:-1])
-                their_maestro = name.split(".")[0]
-                if their_lead == sender_lead:
-                    same_parent.append(f"{name} (same team — direct)")
-                elif their_maestro == sender_maestro:
-                    cross_parent.append(f"{name} (cross-team — both leads CC'd)")
-            scope_label = "worker peer-to-peer"
 
         lines = [f"## Peers you can message ({scope_label})"]
         if same_parent:
@@ -357,12 +340,9 @@ class ProcessManager:
     def _parent_of(self, entity: Entity) -> str | None:
         """Return the entity's direct parent for escalation, or None.
 
-        Workers escalate to their lead, leads to their maestro. Maestros
-        have no Hive parent — callers escalate to ``user`` via the
-        notification dispatcher instead.
+        Leads escalate to their maestro. Maestros have no Hive parent —
+        callers escalate to ``user`` via the notification dispatcher instead.
         """
-        if isinstance(entity, Worker):
-            return entity.lead_name or None
         if isinstance(entity, TeamLead):
             return entity.maestro_name or None
         return None
@@ -387,18 +367,6 @@ class ProcessManager:
     ) -> TeamLead:
         return await self.lifecycle.create_team(
             maestro_name, team_name, model, display_name, personality
-        )
-
-    async def spawn_worker(
-        self,
-        lead_name: str,
-        worker_name: str | None = None,
-        task_id: int | None = None,
-        display_name: str | None = None,
-        personality: str | None = None,
-    ) -> Worker:
-        return await self.lifecycle.spawn_worker(
-            lead_name, worker_name, task_id, display_name, personality
         )
 
     async def kill_team(self, maestro_name: str, team_name: str) -> None:
@@ -483,9 +451,6 @@ class ProcessManager:
     # -----------------------------------------------------------------
     # Auto-recovery on task failures (Sprint 12 Phase 4)
     # -----------------------------------------------------------------
-
-    def _task_id_for(self, entity_name: str) -> int | None:
-        return self.dispatcher._task_id_for(entity_name)
 
     def _escalation_target_for(self, entity_name: str) -> str:
         return self.approvals._escalation_target_for(entity_name)
@@ -580,15 +545,13 @@ class ProcessManager:
         )
 
     def rebuild_hierarchy(self) -> None:
-        """Reconstruct Maestro.teams from restored TeamLead/Worker entities.
+        """Reconstruct Maestro.teams from restored TeamLead entities.
 
-        Called once after all entities are restored from the DB. Iterates
-        restored entities and links TeamLeads to their parent Maestro's
-        teams dict, and Workers to their TeamLead's workers list.
+        Called once after all entities are restored from the DB. Links each
+        TeamLead to its parent Maestro's teams dict.
         """
         from hive.models.team import Team
 
-        # First pass: create teams from TeamLeads
         for entity in self._entities.values():
             if isinstance(entity, TeamLead) and entity.maestro_name:
                 maestro = self._entities.get(entity.maestro_name)
@@ -599,21 +562,5 @@ class ProcessManager:
                         lead=entity.name,
                     )
                     maestro.teams[entity.team_name] = team
-
-        # Second pass: attach Workers to their leads and teams
-        for entity in self._entities.values():
-            if isinstance(entity, Worker) and entity.lead_name:
-                lead = self._entities.get(entity.lead_name)
-                if isinstance(lead, TeamLead) and entity.name not in lead.workers:
-                    lead.workers.append(entity.name)
-
-                # Also add to the team's worker list
-                if entity.lead_name:
-                    maestro_name = entity.lead_name.split(".")[0] if "." in entity.lead_name else ""
-                    maestro = self._entities.get(maestro_name)
-                    if isinstance(maestro, Maestro):
-                        team = maestro.get_team(entity.team_name)
-                        if team and entity.name not in team.workers:
-                            team.workers.append(entity.name)
 
         logger.info("Rebuilt hierarchy for %d entities", len(self._entities))

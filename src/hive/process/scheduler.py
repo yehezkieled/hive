@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 def maestro_for_actor(actor: str) -> str:
     """Return the root maestro name for any dotted entity name.
 
-    ``dev.backend.w1`` → ``dev``; ``dev.backend`` → ``dev``; ``dev`` → ``dev``.
-    Used to attribute autonomous spawns to the maestro at the top of the
-    org tree, so a chatty lead doesn't bypass the rate limit by spawning
-    workers under multiple sub-teams.
+    ``dev.backend`` → ``dev``; ``dev`` → ``dev``. Used to attribute
+    autonomous spawns to the maestro at the top of the org tree, so a
+    chatty lead doesn't bypass the rate limit by spawning teams under
+    multiple maestros.
     """
     return actor.split(".", 1)[0]
 

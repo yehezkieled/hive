@@ -2,18 +2,16 @@
 
 Messaging rules:
 - Maestro can message any entity in its own org (shared name prefix)
-- Lead can message its own workers and its parent maestro
-- Worker can message its own lead only
+- Lead can message its parent maestro and peer leads
 - Cross-org messaging is denied
 
 Lifecycle rules (Sprint 19 — autonomous spawn/kill; amended by ADR 0013):
 - Maestro can spawn teams in its own org. It can kill anything in its
   own org except itself and the orchestrator-protected default maestro.
-- Worker creation is retired for every actor (ADR 0013, Ticket 016):
-  ``can_spawn_worker`` denies unconditionally. Leads fan out leaf work
-  with the Workflow tool instead.
-- Lead can kill workers in its own team only.
-- Workers cannot spawn or kill anything.
+- Worker creation is retired for every actor (ADR 0013, Ticket 016) and
+  the Worker entity deleted (Ticket 018): leaf work fans out through the
+  Workflow tool instead.
+- Lead can kill entities in its own team only.
 """
 
 from __future__ import annotations
@@ -33,16 +31,12 @@ def can_message(
     Peer-to-peer rules (Sprint 22):
     - Maestros can message any other maestro.
     - Leads can message any other lead (cross-maestro routes are CC'd).
-    - Workers can message workers within the same maestro org. Cross-team
-      routes within the same maestro are CC'd to both leads.
-    - Cross-maestro worker-to-worker is denied; must escalate via the chain.
     """
     # Self-message is never allowed.
     if sender_name == recipient_name:
         return False
 
     sender_maestro = sender_name.split(".")[0]
-    recipient_maestro = recipient_name.split(".")[0]
 
     # ---- Peer-to-peer rules (same role on both ends) ----
     if sender_role == recipient_role:
@@ -50,8 +44,6 @@ def can_message(
             return True
         if sender_role == "lead":
             return True
-        if sender_role == "worker":
-            return sender_maestro == recipient_maestro
 
     # ---- Existing parent-child rules ----
     if sender_role == "maestro":
@@ -61,10 +53,6 @@ def can_message(
         if recipient_name.startswith(f"{sender_name}."):
             return True
         return recipient_name == sender_maestro
-
-    if sender_role == "worker":
-        lead_name = ".".join(sender_name.split(".")[:-1])
-        return recipient_name == lead_name
 
     return False
 
@@ -95,13 +83,6 @@ def cc_targets_for(
             return []
         return [sender_maestro, recipient_maestro]
 
-    if sender_role == "worker":
-        sender_lead = ".".join(sender_name.split(".")[:-1])
-        recipient_lead = ".".join(recipient_name.split(".")[:-1])
-        if sender_lead == recipient_lead:
-            return []
-        return [sender_lead, recipient_lead]
-
     return []
 
 
@@ -112,13 +93,9 @@ def can_request_decision(
 ) -> bool:
     """Strict parent-only escalation gate.
 
-    Workers can only request_decision from their direct lead; leads only
-    from their direct maestro; maestros have no parent to escalate to.
+    Leads can request_decision from their direct maestro; maestros have
+    no parent to escalate to.
     """
-    if sender_role == "worker":
-        sender_lead = ".".join(sender_name.split(".")[:-1])
-        return target_name == sender_lead
-
     if sender_role == "lead":
         sender_maestro = sender_name.split(".")[0]
         return target_name == sender_maestro
@@ -132,15 +109,6 @@ def can_spawn_team(actor_role: str, actor_name: str) -> bool:
     is enforced by construction — only the role check matters here.
     """
     return actor_role == "maestro"
-
-
-def can_spawn_worker(actor_role: str, actor_name: str, lead_name: str) -> bool:
-    """Worker creation is retired on every path (ADR 0013) — denied for
-    all actors: lead, maestro, everyone. Leads fan out leaf work with the
-    Workflow tool instead. The function survives only so the dispatcher
-    branch stays intact until Ticket 018 deletes both together.
-    """
-    return False
 
 
 def can_kill(

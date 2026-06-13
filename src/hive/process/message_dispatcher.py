@@ -27,12 +27,10 @@ from hive.bus.permissions import (
     can_message,
     can_request_decision,
     can_spawn_team,
-    can_spawn_worker,
     cc_targets_for,
 )
 from hive.config import DEFAULT_MAESTRO
 from hive.models.entity import Entity
-from hive.models.worker import Worker
 
 if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
@@ -55,7 +53,7 @@ logger = logging.getLogger(__name__)
 # loops chewing tokens silently, we cap retries to 3 per 5 minutes
 # per entity. Beyond the cap we stop sending feedback and escalate
 # one notification to the entity's parent (lead->maestro,
-# worker->lead, maestro->user) so a human can intervene.
+# maestro->user) so a human can intervene.
 _PARSE_FAILURE_WINDOW_SECONDS = 300
 _PARSE_FAILURE_MAX_PER_WINDOW = 3
 
@@ -304,7 +302,6 @@ class MessageDispatcher:
         self._mgr._last_mode_requests = []
         self._mgr._last_failure_reports = []
         self._mgr._last_spawned_teams = []
-        self._mgr._last_spawned_workers = []
         self._mgr._last_killed_entities = []
         self._mgr._last_vault_requests = []
         self._mgr._last_kickoffs = []
@@ -424,10 +421,8 @@ class MessageDispatcher:
                 reason = action.reason or "(no reason given)"
                 task_id = action.task_id
                 if task_id is None:
-                    task_id = self._task_id_for(entity_name)
-                if task_id is None:
                     logger.warning(
-                        "report_failure from %s with no task_id and entity has no bound task",
+                        "report_failure from %s with no task_id",
                         entity_name,
                     )
                     continue
@@ -486,93 +481,6 @@ class MessageDispatcher:
                     pending_kickoffs.append(lead.name)
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("spawn_team from %s failed: %s", entity_name, exc)
-            elif action.type == "spawn_worker":
-                # Worker creation is retired on every path (ADR 0013,
-                # Ticket 016): ``can_spawn_worker`` denies all actors. The
-                # deny is inseparable from the feedback — a silent deny
-                # would leave the actor sync-waiting forever on a phantom
-                # worker's report. The audit entry is Ticket 018's
-                # drainage proof. Everything below this gate (missing-lead
-                # inference, rate limit, the spawn itself) is
-                # unreachable-but-intact; 018 deletes the whole branch.
-                if not can_spawn_worker(entity.role, entity.name, action.lead or ""):
-                    logger.warning(
-                        "spawn_worker denied (retired, ADR 0013): %s (role=%s)",
-                        entity.name,
-                        entity.role,
-                    )
-                    await self._mgr._audit(
-                        "entity.spawn_worker_denied",
-                        target=action.lead,
-                        details={"reason": "retired", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    await self._reject_action(
-                        entity,
-                        "spawn_worker",
-                        action.lead or entity.name,
-                        "spawn_worker is retired (ADR 0013) — Workers can no "
-                        "longer be created by any entity. Fan out leaf work "
-                        "with the Workflow tool instead; for persistent "
-                        "capacity, a maestro creates another lead via "
-                        "spawn_team.",
-                    )
-                    continue
-                # `lead` is optional in the protocol — leads pattern-match
-                # the field name "lead" instead of substituting the
-                # placeholder, so requiring it produces `{"lead": "lead"}`.
-                # Infer it from the actor: a lead spawns under itself; a
-                # maestro must specify (we can't guess which team).
-                if not action.lead:
-                    if entity.role == "lead":
-                        action.lead = entity.name
-                    else:
-                        logger.warning(
-                            "spawn_worker from %s missing `lead` field (role=%s)",
-                            entity.name,
-                            entity.role,
-                        )
-                        await self._mgr._audit(
-                            "entity.spawn_worker_denied",
-                            target=None,
-                            details={"reason": "missing_lead", "role": entity.role},
-                            actor=entity_name,
-                        )
-                        continue
-                if self._mgr.scheduler is not None and not self._mgr.scheduler.can_autospawn(
-                    entity_name
-                ):
-                    logger.warning("spawn_worker rate-limited: %s", entity_name)
-                    await self._mgr._audit(
-                        "entity.spawn_rate_limited",
-                        target=action.lead,
-                        details={
-                            "action_type": "spawn_worker",
-                            "limit": self._mgr.scheduler.spawn_limit,
-                        },
-                        actor=entity_name,
-                    )
-                    continue
-                try:
-                    worker = await self._mgr.spawn_worker(
-                        action.lead,
-                        worker_name=action.worker_name,
-                        task_id=action.task_id,
-                        display_name=action.display_name,
-                        personality=action.personality,
-                    )
-                    self._mgr._last_spawned_workers.append(worker.name)
-                    if self._mgr.scheduler is not None:
-                        self._mgr.scheduler.record_autospawn(entity_name)
-                    await self._mgr._audit(
-                        "entity.autonomous_spawn_worker",
-                        target=worker.name,
-                        details={"lead": action.lead, "task_id": action.task_id},
-                        actor=entity_name,
-                    )
-                    pending_kickoffs.append(worker.name)
-                except (KeyError, TypeError, RuntimeError) as exc:
-                    logger.warning("spawn_worker from %s failed: %s", entity_name, exc)
             elif action.type == "kill_entity":
                 if not action.target:
                     continue
@@ -623,7 +531,7 @@ class MessageDispatcher:
         2. At cap (>= ``_PARSE_FAILURE_MAX_PER_WINDOW`` in
            ``_PARSE_FAILURE_WINDOW_SECONDS``): suppress the feedback
            message and notify the parent (lead -> maestro,
-           worker -> lead, maestro -> user) once. This breaks the loop
+           maestro -> user) once. This breaks the loop
            when a model is stuck producing the same malformed output.
         """
         now = datetime.now(UTC)
@@ -768,10 +676,3 @@ class MessageDispatcher:
         if sender.role == "lead":
             return f'Your maestro is {parent!r} — address it as to:"maestro" (no name needed).'
         return f'Your parent is {parent!r} — address it as to:"parent" (no name needed).'
-
-    def _task_id_for(self, entity_name: str) -> int | None:
-        """Return the active task_id bound to an entity, if it's a worker."""
-        entity = self._mgr._entities.get(entity_name)
-        if isinstance(entity, Worker):
-            return entity.task_id
-        return None
