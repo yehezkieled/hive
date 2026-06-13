@@ -32,3 +32,6 @@ marked with ✱.
 | 024 | [Project ownership & PA write-policy](024-project-ownership-pa-write-policy/) | S6 (cand.) | planned | — |
 | 025 | [Worktree crash-recovery: entities re-adopt their worktrees](025-worktree-crash-recovery/) | S6 (cand.) | planned | — |
 | 026 | [Turn boundary: reader accepts mid-turn during post-tool thinking gaps](026-turn-boundary-acceptance/) | 2026-Q2-S5 | done | #104–#105 |
+| 027 | [No-progress timeout false-fires on Workflow runs](027-workflow-run-false-timeout/) | S6 (cand.) | planned | — |
+| 028 | [Scheduler poke corrupts an entity parked at a gate](028-scheduler-poke-gate-guard/) | S6 (cand.) | planned | — |
+| 029 | [Maestro interactive gate not bridged to user (003 gap)](029-maestro-gate-bridge-regression/) | S6 (cand.) | planned | — |
