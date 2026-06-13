@@ -157,3 +157,33 @@ the `build-with-agent-team` *skill* — trimming the latter does not touch it.
   Turn completes; `brainstorming` is genuinely unreachable for a Lead.
 - The trim set is **disjoint from any live deny token** (the dormant three
   are retained by choice), so no live guard is stranded.
+
+## Build verification (implementation result)
+
+Done in the build PR (closes #129):
+
+- **`build-with-agent-team` trimmed** — `~/.claude/skills` 18 → 17. It carried
+  `disable-model-invocation: true` (manual-only), so no Entity could even
+  auto-invoke it; superseded by the S5 Workflow engine.
+- **brainstorming token — the empirical answer (decisive).** Tested on the
+  pinned binary (now **2.1.177**; dev and fleet aligned) via a call-time probe,
+  `claude -p ... --disallowedTools '<token>'` asking the model to invoke the
+  skill and report BLOCKED/RAN:
+
+  ```
+                                            brainstorming →
+    no deny (control)                       RAN  ("What would you like to brainstorm?")
+    Skill(brainstorming)        (bare)      RAN      ← dead token, did nothing
+    Skill(superpowers:brainstorming) (ns)   BLOCKED  ← the working form
+  ```
+
+  So the shipped token is **`Skill(superpowers:brainstorming)`**. General rule
+  recorded in `skill_curation.py`: **plugin** skills need `Skill(plugin:name)`;
+  the bare form is a silent no-op. A listing-introspection probe was
+  *misleading* (CC still lists a denied skill) — deny is enforced at
+  **call-time**, so only the call-time probe is authoritative.
+- **Reassurance:** 012's denylist is NOT hollow — the bare form is correct for
+  all the **user** skills in the list (they live in `~/.claude/skills`); only
+  the single plugin skill (`brainstorming`) needed its namespace.
+- Dormant guards (`prototype`, `grill-me`, `triage`) retained + annotated in
+  `skill_curation.py`.

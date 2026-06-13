@@ -32,9 +32,28 @@ def test_maestro_blocks_all_roles_set_but_no_thinking_skills() -> None:
     for token in _ALL_ROLES_DENY:
         assert token in deny
     assert "Skill(grill-me)" not in deny
-    assert "Skill(brainstorming)" not in deny
+    assert "Skill(superpowers:brainstorming)" not in deny
     for token in _THINKING_DENY:
         assert token not in deny, f"maestro must not block thinking skill {token}"
+
+
+def test_brainstorming_uses_plugin_namespaced_deny_token() -> None:
+    """brainstorming must be denied via its plugin-namespaced token.
+
+    It ships from the superpowers plugin, so Claude Code only denies it via
+    ``Skill(superpowers:brainstorming)``; bare ``Skill(brainstorming)`` is a
+    no-op (verified on the pinned 2.1.177 binary — bare RAN, namespaced
+    BLOCKED). A dead token would let a Lead/Worker invoke brainstorming and
+    deadlock on its interactive "what would you like to brainstorm?" pause.
+    """
+    for role in ("worker", "lead", "vault"):
+        deny = skill_denylist_for(role)
+        assert "Skill(superpowers:brainstorming)" in deny, (
+            f"{role} missing the working plugin-namespaced brainstorming token"
+        )
+        assert "Skill(brainstorming)" not in deny, (
+            f"{role} still carries the dead bare brainstorming token"
+        )
 
 
 def test_no_duplicate_tokens_in_any_returned_list() -> None:
