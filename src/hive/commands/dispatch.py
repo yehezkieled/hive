@@ -21,7 +21,6 @@ from hive.config import ALLOW_AUTO_MERGE
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
-from hive.models.worker import Worker
 from hive.process import git_ops
 from hive.telegram.commands import Command, parse_command
 from hive.telegram.help_text import format_all, format_one
@@ -81,7 +80,6 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(
         "audit",
         "team",
         "teams",
-        "worker",
         "agent",
         "mode",
         "loop",
@@ -271,9 +269,6 @@ class CommandDispatcher:
 
         if cmd.name == "teams":
             return CommandResult(text=self._format_teams())
-
-        if cmd.name == "worker":
-            return CommandResult(text=await self._execute_worker(cmd.target, cmd.args))
 
         if cmd.name == "agent":
             return CommandResult(
@@ -683,28 +678,6 @@ class CommandDispatcher:
 
         return f"Unknown team subcommand: {subcommand}"
 
-    async def _execute_worker(self, subcommand: str | None, args: str) -> str:
-        """Dispatch a /worker subcommand (kill).
-
-        The spawn arm was removed by Ticket 016 (ADR 0013) — Worker
-        creation is retired on all paths; leads fan out leaf work via
-        the Workflow tool. Kill stays until Ticket 018 deletes the
-        whole command, so pre-existing Worker stragglers can be killed.
-        """
-        if not subcommand:
-            return "Usage: /worker kill <name>"
-
-        sub = subcommand.lower()
-
-        if sub == "kill":
-            name = args.strip()
-            if not name:
-                return "Usage: /worker kill <name>"
-            await self.process_manager.kill_entity(name)
-            return f"Worker {name} killed."
-
-        return f"Unknown worker subcommand: {subcommand}"
-
     async def _execute_mode(self, mode_name: str | None, entity_name: str) -> str:
         """Handle /mode <plan|edit|auto|yolo|yotree> [entity].
 
@@ -1068,8 +1041,8 @@ class CommandDispatcher:
     def _worktree_for(self, entity_name: str):  # type: ignore[no-untyped-def]
         """Return (entity, worktree_path) or (None, None) if entity has no worktree.
 
-        Kept private and untyped to avoid a public dependency on
-        Worker — /commit and /pr only need the path, not the class.
+        Kept private and untyped to avoid a public dependency on a specific
+        entity class — /commit and /pr only need the path, not the type.
         """
         entity = self.process_manager.entities.get(entity_name)
         if entity is None:
@@ -1201,13 +1174,6 @@ class CommandDispatcher:
                 if team.lead and team.lead in entities:
                     lead = entities[team.lead]
                     lines.append(f"    {team.lead} [lead] {lead.state.value}")
-                for wn in team.workers:
-                    if wn in entities:
-                        w = entities[wn]
-                        task_info = ""
-                        if isinstance(w, Worker) and w.task_id:
-                            task_info = f" (task #{w.task_id})"
-                        lines.append(f"    {wn} [worker] {w.state.value}{task_info}")
         return "\n".join(lines) if lines else "No entities running."
 
     def _format_status(self) -> str:

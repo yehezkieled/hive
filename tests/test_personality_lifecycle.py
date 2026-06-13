@@ -1,7 +1,7 @@
 """Phase 3: lifecycle of auto-generated personality files.
 
-A parent (maestro or lead) can include `display_name` and `personality`
-on a `spawn_team` / `spawn_worker` action. When both are present, the
+A parent (maestro) can include `display_name` and `personality`
+on a `spawn_team` action. When both are present, the
 ProcessManager writes a personality file with `auto_generated: true`
 frontmatter. On kill, only auto-generated files are deleted —
 user-authored files (no frontmatter) are always preserved.
@@ -9,6 +9,11 @@ user-authored files (no frontmatter) are always preserved.
 Pair-or-nothing: missing either field skips file creation. Existing
 files are never overwritten (first parent wins; user-authored files
 are protected).
+
+Note: the persistent Worker entity (and the `spawn_worker` action /
+lifecycle method) was retired in Ticket 018. `spawn_worker` is now a
+generic unknown action — `parse_actions` skips it with an
+"Unknown action type" error.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from pathlib import Path
 
 import pytest_asyncio
 
-from hive.bus.actions import Action
+from hive.bus.actions import Action, parse_actions
 from hive.bus.router import MessageRouter
 from hive.models.entity import is_auto_generated_personality, parse_personality
 from hive.models.maestro import Maestro
@@ -79,7 +84,7 @@ class TestFrontmatterCompatibility:
 
 
 class TestSpawnWritesAutoPersonality:
-    """create_team / spawn_worker write a file when both fields are present."""
+    """create_team writes a file when both fields are present."""
 
     async def test_create_team_writes_auto_file_when_both_fields_present(
         self, lifecycle_manager: ProcessManager, tmp_path: Path
@@ -151,28 +156,6 @@ class TestSpawnWritesAutoPersonality:
 
         assert target.read_text() == original
 
-    async def test_spawn_worker_writes_auto_file_when_both_fields_present(
-        self, lifecycle_manager: ProcessManager, tmp_path: Path
-    ) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
-        lifecycle_manager._entities["dev"] = maestro
-        lifecycle_manager.router.register("dev")
-        await lifecycle_manager.create_team("dev", "backend")
-
-        await lifecycle_manager.spawn_worker(
-            "dev.backend",
-            "migrator",
-            display_name="Migrator Mig",
-            personality="Cautious, never drops a column.",
-        )
-
-        path = tmp_path / "dev.backend.migrator.md"
-        assert path.exists()
-        text = path.read_text()
-        assert text.startswith("---\nauto_generated: true\n---\n")
-        assert "Migrator Mig" in text
-        assert "Cautious, never drops a column." in text
-
     async def test_create_team_loads_personality_into_lead_after_write(
         self, lifecycle_manager: ProcessManager, tmp_path: Path
     ) -> None:
@@ -195,26 +178,6 @@ class TestSpawnWritesAutoPersonality:
         assert lead.personality_path == path
         assert lead.system_prompt is not None
         assert "Methodical, prefers TDD." in lead.system_prompt
-
-    async def test_spawn_worker_loads_personality_into_worker_after_write(
-        self, lifecycle_manager: ProcessManager, tmp_path: Path
-    ) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
-        lifecycle_manager._entities["dev"] = maestro
-        lifecycle_manager.router.register("dev")
-        await lifecycle_manager.create_team("dev", "backend")
-
-        worker = await lifecycle_manager.spawn_worker(
-            "dev.backend",
-            "migrator",
-            display_name="Migrator Mig",
-            personality="Cautious, never drops a column.",
-        )
-
-        path = tmp_path / "dev.backend.migrator.md"
-        assert worker.personality_path == path
-        assert worker.system_prompt is not None
-        assert "Cautious, never drops a column." in worker.system_prompt
 
     async def test_create_team_skips_load_when_no_file_written(
         self, lifecycle_manager: ProcessManager, tmp_path: Path
@@ -297,10 +260,10 @@ class TestKillCleansAutoPersonality:
 
         assert "dev.backend" not in lifecycle_manager.entities
 
-    async def test_kill_team_deletes_auto_files_for_lead_and_workers(
+    async def test_kill_team_deletes_auto_file_for_lead(
         self, lifecycle_manager: ProcessManager, tmp_path: Path
     ) -> None:
-        """Cascading kill: lead and workers' auto files all cleaned up."""
+        """Cascading kill: the lead's auto file is cleaned up."""
         maestro = Maestro(name="dev", model="sonnet")
         lifecycle_manager._entities["dev"] = maestro
         lifecycle_manager.router.register("dev")
@@ -310,21 +273,12 @@ class TestKillCleansAutoPersonality:
             display_name="Backend Eve",
             personality="Methodical.",
         )
-        await lifecycle_manager.spawn_worker(
-            "dev.backend",
-            "w1",
-            display_name="Worker One",
-            personality="Focused.",
-        )
         lead_path = tmp_path / "dev.backend.md"
-        worker_path = tmp_path / "dev.backend.w1.md"
         assert lead_path.exists()
-        assert worker_path.exists()
 
         await lifecycle_manager.kill_team("dev", "backend")
 
         assert not lead_path.exists()
-        assert not worker_path.exists()
 
 
 class TestActionDispatchWiresFieldsThrough:
@@ -354,26 +308,33 @@ class TestActionDispatchWiresFieldsThrough:
         # In-memory load reaches through the dispatch path, not just direct calls
         assert "Methodical." in lifecycle_manager.entities["dev.backend"].system_prompt
 
-    async def test_spawn_worker_action_denied_writes_nothing(
+    async def test_spawn_worker_action_parses_as_unknown_and_writes_nothing(
         self, lifecycle_manager: ProcessManager, tmp_path: Path
     ) -> None:
-        """The spawn_worker action arm is retired (ADR 0013): the dispatch
-        path denies before reaching the lifecycle layer, so no worker is
-        registered and no personality file is written. The direct
-        ``lifecycle_manager.spawn_worker`` tests above still exercise the
-        mechanism, which survives until Ticket 018 deletes it.
+        """The persistent Worker entity was retired in Ticket 018.
+
+        ``spawn_worker`` is no longer a recognised action type: the parser
+        skips it as a generic unknown action (no ``Action`` produced, an
+        "Unknown action type" error reported). Dispatching the (empty)
+        parsed actions therefore registers no worker and writes no
+        personality file.
         """
         maestro = Maestro(name="dev", model="sonnet")
         lifecycle_manager._entities["dev"] = maestro
         lifecycle_manager.router.register("dev")
         await lifecycle_manager.create_team("dev", "backend")
-        # The lead is the actor here
-        action = Action(
-            type="spawn_worker",
-            display_name="Migrator Mig",
-            personality="Cautious.",
+
+        # The lead emits a spawn_worker block — now an unknown action.
+        _clean, actions, errors = parse_actions(
+            '<hive_actions>[{"type": "spawn_worker", '
+            '"display_name": "Migrator Mig", "personality": "Cautious."}]'
+            "</hive_actions>"
         )
-        await lifecycle_manager._handle_actions("dev.backend", "", [action])
+        assert actions == []
+        assert any("Unknown action type 'spawn_worker'" in err for err in errors)
+
+        # Dispatching the parsed (empty) actions registers nothing.
+        await lifecycle_manager._handle_actions("dev.backend", _clean, actions, parse_errors=errors)
 
         assert "dev.backend.w1" not in lifecycle_manager.entities
         assert not (tmp_path / "dev.backend.w1.md").exists()

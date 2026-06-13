@@ -3,7 +3,6 @@
 from hive.models.maestro import Maestro
 from hive.models.team import Team
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 
 
 class TestTeamModel:
@@ -82,27 +81,3 @@ class TestTeamLeadFields:
     def test_lead_default_max_workers(self) -> None:
         lead = TeamLead(name="dev.ops")
         assert lead.max_workers == 2
-
-
-class TestWorkerFields:
-    """Test Worker hierarchy fields."""
-
-    def test_worker_has_team_and_lead(self) -> None:
-        w = Worker(
-            name="dev.backend.w1",
-            team_name="backend",
-            lead_name="dev.backend",
-        )
-        assert w.role == "worker"
-        assert w.team_name == "backend"
-        assert w.lead_name == "dev.backend"
-        assert w.task_id is None
-
-    def test_worker_with_task_id(self) -> None:
-        w = Worker(
-            name="dev.backend.w1",
-            team_name="backend",
-            lead_name="dev.backend",
-            task_id=42,
-        )
-        assert w.task_id == 42

@@ -12,27 +12,26 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 
 
 class TestEntityState:
     """Test state machine transitions."""
 
     def test_idle_to_starting(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         assert e.state == EntityState.IDLE
         e.transition_to(EntityState.STARTING)
         assert e.state == EntityState.STARTING
 
     def test_starting_to_running(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         assert e.state == EntityState.RUNNING
         assert e.started_at is not None
 
     def test_running_to_completed(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         e.transition_to(EntityState.COMPLETED)
@@ -40,21 +39,21 @@ class TestEntityState:
         assert e.pid is None
 
     def test_running_to_error(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         e.transition_to(EntityState.ERROR)
         assert e.state == EntityState.ERROR
 
     def test_running_to_stopped(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         e.transition_to(EntityState.STOPPED)
         assert e.state == EntityState.STOPPED
 
     def test_completed_to_idle(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         e.transition_to(EntityState.COMPLETED)
@@ -62,19 +61,19 @@ class TestEntityState:
         assert e.state == EntityState.IDLE
 
     def test_invalid_transition_raises(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         with pytest.raises(InvalidStateTransitionError):
             e.transition_to(EntityState.RUNNING)  # can't skip STARTING
 
     def test_invalid_backward_transition(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         with pytest.raises(InvalidStateTransitionError):
             e.transition_to(EntityState.STARTING)  # can't go back
 
     def test_starting_to_error(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.ERROR)
         assert e.state == EntityState.ERROR
@@ -137,11 +136,11 @@ Never push to main directly.
 
     def test_parse_minimal_personality(self, tmp_path: Path) -> None:
         p = tmp_path / "minimal.md"
-        p.write_text("""# Worker
+        p.write_text("""# Lead
 
 ## Identity
 - **Name**: Coder
-- **Role**: worker
+- **Role**: lead
 - **Model**: haiku
 
 ## System Prompt
@@ -149,7 +148,7 @@ You write code.
 """)
         config = parse_personality(p)
         assert config.name == "Coder"
-        assert config.role == "worker"
+        assert config.role == "lead"
         assert config.model == "haiku"
         assert config.system_prompt == "You write code."
         assert config.allowed_tools == []
@@ -159,7 +158,7 @@ class TestEntityCLIArgs:
     """Test CLI argument building."""
 
     def test_basic_args(self) -> None:
-        e = Entity(name="test", role="worker", model="sonnet")
+        e = Entity(name="test", role="lead", model="sonnet")
         args = e.build_cli_args()
         assert "claude" in args
         assert "-p" in args
@@ -170,7 +169,7 @@ class TestEntityCLIArgs:
         assert "sonnet" in args
 
     def test_args_with_system_prompt(self) -> None:
-        e = Entity(name="test", role="worker", system_prompt="You are helpful.")
+        e = Entity(name="test", role="lead", system_prompt="You are helpful.")
         args = e.build_cli_args()
         assert "--system-prompt" in args
         idx = args.index("--system-prompt")
@@ -179,7 +178,7 @@ class TestEntityCLIArgs:
     def test_args_with_tools(self) -> None:
         e = Entity(
             name="test",
-            role="worker",
+            role="lead",
             allowed_tools=["Bash", "Read"],
             disallowed_tools=["WebSearch"],
         )
@@ -204,11 +203,11 @@ class TestEntityUptime:
     """Test uptime tracking."""
 
     def test_uptime_none_when_idle(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         assert e.uptime_seconds is None
 
     def test_uptime_when_running(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.transition_to(EntityState.STARTING)
         e.transition_to(EntityState.RUNNING)
         uptime = e.uptime_seconds
@@ -220,11 +219,11 @@ class TestEntitySessionId:
     """Test session_id field for --resume support."""
 
     def test_session_id_defaults_to_none(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         assert e.session_id is None
 
     def test_session_id_can_be_set(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.session_id = "abc-123"
         assert e.session_id == "abc-123"
 
@@ -233,66 +232,66 @@ class TestPermissionMode:
     """Test permission_mode field and --permission-mode CLI arg."""
 
     def test_permission_mode_defaults_to_default(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         assert e.permission_mode == "default"
 
     def test_set_permission_mode_plan(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.set_permission_mode("plan")
         assert e.permission_mode == "plan"
 
     def test_set_permission_mode_auto(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.set_permission_mode("auto")
         assert e.permission_mode == "bypassPermissions"
 
     def test_set_permission_mode_edit(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.set_permission_mode("edit")
         assert e.permission_mode == "default"
 
     def test_set_permission_mode_invalid_raises(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         with pytest.raises(ValueError, match="Unknown permission mode"):
             e.set_permission_mode("turbo")
 
     def test_build_cli_args_includes_permission_mode(self) -> None:
-        e = Entity(name="test", role="worker", permission_mode="plan")
+        e = Entity(name="test", role="lead", permission_mode="plan")
         args = e.build_cli_args()
         assert "--permission-mode" in args
         idx = args.index("--permission-mode")
         assert args[idx + 1] == "plan"
 
     def test_build_cli_args_omits_default_permission_mode(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         args = e.build_cli_args()
         assert "--permission-mode" not in args
 
     def test_set_permission_mode_yolo(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.set_permission_mode("yolo")
         assert e.permission_mode == "yolo"
 
     def test_set_permission_mode_yotree(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.set_permission_mode("yotree")
         assert e.permission_mode == "yotree"
 
     def test_yolo_emits_dangerous_flag(self) -> None:
-        e = Entity(name="test", role="worker", permission_mode="yolo")
+        e = Entity(name="test", role="lead", permission_mode="yolo")
         args = e.build_cli_args()
         assert "--dangerously-skip-permissions" in args
         assert "--permission-mode" not in args
 
     def test_yotree_emits_dangerous_flag(self) -> None:
-        e = Entity(name="test", role="worker", permission_mode="yotree")
+        e = Entity(name="test", role="lead", permission_mode="yotree")
         args = e.build_cli_args()
         assert "--dangerously-skip-permissions" in args
         assert "--permission-mode" not in args
 
     def test_plan_mode_still_uses_permission_mode_flag(self) -> None:
         """Regression guard: only yolo/yotree use the dangerous flag."""
-        e = Entity(name="test", role="worker", permission_mode="plan")
+        e = Entity(name="test", role="lead", permission_mode="plan")
         args = e.build_cli_args()
         assert "--dangerously-skip-permissions" not in args
         assert "--permission-mode" in args
@@ -302,27 +301,27 @@ class TestLoopMode:
     """Test loop_mode field and --append-system-prompt CLI arg."""
 
     def test_loop_mode_defaults_to_ralph(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         assert e.loop_mode == "ralph"
 
     def test_set_loop_mode_valid(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         e.set_loop_mode("ship-it")
         assert e.loop_mode == "ship-it"
 
     def test_set_loop_mode_invalid_raises(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         with pytest.raises(ValueError, match="Unknown loop mode"):
             e.set_loop_mode("chaos")
 
     def test_build_cli_args_includes_append_system_prompt(self) -> None:
-        e = Entity(name="test", role="worker", loop_mode="ship-it")
+        e = Entity(name="test", role="lead", loop_mode="ship-it")
         args = e.build_cli_args()
         appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert any("Execute immediately" in a for a in appended)
 
     def test_build_cli_args_includes_ralph_by_default(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         args = e.build_cli_args()
         appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert any("RALPH" in a for a in appended)
@@ -332,7 +331,7 @@ class TestCurrentPriority:
     """Test current_priority field."""
 
     def test_current_priority_defaults_to_3(self) -> None:
-        e = Entity(name="test", role="worker")
+        e = Entity(name="test", role="lead")
         assert e.current_priority == 3
 
 
@@ -340,7 +339,7 @@ class TestMessagingPromptInjection:
     """Every entity gets identity + loop + role JD as appended prompts.
     The role JD encodes the messaging protocol and any role-specific
     autonomy actions (e.g. spawn_team for maestros, the Workflow leaf
-    path for leads, no autonomy for workers).
+    path for leads).
     """
 
     def test_maestro_includes_role_jd_with_spawn_team(self) -> None:
@@ -365,16 +364,6 @@ class TestMessagingPromptInjection:
         assert any("hive_actions" in a for a in appended)
         assert any("Workflow" in a and "TaskOutput" in a for a in appended)
 
-    def test_worker_includes_role_jd_no_spawn(self) -> None:
-        w = Worker(name="dev.backend.w1")
-        args = w.build_cli_args()
-        # Workers get identity + loop + role JD = 3 (worker JD has no autonomy actions)
-        indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 3
-        appended = [args[i + 1] for i in indices]
-        assert any("hive_actions" in a for a in appended)
-        assert not any("spawn_team" in a or "spawn_worker" in a for a in appended)
-
 
 class TestIdentityPreamble:
     """Every entity must know its own name and role. Without this, a lead
@@ -395,12 +384,6 @@ class TestIdentityPreamble:
         appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
         assert any("dev.backend" in a and "lead" in a.lower() for a in appended)
 
-    def test_worker_identity_preamble_includes_dotted_name(self) -> None:
-        w = Worker(name="dev.backend.w1")
-        args = w.build_cli_args()
-        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert any("dev.backend.w1" in a and "worker" in a.lower() for a in appended)
-
     def test_identity_preamble_is_first_append(self) -> None:
         """Identity comes before loop/messaging/autonomy so the model reads
         its own name before any guidance that references it."""
@@ -411,16 +394,9 @@ class TestIdentityPreamble:
 
 
 class TestSubclasses:
-    """Test Maestro and Worker subclasses."""
+    """Test the Maestro subclass."""
 
     def test_maestro_default_role(self) -> None:
         m = Maestro(name="dev")
         assert m.role == "maestro"
         assert m.teams == {}
-
-    def test_worker_with_worktree(self) -> None:
-        w = Worker(name="coder", worktree_path=Path("/tmp/wt"))
-        assert w.role == "worker"
-        args = w.build_cli_args()
-        assert "--add-dir" in args
-        assert "/tmp/wt" in args

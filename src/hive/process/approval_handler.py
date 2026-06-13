@@ -19,7 +19,6 @@ import asyncpg
 from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
 from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
-from hive.models.worker import Worker
 from hive.notifications import Notification
 from hive.vault.spend_caps import check_caps
 
@@ -47,14 +46,12 @@ class ApprovalHandler:
         """Return the approver name for a mode-elevation request.
 
         Maestros escalate to the user; leads escalate to their parent
-        maestro; workers escalate to their parent lead.
+        maestro.
         """
         if entity.role == "maestro":
             return "user"
         if entity.role == "lead" and isinstance(entity, TeamLead):
             return entity.maestro_name
-        if entity.role == "worker" and isinstance(entity, Worker):
-            return entity.lead_name
         raise ValueError(
             f"Cannot determine approver for entity {entity.name!r} (role={entity.role!r})"
         )
@@ -609,13 +606,10 @@ class ApprovalHandler:
     def _escalation_target_for(self, entity_name: str) -> str:
         """Next rung up the hierarchy when a task fails past max retries.
 
-        Workers escalate to their parent lead, leads to their parent
-        maestro, maestros to the user. Returns ``"user"`` when escalation
-        reaches the top.
+        Leads escalate to their parent maestro, maestros to the user.
+        Returns ``"user"`` when escalation reaches the top.
         """
         entity = self._mgr._entities.get(entity_name)
-        if isinstance(entity, Worker):
-            return entity.lead_name
         if isinstance(entity, TeamLead):
             return entity.maestro_name
         return "user"

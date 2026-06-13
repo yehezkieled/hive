@@ -33,14 +33,15 @@ class TestLoadRoleJd:
         assert "Lead role" in text
         assert "spawn_worker" in text
 
-    def test_loads_worker_jd(self, tmp_path: Path) -> None:
-        (tmp_path / "role-worker.md").write_text("# Worker role\nNo autonomy actions.")
+    def test_worker_role_raises_value_error(self, tmp_path: Path) -> None:
+        """Ticket 018 retired the Worker entity: ``worker`` is no longer a
+        valid role, so ``load_role_jd("worker")`` raises like any unknown
+        role (it is not in ``_VALID_ROLES``).
+        """
         from hive.process.loops import load_role_jd
 
-        text = load_role_jd("worker", base_dir=tmp_path)
-
-        assert "Worker role" in text
-        assert "No autonomy" in text
+        with pytest.raises(ValueError, match="role"):
+            load_role_jd("worker", base_dir=tmp_path)
 
     def test_unknown_role_raises_value_error(self, tmp_path: Path) -> None:
         from hive.process.loops import load_role_jd
@@ -77,7 +78,7 @@ class TestRepoLevelRoleFiles:
 
     def test_role_files_exist(self) -> None:
         repo_root = Path(__file__).parent.parent
-        for role in ("maestro", "lead", "worker", "vault"):
+        for role in ("maestro", "lead", "vault"):
             f = repo_root / "personalities" / f"role-{role}.md"
             assert f.exists(), f"missing {f}"
 
@@ -172,22 +173,6 @@ class TestRepoLevelRoleFiles:
         text = (repo_root / "personalities" / "role-lead.md").read_text()
         assert '"to": "maestro"' in text
         assert "no name needed" in text
-
-    def test_worker_jd_teaches_parent_alias(self) -> None:
-        """The worker JD teaches the addressing alias (Ticket 023, design
-        D2): a worker addresses its lead as ``"parent"``.
-        """
-        repo_root = Path(__file__).parent.parent
-        text = (repo_root / "personalities" / "role-worker.md").read_text()
-        assert '"to": "parent"' in text
-        assert "no name needed" in text
-
-    def test_worker_jd_omits_spawn_actions(self) -> None:
-        repo_root = Path(__file__).parent.parent
-        text = (repo_root / "personalities" / "role-worker.md").read_text()
-        assert "hive_actions" in text
-        assert "spawn_team" not in text
-        assert "spawn_worker" not in text
 
     def test_vault_jd_documents_request_payment(self) -> None:
         repo_root = Path(__file__).parent.parent

@@ -1,14 +1,7 @@
-"""Tests for the Telegram command parser and /worker dispatch behavior."""
+"""Tests for the Telegram command parser."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
-import pytest_asyncio
-
-from hive.bus.router import MessageRouter
-from hive.commands import CommandDispatcher
-from hive.process.manager import ProcessManager
 from hive.telegram.commands import parse_command
 
 
@@ -182,7 +175,7 @@ def test_audit_with_prefix() -> None:
     assert cmd.args == "entity"
 
 
-# -- Sprint 3a Phase 5: team/worker commands --
+# -- Sprint 3a Phase 5: team commands --
 
 
 def test_team_create() -> None:
@@ -209,27 +202,6 @@ def test_teams_simple() -> None:
     cmd = parse_command("/teams")
     assert cmd.name == "teams"
     assert cmd.target is None
-
-
-def test_worker_spawn() -> None:
-    cmd = parse_command("/worker spawn backend w1")
-    assert cmd.name == "worker"
-    assert cmd.target == "spawn"
-    assert cmd.args == "backend w1"
-
-
-def test_worker_spawn_no_name() -> None:
-    cmd = parse_command("/worker spawn backend")
-    assert cmd.name == "worker"
-    assert cmd.target == "spawn"
-    assert cmd.args == "backend"
-
-
-def test_worker_kill() -> None:
-    cmd = parse_command("/worker kill dev.backend.w1")
-    assert cmd.name == "worker"
-    assert cmd.target == "kill"
-    assert cmd.args == "dev.backend.w1"
 
 
 def test_swarm_command() -> None:
@@ -288,80 +260,3 @@ def test_model_command_parses_opusplan() -> None:
     assert cmd.name == "model"
     assert cmd.target == "opusplan"
     assert cmd.args == "dev"
-
-
-# -- Ticket 016 (ADR 0013): /worker spawn removed at the dispatch level --
-#
-# Parsing stays generic (the parser tests above still see "spawn" as a
-# plain subcommand token); the removal lives in CommandDispatcher, so
-# these tests go through the public dispatch interface.
-
-
-@pytest_asyncio.fixture
-async def manager(router: MessageRouter) -> AsyncIterator[ProcessManager]:
-    mgr = ProcessManager(router=router)
-    try:
-        yield mgr
-    finally:
-        await mgr.kill_all()
-
-
-@pytest_asyncio.fixture
-async def dispatcher(manager: ProcessManager) -> CommandDispatcher:
-    return CommandDispatcher(process_manager=manager, default_maestro="dev")
-
-
-async def test_worker_spawn_rejected_at_dispatch(
-    dispatcher: CommandDispatcher, manager: ProcessManager
-) -> None:
-    """`/worker spawn <team>` no longer spawns — removed by Ticket 016."""
-    await manager.register_maestro("dev", model="opus")
-    await manager.create_team("dev", "backend")
-
-    result = await dispatcher.dispatch("/worker spawn backend w1", actor="test")
-
-    assert result.text == "Unknown worker subcommand: spawn"
-    assert "dev.backend.w1" not in manager.entities
-
-
-async def test_worker_bare_usage_is_kill_only(dispatcher: CommandDispatcher) -> None:
-    """Bare `/worker` shows kill-only usage — no spawn mention (Ticket 016)."""
-    result = await dispatcher.dispatch("/worker", actor="test")
-
-    assert "kill" in result.text
-    assert "spawn" not in result.text.lower()
-
-
-async def test_worker_kill_still_works(
-    dispatcher: CommandDispatcher, manager: ProcessManager
-) -> None:
-    """`/worker kill <name>` is unchanged — how stragglers die until 018.
-
-    The Worker is created via the manager facade directly (below the
-    permission layer); that mechanism survives until Ticket 018.
-    """
-    await manager.register_maestro("dev", model="opus")
-    await manager.create_team("dev", "backend")
-    worker = await manager.spawn_worker("dev.backend", "w1")
-    assert worker.name in manager.entities
-
-    result = await dispatcher.dispatch("/worker kill dev.backend.w1", actor="test")
-
-    assert result.text == "Worker dev.backend.w1 killed."
-    assert "dev.backend.w1" not in manager.entities
-
-
-async def test_worker_kill_without_name_returns_usage(
-    dispatcher: CommandDispatcher,
-) -> None:
-    result = await dispatcher.dispatch("/worker kill", actor="test")
-    assert result.text == "Usage: /worker kill <name>"
-
-
-def test_worker_help_is_kill_only() -> None:
-    """/help worker documents kill only — no spawn mention (Ticket 016)."""
-    from hive.telegram.help_text import format_one
-
-    text = format_one("worker")
-    assert "/worker kill" in text
-    assert "spawn" not in text.lower()

@@ -31,7 +31,6 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.process.skill_curation import skill_denylist_for
 from hive.process.tool_policy import role_tool_denylist
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
@@ -252,10 +251,10 @@ class LifecycleManager:
             return existing
 
         # Worktree floor across restarts (Ticket 015, ADR 0010): the entity
-        # store round-trips worktree_path for Workers only, so a lead
-        # restored from persistence comes back path-less. Lazily (re-)
-        # provision here — WorktreeManager.create is idempotent and hands
-        # back the existing path when the worktree survived the restart.
+        # store does not round-trip worktree_path, so a lead restored from
+        # persistence comes back path-less. Lazily (re-)provision here —
+        # WorktreeManager.create is idempotent and hands back the existing
+        # path when the worktree survived the restart.
         if isinstance(entity, TeamLead) and entity.worktree_path is None and self._mgr.worktree_mgr:
             entity.worktree_path = await self._mgr.worktree_mgr.create(
                 entity.name, branch=f"hive/{entity.name}"
@@ -263,7 +262,7 @@ class LifecycleManager:
 
         cwd = (
             Path(entity.worktree_path)
-            if isinstance(entity, (Worker, TeamLead)) and entity.worktree_path
+            if isinstance(entity, TeamLead) and entity.worktree_path
             else None
         )
         config = _adapter_config_from_entity(entity)
@@ -349,96 +348,6 @@ class LifecycleManager:
         logger.info("Created team %s under maestro %s", team_name, maestro_name)
         return lead
 
-    async def spawn_worker(
-        self,
-        lead_name: str,
-        worker_name: str | None = None,
-        task_id: int | None = None,
-        display_name: str | None = None,
-        personality: str | None = None,
-    ) -> Worker:
-        """Spawn a worker under a team lead.
-
-        If worker_name is None, auto-generates ``w1``, ``w2``, etc.
-        The worker is registered but not spawned as a subprocess — it
-        stays IDLE until work is assigned via send_to_entity.
-
-        If both ``display_name`` and ``personality`` are provided and no
-        file exists at the target path, an auto-generated personality
-        file is written. Pair-or-nothing: either both fields or neither.
-        """
-        lead = self._mgr._entities.get(lead_name)
-        if lead is None:
-            raise KeyError(f"Lead {lead_name!r} not found.")
-        if not isinstance(lead, TeamLead):
-            raise TypeError(f"Entity {lead_name!r} is not a team lead.")
-
-        if len(lead.workers) >= lead.max_workers:
-            raise RuntimeError(
-                f"Lead {lead_name!r} already has "
-                f"{len(lead.workers)}/{lead.max_workers} workers (max)."
-            )
-
-        if worker_name is None:
-            # Auto-name: find the next available w<N>
-            existing_nums = []
-            for wname in lead.workers:
-                suffix = wname.rsplit(".", 1)[-1]
-                if suffix.startswith("w") and suffix[1:].isdigit():
-                    existing_nums.append(int(suffix[1:]))
-            n = max(existing_nums, default=0) + 1
-            worker_name = f"w{n}"
-
-        full_name = f"{lead_name}.{worker_name}"
-
-        # Create worktree for isolated work if a WorktreeManager is configured
-        worktree_path = None
-        if self._mgr.worktree_mgr:
-            worktree_path = await self._mgr.worktree_mgr.create(
-                full_name, branch=f"hive/{full_name}"
-            )
-
-        worker = Worker(
-            name=full_name,
-            team_name=lead.team_name,
-            lead_name=lead_name,
-            model=lead.model,
-            permission_mode=lead.permission_mode,
-            task_id=task_id,
-            worktree_path=worktree_path,
-        )
-
-        lead.workers.append(full_name)
-
-        # Update the team's worker list in the parent maestro
-        maestro = self._mgr._entities.get(lead.maestro_name)
-        if isinstance(maestro, Maestro):
-            team = maestro.get_team(lead.team_name)
-            if team:
-                team.workers.append(full_name)
-
-        async with self._mgr._state_lock:
-            self._mgr._entities[full_name] = worker
-        self._mgr.router.register(full_name)
-        written_path = self._maybe_write_auto_personality(
-            entity_name=full_name,
-            role="worker",
-            model=lead.model,
-            display_name=display_name,
-            personality=personality,
-        )
-        if written_path is not None:
-            worker.personality_path = written_path
-            worker.load_personality()
-        await self._mgr._persist(worker)
-        await self._mgr._audit(
-            "entity.spawn_worker",
-            target=full_name,
-            details={"lead": lead_name, "team": lead.team_name, "task_id": task_id},
-        )
-        logger.info("Spawned worker %s under lead %s", full_name, lead_name)
-        return worker
-
     async def kill_team(self, maestro_name: str, team_name: str) -> None:
         """Kill a team — removes the lead and all its workers."""
         maestro = self._mgr._entities.get(maestro_name)
@@ -476,29 +385,12 @@ class LifecycleManager:
 
         entity = self._mgr._entities.get(name)
         if entity:
-            # Clean up worktree for workers and leads (worktree floor, 015)
-            if (
-                isinstance(entity, (Worker, TeamLead))
-                and entity.worktree_path
-                and self._mgr.worktree_mgr
-            ):
+            # Clean up worktree for leads (worktree floor, 015)
+            if isinstance(entity, TeamLead) and entity.worktree_path and self._mgr.worktree_mgr:
                 try:
                     await self._mgr.worktree_mgr.remove(name)
                 except Exception:
                     logger.exception("Failed to remove worktree for %s", name)
-
-            # Remove worker from parent lead's and team's worker lists
-            if isinstance(entity, Worker) and entity.lead_name:
-                lead = self._mgr._entities.get(entity.lead_name)
-                if isinstance(lead, TeamLead) and name in lead.workers:
-                    lead.workers.remove(name)
-                # Also remove from the Team object on the maestro
-                maestro_name = lead.maestro_name if isinstance(lead, TeamLead) else ""
-                maestro = self._mgr._entities.get(maestro_name)
-                if isinstance(maestro, Maestro):
-                    team = maestro.get_team(entity.team_name)
-                    if team and name in team.workers:
-                        team.workers.remove(name)
 
             # When killing a lead, also drop the Team object on the maestro
             # so the team name can be reused. kill_team() already calls

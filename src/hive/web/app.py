@@ -97,12 +97,7 @@ def create_app(
                 "teams": {},
             }
             for team_name, team in m.teams.items():
-                workers = []
-                for wn in team.workers:
-                    if wn in entities:
-                        w = entities[wn]
-                        workers.append({"name": wn, "state": w.state.value, "model": w.model})
-                maestro_data["teams"][team_name] = {"lead": team.lead, "workers": workers}
+                maestro_data["teams"][team_name] = {"lead": team.lead}
             result["maestros"].append(maestro_data)
         return result
 

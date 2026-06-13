@@ -73,7 +73,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Show each entity's role, state, and PID.",
         examples=("/status",),
     ),
-    # Organization — alphabetical: maestros, new, org, team, teams, worker
+    # Organization — alphabetical: maestros, new, org, team, teams
     "maestros": HelpEntry(
         category="Organization",
         usage="/maestros",
@@ -110,18 +110,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="List all teams across all maestros.",
         examples=("/teams",),
     ),
-    "worker": HelpEntry(
-        category="Organization",
-        usage="/worker kill <name>",
-        description="Kill a pre-existing worker. Creation is retired — leads fan out via Workflow.",
-        examples=("/worker kill dev.backend.w1",),
-    ),
     # Messaging — alphabetical: agent, broadcast, message
     "agent": HelpEntry(
         category="Messaging",
-        usage="/a:<maestro>.<team>.<worker> <text>",
-        description="Send a message directly to a worker.",
-        examples=("/a:dev.backend.w1 run pytest",),
+        usage="/a:<maestro>.<team> <text>",
+        description="Send a message directly to a lead (or any addressable entity).",
+        examples=("/a:dev.backend run pytest",),
     ),
     "broadcast": HelpEntry(
         category="Messaging",
@@ -149,7 +143,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "swarm": HelpEntry(
         category="Tasks",
         usage="/swarm <maestro.team> <goal>",
-        description="Send the same goal to every worker in a team.",
+        description="Send the same goal to every member of a team.",
         examples=("/swarm dev.backend finish the /help command",),
     ),
     "task": HelpEntry(

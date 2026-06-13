@@ -30,7 +30,6 @@ import pytest
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.process.lifecycle_manager import (
     LifecycleManager,
     _adapter_config_from_entity,
@@ -186,18 +185,6 @@ def test_render_auto_personality_no_tools_section_for_coordinators() -> None:
         assert "disallowedTools" not in body
 
 
-def test_render_auto_personality_no_tools_section_for_worker() -> None:
-    """Workers inherit the default toolkit — no Tools section is emitted."""
-    body = _render_auto_personality(
-        entity_name="dev.backend.w1",
-        role="worker",
-        model="sonnet",
-        display_name="W1",
-        personality="Do the task.",
-    )
-    assert "allowedTools" not in body
-
-
 def test_adapter_config_maps_entity_fields() -> None:
     """_adapter_config_from_entity carries the entity's model + name across."""
     maestro = Maestro(name="dev", model="opus")
@@ -205,23 +192,6 @@ def test_adapter_config_maps_entity_fields() -> None:
     assert config.model == "opus"
     assert config.name == "dev"
     assert config.role == "maestro"
-
-
-def test_worker_config_denies_thinking_and_prototype_skills() -> None:
-    """A worker's spawn args carry both the thinking + prototype deny tokens.
-
-    Exercises the full seam: entity -> _adapter_config_from_entity ->
-    ClaudeAdapter._build_pty_extra_args -> --disallowedTools (Ticket 012).
-    """
-    from hive.runtime.claude_adapter import ClaudeAdapter
-
-    worker = Worker(name="dev.backend.w1", lead_name="dev.backend")
-    config = _adapter_config_from_entity(worker)
-    args = ClaudeAdapter(config)._build_pty_extra_args()
-
-    assert "--disallowedTools" in args
-    assert "Skill(grill-me)" in args
-    assert "Skill(prototype)" in args
 
 
 def test_maestro_config_denies_prototype_but_keeps_thinking_skills() -> None:
@@ -355,24 +325,24 @@ async def test_register_maestro_rejects_duplicate(
 
 async def test_register_entity_idle_no_spawn(lifecycle: LifecycleManager, mgr: StubManager) -> None:
     """register_entity adds a pre-built entity without spawning an adapter."""
-    worker = Worker(name="dev.team.w1", lead_name="dev.team")
-    await lifecycle.register_entity(worker)
-    assert mgr._entities["dev.team.w1"] is worker
-    assert "dev.team.w1" in mgr.router.registered
-    assert "dev.team.w1" not in mgr._adapters
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    await lifecycle.register_entity(lead)
+    assert mgr._entities["dev.backend"] is lead
+    assert "dev.backend" in mgr.router.registered
+    assert "dev.backend" not in mgr._adapters
 
 
 async def test_register_entity_rejects_duplicate(
     lifecycle: LifecycleManager, mgr: StubManager
 ) -> None:
-    worker = Worker(name="dev.team.w1", lead_name="dev.team")
-    await lifecycle.register_entity(worker)
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    await lifecycle.register_entity(lead)
     with pytest.raises(ValueError, match="already exists"):
-        await lifecycle.register_entity(worker)
+        await lifecycle.register_entity(lead)
 
 
 # ---------------------------------------------------------------------------
-# create_team / spawn_worker
+# create_team
 # ---------------------------------------------------------------------------
 
 
@@ -394,31 +364,6 @@ async def test_create_team_unknown_maestro_raises(
 ) -> None:
     with pytest.raises(KeyError, match="not found"):
         await lifecycle.create_team("ghost", "backend")
-
-
-async def test_spawn_worker_auto_names(lifecycle: LifecycleManager, mgr: StubManager) -> None:
-    """Without an explicit name, workers auto-number w1, w2, ..."""
-    maestro = Maestro(name="dev", model="sonnet")
-    mgr._entities["dev"] = maestro
-    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
-
-    w1 = await lifecycle.spawn_worker(lead.name)
-    w2 = await lifecycle.spawn_worker(lead.name)
-    assert w1.name == "dev.backend.w1"
-    assert w2.name == "dev.backend.w2"
-    assert lead.workers == ["dev.backend.w1", "dev.backend.w2"]
-
-
-async def test_spawn_worker_enforces_max(lifecycle: LifecycleManager, mgr: StubManager) -> None:
-    """At max_workers, spawning another worker raises RuntimeError."""
-    maestro = Maestro(name="dev", model="sonnet")
-    mgr._entities["dev"] = maestro
-    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
-    for _ in range(lead.max_workers):
-        await lifecycle.spawn_worker(lead.name)
-
-    with pytest.raises(RuntimeError, match="max"):
-        await lifecycle.spawn_worker(lead.name)
 
 
 # ---------------------------------------------------------------------------
@@ -472,21 +417,23 @@ async def test_stop_all_clears_adapters_keeps_entities(
     assert "dev" in mgr._entities
 
 
-async def test_kill_team_kills_workers_then_lead(
+async def test_kill_team_kills_lead_and_removes_team(
     lifecycle: LifecycleManager, mgr: StubManager
 ) -> None:
-    """kill_team kills each worker, then the lead, then removes the Team."""
+    """kill_team kills the lead and removes the Team from the maestro.
+
+    Workers are retired (Ticket 018) — leaf work fans out through the
+    Workflow tool, so a Team is now just a Lead. kill_team kills that
+    Lead and drops the Team off the maestro.
+    """
     maestro = Maestro(name="dev", model="sonnet")
     mgr._entities["dev"] = maestro
-    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
-    await lifecycle.spawn_worker(lead.name, "w1")
+    await lifecycle.create_team("dev", "backend", model="sonnet")
 
     await lifecycle.kill_team("dev", "backend")
 
-    assert "dev.backend.w1" in mgr.killed
     assert "dev.backend" in mgr.killed
-    # Workers are killed before the lead.
-    assert mgr.killed.index("dev.backend.w1") < mgr.killed.index("dev.backend")
+    assert maestro.get_team("backend") is None
 
 
 # ---------------------------------------------------------------------------
@@ -750,8 +697,9 @@ def test_no_await_inside_state_lock_blocks() -> None:
         if isinstance(node, ast.AsyncWith) and is_state_lock_with(node)
     ]
     # Sanity: the slice owns multiple lock sections. (Ticket 007 removed
-    # spawn_entity's entity+session insert block, dropping the count from 8.)
-    assert len(lock_blocks) >= 7, f"expected the lock-heavy slice's blocks, got {len(lock_blocks)}"
+    # spawn_entity's entity+session insert block, dropping the count from 8
+    # to 7; Ticket 018 removed spawn_worker's block, dropping it to 6.)
+    assert len(lock_blocks) >= 6, f"expected the lock-heavy slice's blocks, got {len(lock_blocks)}"
 
     for block in lock_blocks:
         for inner in ast.walk(block):

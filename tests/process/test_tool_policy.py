@@ -26,8 +26,8 @@ LEAD_DENY = [
 def test_role_tool_denylist_exact_sets_per_role() -> None:
     """Lead prunes TaskOutput/TaskStop; maestro adds them back + Workflow.
 
-    Worker, vault, and unknown roles get no role-level denials. Each call
-    returns a fresh list so callers can't corrupt the policy by mutation.
+    Vault and unknown roles get no role-level denials. Each call returns
+    a fresh list so callers can't corrupt the policy by mutation.
     """
     lead = role_tool_denylist("lead")
     assert lead == LEAD_DENY
@@ -38,7 +38,6 @@ def test_role_tool_denylist_exact_sets_per_role() -> None:
     maestro = role_tool_denylist("maestro")
     assert maestro == [*LEAD_DENY, "TaskOutput", "TaskStop", "Workflow"]
 
-    assert role_tool_denylist("worker") == []
     assert role_tool_denylist("vault") == []
     assert role_tool_denylist("definitely-not-a-role") == []
 

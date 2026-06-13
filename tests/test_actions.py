@@ -276,85 +276,30 @@ class TestSpawnTeamAction:
         assert actions[0].personality is None
 
 
-class TestSpawnWorkerAction:
-    """Test parsing spawn_worker actions (Sprint 19)."""
+class TestSpawnWorkerActionRetired:
+    """spawn_worker is retired (ADR 0013, Ticket 018).
 
-    def test_spawn_worker_minimal(self) -> None:
+    The action type no longer has a parse branch, so an emitted ``spawn_worker``
+    falls through to the generic unknown-action path: it produces no Action and
+    a "Unknown action type" error the dispatcher surfaces as feedback.
+    """
+
+    def test_spawn_worker_is_an_unknown_action(self) -> None:
         text = '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
-        _, actions, _ = parse_actions(text)
-        assert len(actions) == 1
-        assert actions[0].type == "spawn_worker"
-        assert actions[0].lead == "dev.backend"
-        assert actions[0].worker_name is None
-        assert actions[0].task_id is None
+        _, actions, errors = parse_actions(text)
+        assert actions == []
+        assert any("Unknown action type" in e and "spawn_worker" in e for e in errors)
 
-    def test_spawn_worker_with_optional_fields(self) -> None:
+    def test_spawn_worker_with_fields_still_unknown(self) -> None:
+        """Optional fields don't resurrect it — still rejected as unknown."""
         text = (
             "<hive_actions>\n"
-            "["
-            '{"type": "spawn_worker", "lead": "dev.backend", '
-            '"worker_name": "migrator", "task_id": 42}'
-            "]\n"
+            '[{"type": "spawn_worker", "worker_name": "migrator", "task_id": 42}]\n'
             "</hive_actions>"
         )
-        _, actions, _ = parse_actions(text)
-        assert actions[0].worker_name == "migrator"
-        assert actions[0].task_id == 42
-
-    def test_spawn_worker_lead_optional(self) -> None:
-        """Lead omitted: action is parsed with lead=None.
-
-        The manager fills in `lead` from the actor (a lead spawning under
-        itself). Leads can't reliably emit their own dotted name, so the
-        protocol no longer requires it.
-        """
-        text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
-        _, actions, _ = parse_actions(text)
-        assert len(actions) == 1
-        assert actions[0].type == "spawn_worker"
-        assert actions[0].lead is None
-
-    def test_spawn_worker_lead_optional_with_worker_name(self) -> None:
-        text = (
-            '<hive_actions>\n[{"type": "spawn_worker", "worker_name": "backend"}]\n</hive_actions>'
-        )
-        _, actions, _ = parse_actions(text)
-        assert len(actions) == 1
-        assert actions[0].lead is None
-        assert actions[0].worker_name == "backend"
-
-    def test_spawn_worker_non_int_task_id_drops_it(self) -> None:
-        text = (
-            "<hive_actions>\n"
-            '[{"type": "spawn_worker", "lead": "dev.backend", "task_id": "abc"}]\n'
-            "</hive_actions>"
-        )
-        _, actions, _ = parse_actions(text)
-        assert len(actions) == 1
-        assert actions[0].task_id is None
-
-    def test_spawn_worker_with_display_name_and_personality(self) -> None:
-        """Phase 3: leads pass display_name + personality blurb when spawning workers."""
-        text = (
-            "<hive_actions>\n"
-            "["
-            '{"type": "spawn_worker", '
-            '"display_name": "Migrator Mig", '
-            '"personality": "Cautious, never drops a column."}'
-            "]\n"
-            "</hive_actions>"
-        )
-        _, actions, _ = parse_actions(text)
-        assert len(actions) == 1
-        assert actions[0].display_name == "Migrator Mig"
-        assert actions[0].personality == "Cautious, never drops a column."
-
-    def test_spawn_worker_default_display_name_and_personality_none(self) -> None:
-        """When omitted, both fields default to None."""
-        text = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
-        _, actions, _ = parse_actions(text)
-        assert actions[0].display_name is None
-        assert actions[0].personality is None
+        _, actions, errors = parse_actions(text)
+        assert actions == []
+        assert any("Unknown action type" in e for e in errors)
 
 
 class TestKillEntityAction:
@@ -375,7 +320,7 @@ class TestKillEntityAction:
         assert actions == []
 
     def test_mixed_autonomy_actions(self) -> None:
-        """All Sprint 19 action types parse together."""
+        """The live action types parse together; retired spawn_worker is skipped."""
         text = (
             "<hive_actions>\n"
             "[\n"
@@ -385,10 +330,10 @@ class TestKillEntityAction:
             "]\n"
             "</hive_actions>"
         )
-        _, actions, _ = parse_actions(text)
-        assert len(actions) == 3
+        _, actions, errors = parse_actions(text)
         types = [a.type for a in actions]
-        assert types == ["spawn_team", "spawn_worker", "kill_entity"]
+        assert types == ["spawn_team", "kill_entity"]
+        assert any("Unknown action type" in e and "spawn_worker" in e for e in errors)
 
 
 class TestRequestDecisionAction:

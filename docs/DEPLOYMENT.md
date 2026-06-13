@@ -33,7 +33,7 @@ commands below use a venv at `.venv/`.
   runs as a persistent interactive PTY session (`claude --continue`). A
   stronger second opinion comes from Claude Code's native `/advisor`
   (Ticket 013): Hive enables it per-entity by passing `--advisor <model>` at
-  spawn, with a model-aware default (off for workers and Opus mains, `opus`
+  spawn, with a model-aware default (off for Opus mains, `opus`
   for a sub-Opus maestro/lead; override per entity with the `**Advisor**:`
   field). **Remove any global `advisorModel` from `~/.claude/settings.json`** —
   otherwise it re-enables the advisor on entities Hive deliberately leaves off.
@@ -552,9 +552,9 @@ to each alive maestro via `send_to_entity`. The maestro decides whether
 to `spawn_team`, `kill_entity`, or do nothing, emitting
 its decision as a `<hive_actions>` block. The orchestrator is a dumb
 facts pipe; allocation policy lives in the maestro's prompt.
-(`spawn_worker` is retired — Worker creation is denied on every path
-per ADR 0013, Ticket 016; leaf work runs as Workflow runs inside a
-Lead's turn.)
+(`spawn_worker` and the Worker entity are gone — Worker creation was
+retired on every path per ADR 0013 (Ticket 016) and the type deleted in
+Ticket 018; leaf work runs as Workflow runs inside a Lead's turn.)
 
 > **Sprint 22 Phase 3:** maestros and leads can include `display_name`
 > and `personality` fields on `spawn_team` actions.
@@ -564,10 +564,9 @@ Lead's turn.)
 > eval. On `kill_entity`, only files carrying that frontmatter are
 > deleted — user-authored personality files are always preserved.
 
-Workers can now message their lead too — they get a role JD loaded
-from `personalities/role-worker.md` and emit `<hive_actions>` to
-report progress or escalate. Permission gates already restrict who
-they can address.
+Leads load their role JD from `personalities/role-lead.md` and emit
+`<hive_actions>` to message peers, report progress, or escalate.
+Permission gates restrict who each entity can address.
 
 > **Sprint 23 — Peer Messaging (2026-05-04):** every entity now sees a
 > live "Peers you can message" block at the head of its prompt and can
@@ -764,9 +763,9 @@ short-circuits when `otter` is already restored).
 `/audit [entity|command|task]`, `/files [N]`
 
 **Organization:**
-`/m:<name> <msg>`, `/t:<maestro>.<team> <msg>`, `/a:<maestro>.<team>.<worker> <msg>`,
+`/m:<name> <msg>`, `/t:<maestro>.<team> <msg>`, `/a:<maestro>.<team> <msg>`,
 `/kill <entity>`, `/team create|list|kill <name>`, `/teams`,
-`/worker kill <name>`, `/new maestro <name> [model]`
+`/new maestro <name> [model]`
 
 > If `personalities/<name>.md` already exists, `/new maestro` registers the
 > maestro and is done. If the file is missing, the dispatcher walks you
@@ -797,7 +796,7 @@ short-circuits when `otter` is already restored).
 > `yolo` and `yotree` both pass `--dangerously-skip-permissions` to the
 > Claude CLI. Non-user-owned entities cannot elevate themselves — they
 > emit a `request_mode_change` hive action which routes to their
-> approver (worker → lead → maestro → user via Telegram). The user
+> approver (lead → maestro → user via Telegram). The user
 > resolves with `/approve mode <id>` or `/deny mode <id> [reason]`.
 
 **Operations:**
@@ -830,7 +829,7 @@ unless `HIVE_ALLOW_AUTO_MERGE=1` is set in the environment.
 
 When `AUTO_RETRIEVE_ENABLED=true` (default), the top-K semantically-similar
 blueprints are also prepended as context to every prompt sent to any entity
-(maestro, team lead, or worker) — no role gating.
+(maestro or team lead) — no role gating.
 
 **Sprint 27 — knowledge as a skill.** Auto-retrieve is now a thin safety
 net: top_k=1, max_distance=0.5 (tighter than the prior 0.6), and (with

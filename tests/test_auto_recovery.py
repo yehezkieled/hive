@@ -5,7 +5,7 @@ Covers:
 - ``TaskStore.increment_retry`` / ``update_failure`` persist.
 - ``ProcessManager.handle_task_failure`` retries then escalates.
 - ``report_failure`` action type is parsed.
-- Hierarchical escalation: worker -> lead -> maestro -> user TG notify.
+- Hierarchical escalation: lead -> maestro -> user TG notify.
 - Audit rows land in the expected namespaces.
 """
 
@@ -24,7 +24,6 @@ from hive.bus.task_store import TaskStore
 from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -62,16 +61,15 @@ async def manager(
 
 
 def _populate_org(manager: ProcessManager) -> None:
-    """Register maestro/lead/worker so escalation paths are resolvable."""
+    """Register maestro/lead so escalation paths are resolvable.
+
+    The Worker entity was retired in Ticket 018; leaf work now runs as
+    ephemeral Leaf agents inside a Lead's Workflow run, so the surviving
+    escalation rungs are lead -> maestro -> user.
+    """
     maestro = Maestro(name="dev")
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    worker = Worker(
-        name="dev.backend.w1",
-        team_name="backend",
-        lead_name="dev.backend",
-        task_id=None,
-    )
-    for e in (maestro, lead, worker):
+    for e in (maestro, lead):
         manager._entities[e.name] = e
         manager.router.register(e.name)
 
@@ -153,12 +151,9 @@ async def test_handle_task_failure_retries_below_limit(
     _populate_org(manager)
     task = await task_store.create(
         title="flaky task",
-        assigned_to="dev.backend.w1",
+        assigned_to="dev.backend",
         created_by="user",
     )
-    worker = manager._entities["dev.backend.w1"]
-    assert isinstance(worker, Worker)
-    worker.task_id = task.id
 
     send = AsyncMock(return_value="ok")
     monkeypatch.setattr(manager, "send_to_entity", send)
@@ -167,7 +162,7 @@ async def test_handle_task_failure_retries_below_limit(
 
     assert send.await_count == 1
     name, prompt = send.await_args.args
-    assert name == "dev.backend.w1"
+    assert name == "dev.backend"
     assert "retry 1/3" in prompt
     assert "exit code 1" in prompt
 
@@ -177,7 +172,7 @@ async def test_handle_task_failure_retries_below_limit(
     assert row.failure_reason == "exit code 1"
 
 
-async def test_handle_task_failure_escalates_worker_to_lead(
+async def test_handle_task_failure_escalates_lead_to_maestro(
     manager: ProcessManager,
     task_store: TaskStore,
     monkeypatch: pytest.MonkeyPatch,
@@ -185,15 +180,12 @@ async def test_handle_task_failure_escalates_worker_to_lead(
     _populate_org(manager)
     task = await task_store.create(
         title="doomed",
-        assigned_to="dev.backend.w1",
+        assigned_to="dev.backend",
         created_by="user",
     )
     # pre-bump to max_retries so the next failure triggers escalation
     for _ in range(3):
         await task_store.increment_retry(task.id, "prior")
-    worker = manager._entities["dev.backend.w1"]
-    assert isinstance(worker, Worker)
-    worker.task_id = task.id
 
     send = AsyncMock()
     monkeypatch.setattr(manager, "send_to_entity", send)
@@ -202,8 +194,8 @@ async def test_handle_task_failure_escalates_worker_to_lead(
 
     # No retry — escalation path instead
     send.assert_not_called()
-    # Lead received an escalation message via the router
-    assert manager.router.has_pending("dev.backend")
+    # Parent maestro received an escalation message via the router
+    assert manager.router.has_pending("dev")
 
 
 async def test_handle_task_failure_notifies_user_when_maestro_escalates(
@@ -253,10 +245,7 @@ async def test_retry_audits_emit_expected_actions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _populate_org(manager)
-    task = await task_store.create(title="a", assigned_to="dev.backend.w1", created_by="user")
-    worker = manager._entities["dev.backend.w1"]
-    assert isinstance(worker, Worker)
-    worker.task_id = task.id
+    task = await task_store.create(title="a", assigned_to="dev.backend", created_by="user")
 
     monkeypatch.setattr(manager, "send_to_entity", AsyncMock(return_value="ok"))
 

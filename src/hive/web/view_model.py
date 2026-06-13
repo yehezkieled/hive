@@ -77,10 +77,10 @@ def _display_state(entity: Entity) -> str:
 async def _open_tasks_for(name: str, task_store: TaskStore | None) -> list[dict]:
     """Tasks pending/in-progress assigned to ``name`` or anything below it.
 
-    Hive's naming convention is ``maestro.team[.worker]`` (see ``Team``), so
-    a maestro card surfaces work assigned to the maestro itself *and* to any
-    lead/worker in its org tree. Without this, a task delegated to
-    ``dev.backend.w1`` would never appear on the ``dev`` maestro card.
+    Hive's naming convention is ``maestro.team`` (see ``Team``), so a maestro
+    card surfaces work assigned to the maestro itself *and* to any lead in its
+    org tree. Without this, a task delegated to ``dev.backend`` would never
+    appear on the ``dev`` maestro card.
     """
     if task_store is None:
         return []
@@ -161,9 +161,8 @@ def _list_dormant(personalities_dir: Path, registered: set[str]) -> list[dict]:
 
     Concrete maestro personalities are bare ``<name>.md`` (e.g. ``dev.md``,
     ``pa.md``). ``role-*.md`` files (``role-lead``, ``role-maestro``,
-    ``role-worker``, ``role-vault``) are role-definition templates, not
-    specific entities, so they are skipped — same with the ``_template.md``
-    skeleton.
+    ``role-vault``) are role-definition templates, not specific entities, so
+    they are skipped — same with the ``_template.md`` skeleton.
     """
     if not personalities_dir.exists():
         return []

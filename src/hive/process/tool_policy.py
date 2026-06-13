@@ -18,7 +18,7 @@ Policy (ADR 0010):
   and ``Workflow``, so the fan-out chain stays Maestro → Lead →
   Workflow — a Maestro fanning out leaf work itself re-creates "the
   org never grows" one level up.
-- Every other role (worker, vault, unknown) has no role-level denials.
+- Every other role (vault, unknown) has no role-level denials.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def role_tool_denylist(role: str) -> list[str]:
 
     Returns a fresh list on every call — callers may mutate the result
     without corrupting the policy. Roles without a coordinator guard
-    (worker, vault, anything unknown) get an empty list.
+    (vault, anything unknown) get an empty list.
     """
     if role == "lead":
         return list(_LEAD_DENY)

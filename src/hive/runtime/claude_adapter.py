@@ -61,7 +61,7 @@ class ClaudeAdapterConfig:
     disallowed_tools: list[str] = field(default_factory=list)
     permission_mode: str = "default"
     loop_mode: str = "ralph"
-    role: str = "worker"
+    role: str = "lead"
     name: str = ""
     mcp_config_path: Path | None = None
     advisor: str | None = None
@@ -106,7 +106,7 @@ class ClaudeAdapter(Runtime):
         loop_text = LOOP_PROMPTS.get(cfg.loop_mode)
         if loop_text:
             prompts.append(loop_text)
-        if cfg.role in ("maestro", "lead", "worker"):
+        if cfg.role in ("maestro", "lead"):
             prompts.append(load_role_jd(cfg.role))
         return prompts
 

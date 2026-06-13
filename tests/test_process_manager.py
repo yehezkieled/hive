@@ -15,10 +15,8 @@ from hive.bus.router import MessageRouter
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
-from hive.process.worktree import WorktreeManager
 from tests.fakes import FakeAdapter, using_adapter
 
 
@@ -145,7 +143,7 @@ async def test_health_check_writes_error_audit_event(
 
 
 class TestTeamManagement:
-    """Test team creation, worker spawning, and team killing."""
+    """Test team creation and lead/team lifecycle."""
 
     async def test_create_team(self, manager: ProcessManager) -> None:
         """create_team should register a TeamLead entity."""
@@ -187,10 +185,10 @@ class TestTeamManagement:
 
     async def test_create_team_non_maestro_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if target entity is not a maestro."""
-        worker = Worker(name="w1")
-        manager._entities["w1"] = worker
+        non_maestro = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        manager._entities["dev.backend"] = non_maestro
         with pytest.raises(TypeError, match="not a maestro"):
-            await manager.create_team("w1", "backend")
+            await manager.create_team("dev.backend", "backend")
 
     async def test_create_duplicate_team_raises(self, manager: ProcessManager) -> None:
         """create_team should raise if team already exists."""
@@ -201,49 +199,6 @@ class TestTeamManagement:
         await manager.create_team("dev", "backend")
         with pytest.raises(ValueError, match="already exists"):
             await manager.create_team("dev", "backend")
-
-    async def test_spawn_worker(self, manager: ProcessManager) -> None:
-        """spawn_worker should create a Worker under a lead."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        await manager.create_team("dev", "backend")
-
-        worker = await manager.spawn_worker("dev.backend", "w1")
-        assert isinstance(worker, Worker)
-        assert worker.name == "dev.backend.w1"
-        assert worker.team_name == "backend"
-        assert worker.lead_name == "dev.backend"
-        assert "dev.backend.w1" in manager.entities
-
-    async def test_spawn_worker_auto_names(self, manager: ProcessManager) -> None:
-        """spawn_worker with no name should auto-generate one."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        await manager.create_team("dev", "backend")
-
-        worker = await manager.spawn_worker("dev.backend")
-        assert worker.name.startswith("dev.backend.w")
-
-    async def test_spawn_worker_missing_lead_raises(self, manager: ProcessManager) -> None:
-        """spawn_worker should raise if lead doesn't exist."""
-        with pytest.raises(KeyError, match="not found"):
-            await manager.spawn_worker("nope", "w1")
-
-    async def test_kill_team(self, manager: ProcessManager) -> None:
-        """kill_team should remove lead and all workers."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        await manager.create_team("dev", "backend")
-        await manager.spawn_worker("dev.backend", "w1")
-
-        await manager.kill_team("dev", "backend")
-
-        assert "dev.backend" not in manager.entities
-        assert "dev.backend.w1" not in manager.entities
-        assert "backend" not in maestro.teams
 
     async def test_kill_lead_frees_team_name(self, manager: ProcessManager) -> None:
         """kill_entity on a lead must drop the Team so the name can be reused.
@@ -285,91 +240,6 @@ class TestTeamManagement:
 
         assert lead.permission_mode == "yolo"
 
-    async def test_worker_inherits_lead_permission_mode(self, manager: ProcessManager) -> None:
-        """A worker should be born with the same permission_mode as its lead."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        lead = await manager.create_team("dev", "backend")
-        lead.set_permission_mode("yolo")
-
-        worker = await manager.spawn_worker("dev.backend", "w1")
-
-        assert worker.permission_mode == "yolo"
-
-    async def test_default_mode_still_works(self, manager: ProcessManager) -> None:
-        """Sanity: a maestro in 'default' produces lead+worker in 'default'."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        lead = await manager.create_team("dev", "backend")
-        worker = await manager.spawn_worker("dev.backend", "w1")
-
-        assert maestro.permission_mode == "default"
-        assert lead.permission_mode == "default"
-        assert worker.permission_mode == "default"
-
-
-class TestWorktreeIntegration:
-    """Test worktree creation/cleanup during worker lifecycle."""
-
-    async def test_spawn_worker_creates_worktree(
-        self, router: MessageRouter, tmp_path: Path
-    ) -> None:
-        """spawn_worker should create a worktree when WorktreeManager is configured."""
-        wt_mgr = AsyncMock(spec=WorktreeManager)
-        wt_path = tmp_path / "worktrees" / "dev.backend.w1"
-        wt_mgr.create = AsyncMock(return_value=wt_path)
-
-        mgr = ProcessManager(router=router, worktree_mgr=wt_mgr, max_sessions=3)
-        maestro = Maestro(name="dev", model="sonnet")
-        mgr._entities["dev"] = maestro
-        mgr.router.register("dev")
-        await mgr.create_team("dev", "backend")
-
-        worker = await mgr.spawn_worker("dev.backend", "w1")
-
-        # create_team provisions the lead's worktree too (Ticket 015,
-        # ADR 0010 worktree floor); the worker's is the most recent await.
-        wt_mgr.create.assert_any_await("dev.backend", branch="hive/dev.backend")
-        wt_mgr.create.assert_awaited_with("dev.backend.w1", branch="hive/dev.backend.w1")
-        assert worker.worktree_path == wt_path
-
-        await mgr.kill_all()
-
-    async def test_kill_worker_removes_worktree(
-        self, router: MessageRouter, tmp_path: Path
-    ) -> None:
-        """kill_entity should remove the worktree for a worker."""
-        wt_mgr = AsyncMock(spec=WorktreeManager)
-        wt_path = tmp_path / "worktrees" / "dev.backend.w1"
-        wt_mgr.create = AsyncMock(return_value=wt_path)
-        wt_mgr.remove = AsyncMock()
-
-        mgr = ProcessManager(router=router, worktree_mgr=wt_mgr, max_sessions=3)
-        maestro = Maestro(name="dev", model="sonnet")
-        mgr._entities["dev"] = maestro
-        mgr.router.register("dev")
-        await mgr.create_team("dev", "backend")
-        await mgr.spawn_worker("dev.backend", "w1")
-
-        await mgr.kill_entity("dev.backend.w1")
-
-        wt_mgr.remove.assert_awaited_once_with("dev.backend.w1")
-
-        await mgr.kill_all()
-
-    async def test_spawn_worker_without_worktree_mgr(self, manager: ProcessManager) -> None:
-        """spawn_worker should work fine without a WorktreeManager (no worktree)."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        await manager.create_team("dev", "backend")
-
-        worker = await manager.spawn_worker("dev.backend", "w1")
-        assert worker.worktree_path is None
-
 
 class TestHierarchyRestore:
     """Test hierarchy rebuild from persisted entities on restart."""
@@ -400,44 +270,6 @@ class TestHierarchyRestore:
         assert "backend" in restored_maestro.teams
         team = restored_maestro.teams["backend"]
         assert team.lead == "dev.backend"
-
-        await mgr.kill_all()
-
-    async def test_rebuild_hierarchy_links_worker_to_lead(
-        self,
-        router: MessageRouter,
-        entity_store: EntityStore,
-    ) -> None:
-        """rebuild_hierarchy should add Workers to their lead's workers list and team."""
-        mgr = ProcessManager(router=router, entity_store=entity_store)
-
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(
-            name="dev.backend",
-            team_name="backend",
-            maestro_name="dev",
-        )
-        worker = Worker(
-            name="dev.backend.w1",
-            team_name="backend",
-            lead_name="dev.backend",
-        )
-        mgr.restore(maestro)
-        mgr.restore(lead)
-        mgr.restore(worker)
-
-        mgr.rebuild_hierarchy()
-
-        # Lead should have the worker
-        restored_lead = mgr.entities["dev.backend"]
-        assert isinstance(restored_lead, TeamLead)
-        assert "dev.backend.w1" in restored_lead.workers
-
-        # Team should have the worker
-        restored_maestro = mgr.entities["dev"]
-        assert isinstance(restored_maestro, Maestro)
-        team = restored_maestro.teams["backend"]
-        assert "dev.backend.w1" in team.workers
 
         await mgr.kill_all()
 
@@ -640,35 +472,6 @@ class TestStopAll:
         assert restored_dev.state == EntityState.IDLE
 
 
-class TestMaxWorkersEnforcement:
-    """Test that spawn_worker respects lead.max_workers."""
-
-    async def test_spawn_worker_respects_max_workers(self, manager: ProcessManager) -> None:
-        """spawn_worker should raise when lead already has max_workers workers."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        lead = await manager.create_team("dev", "backend")
-        lead.max_workers = 1
-
-        await manager.spawn_worker("dev.backend", "w1")
-        with pytest.raises(RuntimeError, match="max"):
-            await manager.spawn_worker("dev.backend", "w2")
-
-    async def test_spawn_worker_under_limit_succeeds(self, manager: ProcessManager) -> None:
-        """spawn_worker should succeed when under max_workers."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        lead = await manager.create_team("dev", "backend")
-        lead.max_workers = 3
-
-        w1 = await manager.spawn_worker("dev.backend", "w1")
-        w2 = await manager.spawn_worker("dev.backend", "w2")
-        assert w1.name == "dev.backend.w1"
-        assert w2.name == "dev.backend.w2"
-
-
 class TestRegisterMaestro:
     """Test register_maestro method for /new maestro."""
 
@@ -777,31 +580,6 @@ class TestActionRouting:
         assert msg is not None
         assert msg.sender == "dev"
         assert msg.content == "Start migration"
-
-    async def test_permission_denied_blocks_routing(self, manager: ProcessManager) -> None:
-        """Worker trying to message another team's lead should be blocked."""
-        maestro = Maestro(name="dev", model="sonnet")
-        lead_a = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        lead_b = TeamLead(name="dev.frontend", team_name="frontend", maestro_name="dev")
-        worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
-        manager._entities["dev"] = maestro
-        manager._entities["dev.backend"] = lead_a
-        manager._entities["dev.frontend"] = lead_b
-        manager._entities["dev.backend.w1"] = worker
-        for name in ("dev", "dev.backend", "dev.frontend", "dev.backend.w1"):
-            manager.router.register(name)
-
-        # Worker tries to message dev.frontend (not its lead) — should be denied
-        response_text = (
-            "Done.\n\n"
-            "<hive_actions>\n"
-            '[{"type": "message", "to": "dev.frontend", "text": "Hey"}]\n'
-            "</hive_actions>"
-        )
-        with using_adapter(manager, FakeAdapter(response_text)):
-            await manager.send_to_entity("dev.backend.w1", "Do work")
-
-        assert not manager.router.has_pending("dev.frontend")
 
     async def test_unknown_recipient_handled(self, manager: ProcessManager) -> None:
         """Action targeting a non-existent entity should be skipped."""
@@ -954,153 +732,34 @@ class TestAutonomousDispatch:
         assert manager._last_spawned_teams == []
         assert "dev.frontend" not in manager.entities
 
-    async def test_maestro_spawn_worker_denied(
-        self, router: MessageRouter, audit_log: AuditLog
-    ) -> None:
-        """Worker creation is retired (ADR 0013) — a maestro's spawn_worker
-        is denied even under its own lead: no worker registered, and the
-        entity.spawn_worker_denied audit (018's drainage proof) is emitted.
+    async def test_spawn_worker_parses_as_unknown_action(self, manager: ProcessManager) -> None:
+        """Worker creation is retired (Ticket 018) — ``spawn_worker`` is no
+        longer a recognised action type. ``parse_actions`` treats it as a
+        generic unknown action: no Action is produced and the errors carry
+        ``Unknown action type 'spawn_worker'``. Nothing is spawned and the
+        sender receives parse-failure feedback (018's drainage proof).
         """
-        mgr = ProcessManager(
-            router=router,
-            audit_log=audit_log,
-            max_sessions=2,
-            notification_dispatcher=NotificationDispatcher(),
-        )
-        maestro = Maestro(name="dev", model="sonnet")
-        await mgr.register_entity(maestro)
-        await mgr.create_team("dev", "backend")
+        from hive.bus.actions import parse_actions
 
-        response = (
-            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
-        )
-        try:
-            await self._send(mgr, "dev", response)
+        text = '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
+        _clean, actions, errors = parse_actions(text)
 
-            assert mgr._last_spawned_workers == []
-            assert "dev.backend.w1" not in mgr.entities
-            events = await audit_log.recent(action_prefix="entity.")
-            denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
-            assert len(denied) == 1
-            assert denied[0]["actor"] == "dev"
-        finally:
-            await mgr.kill_all()
+        # No Action object for the retired type.
+        assert actions == []
+        assert any("Unknown action type 'spawn_worker'" in e for e in errors)
 
-    async def test_lead_spawn_worker_under_self_denied(
-        self, router: MessageRouter, audit_log: AuditLog
-    ) -> None:
-        """Worker creation is retired (ADR 0013) — a lead's spawn_worker is
-        denied even under itself: no worker registered, denial audited.
-        """
-        mgr = ProcessManager(
-            router=router,
-            audit_log=audit_log,
-            max_sessions=2,
-            notification_dispatcher=NotificationDispatcher(),
-        )
-        maestro = Maestro(name="dev", model="sonnet")
-        await mgr.register_entity(maestro)
-        await mgr.create_team("dev", "backend")
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
-        )
-        try:
-            await self._send(mgr, "dev.backend", response)
-
-            assert mgr._last_spawned_workers == []
-            assert "dev.backend.w1" not in mgr.entities
-            events = await audit_log.recent(action_prefix="entity.")
-            denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
-            assert len(denied) == 1
-            assert denied[0]["actor"] == "dev.backend"
-        finally:
-            await mgr.kill_all()
-
-    async def test_lead_spawn_worker_under_other_team_denied(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
-        await manager.register_entity(maestro)
-        await manager.create_team("dev", "backend")
-        await manager.create_team("dev", "frontend")
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.frontend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev.backend", response)
-
-        assert manager._last_spawned_workers == []
-
-    async def test_lead_spawn_worker_no_lead_field_denied(self, manager: ProcessManager) -> None:
-        """Lead emits spawn_worker with no `lead` field → still denied.
-
-        Pre-ADR-0013 the manager inferred `lead = entity.name` and spawned
-        under the lead itself. Worker creation is now retired on every
-        path, so the inference shortcut no longer creates anything.
-        """
+        # End-to-end through the dispatcher: nothing is registered, and the
+        # unknown-action error comes back to the sender as system feedback.
         maestro = Maestro(name="dev", model="sonnet")
         await manager.register_entity(maestro)
         await manager.create_team("dev", "backend")
 
-        response = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
-        await self._send(manager, "dev.backend", response)
+        await self._send(manager, "dev", text)
 
-        assert manager._last_spawned_workers == []
         assert "dev.backend.w1" not in manager.entities
-
-    async def test_maestro_spawn_worker_no_lead_field_audited(
-        self, router: MessageRouter, audit_log: AuditLog
-    ) -> None:
-        """Maestro emits spawn_worker without `lead` → denied + audited.
-
-        The retirement gate (ADR 0013) fires before the old missing-lead
-        guard, so the denial reason is "retired" for every actor — with
-        or without a `lead` field.
-        """
-        mgr = ProcessManager(
-            router=router,
-            audit_log=audit_log,
-            max_sessions=2,
-            notification_dispatcher=NotificationDispatcher(),
-        )
-        maestro = Maestro(name="dev", model="sonnet")
-        await mgr.register_entity(maestro)
-        await mgr.create_team("dev", "backend")
-
-        response = '<hive_actions>\n[{"type": "spawn_worker"}]\n</hive_actions>'
-        try:
-            await self._send(mgr, "dev", response)
-
-            assert mgr._last_spawned_workers == []
-            events = await audit_log.recent(action_prefix="entity.")
-            denied = [e for e in events if e["action"] == "entity.spawn_worker_denied"]
-            assert len(denied) == 1
-            assert denied[0]["actor"] == "dev"
-            assert denied[0]["details"]["reason"] == "retired"
-        finally:
-            await mgr.kill_all()
-
-    async def test_worker_spawn_actions_denied(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
-        manager._entities["dev"] = maestro
-        manager._entities["dev.backend"] = lead
-        manager._entities["dev.backend.w1"] = worker
-        for n in ("dev", "dev.backend", "dev.backend.w1"):
-            manager.router.register(n)
-
-        response = (
-            "<hive_actions>\n"
-            "[\n"
-            '  {"type": "spawn_team", "team_name": "rogue"},\n'
-            '  {"type": "spawn_worker", "lead": "dev.backend"}\n'
-            "]\n"
-            "</hive_actions>"
-        )
-        await self._send(manager, "dev.backend.w1", response)
-
         assert manager._last_spawned_teams == []
-        assert manager._last_spawned_workers == []
+        feedback = await manager.router.store.get_messages("dev")
+        assert any(m["sender"] == "system" and "spawn_worker" in m["content"] for m in feedback)
 
     async def test_maestro_kill_own_org_member(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
@@ -1228,8 +887,9 @@ class TestAutonomousDispatch:
         assert recorded == ["dev.backend"]
         assert manager.entities["dev.backend"].session_id == "sess-1"
 
-    async def test_spawn_worker_denied_skips_kickoff(self, manager: ProcessManager) -> None:
-        """spawn_worker is denied (ADR 0013) → no worker, no kickoff scheduled."""
+    async def test_spawn_worker_skips_kickoff(self, manager: ProcessManager) -> None:
+        """spawn_worker is a retired/unknown action (Ticket 018) → no worker,
+        no kickoff scheduled."""
         maestro = Maestro(name="dev", model="sonnet")
         await manager.register_entity(maestro)
         await manager.create_team("dev", "backend")

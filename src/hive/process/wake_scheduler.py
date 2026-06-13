@@ -53,7 +53,7 @@ class WakeScheduler:
         self._mgr = mgr
 
     async def _auto_kickoff(self, target: str) -> None:
-        """Wake a freshly spawned lead/worker by sending the generic kickoff prompt.
+        """Wake a freshly spawned lead by sending the generic kickoff prompt.
 
         Runs as a detached task after ``_handle_actions`` returns so the
         parent dispatch's ``_last_*`` tracking isn't reset by the recursive
@@ -80,7 +80,7 @@ class WakeScheduler:
             maestro_name = target.split(".")[0]
             if maestro_name == target:
                 # The target IS an org root — there is no maestro above it
-                # to notify (kickoffs only target leads/workers today).
+                # to notify (kickoffs only target leads today).
                 return
             entity = self._mgr._entities.get(target)
             role = getattr(entity, "role", "entity")

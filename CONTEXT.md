@@ -8,7 +8,7 @@ of AI coding agents that you control from Telegram.
 ### Entities
 
 **Entity**:
-Any AI agent Hive runs and manages — always one of: Maestro, Team Lead, or Worker.
+Any AI agent Hive runs and manages — always one of: Maestro or Team Lead.
 _Avoid_: agent, bot
 
 **Maestro**:
@@ -17,16 +17,15 @@ Entities, and is the Entity you address from Telegram.
 _Avoid_: orchestrator, boss, CEO
 
 **Team Lead**:
-A mid-tier Entity that runs a Team of Workers on behalf of a Maestro.
+A mid-tier Entity that runs a Team on behalf of a Maestro, fanning leaf
+work out through the Claude Code **Workflow** tool.
 _Avoid_: manager, supervisor
 
-**Worker**:
-A leaf Entity that carries out one assigned task and reports the result.
-A Worker never spawns other Entities.
-_Note_: **retired** — Worker creation is banned on every path (lead,
-maestro, user) per ADR 0013 (Ticket 016); the entity type itself is
-deleted by Ticket 018. Leaf work runs as Leaf agents inside a Lead's
-Workflow run.
+**Worker** _(retired)_:
+The former persistent leaf Entity. Worker creation was banned on every
+path (lead, maestro, user) per ADR 0013 (Ticket 016) and the entity type
+was deleted in Ticket 018. Leaf work now runs as ephemeral **[[Leaf
+agent]]s** inside a Lead's **Workflow run** — see **Leaf agent** below.
 _Avoid_: subagent, WorkerAgent
 
 **Leaf agent**:
@@ -37,11 +36,10 @@ returns its result to the Lead.
 _Avoid_: worker, subagent, Workflow worker
 
 **Team**:
-A Team Lead together with the Workers it manages, created by a Maestro to
-pursue a goal.
-_Note_: with Workers retired (ADR 0013), a Team in practice is a Team
-Lead plus its Workflow runs; the term keeps its shape until 018 deletes
-the Worker type.
+A Team Lead and the leaf work it runs, created by a Maestro to pursue a
+goal.
+_Note_: with the Worker entity retired (ADR 0013) and deleted (Ticket
+018), a Team in practice is a Team Lead plus its Workflow runs.
 
 ### Execution
 
@@ -57,7 +55,7 @@ The Hive code that drives one Harness and presents the rest of Hive a
 uniform, turn-level interface. One Adapter per Harness.
 
 **Runtime**:
-The Harness a given Entity is currently assigned to run on. "Switch a Worker's
+The Harness a given Entity is currently assigned to run on. "Switch a Lead's
 runtime" means "move it to a different Harness."
 
 **Turn**:
@@ -104,8 +102,8 @@ _Avoid_: prompt, menu, interrupt
 A Claude Code skill that pauses mid-Turn to involve a human — an
 interview/Q&A, an `AskUserQuestion` selection, or a STOP/approval
 checkpoint. Reachable only by a Maestro, whose gates bridge to the user on
-Telegram; a Team Lead or Worker would stall on one, since its gate
-escalates to a parent Entity that cannot answer. Contrast an *autonomous*
+Telegram; a Team Lead would stall on one, since its gate escalates to a
+parent Entity that cannot answer. Contrast an *autonomous*
 skill, which runs to completion without a human. Per-role exposure is set
 by the skill-curation denylist (Ticket 012, ADR 0008).
 _Note_: the blocking test is liveness (does it wait for a human?), not
@@ -171,7 +169,7 @@ one or more Tickets).
 - Maestro↔Maestro communication coordinates shared resources only
   (e.g. Plan quota) — work never crosses Maestro orgs except via the
   user. (A norm, not code-enforced.)
-- A **Team** is exactly one **Team Lead** plus one or more **Workers**
+- A **Team** is one **Team Lead** plus the leaf work it runs (its **Workflow runs**)
 - Every **Entity** runs on exactly one **Harness** at a time, through that
   Harness's **Adapter**
 - Any **Entity** may be assigned to any **Harness** regardless of its role —
@@ -181,8 +179,8 @@ one or more Tickets).
 
 ## Example dialogue
 
-> **Dev:** "If a Worker is running on the Codex Harness, is it still an Entity Hive manages?"
-> **Hezki:** "Yes. The Harness only executes its Turns — Hive still owns the Worker's lifecycle, its Team membership, and its task. Swap the Harness and it's the same Entity."
+> **Dev:** "If a Team Lead is running on the Codex Harness, is it still an Entity Hive manages?"
+> **Hezki:** "Yes. The Harness only executes its Turns — Hive still owns the Lead's lifecycle, its Team membership, and its goal. Swap the Harness and it's the same Entity."
 > **Dev:** "So 'runtime' is just the Harness it's on right now?"
 > **Hezki:** "Right. And the Adapter for that Harness is the code that actually drives it."
 
