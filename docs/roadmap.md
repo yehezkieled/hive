@@ -26,7 +26,7 @@ fleet — tracked async tasks (008), pinned Claude version (009),
 repaired integration test (010), CI coverage floor (011), and per-role
 skill curation (012). Phase 3 (Workflow-native orchestration) opens next.
 
-## Phase 3 — Workflow-native orchestration  ·  IN PROGRESS · deadline 2026-06-23
+## Phase 3 — Workflow-native orchestration  ·  IN PROGRESS · deadline 2026-07-11
 
 Hive stops hand-rolling its leaf-agent coordination and runs it on Claude
 Code's Workflow primitive: Leads fan out deterministic, cheap, reliable
