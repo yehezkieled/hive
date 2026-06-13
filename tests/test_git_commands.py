@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 
 from hive.bus.router import MessageRouter
-from hive.models.worker import Worker
+from hive.models.team_lead import TeamLead
 from hive.process.manager import ProcessManager
 from hive.telegram.bridge import TelegramBridge
 
@@ -38,18 +38,24 @@ def bridge(manager: ProcessManager) -> TelegramBridge:
 
 
 @pytest.fixture
-def worker_with_worktree(manager: ProcessManager, tmp_path: Path) -> Worker:
+def lead_with_worktree(manager: ProcessManager, tmp_path: Path) -> TeamLead:
+    """A Lead running in its own worktree (the worktree floor).
+
+    The git commands (/commit, /pr, /merge) operate on any entity that
+    has a ``worktree_path``; a Lead is the one that carries one now that
+    the persistent Worker entity is retired (Ticket 018).
+    """
     wt = tmp_path / "wt"
     wt.mkdir()
-    w = Worker(
-        name="dev.backend.w1",
+    lead = TeamLead(
+        name="dev.backend",
         team_name="backend",
-        lead_name="dev.backend",
+        maestro_name="dev",
         worktree_path=wt,
     )
-    manager._entities[w.name] = w
-    manager.router.register(w.name)
-    return w
+    manager._entities[lead.name] = lead
+    manager.router.register(lead.name)
+    return lead
 
 
 # ---------------------------------------------------------------------------
@@ -70,16 +76,16 @@ async def test_commit_unknown_entity(bridge: TelegramBridge) -> None:
 async def test_commit_entity_without_worktree(
     bridge: TelegramBridge, manager: ProcessManager
 ) -> None:
-    w = Worker(name="dev.backend.nowt", team_name="backend", lead_name="dev.backend")
-    manager._entities[w.name] = w
-    manager.router.register(w.name)
-    result = await bridge.dispatcher._execute_commit(w.name, '"message"')
+    lead = TeamLead(name="dev.frontend", team_name="frontend", maestro_name="dev")
+    manager._entities[lead.name] = lead
+    manager.router.register(lead.name)
+    result = await bridge.dispatcher._execute_commit(lead.name, '"message"')
     assert "no worktree" in result
 
 
 async def test_commit_success(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[list[str]] = []
@@ -94,7 +100,7 @@ async def test_commit_success(
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
     result = await bridge.dispatcher._execute_commit(
-        worker_with_worktree.name, '"retry on transient errors"'
+        lead_with_worktree.name, '"retry on transient errors"'
     )
     assert "Committed in" in result
     assert "abc123" in result
@@ -107,7 +113,7 @@ async def test_commit_success(
 
 async def test_commit_propagates_git_failure(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
@@ -116,7 +122,7 @@ async def test_commit_propagates_git_failure(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_commit(worker_with_worktree.name, '"empty"')
+    result = await bridge.dispatcher._execute_commit(lead_with_worktree.name, '"empty"')
     assert "git commit failed" in result
     assert "nothing to commit" in result
 
@@ -128,7 +134,7 @@ async def test_commit_propagates_git_failure(
 
 async def test_pr_pushes_and_creates(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorded: list[list[str]] = []
@@ -144,7 +150,7 @@ async def test_pr_pushes_and_creates(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_pr(worker_with_worktree.name, '"my change"')
+    result = await bridge.dispatcher._execute_pr(lead_with_worktree.name, '"my change"')
     assert "pull/42" in result
     assert "hive/dev.backend.w1" in result
     # gh should have been called with --title when title provided
@@ -154,7 +160,7 @@ async def test_pr_pushes_and_creates(
 
 async def test_pr_without_title_uses_fill(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recorded: list[list[str]] = []
@@ -168,14 +174,14 @@ async def test_pr_without_title_uses_fill(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    await bridge.dispatcher._execute_pr(worker_with_worktree.name, "")
+    await bridge.dispatcher._execute_pr(lead_with_worktree.name, "")
     gh_calls = [c for c in recorded if c[:3] == ["gh", "pr", "create"]]
     assert gh_calls and "--fill" in gh_calls[0]
 
 
 async def test_pr_detached_head_error(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
@@ -184,7 +190,7 @@ async def test_pr_detached_head_error(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_pr(worker_with_worktree.name, "")
+    result = await bridge.dispatcher._execute_pr(lead_with_worktree.name, "")
     assert "detached" in result.lower() or "branch" in result.lower()
 
 
@@ -195,24 +201,24 @@ async def test_pr_detached_head_error(
 
 async def test_merge_disabled_by_default(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("hive.commands.dispatch.ALLOW_AUTO_MERGE", False)
-    result = await bridge.dispatcher._execute_merge(worker_with_worktree.name)
+    result = await bridge.dispatcher._execute_merge(lead_with_worktree.name)
     assert "disabled" in result
     assert "HIVE_ALLOW_AUTO_MERGE" in result
 
 
 async def test_merge_when_enabled(
     bridge: TelegramBridge,
-    worker_with_worktree: Worker,
+    lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("hive.commands.dispatch.ALLOW_AUTO_MERGE", True)
     fake = AsyncMock(return_value=(0, "Squashed and merged!", ""))
     monkeypatch.setattr("hive.process.git_ops.run", fake)
-    result = await bridge.dispatcher._execute_merge(worker_with_worktree.name)
+    result = await bridge.dispatcher._execute_merge(lead_with_worktree.name)
     assert "Merged PR" in result
     assert "Squashed and merged" in result
     # Verify the actual gh invocation

@@ -7,7 +7,6 @@ from hive.bus.entity_store import EntityStore
 from hive.models.entity import Entity, EntityState
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 
 
 async def test_upsert_and_load(entity_store: EntityStore) -> None:
@@ -61,7 +60,7 @@ async def test_restored_entity_is_idle(entity_store: EntityStore) -> None:
 
 
 async def test_all_returns_sorted(entity_store: EntityStore) -> None:
-    await entity_store.upsert(Entity(name="charlie", role="worker", model="haiku"))
+    await entity_store.upsert(Entity(name="charlie", role="lead", model="haiku"))
     await entity_store.upsert(Entity(name="alice", role="maestro", model="sonnet"))
     await entity_store.upsert(Entity(name="bob", role="lead", model="sonnet"))
 
@@ -171,45 +170,31 @@ async def test_load_lead_returns_team_lead_instance(entity_store: EntityStore) -
     assert loaded.maestro_name == "dev"
 
 
-async def test_load_worker_returns_worker_instance(entity_store: EntityStore) -> None:
-    """Loading an entity with role='worker' should return a Worker."""
-    worker = Worker(
-        name="dev.backend.w1",
-        team_name="backend",
-        lead_name="dev.backend",
-    )
-    await entity_store.upsert(worker)
-    loaded = await entity_store.load("dev.backend.w1")
-    assert isinstance(loaded, Worker)
-    assert loaded.team_name == "backend"
-    assert loaded.lead_name == "dev.backend"
-
-
 async def test_hierarchy_columns_roundtrip(entity_store: EntityStore) -> None:
     """parent_name and team_name should survive upsert -> load."""
-    lead = TeamLead(
+    backend_lead = TeamLead(
         name="dev.backend",
         team_name="backend",
         maestro_name="dev",
     )
-    await entity_store.upsert(lead)
+    await entity_store.upsert(backend_lead)
 
-    worker = Worker(
-        name="dev.backend.w1",
-        team_name="backend",
-        lead_name="dev.backend",
+    frontend_lead = TeamLead(
+        name="dev.frontend",
+        team_name="frontend",
+        maestro_name="dev",
     )
-    await entity_store.upsert(worker)
+    await entity_store.upsert(frontend_lead)
 
     entities = await entity_store.all()
     assert len(entities) == 2
     names = {e.name for e in entities}
-    assert names == {"dev.backend", "dev.backend.w1"}
+    assert names == {"dev.backend", "dev.frontend"}
 
 
 async def test_permission_mode_roundtrip(entity_store: EntityStore) -> None:
     """permission_mode should survive upsert -> load."""
-    e = Entity(name="test", role="worker", permission_mode="plan")
+    e = Entity(name="test", role="lead", permission_mode="plan")
     await entity_store.upsert(e)
 
     loaded = await entity_store.load("test")
@@ -219,7 +204,7 @@ async def test_permission_mode_roundtrip(entity_store: EntityStore) -> None:
 
 async def test_loop_mode_roundtrip(entity_store: EntityStore) -> None:
     """loop_mode should survive upsert -> load."""
-    e = Entity(name="test", role="worker", loop_mode="ship-it")
+    e = Entity(name="test", role="lead", loop_mode="ship-it")
     await entity_store.upsert(e)
 
     loaded = await entity_store.load("test")
@@ -229,7 +214,7 @@ async def test_loop_mode_roundtrip(entity_store: EntityStore) -> None:
 
 async def test_current_priority_roundtrip(entity_store: EntityStore) -> None:
     """current_priority should survive upsert -> load."""
-    e = Entity(name="test", role="worker", current_priority=0)
+    e = Entity(name="test", role="lead", current_priority=0)
     await entity_store.upsert(e)
 
     loaded = await entity_store.load("test")
@@ -243,7 +228,7 @@ async def test_current_priority_roundtrip(entity_store: EntityStore) -> None:
 async def test_last_activity_at_roundtrip(entity_store: EntityStore) -> None:
     """last_activity_at should survive upsert -> load."""
     ts = datetime.now(UTC)
-    e = Entity(name="test", role="worker", last_activity_at=ts)
+    e = Entity(name="test", role="lead", last_activity_at=ts)
     await entity_store.upsert(e)
 
     loaded = await entity_store.load("test")
@@ -255,9 +240,40 @@ async def test_last_activity_at_roundtrip(entity_store: EntityStore) -> None:
 
 async def test_last_activity_at_null_roundtrip(entity_store: EntityStore) -> None:
     """Entities without last_activity_at should load back with None."""
-    e = Entity(name="test", role="worker")
+    e = Entity(name="test", role="lead")
     await entity_store.upsert(e)
 
     loaded = await entity_store.load("test")
     assert loaded is not None
     assert loaded.last_activity_at is None
+
+
+# -- purge_role (Ticket 018: retire the Worker entity) --
+
+
+async def test_purge_role_removes_worker_rows(entity_store: EntityStore) -> None:
+    """purge_role deletes every row for a retired role and returns the count.
+
+    Guards startup against a leftover ``role='worker'`` row zombie-restoring
+    as a bare Entity now that the Worker subclass is gone (Ticket 018).
+    """
+    # Two retired-role rows plus one live row that must survive.
+    await entity_store.upsert(Entity(name="dev.backend.w1", role="worker", model="haiku"))
+    await entity_store.upsert(Entity(name="dev.backend.w2", role="worker", model="haiku"))
+    await entity_store.upsert(Entity(name="dev", role="maestro", model="sonnet"))
+
+    removed = await entity_store.purge_role("worker")
+    assert removed == 2
+
+    # Only the non-worker row remains.
+    remaining = await entity_store.all()
+    assert [e.name for e in remaining] == ["dev"]
+
+
+async def test_purge_role_absent_returns_zero(entity_store: EntityStore) -> None:
+    """purge_role on a role with no rows removes nothing and returns 0."""
+    await entity_store.upsert(Entity(name="dev", role="maestro", model="sonnet"))
+
+    removed = await entity_store.purge_role("worker")
+    assert removed == 0
+    assert len(await entity_store.all()) == 1

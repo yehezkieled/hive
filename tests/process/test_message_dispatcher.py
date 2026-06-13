@@ -3,10 +3,10 @@
 These exercise ``MessageDispatcher`` in isolation against a *stub* manager —
 no real ProcessManager, no Postgres, no Claude subprocess. The stub exposes
 only the surface the dispatcher reaches through ``self._mgr``: the entity
-registry, a fake router, the eight facade-owned ``_last_*`` introspection
-lists, the ``_kickoff_tasks`` GC set, the ``_parse_failure_budget`` deque,
+registry, a fake router, the facade-owned ``_last_*`` introspection lists,
+the ``_kickoff_tasks`` GC set, the ``_parse_failure_budget`` deque,
 an ``_audit`` recorder, ``_notify``, ``_parent_of``, and patchable
-cross-module facade methods (``request_mode_change``, ``spawn_worker`` …).
+cross-module facade methods (``request_mode_change`` …).
 
 The most fragile seam in the whole split lives here: ``_handle_actions``
 resets the ``_last_*`` lists by **rebinding** (``self._mgr._last_x = []``).
@@ -16,6 +16,11 @@ rebind would leave ``mgr._last_*`` stale and silently break every assertion.
 The DB/facade-level tests in ``test_process_manager`` still cover the same
 flows end-to-end through the facade; these add fast, hermetic unit coverage
 of the moved code and prove the composition pattern.
+
+The persistent Worker entity was retired in Ticket 018: ``spawn_worker`` is
+gone from every path and is now a generic *unknown action* the parser drops
+(see ``test_spawn_worker_is_unknown_action_dropped_with_feedback``). The
+remaining cases cover only the surviving maestro/lead rules.
 """
 
 from __future__ import annotations
@@ -29,10 +34,9 @@ from unittest.mock import patch
 
 import pytest
 
-from hive.bus.actions import Action
+from hive.bus.actions import Action, parse_actions
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.process.message_dispatcher import (
     _PARSE_FAILURE_MAX_PER_WINDOW,
     _PARSE_FAILURE_WINDOW_SECONDS,
@@ -131,7 +135,7 @@ class StubManager:
     """Minimal stand-in for ProcessManager's dispatch-facing surface.
 
     Mirrors exactly the facade-owned state ``MessageDispatcher`` mutates via
-    ``self._mgr``: ``_entities``, the eight ``_last_*`` introspection lists,
+    ``self._mgr``: ``_entities``, the ``_last_*`` introspection lists,
     the ``_kickoff_tasks`` GC set, the ``_parse_failure_budget`` rolling
     deque, ``router``, plus ``_audit``/``_notify``/``_parent_of`` and the
     cross-module facade methods the dispatcher calls. The cross-module
@@ -164,14 +168,13 @@ class StubManager:
         self.persisted: list[object] = []
         self.usage_records: list[dict] = []
 
-        # The eight facade-owned introspection lists. _handle_actions
-        # REBINDS each of these (= []) through self._mgr; tests assert the
-        # rebind lands here, not on a dispatcher-local copy.
+        # The facade-owned introspection lists. _handle_actions REBINDS
+        # each of these (= []) through self._mgr; tests assert the rebind
+        # lands here, not on a dispatcher-local copy.
         self._last_routed_actions: list[str] = ["STALE"]
         self._last_mode_requests: list[int] = [-1]
         self._last_failure_reports: list[int] = [-1]
         self._last_spawned_teams: list[str] = ["STALE"]
-        self._last_spawned_workers: list[str] = ["STALE"]
         self._last_killed_entities: list[str] = ["STALE"]
         self._last_vault_requests: list[int] = [-1]
         self._last_kickoffs: list[str] = ["STALE"]
@@ -185,7 +188,6 @@ class StubManager:
 
         # Cross-module facade methods (recorders by default).
         self.mode_change_calls: list[tuple[str, str, str | None]] = []
-        self.spawned_worker_args: list[tuple] = []
         self.killed: list[str] = []
         self.task_failures: list[tuple[int, str]] = []
 
@@ -207,8 +209,6 @@ class StubManager:
         self.notify_calls.append((message, kind, data))
 
     def _parent_of(self, entity: object) -> str | None:
-        if isinstance(entity, Worker):
-            return entity.lead_name or None
         if isinstance(entity, TeamLead):
             return entity.maestro_name or None
         return None
@@ -223,11 +223,6 @@ class StubManager:
 
     async def handle_task_failure(self, task_id: int, error: str) -> None:
         self.task_failures.append((task_id, error))
-
-    async def spawn_worker(self, lead: str, **kwargs) -> Worker:
-        self.spawned_worker_args.append((lead, kwargs))
-        worker = Worker(name=f"{lead}.w1", lead_name=lead)
-        return worker
 
     async def kill_entity(self, target: str) -> None:
         self.killed.append(target)
@@ -269,6 +264,7 @@ def dispatcher(mgr: StubManager) -> MessageDispatcher:
     # Mirror the facade thin-delegate so send_to_entity's tail call
     # (``self._mgr._handle_actions``) reaches the dispatcher under test.
     mgr._handle_actions = d._handle_actions  # type: ignore[attr-defined]
+    mgr._handle_parse_errors = d._handle_parse_errors  # type: ignore[attr-defined]
     return d
 
 
@@ -327,7 +323,6 @@ async def test_all_last_lists_rebound_on_facade(
     assert mgr._last_mode_requests == []
     assert mgr._last_failure_reports == []
     assert mgr._last_spawned_teams == []
-    assert mgr._last_spawned_workers == []
     assert mgr._last_killed_entities == []
     assert mgr._last_vault_requests == []
     assert mgr._last_kickoffs == []
@@ -406,19 +401,20 @@ async def test_request_mode_change_tracked(dispatcher: MessageDispatcher, mgr: S
 
 
 # ---------------------------------------------------------------------------
-# report_failure — _task_id_for inference (intra-module call)
+# report_failure — explicit task_id (the _task_id_for inference is gone)
 # ---------------------------------------------------------------------------
 
 
-async def test_report_failure_infers_task_id_for_worker(
+async def test_report_failure_with_task_id_routes(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
-    """report_failure with no task_id infers it from the worker's bound task."""
-    worker = Worker(name="dev.backend.w1", lead_name="dev.backend", task_id=7)
-    mgr._entities["dev.backend.w1"] = worker
+    """report_failure with an explicit task_id routes to handle_task_failure."""
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
 
-    actions = [Action(type="report_failure", reason="boom")]
-    await dispatcher._handle_actions("dev.backend.w1", "done", actions)
+    actions = [Action(type="report_failure", reason="boom", task_id=7)]
+    await dispatcher._handle_actions("dev.backend", "done", actions)
 
     assert mgr.task_failures == [(7, "boom")]
     assert mgr._last_failure_reports == [7]
@@ -427,7 +423,7 @@ async def test_report_failure_infers_task_id_for_worker(
 async def test_report_failure_no_task_skipped(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
-    """A maestro (no bound task) reporting failure is skipped, not crashed."""
+    """A report_failure with no task_id is skipped, not crashed."""
     mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
 
     actions = [Action(type="report_failure", reason="boom")]
@@ -438,94 +434,45 @@ async def test_report_failure_no_task_skipped(
 
 
 # ---------------------------------------------------------------------------
-# spawn_worker — retired on every path (ADR 0013): deny, audit, no kickoff
+# spawn_worker — retired in Ticket 018: now a generic UNKNOWN action
 # ---------------------------------------------------------------------------
 
 
-async def test_spawn_worker_denied_no_spawn_no_kickoff(
+async def test_spawn_worker_is_unknown_action_dropped_with_feedback(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
-    """A lead's spawn_worker is denied (ADR 0013): nothing spawns, no kickoff.
+    """A ``spawn_worker`` block parses as an unknown action and is dropped.
 
-    The facade's ``spawn_worker`` is never reached, nothing lands in the
-    ``_last_*`` lists, no kickoff task is scheduled, and the
-    ``entity.spawn_worker_denied`` audit (Ticket 018's drainage proof)
-    is emitted.
+    The persistent Worker entity is gone (Ticket 018), so ``spawn_worker``
+    no longer has a special denial path — the parser treats it like any
+    other unknown action type: it produces NO Action and surfaces an
+    "Unknown action type" parse error. Routing that error feeds the sender
+    a parse-failure note so it can self-correct; nothing spawns.
     """
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
     mgr._entities["dev.backend"] = lead
 
-    actions = [Action(type="spawn_worker", worker_name="w1", task_id=3)]
-    await dispatcher._handle_actions("dev.backend", "done", actions)
+    clean_text, actions, parse_errors = parse_actions(
+        '<hive_actions>[{"type": "spawn_worker", "worker_name": "w1", "task_id": 3}]</hive_actions>'
+    )
 
-    assert mgr.spawned_worker_args == []
-    assert mgr._last_spawned_workers == []
+    # The parser drops it: no Action, an "Unknown action type" error.
+    assert actions == []
+    assert any("Unknown action type" in err and "spawn_worker" in err for err in parse_errors)
+
+    await dispatcher._handle_actions("dev.backend", clean_text, actions, parse_errors=parse_errors)
+
+    # Nothing routed except the system parse-failure note to the sender.
+    assert [r for r in mgr.router.routed if r[0] != "system"] == []
+    assert mgr._last_routed_actions == []
     assert mgr._last_kickoffs == []
     assert mgr._kickoff_tasks == set()
     assert mgr.kickoffs == []
-    denied = [(t, d) for (a, t, d) in mgr.audit_calls if a == "entity.spawn_worker_denied"]
-    assert len(denied) == 1
 
-
-async def test_spawn_worker_denied_lead_receives_rejection_note(
-    dispatcher: MessageDispatcher, mgr: StubManager
-) -> None:
-    """The denied lead RECEIVES the rejection via the _reject_action plumbing.
-
-    A deny without feedback would leave the lead sync-waiting forever on a
-    phantom worker's report (ADR 0013). The note names the replacement —
-    the Workflow tool — and must not invite a retry of spawn_worker.
-    """
-    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    mgr._entities["dev.backend"] = lead
-
-    actions = [Action(type="spawn_worker", worker_name="w1")]
-    await dispatcher._handle_actions("dev.backend", "done", actions)
-
-    # Feedback: a system note lands in the SENDER's queue.
-    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend"]
-    assert len(notes) == 1
-    note_body = notes[0][2]
-    assert "[action rejected]" in note_body
-    assert "retired" in note_body
-    assert "ADR 0013" in note_body
-    assert "Workflow" in note_body  # names the replacement
-    # Must NOT invite a retry of spawn_worker.
-    assert "retry" not in note_body.lower()
-    assert "resend" not in note_body.lower()
-
-    # _reject_action's own audit fires alongside the drainage-proof audit.
-    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
-    assert len(rejected) == 1
-    assert rejected[0][1]["action_type"] == "spawn_worker"
-    denied = [(t, d) for (a, t, d) in mgr.audit_calls if a == "entity.spawn_worker_denied"]
-    assert len(denied) == 1
-    assert denied[0][1]["reason"] == "retired"
-
-
-async def test_spawn_worker_denied_maestro_receives_rejection_note(
-    dispatcher: MessageDispatcher, mgr: StubManager
-) -> None:
-    """A maestro's spawn_worker is denied with the same feedback (ADR 0013).
-
-    Even with no ``lead`` field — the retirement deny fires before the
-    old missing-lead guard, so every actor gets the note.
-    """
-    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
-
-    actions = [Action(type="spawn_worker")]
-    await dispatcher._handle_actions("dev", "done", actions)
-
-    assert mgr.spawned_worker_args == []
-    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
-    assert len(notes) == 1
-    note_body = notes[0][2]
-    assert "[action rejected]" in note_body
-    assert "retired" in note_body
-    assert "Workflow" in note_body
-    denied = [(t, d) for (a, t, d) in mgr.audit_calls if a == "entity.spawn_worker_denied"]
-    assert len(denied) == 1
-    assert denied[0][1]["reason"] == "retired"
+    # The sender receives a parse-failure feedback note.
+    feedback = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend"]
+    assert len(feedback) == 1
+    assert any(a == "entity.parse_failure_feedback" for (a, _t, _d) in mgr.audit_calls)
 
 
 async def test_kill_entity_action_tracked(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
@@ -605,35 +552,37 @@ async def test_permission_denied_audits_rejection_and_notes_sender(
 ) -> None:
     """A permission-denied message feeds back the same way as unknown recipient.
 
-    A worker may message only its lead — ``to:"maestro"`` resolves fine but
-    is denied. The worker gets an audit + a system note naming the correct
-    form (its parent) instead of a silent drop.
+    A lead may message its own maestro and peer leads, but NOT a foreign
+    maestro. ``to:"foreign-maestro"`` resolves fine but is denied — the lead
+    gets an audit + a system note naming the correct form (its own maestro)
+    instead of a silent drop.
     """
     mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
-    mgr._entities["dev.backend"] = TeamLead(
-        name="dev.backend", team_name="backend", maestro_name="dev"
+    mgr._entities["other"] = Maestro(name="other", model="sonnet")
+    mgr._entities["other.backend"] = TeamLead(
+        name="other.backend", team_name="backend", maestro_name="other"
     )
-    mgr._entities["dev.backend.w1"] = Worker(name="dev.backend.w1", lead_name="dev.backend")
 
-    actions = [Action(type="message", to="maestro", text="skip the chain")]
-    await dispatcher._handle_actions("dev.backend.w1", "done", actions)
+    # A lead messaging a foreign maestro directly: denied by can_message.
+    actions = [Action(type="message", to="dev", text="skip the chain")]
+    await dispatcher._handle_actions("other.backend", "done", actions)
 
     # Not delivered, not tracked.
-    assert ("dev.backend.w1", "dev", "skip the chain") not in mgr.router.routed
+    assert ("other.backend", "dev", "skip the chain") not in mgr.router.routed
     assert mgr._last_routed_actions == []
 
     rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
     assert len(rejected) == 1
     target, details = rejected[0]
-    assert target == "maestro"
-    assert details["sender"] == "dev.backend.w1"
+    assert target == "dev"
+    assert details["sender"] == "other.backend"
     assert "permission" in details["reason"]
 
-    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend.w1"]
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "other.backend"]
     assert len(notes) == 1
     note_body = notes[0][2]
     assert "[action rejected]" in note_body
-    assert "dev.backend" in note_body  # the correct form: its parent
+    assert "other" in note_body  # the correct form: its own maestro
 
 
 async def test_maestro_self_alias_rejected_with_feedback(
@@ -680,20 +629,20 @@ async def test_maestro_parent_alias_rejected_with_feedback(
     assert len(notes) == 1
 
 
-async def test_worker_parent_alias_delivers_to_lead(
+async def test_lead_parent_alias_delivers_to_maestro(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
-    """A worker's ``to:"parent"`` resolves to its immediate parent (the lead)."""
+    """A lead's ``to:"parent"`` resolves to its immediate parent (the maestro)."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
     mgr._entities["dev.backend"] = TeamLead(
         name="dev.backend", team_name="backend", maestro_name="dev"
     )
-    mgr._entities["dev.backend.w1"] = Worker(name="dev.backend.w1", lead_name="dev.backend")
 
     actions = [Action(type="message", to="parent", text="done, tests green")]
-    await dispatcher._handle_actions("dev.backend.w1", "done", actions)
+    await dispatcher._handle_actions("dev.backend", "done", actions)
 
-    assert ("dev.backend.w1", "dev.backend", "done, tests green") in mgr.router.routed
-    assert mgr._last_routed_actions == ["dev.backend"]
+    assert ("dev.backend", "dev", "done, tests green") in mgr.router.routed
+    assert mgr._last_routed_actions == ["dev"]
 
 
 # ---------------------------------------------------------------------------
@@ -705,38 +654,38 @@ async def test_parse_error_under_cap_sends_feedback(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
     """Under the cap, a system->entity feedback message is routed."""
-    worker = Worker(name="dev.backend.w1", lead_name="dev.backend")
-    mgr._entities["dev.backend.w1"] = worker
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    mgr._entities["dev.backend"] = lead
 
-    await dispatcher._handle_parse_errors(worker, ["bad json"])
+    await dispatcher._handle_parse_errors(lead, ["bad json"])
 
-    feedback = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend.w1"]
+    feedback = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend"]
     assert len(feedback) == 1
     assert any(a == "entity.parse_failure_feedback" for (a, _t, _d) in mgr.audit_calls)
     # One timestamp recorded in the facade-owned budget.
-    assert len(mgr._parse_failure_budget["dev.backend.w1"]) == 1
+    assert len(mgr._parse_failure_budget["dev.backend"]) == 1
 
 
 async def test_parse_error_over_cap_escalates_to_parent(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
     """Past the cap, feedback is suppressed and the parent is notified once."""
-    worker = Worker(name="dev.backend.w1", lead_name="dev.backend")
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    mgr._entities["dev.backend.w1"] = worker
+    maestro = Maestro(name="dev", model="sonnet")
     mgr._entities["dev.backend"] = lead
+    mgr._entities["dev"] = maestro
 
     # Pre-fill the window to the cap so this call tips it over.
     now = datetime.now(UTC)
-    mgr._parse_failure_budget["dev.backend.w1"].extend([now] * _PARSE_FAILURE_MAX_PER_WINDOW)
+    mgr._parse_failure_budget["dev.backend"].extend([now] * _PARSE_FAILURE_MAX_PER_WINDOW)
 
-    await dispatcher._handle_parse_errors(worker, ["bad json"])
+    await dispatcher._handle_parse_errors(lead, ["bad json"])
 
-    # Escalation goes to the parent lead, not feedback to the worker.
-    to_parent = [r for r in mgr.router.routed if r[1] == "dev.backend"]
-    to_worker = [r for r in mgr.router.routed if r[1] == "dev.backend.w1"]
+    # Escalation goes to the parent maestro, not feedback to the lead.
+    to_parent = [r for r in mgr.router.routed if r[1] == "dev"]
+    to_lead = [r for r in mgr.router.routed if r[1] == "dev.backend"]
     assert len(to_parent) == 1
-    assert to_worker == []
+    assert to_lead == []
     assert any(a == "entity.parse_failure_capped" for (a, _t, _d) in mgr.audit_calls)
 
 
@@ -744,16 +693,16 @@ async def test_parse_error_stale_entries_expire(
     dispatcher: MessageDispatcher, mgr: StubManager
 ) -> None:
     """Timestamps older than the window are evicted before the cap check."""
-    worker = Worker(name="dev.backend.w1", lead_name="dev.backend")
-    mgr._entities["dev.backend.w1"] = worker
+    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    mgr._entities["dev.backend"] = lead
 
     stale = datetime.now(UTC) - timedelta(seconds=_PARSE_FAILURE_WINDOW_SECONDS + 1)
-    mgr._parse_failure_budget["dev.backend.w1"].extend([stale] * _PARSE_FAILURE_MAX_PER_WINDOW)
+    mgr._parse_failure_budget["dev.backend"].extend([stale] * _PARSE_FAILURE_MAX_PER_WINDOW)
 
-    await dispatcher._handle_parse_errors(worker, ["bad json"])
+    await dispatcher._handle_parse_errors(lead, ["bad json"])
 
     # All stale entries evicted, one fresh appended → under cap → feedback.
-    assert len(mgr._parse_failure_budget["dev.backend.w1"]) == 1
+    assert len(mgr._parse_failure_budget["dev.backend"]) == 1
     feedback = [r for r in mgr.router.routed if r[0] == "system"]
     assert len(feedback) == 1
 
@@ -772,26 +721,6 @@ async def test_parse_error_cap_for_maestro_notifies_user(
 
     assert len(mgr.notify_calls) == 1
     assert any(a == "entity.parse_failure_capped" for (a, _t, _d) in mgr.audit_calls)
-
-
-# ---------------------------------------------------------------------------
-# _task_id_for — intra-module helper
-# ---------------------------------------------------------------------------
-
-
-def test_task_id_for_worker(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
-    """_task_id_for returns a worker's bound task_id."""
-    mgr._entities["dev.backend.w1"] = Worker(
-        name="dev.backend.w1", lead_name="dev.backend", task_id=9
-    )
-    assert dispatcher._task_id_for("dev.backend.w1") == 9
-
-
-def test_task_id_for_non_worker(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
-    """_task_id_for returns None for a non-worker (or missing) entity."""
-    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
-    assert dispatcher._task_id_for("dev") is None
-    assert dispatcher._task_id_for("nobody") is None
 
 
 # ---------------------------------------------------------------------------

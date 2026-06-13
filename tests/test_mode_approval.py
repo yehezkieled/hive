@@ -12,7 +12,6 @@ from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.router import MessageRouter
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
-from hive.models.worker import Worker
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -45,11 +44,10 @@ async def manager(
 
 
 def _populate_org(manager: ProcessManager) -> None:
-    """Register a minimal maestro/lead/worker tree."""
+    """Register a minimal maestro/lead tree."""
     maestro = Maestro(name="dev")
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-    worker = Worker(name="dev.backend.w1", team_name="backend", lead_name="dev.backend")
-    for e in (maestro, lead, worker):
+    for e in (maestro, lead):
         manager._entities[e.name] = e
         manager.router.register(e.name)
 
@@ -62,11 +60,6 @@ async def test_approver_for_maestro_is_user(manager: ProcessManager) -> None:
 async def test_approver_for_lead_is_parent_maestro(manager: ProcessManager) -> None:
     _populate_org(manager)
     assert manager._approver_for(manager._entities["dev.backend"]) == "dev"
-
-
-async def test_approver_for_worker_is_parent_lead(manager: ProcessManager) -> None:
-    _populate_org(manager)
-    assert manager._approver_for(manager._entities["dev.backend.w1"]) == "dev.backend"
 
 
 async def test_request_mode_change_persists_row(
