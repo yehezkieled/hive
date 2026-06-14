@@ -36,10 +36,11 @@ class EntityStore:
                 (name, role, state, model, personality_path, pid, started_at,
                  session_id, parent_name, team_name,
                  permission_mode, loop_mode, current_priority,
-                 worktree_path, task_id, last_activity_at, updated_at)
+                 worktree_path, task_id, last_activity_at, awaiting_decision,
+                 updated_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, NOW())
+                 $11, $12, $13, $14, $15, $16, $17, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -56,6 +57,7 @@ class EntityStore:
                 worktree_path = EXCLUDED.worktree_path,
                 task_id = EXCLUDED.task_id,
                 last_activity_at = EXCLUDED.last_activity_at,
+                awaiting_decision = EXCLUDED.awaiting_decision,
                 updated_at = NOW()
             """,
             entity.name,
@@ -74,6 +76,7 @@ class EntityStore:
             None,  # worktree_path — was Worker-only; Workers retired (Ticket 018)
             None,  # task_id — was Worker-only; Workers retired (Ticket 018)
             entity.last_activity_at,
+            entity.awaiting_decision,
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -141,6 +144,10 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         loop_mode=row["loop_mode"] or "ralph",
         current_priority=row["current_priority"] if row["current_priority"] is not None else 3,
         last_activity_at=row["last_activity_at"],
+        # Ticket 029: restore the waiting flag (state is forced IDLE on restore,
+        # but awaiting_decision is orthogonal — an IDLE entity can still be
+        # parked on a user decision, and the scheduler skip keys off the flag).
+        awaiting_decision=bool(row["awaiting_decision"]),
     )
 
     role = row["role"]

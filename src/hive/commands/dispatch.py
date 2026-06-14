@@ -634,6 +634,10 @@ class CommandDispatcher:
             return f"Send what to {entity_name}?"
 
         try:
+            # Ticket 029: this is the user-sourced path. If the entity was parked
+            # waiting on a decision from the user, this reply unparks it (cleared
+            # before the turn runs, so a re-ask within the turn can re-arm it).
+            await self.process_manager.clear_awaiting_decision(entity_name)
             response = await self.process_manager.send_to_entity(entity_name, message)
             await self.process_manager.router.route("user", entity_name, message)
             await self.process_manager.router.route(entity_name, "user", response)
