@@ -1,14 +1,14 @@
 # Design — Ticket 029 (REDIRECTED)
 
 > **Redirect (2026-06-14).** The first pass fixed the *bridge* (reorder the
-> reader so a native gate is detected before sentinel acceptance; ADR 0015).
-> Grilling that against the domain showed the bridge is the wrong thing to
-> harden: a maestro is a **conversational** entity, and a native TUI gate
-> pushed over Telegram needs a fragile detect→translate→inject bridge that
-> fights the grain. 029 is re-scoped to **the maestro→user decision channel**:
-> the maestro asks in plain text via a `hive_action`, ends its turn, and waits.
-> The native-gate bridge is retired for maestros. **ADR 0016 supersedes ADR
-> 0015.** See `research.md` for why the bridge is untrustworthy.
+> reader so a native gate is detected before sentinel acceptance — an early
+> draft, abandoned). Grilling that against the domain showed the bridge is the
+> wrong thing to harden: a maestro is a **conversational** entity, and a native
+> TUI gate pushed over Telegram needs a fragile detect→translate→inject bridge
+> that fights the grain. 029 is re-scoped to **the maestro→user decision
+> channel**: the maestro asks in plain text via a `hive_action`, ends its turn,
+> and waits. The native-gate bridge is retired for maestros. Captured in **ADR
+> 0017**. See `research.md` for why the bridge is untrustworthy.
 
 ## The model (what we're building)
 
@@ -36,7 +36,7 @@ maestro reads your words and DECIDES: proceed / revise+re-ask / answer+re-ask
 |---|----------|--------|
 | Q1 | **Soft stop, hard guarantee** | The maestro ends its turn after asking. A durable `awaiting_decision` flag marks it waiting; the scheduler **skips** any entity with the flag set. No turn is held open. |
 | Q2 | **Mechanism = `request_decision{to:user}`** | Reuse the existing hive_action. Extend `can_request_decision` to allow maestro→`user`; route `to:"user"` through the **021 user router-sink**; set `awaiting_decision`; **truncate the rest of the action block** so "ask then act in the same turn" is impossible. |
-| Q3 | **Retire native gates for maestros** | Add `AskUserQuestion` to `_MAESTRO_DENY` (`ExitPlanMode` is already there). Maestros can then emit **zero** native gates → the 003 bridge is vestigial. Optional cheap dismiss-guard (detect a stray gate, inject Esc, nudge) **only if** the binary-confirm shows bare-name denial leaks. **ADR 0016 supersedes 0015.** |
+| Q3 | **Retire native gates for maestros** | Add `AskUserQuestion` to `_MAESTRO_DENY` (`ExitPlanMode` is already there). Maestros can then emit **zero** native gates → the 003 bridge is vestigial. Optional cheap dismiss-guard (detect a stray gate, inject Esc, nudge) **only if** the binary-confirm shows bare-name denial leaks. Captured in **ADR 0017**. |
 | Q4 | **Clear on a user-sourced reply; maestro interprets** | The flag clears on an inbound message **from the user** (not a peer entity). Hive does not parse intent — the maestro reads the reply and decides (a counter-question re-arms via a fresh `request_decision`). |
 | Q5 | **`awaiting_decision` is durable** | A real DB column on `entities`, persisted on upsert, restored on boot — so a restart can't make the maestro forget it's waiting and get poked into acting. Surfaces on the dashboard. |
 
@@ -82,8 +82,8 @@ holes; all are addressed above + here:
 
 ## Alternatives rejected
 
-- **Reader-reorder bridge fix (the first 029 / ADR 0015).** Correct *if* we
-  keep the bridge — but we're retiring it. Superseded, not built.
+- **Reader-reorder bridge fix (the first-pass 029 approach).** Correct *if* we
+  keep the bridge — but we're retiring it. Abandoned, not built.
 - **Keep a native gate just for 019.** This was the fork; you chose to
   re-mechanize 019 onto `request_decision`. Keeping a native gate would force
   `AskUserQuestion` to stay allowed and the bridge to stay live — re-accepting
@@ -119,8 +119,9 @@ holes; all are addressed above + here:
 
 ## Side effects on shared docs
 
-- **ADR 0016** (new) — conversational decision channel over the native-gate
-  bridge; **supersedes ADR 0015** (referenced, not edited — repo precedent).
+- **ADR 0017** (new) — conversational decision channel over the native-gate
+  bridge. (The first-pass reader-reorder ADR was abandoned, not published —
+  ADR 0015/0016 went to parallel tickets 020/025.)
 - **CONTEXT.md** (declared, applied with the implementation): revise
   *Interactive gate* (no longer the maestro path) and *Thinking skill*
   (maestros pause via the message loop, not a mid-turn gate); add the

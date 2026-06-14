@@ -11,7 +11,7 @@ re-smoke.
 > channel**. The redirect's own design questions (Q1 liveness, Q2 mechanism,
 > Q3 native-gate fate, Q4 clearing, Q5 persistence) were resolved in a
 > grill-with-docs session and are captured in `research.md` (Part 2),
-> `design.md`, and [ADR 0016](../../adr/0016-conversational-decision-channel.md).
+> `design.md`, and [ADR 0017](../../adr/0017-conversational-decision-channel.md).
 
 ## Q1 — Is the gate *detector* even wired on a maestro's PTY?
 `pty_session.py:224` builds a `GateDetector` only when `gate_coordinator is

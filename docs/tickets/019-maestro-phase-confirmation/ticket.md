@@ -11,7 +11,7 @@ the Maestro commits to executing.
 > **Re-mechanized (2026-06-14).** 019 was first framed on the native
 > interactive-gate bridge (Ticket 003). It now rides Ticket
 > [029](../029-maestro-gate-bridge-regression/)'s **conversational decision
-> channel** ([ADR 0016](../../adr/0016-conversational-decision-channel.md)) —
+> channel** ([ADR 0017](../../adr/0017-conversational-decision-channel.md)) —
 > `request_decision{to:user}` + `awaiting_decision`, no native gate. This
 > resolves 019's old "native gate vs hive_action" mechanism question in favour
 > of the action.
@@ -31,7 +31,7 @@ oversight where it is cheapest: at the phase boundary, before the spend.
 
 It rides Hive's **conversational decision channel** (Ticket
 [029](../029-maestro-gate-bridge-regression/), [ADR
-0016](../../adr/0016-conversational-decision-channel.md)) rather than inventing
+0017](../../adr/0017-conversational-decision-channel.md)) rather than inventing
 a new path: the Maestro emits `request_decision{ to:"user", text:… }` at the
 phase boundary, which routes to Telegram and ends the Turn with
 `awaiting_decision` set; the scheduler skips the parked Maestro until you reply.
@@ -61,14 +61,14 @@ native gate (those are retired for Maestros by 029).
 - **Only at creation, or every phase boundary?** The ask names creation
   ("everytime I create a new maestro"); decide whether later phase transitions
   also gate or just the first.
-- **Mechanism.** ✅ Resolved by 029 / ADR 0016 — the `hive_actions`
+- **Mechanism.** ✅ Resolved by 029 / ADR 0017 — the `hive_actions`
   (`request_decision{to:user}` + `awaiting_decision`) path, not a native gate.
 - **Default + opt-out.** On for all Maestros by default (the ask implies yes);
   is a per-Maestro or per-session opt-out needed for trusted autonomous runs?
 - **Reject semantics.** Does a "no" kill the Maestro, send it back to re-plan,
   or just record dissent and continue? (029 Q4 makes Hive content-dumb — the
   Maestro reads the free-text reply and decides; 019 defines what "halt" means.)
-- **Timeout / AFK.** ✅ Resolved by 029 / ADR 0016 — park forever
+- **Timeout / AFK.** ✅ Resolved by 029 / ADR 0017 — park forever
   (`awaiting_decision`), re-ping via the reused ~hourly nudge, never auto-decide.
   The flag is durable, so a restart can't poke the Maestro into acting.
 

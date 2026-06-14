@@ -6,7 +6,7 @@ prerequisite**, **031 shares an alias resolver**, **019 is re-mechanized onto
 it**. See `design.md` for the decisions and `research.md` for why the bridge is
 retired rather than fixed.
 
-> Supersedes the first-pass plan (reader reorder / ADR 0015). That fix hardened
+> Replaces the first-pass plan (the abandoned reader-reorder). That fix hardened
 > the bridge; we're retiring it.
 
 ## Files this Ticket creates / modifies
@@ -23,7 +23,7 @@ retired rather than fixed.
 | `src/hive/process/tool_policy.py` | modify | add `AskUserQuestion` to `_MAESTRO_DENY` |
 | `src/hive/runtime/pty_session.py` | modify *(optional, Q3 guard)* | only if binary-confirm shows denial leaks: detect a stray gate → inject Esc + nudge (no translate/inject/park) |
 | `tests/...` | modify/create | dispatcher / store / scheduler / permissions / tool_policy / clear-path (see outline) |
-| `docs/adr/0016-conversational-decision-channel.md` | created | this PR — supersedes ADR 0015 |
+| `docs/adr/0017-conversational-decision-channel.md` | created | this PR (the redirect's ADR) |
 | `docs/tickets/019-*/ticket.md` | modify | re-mechanize 019 onto `request_decision` (this PR) |
 | `docs/tickets/029-*/` artifacts | modify | this PR (redirect) |
 
@@ -61,9 +61,9 @@ retired rather than fixed.
 
 ## Cross-cutting impact (reference docs)
 
-- **ADR 0016** (new) — conversational decision channel over the native-gate
-  bridge; **supersedes ADR 0015** (referenced, per repo precedent — 0015 not
-  edited).
+- **ADR 0017** (new) — conversational decision channel over the native-gate
+  bridge. (The first-pass reader-reorder ADR was abandoned, not published;
+  ADR 0015/0016 belong to parallel tickets 020/025.)
 - **CONTEXT.md** — applied with the implementation PR (not now, while the
   bridge is still live): revise *Interactive gate* and *Thinking skill*; add
   the decision-request / `awaiting_decision` concept.

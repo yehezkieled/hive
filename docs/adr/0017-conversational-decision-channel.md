@@ -1,8 +1,7 @@
-# 0016 — Maestros ask the user via a conversational decision channel, not the native-gate bridge
+# 0017 — Maestros ask the user via a conversational decision channel, not the native-gate bridge
 
 **Status:** Accepted (2026-06-14)
-**Ticket:** [029](../tickets/029-maestro-gate-bridge-regression/) — **supersedes**
-[ADR 0015](0015-gate-check-authoritative-over-sentinel.md)
+**Ticket:** [029](../tickets/029-maestro-gate-bridge-regression/)
 **Relates to:** [ADR 0004](0004-interactive-gate-hold-and-inject.md) (the bridge
 this retires for maestros), [ADR 0008](0008-per-role-skill-curation-denylist.md)
 / [ADR 0010](0010-leads-orchestrate-via-workflow.md) (the per-role tool denylist
@@ -22,8 +21,10 @@ turn open, translating the TUI menu to text, and injecting keystrokes back
   detect the gate in the transcript, translate the menu, hold the turn open, and
   inject arrow-keys + Enter. Every fragile part of 003/029 lives in that
   translation — it re-implements a conversation loop *inside one frozen turn*.
-- The fix in ADR 0015 (make the gate check authoritative in the reader) hardens
-  that machinery — but only matters if we keep it.
+- The first-pass 029 fix (reorder the reader so the gate check is authoritative
+  over sentinel acceptance) hardens that machinery — but only matters if we keep
+  it. It was an early draft, abandoned in favour of this redirect (never built,
+  no standalone ADR).
 - Ground truth from `tool_policy.py` (ADR 0010): `ExitPlanMode` is **already**
   bare-name-denied to maestros (and has been since Ticket 015 with no plan-gate
   freezes — evidence bare-name tool denial works). Only `AskUserQuestion`
@@ -65,8 +66,8 @@ fired at a phase boundary — not a native gate.
 
 ## Alternatives rejected
 
-- **Harden the bridge (ADR 0015 reader-reorder).** Correct only if we keep the
-  bridge. Superseded.
+- **Harden the bridge (the first-pass 029 reader-reorder).** Correct only if we
+  keep the bridge. Abandoned.
 - **Keep a native gate just for 019.** Forces `AskUserQuestion` to stay allowed
   and the bridge to stay live — re-accepting the fragility. Rejected in favour
   of re-mechanizing 019 onto this channel.
