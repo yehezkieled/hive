@@ -120,7 +120,7 @@ _Avoid_: custom advisor, advisor MCP server, `claude -p` advisor.
 
 **Worktree reconciliation**:
 The startup pass that makes the worktree floor crash-safe (Ticket 025,
-ADR 0015). After entities are restored, it re-adopts each Lead's own
+ADR 0016). After entities are restored, it re-adopts each Lead's own
 worktree (path derived from the Lead's name, uncommitted edits intact) and
 sweeps **orphan worktrees**. The sweep is scoped strictly to
 `WORKTREES_DIR` — it can never touch the main checkout or the developer's

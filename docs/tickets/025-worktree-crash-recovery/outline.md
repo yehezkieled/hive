@@ -1,7 +1,7 @@
 # 025 — Outline (implementation structure)
 
 Approach in [`design.md`](design.md); decision in
-[ADR 0015](../../adr/0015-worktree-reconciliation-scope-and-orphan-policy.md).
+[ADR 0016](../../adr/0016-worktree-reconciliation-scope-and-orphan-policy.md).
 One cohesive change (DIRECT lane) across three seams + tests.
 
 ## Seam map
@@ -25,7 +25,7 @@ Builds on the existing `list_worktrees()` (`:93`). New methods, all
 
 - `managed_worktrees() -> list[dict]` — `list_worktrees()` filtered to
   paths whose parent is `self.worktree_dir`. The single choke point that
-  enforces the ADR 0015 scope; everything downstream consumes only this.
+  enforces the ADR 0016 scope; everything downstream consumes only this.
 - `is_dirty(name) -> bool` — `git status --porcelain` in
   `worktree_dir/name`; truthy output ⇒ dirty (uncommitted work).
 - `prune() -> list[str]` — `git worktree prune -v`; returns pruned paths
@@ -88,7 +88,7 @@ Reuse the real-`git`-in-`tmp_path` `repo` fixture (`test_worktree.py:25-39`)
 | **safety: out-of-scope untouched** | a worktree **outside** `WORKTREES_DIR` (sibling dir) with no entity | **never touched** by reconcile |
 | no-op | `worktree_mgr is None` | empty report, no error |
 
-The safety test is the load-bearing one — it proves ADR 0015's scope by
+The safety test is the load-bearing one — it proves ADR 0016's scope by
 construction.
 
 ## Verification gate

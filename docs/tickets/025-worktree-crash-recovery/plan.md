@@ -2,7 +2,7 @@
 
 DIRECT lane — one PR. Approach in [`design.md`](design.md); seam map +
 test matrix in [`outline.md`](outline.md); decision in
-[ADR 0015](../../adr/0015-worktree-reconciliation-scope-and-orphan-policy.md);
+[ADR 0016](../../adr/0016-worktree-reconciliation-scope-and-orphan-policy.md);
 crash-point matrix + safety evidence in [`research.md`](research.md).
 
 **Dependency:** 023 (worktree floor live) — done. No blockers.
@@ -39,7 +39,7 @@ crash-point matrix + safety evidence in [`research.md`](research.md).
 
 ## Cross-cutting impact
 
-- **ADR:** 0015 (created, committed with `design.md`).
+- **ADR:** 0016 (created, committed with `design.md`).
 - **Glossary:** `Worktree reconciliation` + `Orphan worktree` added to
   `CONTEXT.md` (committed with `design.md`).
 - **Reference docs:** none — `DEPLOYMENT.md` unaffected (no deploy-procedure

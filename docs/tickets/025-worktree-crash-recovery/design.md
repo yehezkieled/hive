@@ -3,7 +3,7 @@
 Seeded by [`ticket.md`](ticket.md); grounded in [`research.md`](research.md);
 grilled 2026-06-14 (owner approved A–E). Safety-boundary + orphan-policy
 decision recorded in
-[ADR 0015](../../adr/0015-worktree-reconciliation-scope-and-orphan-policy.md).
+[ADR 0016](../../adr/0016-worktree-reconciliation-scope-and-orphan-policy.md).
 
 ## Decision in one line
 
@@ -77,7 +77,7 @@ sessions, so Hive cannot safely sweep stranded leaf siblings. That cleanup
 stays lead-JD discipline (016 design D5). Ticket Non-goals §2's "candidate
 scope" is resolved as **out of scope**.
 
-### E — ADR 0015
+### E — ADR 0016
 
 The `WORKTREES_DIR`-only boundary and the never-delete-dirty policy are
 durable, cross-cutting rules that future worktree work must not violate, so
@@ -102,7 +102,7 @@ precedent (`approval_handler.py:540-587`):
 
 ## Glossary / ADR impact
 
-- **ADR 0015** created (this decision).
+- **ADR 0016** created (this decision).
 - **CONTEXT.md**: add **Worktree reconciliation** + **Orphan worktree** to
   the Execution section (new concepts the dashboard/logs will surface).
 

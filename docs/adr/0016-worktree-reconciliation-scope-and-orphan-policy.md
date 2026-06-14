@@ -1,4 +1,4 @@
-# ADR 0015 — Worktree reconciliation: WORKTREES_DIR-only scope, never delete dirty
+# ADR 0016 — Worktree reconciliation: WORKTREES_DIR-only scope, never delete dirty
 
 - **Status:** Accepted
 - **Date:** 2026-06-14
