@@ -282,6 +282,35 @@ async def test_run_once_skips_maestro_parked_at_gate(manager: ProcessManager) ->
     assert sent == ["ops"]  # dev's PTY never touched
 
 
+async def test_run_once_skips_maestro_awaiting_decision(manager: ProcessManager) -> None:
+    """A maestro parked on a user decision (awaiting_decision) is skipped.
+
+    Ticket 029: while waiting for the human's reply, nothing but that reply may
+    advance the maestro — a scheduler poke must not push it into acting
+    unconfirmed. This is a SEPARATE check from the interactive-gate skip.
+    """
+    dev = Maestro(name="dev", model="sonnet")
+    dev.awaiting_decision = True
+    manager._entities["dev"] = dev
+    manager.router.register("dev")
+    manager._entities["ops"] = Maestro(name="ops", model="sonnet")
+    manager.router.register("ops")
+
+    sent: list[str] = []
+
+    async def fake_send(name: str, prompt: str) -> str:
+        sent.append(name)
+        return ""
+
+    manager.send_to_entity = fake_send  # type: ignore[method-assign]
+
+    sched = PriorityScheduler(process_manager=manager)
+    poked = await sched.run_once()
+
+    assert poked == ["ops"]  # dev skipped — it's awaiting the user
+    assert sent == ["ops"]
+
+
 async def test_run_once_for_parked_returns_notice_without_poking(
     manager: ProcessManager,
 ) -> None:

@@ -23,6 +23,7 @@ from hive.bus.vault_store import VaultStore
 from hive.commands import KNOWN_COMMANDS, CommandDispatcher, CommandResult
 from hive.knowledge.blueprints import BlueprintStore
 from hive.process.manager import ProcessManager
+from tests.fakes import FakeAdapter, using_adapter
 
 
 @pytest_asyncio.fixture
@@ -523,3 +524,38 @@ class TestNewMaestroInteractiveFlow:
         result = await dispatcher.dispatch("a style", actor="user:42")
         # Final step surfaces the duplicate-name error from register_maestro
         assert "error" in result.text.lower() or "already" in result.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Ticket 029: awaiting_decision clears on a USER reply, not a peer message
+# ---------------------------------------------------------------------------
+
+
+async def test_user_reply_clears_awaiting_decision(
+    dispatcher: CommandDispatcher, manager: ProcessManager
+) -> None:
+    """A user message routed through the command path unparks a maestro that
+    was waiting on a decision."""
+    await manager.register_maestro("dev")
+    manager._entities["dev"].awaiting_decision = True
+
+    adapter = FakeAdapter(responses="acknowledged")
+    with using_adapter(manager, adapter):
+        await dispatcher._send_to_entity("dev", "go ahead")
+
+    assert manager._entities["dev"].awaiting_decision is False
+
+
+async def test_peer_triggered_send_does_not_clear_awaiting_decision(
+    manager: ProcessManager,
+) -> None:
+    """The shared orchestration path (scheduler poke / peer wake) must NOT
+    clear the flag — only a user-sourced reply does."""
+    await manager.register_maestro("dev")
+    manager._entities["dev"].awaiting_decision = True
+
+    adapter = FakeAdapter(responses="working")
+    with using_adapter(manager, adapter):
+        await manager.send_to_entity("dev", "[peer poke]")
+
+    assert manager._entities["dev"].awaiting_decision is True

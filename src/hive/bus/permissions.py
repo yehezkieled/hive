@@ -91,14 +91,20 @@ def can_request_decision(
     sender_name: str,
     target_name: str,
 ) -> bool:
-    """Strict parent-only escalation gate.
+    """Escalation gate for ``request_decision``.
 
-    Leads can request_decision from their direct maestro; maestros have
-    no parent to escalate to.
+    Leads can request_decision from their direct maestro. Maestros have no
+    parent Entity, but escalate a decision to ``user`` — the top rung of the
+    conversational decision channel (Ticket 029, ADR 0018). A maestro may not
+    request_decision from a peer entity, and a lead never escalates directly to
+    the user (it goes through its maestro).
     """
     if sender_role == "lead":
         sender_maestro = sender_name.split(".")[0]
         return target_name == sender_maestro
+
+    if sender_role == "maestro":
+        return target_name == "user"
 
     return False
 

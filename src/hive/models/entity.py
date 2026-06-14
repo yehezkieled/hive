@@ -216,6 +216,10 @@ class Entity:
     loop_mode: str = "ralph"
     current_priority: int = 3
     last_activity_at: datetime | None = None
+    # Ticket 029: set when the entity emits a request_decision to the user and
+    # is parked waiting for the human's reply. Durable (survives restart) so the
+    # scheduler keeps skipping it and it can't be poked into acting unconfirmed.
+    awaiting_decision: bool = False
 
     def transition_to(self, new_state: EntityState) -> None:
         """Transition to a new state, raising InvalidStateTransitionError if not allowed."""

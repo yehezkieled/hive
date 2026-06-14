@@ -15,6 +15,7 @@ LEAD_DENY = [
     "Agent",
     "Task",
     "ExitPlanMode",
+    "AskUserQuestion",
     "TodoWrite",
     "TaskCreate",
     "TaskUpdate",
@@ -40,6 +41,20 @@ def test_role_tool_denylist_exact_sets_per_role() -> None:
 
     assert role_tool_denylist("vault") == []
     assert role_tool_denylist("definitely-not-a-role") == []
+
+
+def test_native_gates_denied_to_both_coordinator_roles() -> None:
+    """Ticket 029: native interactive gates are retired for coordinators.
+
+    Neither a lead nor a maestro has a human at its own PTY to answer a TUI
+    gate, so both ``ExitPlanMode`` and ``AskUserQuestion`` are denied. Maestros
+    ask the user via the conversational decision channel (request_decision)
+    instead (ADR 0018).
+    """
+    for role in ("lead", "maestro"):
+        deny = role_tool_denylist(role)
+        assert "ExitPlanMode" in deny
+        assert "AskUserQuestion" in deny
 
     # Fresh list each call — mutating one result never leaks into the next.
     first = role_tool_denylist("lead")

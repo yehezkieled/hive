@@ -369,10 +369,8 @@ class MessageDispatcher:
             elif action.type == "request_decision":
                 if not action.to:
                     continue
-                recipient = self._mgr._entities.get(action.to)
-                if not recipient:
-                    logger.warning("Unknown request_decision recipient: %s", action.to)
-                    continue
+                # Permission first — covers both the user target (maestro→user,
+                # Ticket 029) and the lead→own-maestro escalation.
                 if not can_request_decision(entity.role, entity.name, action.to):
                     logger.warning("request_decision denied: %s -> %s", entity.name, action.to)
                     await self._mgr._audit(
@@ -380,6 +378,62 @@ class MessageDispatcher:
                         target=action.to,
                         details={"sender": entity_name, "reason": "permission_denied"},
                         actor=entity_name,
+                    )
+                    await self._reject_action(
+                        entity,
+                        "request_decision",
+                        action.to,
+                        f"request_decision to {action.to!r} is not permitted for your role.",
+                    )
+                    continue
+                if action.to == "user":
+                    # Ticket 029 (ADR 0018): the conversational decision channel.
+                    # Deliver the question to the user (Telegram) via the
+                    # notification path, park the maestro on the durable
+                    # awaiting_decision flag so the scheduler won't poke it into
+                    # acting, and END THE TURN — break so any trailing actions in
+                    # the same block are dropped (no ask-then-act).
+                    if self._mgr.notification_dispatcher is None:
+                        # No path to the user — do NOT claim delivery (the
+                        # maestro must not narrate fictional success), and do NOT
+                        # park (it would wait forever for a reply that can't be
+                        # prompted).
+                        logger.warning(
+                            "request_decision to user from %s: no notification path", entity_name
+                        )
+                        await self._reject_action(
+                            entity,
+                            "request_decision",
+                            "user",
+                            "no notification path to the user is configured — your "
+                            "decision request was not delivered.",
+                        )
+                        continue
+                    text = action.text or ""
+                    await self._mgr._notify(
+                        f"[decision needed] {text}",
+                        kind="decision_request",
+                        data={"entity": entity_name},
+                    )
+                    entity.awaiting_decision = True
+                    await self._mgr._persist(entity)
+                    self._mgr._last_routed_actions.append("user")
+                    await self._mgr._audit(
+                        "request_decision_sent",
+                        target="user",
+                        details={"sender": entity_name, "text": text[:200]},
+                        actor=entity_name,
+                    )
+                    break
+                # Non-user target: lead→maestro escalation, routed as peer mail.
+                recipient = self._mgr._entities.get(action.to)
+                if not recipient:
+                    logger.warning("Unknown request_decision recipient: %s", action.to)
+                    await self._reject_action(
+                        entity,
+                        "request_decision",
+                        action.to,
+                        f"unknown recipient {action.to!r}.",
                     )
                     continue
                 body = f"[DECISION REQUEST] {action.text or ''}"
