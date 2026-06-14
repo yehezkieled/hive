@@ -248,6 +248,48 @@ async def test_last_activity_at_null_roundtrip(entity_store: EntityStore) -> Non
     assert loaded.last_activity_at is None
 
 
+# -- awaiting_decision (Ticket 029: maestro→user decision channel) --
+
+
+async def test_awaiting_decision_roundtrip(entity_store: EntityStore) -> None:
+    """awaiting_decision should survive upsert -> load (Ticket 029).
+
+    The flag marks an entity parked on a request_decision to the user; it must
+    be durable so a Hive restart cannot make the entity forget it is waiting and
+    get poked into acting unconfirmed.
+    """
+    e = Entity(name="dev", role="maestro")
+    e.awaiting_decision = True
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.awaiting_decision is True
+
+
+async def test_awaiting_decision_defaults_false(entity_store: EntityStore) -> None:
+    """A fresh entity loads back with awaiting_decision False."""
+    await entity_store.upsert(Entity(name="dev", role="maestro"))
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.awaiting_decision is False
+
+
+async def test_awaiting_decision_update(entity_store: EntityStore) -> None:
+    """Clearing the flag (a user reply landed) survives a re-upsert."""
+    e = Entity(name="dev", role="maestro")
+    e.awaiting_decision = True
+    await entity_store.upsert(e)
+
+    e.awaiting_decision = False
+    await entity_store.upsert(e)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.awaiting_decision is False
+
+
 # -- purge_role (Ticket 018: retire the Worker entity) --
 
 

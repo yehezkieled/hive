@@ -30,6 +30,11 @@ _LEAD_DENY: list[str] = [
     "Agent",
     "Task",
     "ExitPlanMode",
+    # Native interactive gates are retired for coordinators (Ticket 029,
+    # ADR 0018): neither a lead nor a maestro has a human at its own PTY to
+    # answer a TUI menu, so both gate tools are denied. Maestros ask the user
+    # via the conversational decision channel (request_decision) instead.
+    "AskUserQuestion",
     "TodoWrite",
     "TaskCreate",
     "TaskUpdate",

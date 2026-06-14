@@ -10,8 +10,20 @@ from hive.bus.actions import Action
 from hive.bus.audit_log import AuditLog
 from hive.bus.permissions import can_message, can_request_decision, cc_targets_for
 from hive.bus.router import MessageRouter
+from hive.notifications.dispatcher import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 from tests.fakes import FakeAdapter, using_adapter
+
+
+class _CapturingChannel:
+    """Notification channel that records every notification's text."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def send(self, notification: Notification) -> None:
+        self.messages.append(notification.text)
+
 
 # ---- can_message peer rules ----
 
@@ -68,10 +80,19 @@ class TestCanRequestDecision:
     def test_lead_to_other_maestro_denied(self) -> None:
         assert can_request_decision("lead", "dev.backend", "ops") is False
 
-    def test_maestro_cannot_request_decision(self) -> None:
-        # Maestros are top-tier — no parent to escalate to.
-        assert can_request_decision("maestro", "dev", "user") is False
+    def test_maestro_to_user_allowed(self) -> None:
+        # Ticket 029: a maestro escalates a decision to the user (the top rung),
+        # the conversational decision channel. This is the only request_decision
+        # target a maestro may use.
+        assert can_request_decision("maestro", "dev", "user") is True
+
+    def test_maestro_to_other_entity_denied(self) -> None:
+        # A maestro may not request_decision from a peer entity — only the user.
         assert can_request_decision("maestro", "dev", "ops") is False
+
+    def test_lead_to_user_denied(self) -> None:
+        # A lead escalates to its parent maestro, never directly to the user.
+        assert can_request_decision("lead", "dev.backend", "user") is False
 
 
 # ---- Routing integration tests (peer message + CC) ----
@@ -140,6 +161,63 @@ class TestRequestDecision:
         await manager._handle_actions("dev.backend", "", [action])
 
         assert manager.router.has_pending("dev")
+
+    # ---- Ticket 029: maestro→user conversational decision channel ----
+
+    async def test_maestro_to_user_notifies_and_parks(self, manager: ProcessManager) -> None:
+        """request_decision{to:user} delivers to the user (Telegram) and parks
+        the maestro on the durable awaiting_decision flag."""
+        await manager.register_maestro("dev")
+        channel = _CapturingChannel()
+        dispatcher = NotificationDispatcher()
+        dispatcher.register(channel)
+        manager.notification_dispatcher = dispatcher
+
+        action = Action(type="request_decision", to="user", text="approve the plan?")
+        await manager._handle_actions("dev", "", [action])
+
+        assert any("approve the plan?" in m for m in channel.messages)
+        assert manager._entities["dev"].awaiting_decision is True
+        assert "user" in manager._last_routed_actions
+
+    async def test_request_decision_to_user_truncates_trailing_actions(
+        self, manager: ProcessManager
+    ) -> None:
+        """After asking the user, the maestro ends its turn — trailing actions
+        in the same block do not run (no ask-then-act)."""
+        await manager.register_maestro("dev")
+        channel = _CapturingChannel()
+        dispatcher = NotificationDispatcher()
+        dispatcher.register(channel)
+        manager.notification_dispatcher = dispatcher
+
+        actions = [
+            Action(type="request_decision", to="user", text="FIRST question"),
+            Action(type="request_decision", to="user", text="SECOND question"),
+        ]
+        await manager._handle_actions("dev", "", actions)
+
+        assert any("FIRST" in m for m in channel.messages)
+        assert not any("SECOND" in m for m in channel.messages)
+
+    async def test_request_decision_to_user_unreachable_rejects(
+        self, manager: ProcessManager
+    ) -> None:
+        """With no notification path configured, the user can't be reached:
+        the maestro is NOT parked and gets a failure note (no fictional
+        delivery)."""
+        await manager.register_maestro("dev")
+        # manager fixture leaves notification_dispatcher = None
+
+        action = Action(type="request_decision", to="user", text="approve?")
+        await manager._handle_actions("dev", "", [action])
+
+        assert manager._entities["dev"].awaiting_decision is False
+        assert manager.router.has_pending("dev")
+        note = await manager.router.get_next("dev", timeout=0.1)
+        assert note is not None
+        assert note.sender == "system"
+        assert "[action rejected]" in note.content
 
 
 class TestPeerDirectory:
