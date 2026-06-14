@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,6 +37,7 @@ from hive.process.lifecycle_manager import (
     _adapter_config_from_entity,
     _render_auto_personality,
 )
+from hive.process.worktree import WorktreeManager
 from tests.fakes import FakeAdapter
 
 # ---------------------------------------------------------------------------
@@ -741,3 +744,158 @@ def test_facade_delegations_are_bound_methods() -> None:
     # The collaborator is wired and back-references the facade.
     assert isinstance(pm.lifecycle, LifecycleManager)
     assert pm.lifecycle._mgr is pm
+
+
+# ---------------------------------------------------------------------------
+# Ticket 025 — reconcile_worktrees (crash-recovery: re-adopt + orphan sweep)
+# ---------------------------------------------------------------------------
+
+EMPTY_REPORT = {"readopted": [], "pruned": [], "removed": [], "quarantined": []}
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> Path:
+    """A minimal git repo with one commit, so worktrees can be added."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "test@hive.local"],
+        ["git", "config", "user.name", "Hive Test"],
+    ):
+        subprocess.run(cmd, cwd=repo, check=True)
+    (repo / "README.md").write_text("seed\n")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "seed"], cwd=repo, check=True)
+    return repo
+
+
+def _lead(name: str) -> TeamLead:
+    maestro, _, team = name.partition(".")
+    return TeamLead(name=name, team_name=team, maestro_name=maestro)
+
+
+def _audited(mgr: StubManager, action: str, target: str) -> bool:
+    return any(a[0] == action and a[1] == target for a in mgr.audit_calls)
+
+
+async def test_reconcile_noop_without_worktree_mgr(
+    mgr: StubManager, lifecycle: LifecycleManager
+) -> None:
+    """No worktree manager wired → empty report, no error (no-op)."""
+    assert mgr.worktree_mgr is None
+    assert await lifecycle.reconcile_worktrees() == EMPTY_REPORT
+
+
+async def test_reconcile_readopts_restored_lead(
+    mgr: StubManager, lifecycle: LifecycleManager, git_repo: Path, tmp_path: Path
+) -> None:
+    """A restored, path-less lead re-adopts its surviving worktree (eager)."""
+    wt_mgr = WorktreeManager(git_repo, tmp_path / "worktrees")
+    mgr.worktree_mgr = wt_mgr
+    wt_path = await wt_mgr.create("dev.backend", branch="hive/dev.backend")
+    lead = _lead("dev.backend")
+    assert lead.worktree_path is None
+    mgr._entities["dev.backend"] = lead
+
+    report = await lifecycle.reconcile_worktrees()
+
+    assert lead.worktree_path == wt_path
+    assert wt_path.exists()
+    assert "dev.backend" in report["readopted"]
+    assert _audited(mgr, "worktree.readopted", "dev.backend")
+
+
+async def test_reconcile_preserves_uncommitted_edits(
+    mgr: StubManager, lifecycle: LifecycleManager, git_repo: Path, tmp_path: Path
+) -> None:
+    """Re-adoption never resets the worktree — uncommitted edits survive."""
+    wt_mgr = WorktreeManager(git_repo, tmp_path / "worktrees")
+    mgr.worktree_mgr = wt_mgr
+    wt_path = await wt_mgr.create("dev.backend", branch="hive/dev.backend")
+    (wt_path / "wip.txt").write_text("uncommitted\n")
+    mgr._entities["dev.backend"] = _lead("dev.backend")
+
+    await lifecycle.reconcile_worktrees()
+
+    assert (wt_path / "wip.txt").read_text() == "uncommitted\n"
+
+
+async def test_reconcile_removes_clean_orphan(
+    mgr: StubManager, lifecycle: LifecycleManager, git_repo: Path, tmp_path: Path
+) -> None:
+    """An orphan with no uncommitted work is reclaimed (removed)."""
+    wt_mgr = WorktreeManager(git_repo, tmp_path / "worktrees")
+    mgr.worktree_mgr = wt_mgr
+    ghost = await wt_mgr.create("ghost.team", branch="hive/ghost.team")
+    # No entity registered for ghost.team → orphan.
+
+    report = await lifecycle.reconcile_worktrees()
+
+    assert "ghost.team" in report["removed"]
+    assert not ghost.exists()
+    assert _audited(mgr, "worktree.orphan_removed", "ghost.team")
+
+
+async def test_reconcile_quarantines_dirty_orphan(
+    mgr: StubManager, lifecycle: LifecycleManager, git_repo: Path, tmp_path: Path
+) -> None:
+    """An orphan holding uncommitted work is KEPT (quarantined), never deleted."""
+    wt_mgr = WorktreeManager(git_repo, tmp_path / "worktrees")
+    mgr.worktree_mgr = wt_mgr
+    ghost = await wt_mgr.create("ghost.team", branch="hive/ghost.team")
+    (ghost / "wip.txt").write_text("unsaved work\n")
+
+    report = await lifecycle.reconcile_worktrees()
+
+    assert "ghost.team" in report["quarantined"]
+    assert "ghost.team" not in report["removed"]
+    assert ghost.exists()
+    assert (ghost / "wip.txt").exists()
+    assert _audited(mgr, "worktree.orphan_quarantined", "ghost.team")
+
+
+async def test_reconcile_prunes_stale_admin_record(
+    mgr: StubManager, lifecycle: LifecycleManager, git_repo: Path, tmp_path: Path
+) -> None:
+    """A worktree dir gone out-of-band is pruned, not treated as a sweepable orphan."""
+    wt_mgr = WorktreeManager(git_repo, tmp_path / "worktrees")
+    mgr.worktree_mgr = wt_mgr
+    dead = await wt_mgr.create("dead.team", branch="hive/dead.team")
+    shutil.rmtree(dead)
+
+    report = await lifecycle.reconcile_worktrees()
+
+    assert report["pruned"]
+    assert "dead.team" not in report["removed"]
+    assert "dead.team" not in report["quarantined"]
+
+
+async def test_reconcile_never_touches_worktrees_outside_dir(
+    mgr: StubManager, lifecycle: LifecycleManager, git_repo: Path, tmp_path: Path
+) -> None:
+    """The load-bearing safety test: a worktree outside WORKTREES_DIR (a dev
+    session stand-in) is never swept, even with no owning entity."""
+    wt_mgr = WorktreeManager(git_repo, tmp_path / "worktrees")
+    mgr.worktree_mgr = wt_mgr
+    external = tmp_path / "external" / "human-session"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "human/wip", str(external)],
+        cwd=git_repo,
+        check=True,
+    )
+
+    report = await lifecycle.reconcile_worktrees()
+
+    assert external.exists()
+    assert "human-session" not in report["removed"]
+    assert "human-session" not in report["quarantined"]
+
+
+async def test_facade_reconcile_worktrees_delegates() -> None:
+    """``ProcessManager.reconcile_worktrees`` thin-delegates to the collaborator."""
+    from hive.process.manager import ProcessManager
+
+    pm = ProcessManager(router=SimpleNamespace(register=lambda n: None))
+    assert pm.worktree_mgr is None
+    assert await pm.reconcile_worktrees() == EMPTY_REPORT

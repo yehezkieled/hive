@@ -526,6 +526,9 @@ class ProcessManager:
     ) -> list[str]:
         return await self.lifecycle.kill_idle_entities(timeout_minutes, exempt_names)
 
+    async def reconcile_worktrees(self) -> dict[str, list[str]]:
+        return await self.lifecycle.reconcile_worktrees()
+
     def restore(self, entity: Entity) -> None:
         """Re-register a persisted entity on orchestrator startup.
 

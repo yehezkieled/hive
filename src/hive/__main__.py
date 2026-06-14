@@ -282,6 +282,12 @@ async def main() -> None:
     # Rebuild team hierarchy from restored entities
     process_manager.rebuild_hierarchy()
 
+    # Reconcile the worktree floor after a crash (Ticket 025, ADR 0016):
+    # re-adopt each restored Lead's own worktree (path derived from name,
+    # uncommitted edits intact) and sweep orphans — scoped strictly to
+    # WORKTREES_DIR, never deleting a worktree that holds uncommitted work.
+    await process_manager.reconcile_worktrees()
+
     # Reconcile interactive-gate rows orphaned by a restart (Ticket 003 #27):
     # a pending gate whose parked Turn died is marked stale, not left dangling.
     await process_manager.reconcile_orphaned_gates()

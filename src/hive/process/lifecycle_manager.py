@@ -547,3 +547,78 @@ class LifecycleManager:
                     logger.exception("Failed to auto-kill idle entity %s", name)
 
         return killed
+
+    async def reconcile_worktrees(self) -> dict[str, list[str]]:
+        """Crash-recovery pass over the worktree floor (Ticket 025, ADR 0016).
+
+        Run once at startup, after entity restore + ``rebuild_hierarchy``.
+        Two halves:
+
+        - **Re-adopt**: every restored ``TeamLead`` comes back path-less (the
+          entity store never round-trips ``worktree_path``). Derive its
+          worktree from its name and set it eagerly — the idempotent
+          ``create`` hands back the surviving dir untouched (uncommitted edits
+          intact), or makes a fresh one if it's gone.
+        - **Sweep orphans**: a worktree under ``WORKTREES_DIR`` with no owning
+          lead (crash mid-spawn, or a failed-and-swallowed mid-kill removal).
+          Prune stale git-admin records, remove clean orphans, and
+          **quarantine** (keep + warn) any orphan holding uncommitted work —
+          never delete unpushed work.
+
+        Scoped strictly to ``WORKTREES_DIR`` via ``managed_worktrees`` — the
+        main checkout and the developer's own ``.claude/worktrees/`` sessions
+        are structurally out of reach. No-op when no worktree manager is wired.
+        """
+        report: dict[str, list[str]] = {
+            "readopted": [],
+            "pruned": [],
+            "removed": [],
+            "quarantined": [],
+        }
+        wt_mgr = self._mgr.worktree_mgr
+        if wt_mgr is None:
+            return report
+
+        # 1. Prune stale git-admin records (working dir already gone) so they
+        #    aren't mistaken for sweepable orphans below.
+        report["pruned"] = await wt_mgr.prune()
+
+        # 2. Eagerly re-adopt each restored lead's worktree. create() is
+        #    idempotent — a surviving dir is returned untouched (edits intact).
+        owned: set[str] = set()
+        for entity in list(self._mgr._entities.values()):
+            if not isinstance(entity, TeamLead):
+                continue
+            owned.add(entity.name)
+            if entity.worktree_path is None:
+                entity.worktree_path = await wt_mgr.create(
+                    entity.name, branch=f"hive/{entity.name}"
+                )
+                report["readopted"].append(entity.name)
+                await self._mgr._audit("worktree.readopted", target=entity.name)
+
+        # 3. Sweep orphans — worktrees under WORKTREES_DIR with no owning lead.
+        for wt in await wt_mgr.managed_worktrees():
+            name = Path(wt["path"]).name
+            if name in owned:
+                continue
+            if await wt_mgr.is_dirty(name):
+                report["quarantined"].append(name)
+                await self._mgr._audit("worktree.orphan_quarantined", target=name)
+                logger.warning(
+                    "Orphan worktree %s holds uncommitted work — quarantined, not removed",
+                    name,
+                )
+            else:
+                await wt_mgr.remove(name)
+                report["removed"].append(name)
+                await self._mgr._audit("worktree.orphan_removed", target=name)
+
+        logger.info(
+            "Worktree reconciliation: %d re-adopted, %d pruned, %d removed, %d quarantined",
+            len(report["readopted"]),
+            len(report["pruned"]),
+            len(report["removed"]),
+            len(report["quarantined"]),
+        )
+        return report
