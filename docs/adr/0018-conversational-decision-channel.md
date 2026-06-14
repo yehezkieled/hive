@@ -1,4 +1,4 @@
-# 0017 — Maestros ask the user via a conversational decision channel, not the native-gate bridge
+# 0018 — Maestros ask the user via a conversational decision channel, not the native-gate bridge
 
 **Status:** Accepted (2026-06-14)
 **Ticket:** [029](../tickets/029-maestro-gate-bridge-regression/)
