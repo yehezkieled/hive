@@ -2,7 +2,7 @@
 
 1 project ↔ ≤1 Maestro, enforced by a per-spawn `PreToolUse` ownership-guard
 hook that fences file-edit tools to an Entity's writable set **under bypass
-mode** (ADR 0016). Fan-out: 2 vertical slices, B depends on A.
+mode** (ADR 0017). Fan-out: 2 vertical slices, B depends on A.
 
 ## Slices
 
@@ -30,7 +30,7 @@ Full spec (acceptance + file paths) lives in each issue — not here.
 
 ## Cross-cutting impact (already landed in this ticket's docs commits)
 
-- ADR 0016 (new) — the hook-under-bypass decision + probe evidence.
+- ADR 0017 (new) — the hook-under-bypass decision + probe evidence.
 - `CONTEXT.md` — glossary: **Project**, **Project ownership**, **Ownership
   guard**; "project" ambiguity flag.
 - No `README`/`DEPLOYMENT` change (guard ships in `src/`, no new service/port).

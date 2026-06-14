@@ -2,7 +2,7 @@
 
 Chosen approach, grounded in [`research.md`](research.md) and two live CC
 probes. Decision recorded in
-[ADR 0016](../../adr/0016-ownership-guard-pretooluse-hook.md).
+[ADR 0017](../../adr/0017-ownership-guard-pretooluse-hook.md).
 
 ## Decision in one paragraph
 
@@ -158,7 +158,7 @@ owns no project and reads across all of them. cwd is the *home*; the hook is the
 
 ## Reference-doc impact (cross-cutting)
 
-- **ADR 0016** (new) — the ownership-guard-via-PreToolUse-hook decision, incl.
+- **ADR 0017** (new) — the ownership-guard-via-PreToolUse-hook decision, incl.
   the bypass/deny/cwd probe evidence and the guardrail-not-wall boundary.
 - **`CONTEXT.md`** (glossary) — add **Project** (registry record), **Project
   ownership**, **Ownership guard** (the hook); cross-link from the existing

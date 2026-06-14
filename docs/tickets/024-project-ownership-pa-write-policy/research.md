@@ -40,7 +40,7 @@ file-edit tools only — a guardrail against accidental cross-project writes, no
 a `Bash`/subprocess-proof wall (matches the project's capability-over-
 sandboxing stance). PA policy confirmed as the original ticket: **read any,
 write only ownerless projects.** Full design in [`design.md`](design.md);
-decision recorded in [ADR 0016](../../adr/0016-ownership-guard-pretooluse-hook.md).
+decision recorded in [ADR 0017](../../adr/0017-ownership-guard-pretooluse-hook.md).
 
 ## 1. Current state — no project concept exists
 

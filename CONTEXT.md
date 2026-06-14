@@ -54,7 +54,7 @@ workspace.
 The 1-Project-↔-≤1-Maestro model plus the write-policy it drives: a
 project Maestro writes only its own Project; the **PA Maestro** reads any
 Project but writes only **ownerless** ones. Enforced by the **Ownership
-guard** (Ticket 024, [ADR 0016](adr/0016-ownership-guard-pretooluse-hook.md)).
+guard** (Ticket 024, [ADR 0017](adr/0017-ownership-guard-pretooluse-hook.md)).
 
 **Ownership guard**:
 The enforcement layer behind **Project ownership**: a Claude Code

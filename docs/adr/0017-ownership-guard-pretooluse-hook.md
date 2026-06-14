@@ -1,4 +1,4 @@
-# ADR 0016 — Enforce project write-boundaries with a PreToolUse hook, under bypass
+# ADR 0017 — Enforce project write-boundaries with a PreToolUse hook, under bypass
 
 - **Status:** Accepted
 - **Date:** 2026-06-14
