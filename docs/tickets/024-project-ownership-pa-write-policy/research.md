@@ -17,6 +17,31 @@ is defeated by Ticket 023's D6 decision unless 024 also moves maestros
 off bypass mode. This is the central design problem; everything else is
 mechanical.
 
+## Decision update (post-grill, 2026-06-14)
+
+The grill resolved the central problem the **opposite** way from §4's first
+recommendation: **bypass stays on for all entities** (user's call), so neither
+`deny` rules nor `acceptEdits` are viable. Two further live probes settled the
+mechanism:
+
+- **cwd does NOT confine under bypass.** With `cwd=projA` and
+  `--dangerously-skip-permissions`, CC wrote a file into `projB` (outside cwd)
+  with no error. So "spawn in the project dir" is *not* a fence under bypass.
+- **A `PreToolUse` hook DOES fire under bypass.** A settings.json `hooks`
+  block matching `Write|Edit|MultiEdit|NotebookEdit`, whose guard script exits
+  non-zero for paths outside the owned root, **hard-blocked** a write into
+  `projB` under `--dangerously-skip-permissions` ("that boundary would have to
+  be changed by whoever set up the guard — I can't override it"), and allowed
+  the write inside the owned root.
+
+**Chosen mechanism:** a per-spawn `PreToolUse` **ownership guard hook** (not
+deny rules, not a mode change), injected via `--settings <file>`. It fences the
+file-edit tools only — a guardrail against accidental cross-project writes, not
+a `Bash`/subprocess-proof wall (matches the project's capability-over-
+sandboxing stance). PA policy confirmed as the original ticket: **read any,
+write only ownerless projects.** Full design in [`design.md`](design.md);
+decision recorded in [ADR 0016](../../adr/0016-ownership-guard-pretooluse-hook.md).
+
 ## 1. Current state — no project concept exists
 
 - **No registry, no `Project` model, no `projects` table.** Migrations
@@ -66,7 +91,9 @@ mechanical.
 | Injection | path rules **only** via `permissions.deny` in a settings.json; point at it with `--settings <file>`. `--disallowedTools` = bare names only. | HIGH (docs) |
 | **Bypass skips deny** | `--permission-mode bypassPermissions` **wrote to a denied path with no error** — deny + ask both skipped. `yolo` → `--dangerously-skip-permissions` is at least as permissive. | **VERY HIGH (live probe)** |
 | **`acceptEdits` honors deny** | Probe A/B/C: `acceptEdits` created files where allowed, **blocked** the denied path ("denied by the current permission settings"). Deny binds; edits auto-accept elsewhere. | **HIGH (live probe)** |
-| Subprocess escape | deny covers CC's file tools + *recognized* Bash writes; an arbitrary interpreter (`python -c "open(...,'w')"`) bypasses it. OS sandbox needed for a hard boundary. | HIGH (docs) |
+| **cwd under bypass** | `cwd=projA` + bypass **still wrote into `projB`** — cwd is not a fence under bypass. | **HIGH (live probe)** |
+| **PreToolUse hook under bypass** | hook matching the edit tools **hard-blocked** an out-of-root write under `--dangerously-skip-permissions`; allowed in-root writes. **This is the chosen mechanism.** | **HIGH (live probe)** |
+| Subprocess escape | the hook (like deny) covers CC's file tools + *recognized* Bash writes; an arbitrary interpreter (`python -c "open(...,'w')"`) bypasses it. OS sandbox needed for a hard boundary. | HIGH (docs) |
 | Sub-agent / Workflow inheritance | subagents inherit parent perms + extra restrictions; Workflow leaf agents run `acceptEdits` + inherit the allowlist — **deny propagation to Workflow agents unverified**. | MED — **CONFIRM IN CC** |
 
 ## 4. The yolo blocker (central finding, verified in code)
