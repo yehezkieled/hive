@@ -90,6 +90,73 @@ class WorktreeManager:
 
         logger.info("Removed worktree: %s", name)
 
+    async def managed_worktrees(self) -> list[dict[str, str]]:
+        """List only the worktrees Hive manages — those directly under
+        ``worktree_dir``.
+
+        The load-bearing safety filter (Ticket 025, ADR 0016): the main
+        checkout and any worktree outside ``worktree_dir`` (e.g. the
+        developer's own ``.claude/worktrees/`` sessions, or Claude Code's
+        leaf-agent worktrees) are excluded, so reconciliation can never
+        touch them. Every sweep consumes this, never raw ``list_worktrees``.
+        """
+        base = self.worktree_dir.resolve()
+        managed: list[dict[str, str]] = []
+        for wt in await self.list_worktrees():
+            path = wt.get("path")
+            if path and Path(path).resolve().parent == base:
+                managed.append(wt)
+        return managed
+
+    async def is_dirty(self, name: str) -> bool:
+        """True if the worktree ``name`` holds uncommitted work.
+
+        Reads ``git status --porcelain`` in ``worktree_dir/name``; any output
+        (modified, staged, or untracked files) means dirty. Drives the
+        never-delete-dirty orphan policy (Ticket 025, ADR 0016). A missing or
+        unreadable worktree is treated as **not** dirty — there is nothing to
+        protect.
+        """
+        wt_path = self.worktree_dir / name
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(wt_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return False
+        return bool(stdout.decode().strip())
+
+    async def prune(self) -> list[str]:
+        """Prune stale git worktree admin records (working dir gone).
+
+        Crash matrix #5: a partial cleanup can leave a worktree's git
+        metadata pointing at a directory that no longer exists. ``git
+        worktree prune -v`` clears those records. Returns the verbose lines
+        git reported (empty when nothing was prunable).
+        """
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "worktree",
+            "prune",
+            "-v",
+            cwd=str(self.repo_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        # ``git worktree prune -v`` reports each removed record on stderr,
+        # not stdout — read both so nothing is missed.
+        combined = stdout.decode() + stderr.decode()
+        pruned = [line for line in combined.splitlines() if line.strip()]
+        if pruned:
+            logger.info("Pruned %d stale worktree record(s)", len(pruned))
+        return pruned
+
     async def list_worktrees(self) -> list[dict[str, str]]:
         """List all git worktrees."""
         proc = await asyncio.create_subprocess_exec(

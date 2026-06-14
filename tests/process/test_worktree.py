@@ -14,6 +14,7 @@ manager is a thin subprocess wrapper, so mocking git would test nothing.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -73,3 +74,75 @@ async def test_create_on_existing_worktree_returns_it(repo: Path, tmp_path: Path
 
     assert again == first
     assert again.exists()
+
+
+# ---------------------------------------------------------------------------
+# Ticket 025 — reconciliation git helpers (managed_worktrees / is_dirty / prune)
+# ---------------------------------------------------------------------------
+
+
+async def test_managed_worktrees_only_returns_those_under_worktree_dir(
+    repo: Path, tmp_path: Path
+) -> None:
+    """``managed_worktrees`` returns ONLY worktrees under ``WORKTREES_DIR``.
+
+    This is the load-bearing safety filter (ADR 0016): the main checkout and
+    any worktree outside ``WORKTREES_DIR`` (e.g. the developer's own
+    ``.claude/worktrees/`` sessions) must be invisible to the sweep. Here an
+    "external" worktree stands in for a dev session.
+    """
+    wt_mgr = WorktreeManager(repo, tmp_path / "worktrees")
+
+    await wt_mgr.create("dev.backend", branch="hive/dev.backend")
+    await wt_mgr.create("dev.frontend", branch="hive/dev.frontend")
+
+    # An external worktree OUTSIDE WORKTREES_DIR — the dev-session stand-in.
+    external = tmp_path / "external" / "human-session"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "human/wip", str(external)],
+        cwd=repo,
+        check=True,
+    )
+
+    managed = await wt_mgr.managed_worktrees()
+    names = {Path(wt["path"]).name for wt in managed}
+
+    assert names == {"dev.backend", "dev.frontend"}
+
+
+async def test_is_dirty_true_with_uncommitted_work_false_when_clean(
+    repo: Path, tmp_path: Path
+) -> None:
+    """``is_dirty`` reflects uncommitted work in the worktree.
+
+    Drives the never-delete-dirty policy (ADR 0016): a clean orphan is
+    reclaimed, a dirty one is quarantined.
+    """
+    wt_mgr = WorktreeManager(repo, tmp_path / "worktrees")
+    wt_path = await wt_mgr.create("dev.backend", branch="hive/dev.backend")
+
+    assert await wt_mgr.is_dirty("dev.backend") is False
+
+    (wt_path / "scratch.txt").write_text("uncommitted work\n")
+
+    assert await wt_mgr.is_dirty("dev.backend") is True
+
+
+async def test_prune_clears_stale_admin_record(repo: Path, tmp_path: Path) -> None:
+    """``prune`` removes git-admin records whose working dir vanished.
+
+    Crash matrix #5: a partial cleanup leaves the dir gone but the git
+    metadata dangling, so ``git worktree list`` still shows a prunable
+    entry. ``prune`` clears it.
+    """
+    wt_mgr = WorktreeManager(repo, tmp_path / "worktrees")
+    wt_path = await wt_mgr.create("dev.backend", branch="hive/dev.backend")
+
+    # Delete the working dir out-of-band (git admin record now dangles).
+    shutil.rmtree(wt_path)
+    assert any(Path(wt["path"]).name == "dev.backend" for wt in await wt_mgr.list_worktrees())
+
+    pruned = await wt_mgr.prune()
+
+    assert pruned  # reported at least one pruned record
+    assert not any(Path(wt["path"]).name == "dev.backend" for wt in await wt_mgr.list_worktrees())
