@@ -4,17 +4,20 @@ Auto-bounce a jammed PTY session: detect a genuine stall, kill + respawn
 (conversation preserved), explain why, and stop if it flaps. Grounded in
 `research.md`; decisions were grilled against CONTEXT.md + the ADRs.
 
-## D1 — The bounce decision: stall count + two safety checks
+## D1 — The bounce decision: stall count + liveness safety checks
 
-On a turn `TimeoutError`, do **not** kill blindly. Run two safety checks
-first — each a reason to *hold off*:
+On a turn `TimeoutError`, do **not** kill blindly. Run the safety checks
+first — two load-bearing (`is_parked_at_gate`, `workflow_active`) plus a
+defense-in-depth third (`awaiting_decision`) — each a reason to *hold off*:
 
 ```
   Turn raised TimeoutError
         │
-        ├─ is_parked_at_gate(name)? ─ yes ─▶ HOLD OFF   (waiting for the user)
+        ├─ is_parked_at_gate(name)?     ─ yes ─▶ HOLD OFF   (waiting at a plan/ask gate)
         │            │ no
-        ├─ workflow_active(window)? ─ yes ─▶ HOLD OFF   (Workflow still running)
+        ├─ workflow_active(window)?     ─ yes ─▶ HOLD OFF   (Workflow still running)
+        │            │ no
+        ├─ entity.awaiting_decision?    ─ yes ─▶ HOLD OFF   (029: waiting on a user decision)
         │            │ no
         ▼
      genuine stall → stalls += 1
@@ -23,8 +26,17 @@ first — each a reason to *hold off*:
 
 Checks are re-run **at decision time** (not inferred from the fact that a
 timeout happened), so 020 stays correct even if 030's liveness-reset is
-imperfect (`research.md` §R4) and even as 029 changes gate registration
-(§R5 — 020 uses only the public `is_parked_at_gate` contract).
+imperfect (`research.md` §R4).
+
+The third check — `entity.awaiting_decision` (Ticket 029 / ADR 0018) — is
+**defense-in-depth, not load-bearing**. A maestro parked on a user decision
+has *ended its turn* and idles with no in-flight send, while the bounce only
+fires on a *timing-out in-flight send*; the user-reply path clears the flag
+before it sends (`research.md` §R5). So the two states cannot currently
+overlap — the check is cheap insurance against a future code path that sends
+to a parked maestro, mirroring 029's own scheduler guard. ADR 0015's "two
+checks" framing stands; this third predicate is an implementation-level
+guard recorded here, not a change to that decision.
 
 Why the permission jam is the thing that gets through both checks: it is
 undetectable as a gate (ADR 0005) so check #1 is False, and it has no
@@ -54,7 +66,7 @@ than `W` and check the count:
   len(bounces within last W) >= M  →  GIVE UP:
      1. do NOT respawn again
      2. entity.transition_to(ERROR)        (visibly broken, not silently dead)
-     3. _notify(kind="error", <reason>)    "Gave up on otter — 3 bounces in
+     3. _notify(kind="auto_bounce_failed") "Gave up on otter — 3 bounces in
                                             30 min, still stuck on a permission
                                             prompt. Needs you."
      4. _audit("entity.bounce_failed", …)
@@ -71,10 +83,10 @@ broken session.
 
 ## D4 — Counting rules
 
-- `stalls` increments **only** on a timeout where both safety checks are
+- `stalls` increments **only** on a timeout where **all** safety checks are
   clear. A held-off timeout neither increments nor counts as a jam — so a
-  maestro you take 7 minutes to answer is never bounced the instant it
-  resumes.
+  maestro you take 7 minutes to answer (at a gate, or via 029's decision
+  channel) is never bounced the instant it resumes.
 - Any **successful** turn (sentinel-accepted, returns text+usage) resets
   `stalls` to 0.
 - On a bounce, `stalls` resets to 0 (fresh process) and the bounce time is
@@ -111,11 +123,15 @@ The reader's 180s no-progress timeout itself is **unchanged** — out of
 
 ## Notification & audit vocabulary
 
+Use **semantic** notification kinds (matching the codebase convention —
+`decision_request`, `quota_monitor_recovered`, `vault_action_resolved` —
+not generic `info`/`error`), so the dashboard can filter them:
+
 | Event | Channel | Text / action |
 |-------|---------|---------------|
-| Recovered | `_notify(kind="info")` | `Auto-bounced <entity> — <reason>. Conversation resumed.` |
+| Recovered | `_notify(kind="auto_bounce")` | `Auto-bounced <entity> — <reason>. Conversation resumed.` |
 | | `_audit("entity.bounce", details={reason, stalls, session_id})` | |
-| Gave up | `_notify(kind="error")` | `Gave up on <entity> — <M> bounces in <W>, <reason>. Needs you.` |
+| Gave up | `_notify(kind="auto_bounce_failed")` | `Gave up on <entity> — <M> bounces in <W>, <reason>. Needs you.` |
 | | `_audit("entity.bounce_failed", details={reason, bounces})` | |
 
 ## Alternatives considered
@@ -123,7 +139,7 @@ The reader's 180s no-progress timeout itself is **unchanged** — out of
 - **Blind consecutive-timeout count (no safety checks).** Simpler, matches
   a literal reading of the acceptance. Rejected: kills a maestro waiting on
   the user, and kills a healthy Lead mid-Workflow (030's false-timeout).
-  The two checks are cheap reads that already exist.
+  The safety checks are cheap reads that already exist.
 - **`waitingFor` as the trigger** (bounce precisely when the field is set).
   Sharper, fewer false stalls. Rejected as the *decision* input: it is an
   undocumented CC field; making recovery depend on it is fragile, and it
@@ -139,9 +155,14 @@ The reader's 180s no-progress timeout itself is **unchanged** — out of
 
 ## Cross-ticket dependencies (assumptions baked in)
 
-- **029** (in flight): 020 assumes post-029 gate-registration semantics and
-  uses only the public `is_parked_at_gate` contract. Regression test: a
-  gated maestro is never bounced.
+- **029** (MERGED, #157 / ADR 0018): shipped as a maestro→user
+  *conversational decision channel*, not a gate-bridge rework. Adds the
+  durable `entity.awaiting_decision` flag, which 020 honors as a
+  defense-in-depth safety check (§D1, `research.md` §R5) — though it cannot
+  currently overlap with an in-flight send. 020's hook point
+  (`send_to_entity:218`) is untouched by 029. Safety-check #1 still uses only
+  the public `is_parked_at_gate` contract. Regression test: a gated maestro
+  is never bounced.
 - **030**: soft. `workflow_active` (check #2) covers the false-timeout class
   030 fixes, so 020 does not block on 030. 030-first is cleaner.
 - **021** (maestro→user routing): independent. 020 notifies via the

@@ -127,7 +127,8 @@ _Avoid_: prompt, menu, interrupt
 Hive automatically killing a jammed Entity's Harness session and respawning
 it — the conversation preserved via the Harness's own resume — when the
 Entity stalls past a threshold and is **not** legitimately waiting (at an
-**[[Interactive gate]]** or on a live **[[Workflow run]]**). The recovery
+**[[Interactive gate]]**, on a live **[[Workflow run]]**, or on a user
+decision via the Ticket 029 channel). The recovery
 net for jams a transcript can't reveal: an un-bridgeable permission prompt
 (ADR 0005) or a wedged session. Repeated bounces in a short window stop and
 escalate to the user instead of flapping. Per Ticket 020 / ADR 0015.

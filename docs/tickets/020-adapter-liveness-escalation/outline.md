@@ -17,11 +17,11 @@ test-first within each unit.
 
 ### 2. `process/message_dispatcher.py` — the catch at the chokepoint
 - Wrap `adapter.send_turn(prompt)` (`:218`) in `try/except TimeoutError`.
-- On `TimeoutError`: run the two safety checks (`is_parked_at_gate`,
-  adapter `workflow_active`). If either holds off → re-raise / return the
-  existing timeout path unchanged (no stall counted). If both clear →
-  `stalls += 1`; at threshold call `_bounce_adapter` and **retry the send
-  once** on the fresh adapter.
+- On `TimeoutError`: run the safety checks — `is_parked_at_gate`, adapter
+  `workflow_active`, and `entity.awaiting_decision` (029 defense-in-depth).
+  If any holds off → re-raise / return the existing timeout path unchanged
+  (no stall counted). If all clear → `stalls += 1`; at threshold call
+  `_bounce_adapter` and **retry the send once** on the fresh adapter.
 - On success → reset `_liveness[name]["stalls"] = 0`.
 - Mirror the auto-compact block's structure (`:221-248`).
 
@@ -54,20 +54,22 @@ script a `TimeoutError` sequence):
 4. **Workflow safety check** — `workflow_active` True at timeout → no
    stall, no bounce (the 030 false-timeout case).
 5. **Flap-guard** — M bounces within W → give-up: entity → `ERROR`,
-   `entity.bounce_failed` audit, error-kind notification, **no** further
-   respawn.
+   `entity.bounce_failed` audit, `auto_bounce_failed`-kind notification,
+   **no** further respawn.
 6. **Flap window resets** — bounces spread beyond W do not trip give-up.
 7. **Reason in the message** — session-state `waitingFor="permission
    prompt"` → notification/audit carry that reason; absent field →
    "cause unknown" and the bounce still fires.
+8. **Awaiting-decision hold-off** (029 defense-in-depth) — a maestro with
+   `awaiting_decision=True` that times out → no stall, no bounce.
 
 ## Validation gate
 `ruff check src/ tests/ && ruff format --check src/ tests/ && pytest -m "not integration"`.
 
 ## Build order
 state + constants → `_bounce_adapter` (+ tests 1,2) → safety-check wiring
-in dispatcher (+ tests 3,4) → flap-guard (+ tests 5,6) → reason assembler
-(+ test 7) → CONTEXT.md + ADR 0015.
+in dispatcher, incl. `awaiting_decision` (+ tests 3,4,8) → flap-guard
+(+ tests 5,6) → reason assembler (+ test 7) → CONTEXT.md + ADR 0015.
 
 ## Post-merge (deployed re-smoke, per S6 DoD)
 Force a jam on a test entity (un-bridged prompt / kill its progress), watch
