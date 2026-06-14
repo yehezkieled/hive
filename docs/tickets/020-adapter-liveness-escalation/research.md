@@ -86,22 +86,40 @@ deadline at `:220-221`) or, if it does, is held off by 020's
 `workflow_active` re-check. So 020 is robust **whether or not 030 has
 landed** — 030-first is *cleaner*, not *required*.
 
-## R5 — Interaction with Ticket 029 (in flight, separate session)
+## R5 — Interaction with Ticket 029 (MERGED — conversational decision channel)
 
-029 (maestro gate bridge) is being built in worktree
-`graceful-sparking-sutherland`; its docs are merged (#144/#145, INDEX row
-`in progress`). 020 and 029 edit **different neighborhoods**: 029 owns the
-gate bridge (`gate_coordinator`, `approval_handler`, the gate path in
-`pty_session`); 020's core edit is `message_dispatcher.send_to_entity` +
-a `ProcessManager` state dict. The only overlap is the notification path,
-which 020 only *calls* (`_notify`/`_audit`), never restructures.
+029 merged (#157, ADR 0018) as a **maestro→user conversational decision
+channel** — *not* the gate-bridge rework an earlier draft of this section
+assumed. It adds a durable `entity.awaiting_decision` flag: a maestro emits
+`request_decision{to:user}`, Hive notifies the user, sets the flag, and
+**ends the turn** (`message_dispatcher._handle_actions` `break`s — the
+maestro idles until a user reply clears the flag at `dispatch.py:645`).
 
-020's safety-check #1 reads gate-registration state that 029 repairs.
-Therefore 020 **depends only on the public `is_parked_at_gate` contract**,
-never gate internals, and assumes **post-029 semantics** (a maestro parked
-at a gate is registered). 029 *strengthens* the check; it does not
-conflict. A regression test ("a gated maestro is never bounced") pins this
-and guards against future regressions.
+Three consequences for 020:
+
+1. **No conflict at the hook point.** 029's edits are all in
+   `_handle_actions` (~`message_dispatcher.py:369+`); 020's hook —
+   `send_to_entity`'s `send_turn` call — is unchanged at
+   `message_dispatcher.py:218`. Verified against merged main.
+
+2. **`awaiting_decision` is a third legitimate-wait state, but the bounce
+   never sees it.** `awaiting_decision=True` ⟺ the turn has **ended** (idle,
+   no in-flight send), and the bounce only fires on a *timing-out in-flight
+   send*. The scheduler needed its own `awaiting_decision` guard
+   (`scheduler.py`) because it pokes *idle* entities; the bounce does not.
+   The one path that sends to such a maestro — the user reply — **clears the
+   flag first** (`dispatch.py:645`, "cleared before the turn runs"), so no
+   in-flight send ever coincides with the flag. 020 is structurally safe
+   here without a check.
+
+3. **Defense-in-depth (`design.md` §D1).** 020 still adds an
+   `awaiting_decision` hold-off as cheap insurance against a *future* code
+   path that sends to a parked maestro — mirroring 029's own scheduler
+   guard. Not load-bearing today.
+
+For safety-check #1, 020 depends only on the **public `is_parked_at_gate`
+contract** (Ticket 028), never gate internals — so 029's churn does not
+reach it. A regression test ("a gated maestro is never bounced") pins this.
 
 ## R6 — The diagnosis sources (best-effort "why")
 
