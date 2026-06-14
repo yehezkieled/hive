@@ -30,7 +30,7 @@ marked with ✱.
 | 022 | [Maestro delegates research (un-bridged interactive gate)](022-maestro-research-delegation/) | S6 (cand.) | planned | — |
 | 023 | [Activate the worktree floor (isolate leaf work) — 015 follow-up](023-activate-worktree-floor/) | 2026-Q2-S5 | done | #92–#95 |
 | 024 | [Project ownership & PA write-policy](024-project-ownership-pa-write-policy/) | 2026-Q2-S6 | planned | — |
-| 025 | [Worktree crash-recovery: entities re-adopt their worktrees](025-worktree-crash-recovery/) | 2026-Q2-S6 | planned | — |
+| 025 | [Worktree crash-recovery: entities re-adopt their worktrees](025-worktree-crash-recovery/) | 2026-Q2-S6 | planned (ready to build) | #146 |
 | 026 | [Turn boundary: reader accepts mid-turn during post-tool thinking gaps](026-turn-boundary-acceptance/) | 2026-Q2-S5 | done | #104–#105 |
 | 027 | [No-progress timeout false-fires on Workflow runs](027-workflow-run-false-timeout/) | 2026-Q2-S5 | superseded by 017 | #118 |
 | 028 | [Scheduler poke corrupts an entity parked at a gate](028-scheduler-poke-gate-guard/) | 2026-Q2-S5 | done | #125 |
