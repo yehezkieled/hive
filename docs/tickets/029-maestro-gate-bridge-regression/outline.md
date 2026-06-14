@@ -1,84 +1,119 @@
-# Outline — Ticket 029
+# Outline — Ticket 029 (REDIRECTED)
 
-Implementation structure for the reader hardening + repro + cause-specific fix.
-Direct lane: one PR carries A (hardening) + F3 (tests); B (repro) gates whether
-C (cause-specific) is needed in the same PR or a follow-up.
+Implementation structure for the maestro→user **conversational decision
+channel**. Ordering matters where noted (a field must exist before its
+migration/restore reads it).
 
-## Module sketch
-
-### 1. `src/hive/runtime/transcript_reader.py` — `await_next_assistant_turn`
-Reorder the per-poll acceptance ladder so the gate check is first and
-quiescence-independent.
+## Build order (dependency-correct)
 
 ```
-# per poll, once current_count > initial_count:
-entries = self._read_entries(session_path)          # parse once
-gate = self._detect_gate(entries)                   # AUTHORITATIVE — first
-if gate is not None:
-    return Gated(gate)                              # no sentinel/quiescence gate
-
-# only if NOT a gate, the existing ladder runs unchanged:
-#   sentinel acceptance (242-246)
-#   strict acceptance + quiescence (253-300):
-#     pending-tool guard, hardened fallback
-```
-Notes:
-- Read entries once per qualifying poll and reuse for the pending-tool /
-  fallback branches (avoid double parse).
-- `_detect_gate` returns `None` instantly when no detector → non-bridged
-  sessions unaffected (`transcript_reader.py:314-315`).
-- Keep the no-progress deadline + `workflow_active` reset (`:213-227`) intact.
-
-### 2. Tests — `tests/runtime/test_transcript_reader.py`
-- `test_await_returns_gated_for_ask_gate` — unanswered `AskUserQuestion` →
-  `Gated`, `gate.kind == "ask"`. (fills the ask-gate gap)
-- `test_ask_gate_after_text_with_sentinel` — **the Run 1 shape**: assistant
-  text block + unresolved `AskUserQuestion`, *plus* a `turn_duration` sentinel
-  appended → still `Gated`, not `(text, usage)`. Fails on current order, passes
-  after the reorder. (the regression guard)
-- `test_ask_gate_after_text_without_sentinel` — same minus the sentinel
-  (covers the quiescence-race variant).
-- Reuse existing `_assistant_entry` / `_sentinel_entry` / `_ask_*` helpers.
-
-### 3. Tests — `tests/runtime/test_pty_session.py`
-- `test_send_handles_ask_gate_then_resumes` — mirror
-  `test_send_handles_plan_gate_then_resumes` (`:280`): reader yields
-  `Gated(ask_gate)` then a real turn; assert `coordinator.resolve` awaited once
-  and the chosen-option keys injected. (proves the bridge engages, no
-  zero-activity)
-
-### 4. Deployed reproduction (B) — not code, a smoke script/checklist
-- `POST /api/command` to drive a maestro propose-and-wait turn on deployed
-  code (memory: live-smoke-via-api-command).
-- Capture: maestro `.jsonl` (is there an `AskUserQuestion` tool_use?),
-  `journalctl --user -u hive.service` `PtySession` spawn line (detector
-  wired?), and the gate row / Telegram surface.
-- Outcome routes to the C-branch in `design.md`.
-
-### 5. Cause-specific fix (C) — only the branch the repro selects
-- C3 guard (cheap, include pre-emptively if repro inconclusive): at maestro
-  adapter creation, assert / log-loud when `gate_coordinator is None` instead
-  of silently building a detector-less session (`pty_session.py:224`,
-  `lifecycle_manager.py:269-275`).
-- C1 / C2: scoped as a follow-up slice if the repro shows tool-not-emitted or
-  yolo-suppression (may need GateDetector extension or a spawn carve-out).
-
-## Sequence
-
-```
-A (reader reorder) ─┬─ F3 tests (red → green)  ── one PR
-                    └─ ADR 0015 (done)
+0. PREREQ (Ticket 021): `user` is a first-class router sink
+   (no-queue, forwards to NotificationDispatcher, returns a failure signal).
+   029 builds ON this — do not fork a second delivery path.
         │
         ▼
-B (deployed repro) ── identifies cause
+1. State: persist awaiting_decision
         │
         ▼
-C (cause-specific) ── same PR if cheap (C3 guard) / follow-up if C1/C2
+2. Emit path: request_decision{to:user} (permission + route + set flag + truncate)
+        │
+        ▼
+3. Clear path: user-sourced reply clears the flag
+        │
+        ▼
+4. Liveness: scheduler skips an awaiting entity + nudge cadence
+        │
+        ▼
+5. Retire gates: deny AskUserQuestion; (optional) dismiss-guard
+        │
+        ▼
+6. Re-mechanize 019 onto this channel
+```
+
+## 1 — Persist `awaiting_decision` (order-sensitive)
+
+```
+src/hive/models/entity.py        add  awaiting_decision: bool = False  (+ last_nudged_at: float|None)
+                                 ↑ add the field FIRST, or _row_to_entity gets an unknown kwarg
+src/hive/bus/migrations/029_entity_awaiting_decision.sql   ALTER TABLE entities
+                                 ADD COLUMN awaiting_decision BOOLEAN NOT NULL DEFAULT 0
+src/hive/bus/entity_store.py     upsert(): write the column; _row_to_entity(): read it
+ProcessManager.restore           rehydrate the flag (it already round-trips other fields)
+```
+
+## 2 — Emit: `request_decision{to:user}`
+
+```
+src/hive/bus/permissions.py      can_request_decision: allow maestro→"user"
+src/hive/process/message_dispatcher.py  request_decision branch:
+   - if action.to == "user": route via the 021 user-sink (NotificationDispatcher),
+     NOT _entities.get(); on dispatch failure return a _reject_action-style signal
+   - resolve self.<team>/<maestro>.<team> via the SHARED 031 alias resolver
+   - set entity.awaiting_decision = True
+   - TRUNCATE the remaining actions in the block (ask-then-end; audit the truncation)
+```
+
+## 3 — Clear: only a user-sourced reply
+
+```
+src/hive/bus/router.py           (option A) add from_user: bool to Message
+                                 (option B, preferred) clear in the USER dispatch path by name,
+                                 so the generic router drain never clears it
+src/hive/process/<user dispatch> on a user→maestro inbound: entity.awaiting_decision = False
+                                 (a peer→maestro message must NOT clear it)
+```
+
+## 4 — Liveness: scheduler skip + nudge
+
+```
+src/hive/process/scheduler.py    run_once / run_once_for: skip if
+                                 is_parked_at_gate(e) OR e.awaiting_decision
+                                 (separate check — do NOT overload is_parked_at_gate)
+nudge                            reuse the 3600s cadence (gate_coordinator precedent)
+                                 with a last_nudged_at guard so the question re-pings,
+                                 not goes silent forever
+restart-window race             on restore: if the entity has queued user mail,
+                                 clear awaiting_decision (let the queued reply re-arm)
+```
+
+## 5 — Retire native gates for maestros
+
+```
+src/hive/process/tool_policy.py  _MAESTRO_DENY += "AskUserQuestion"
+                                 (ExitPlanMode already denied)
+CONFIRM-ON-BINARY                verify bare-name denial blocks emission
+                                 (ExitPlanMode precedent says yes)
+optional dismiss-guard           ONLY if denial leaks: in pty_session, on a detected
+                                 stray gate, inject Esc + feed back "use request_decision".
+                                 The detector (gates.py) stays; the bridge's
+                                 translate/inject/park path is removed.
+```
+
+## 6 — Re-mechanize 019
+
+```
+019 phase-confirmation = at the phase boundary, emit request_decision{to:user}
+("confirm before I advance?") + set awaiting_decision. No native gate.
+Update docs/tickets/019-*/ticket.md acceptance accordingly (this PR).
+```
+
+## Tests
+
+```
+tests/.../test_message_dispatcher.py   maestro request_decision{to:user}:
+   permission allowed · routes to NotificationDispatcher · sets awaiting_decision ·
+   returns failure on dispatcher error · truncates trailing actions
+tests/.../test_entity_store.py         awaiting_decision round-trips upsert→restore
+tests/.../test_scheduler.py            an awaiting_decision entity is skipped by the poke
+tests/.../test_permissions.py          maestro→user allowed; lead→user still denied
+tests/.../test_tool_policy.py          AskUserQuestion in _MAESTRO_DENY
+clear-path test                        user reply clears the flag; a peer message does NOT
 ```
 
 ## Risks / watch-items
-- **Double-parse cost** — read entries once per poll, thread to later branches.
-- **Don't disturb 030's liveness reset** — the `workflow_active` deadline reset
-  must stay; 029 only reorders the acceptance checks above it.
-- **Behaviour, not deletion (S6 risk)** — needs the deployed re-smoke (B), not
-  just green units.
+
+- **Order trap:** add the `Entity` field before the migration/`_row_to_entity`.
+- **One delivery path:** route `to:user` through 021's sink, never a bypass.
+- **One alias resolver:** share 031's, don't fix `self` in only one branch.
+- **Behaviour, not deletion (S6):** needs a deployed re-smoke
+  (maestro→user `request_decision` round-trip), not just green units.

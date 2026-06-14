@@ -34,6 +34,6 @@ marked with ✱.
 | 026 | [Turn boundary: reader accepts mid-turn during post-tool thinking gaps](026-turn-boundary-acceptance/) | 2026-Q2-S5 | done | #104–#105 |
 | 027 | [No-progress timeout false-fires on Workflow runs](027-workflow-run-false-timeout/) | 2026-Q2-S5 | superseded by 017 | #118 |
 | 028 | [Scheduler poke corrupts an entity parked at a gate](028-scheduler-poke-gate-guard/) | 2026-Q2-S5 | done | #125 |
-| 029 ✱ | [Maestro interactive gate not bridged to user (003 gap)](029-maestro-gate-bridge-regression/) | 2026-Q2-S6 | in progress | #144 |
+| 029 ✱ | [Maestro→user conversational decision channel (was: gate-bridge regression)](029-maestro-gate-bridge-regression/) | 2026-Q2-S6 | in progress | #144 |
 | 030 | [Workflow-turn no-progress timeout false-fires on long runs](030-workflow-turn-no-progress-timeout/) | 2026-Q2-S6 | planned | — |
 | 031 | [Maestro addresses its own lead as `self.<team>`](031-maestro-lead-addressing/) | 2026-Q2-S6 | planned | — |
