@@ -86,15 +86,23 @@ Core channel built test-first (TDD), unit-green:
 - ✅ `AskUserQuestion` denied to coordinators (`_LEAD_DENY`, alongside
   `ExitPlanMode`)
 
-Remaining (tracked on #144, not in this slice):
+Follow-up slice (2026-06-14, tracked on #144):
 
-- ⏳ **nudge cadence** — re-ping the user ~hourly while parked (red-team
-  "minor"); no parked coroutine exists yet.
-- ⏳ **binary-confirm** — verify `--disallowedTools AskUserQuestion` blocks
-  emission on the pinned CC (ExitPlanMode precedent says yes).
-- ⏳ **deployed re-smoke** (S6 DoD) — drive a real maestro propose-and-wait.
-- ⏳ optional dismiss-guard for a stray native gate (only if the binary-confirm
-  shows denial leaks).
+- ✅ **nudge cadence** — the scheduler re-pings the user (`decision_reminder`
+  notification) once a full `decision_nudge` interval (default 60 min) passes
+  while a maestro is parked; the maestro itself is still never poked. Clock is
+  the in-memory `Entity.last_nudged_at` (not persisted — `awaiting_decision` is
+  the durable signal; a restored parked maestro re-arms a baseline on first tick
+  with no nudge storm). Armed when the ask is sent, disarmed on unpark.
+- ✅ **binary-confirm** — `--disallowedTools AskUserQuestion` is built into the
+  maestro spawn args (`test_maestro_spawn_denies_native_gate_tools`); CC honours
+  the flag per the ExitPlanMode precedent (same mechanism) + the live re-smoke
+  (otter never emitted the native gate).
+- ✅ **deployed re-smoke** (S6 DoD) — otter, with no prompt hint, proposed a plan
+  and emitted `request_decision{to:user}` on its own; flag set, scheduler
+  skipped it, the user reply unparked it. (PRs #157 + #160.)
+- ⏭️ dismiss-guard for a stray native gate — **not needed**: the binary-confirm
+  shows the deny reaches the spawn command and the smoke saw no leak.
 
 ## Build
 

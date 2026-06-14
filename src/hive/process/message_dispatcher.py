@@ -416,6 +416,9 @@ class MessageDispatcher:
                         data={"entity": entity_name},
                     )
                     entity.awaiting_decision = True
+                    # #144: arm the nudge clock — this original ask is nudge #0;
+                    # the scheduler re-pings the user once a full interval passes.
+                    entity.last_nudged_at = datetime.now(UTC)
                     await self._mgr._persist(entity)
                     self._mgr._last_routed_actions.append("user")
                     await self._mgr._audit(

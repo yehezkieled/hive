@@ -220,6 +220,11 @@ class Entity:
     # is parked waiting for the human's reply. Durable (survives restart) so the
     # scheduler keeps skipping it and it can't be poked into acting unconfirmed.
     awaiting_decision: bool = False
+    # Ticket 029 / #144: when the last decision-reminder was sent to the user
+    # while parked. In-memory only (NOT persisted) — the durable signal is
+    # ``awaiting_decision``; the nudge *clock* needn't survive a restart, the
+    # scheduler re-arms a baseline on first sight of a restored parked entity.
+    last_nudged_at: datetime | None = None
 
     def transition_to(self, new_state: EntityState) -> None:
         """Transition to a new state, raising InvalidStateTransitionError if not allowed."""
