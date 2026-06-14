@@ -92,6 +92,16 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Show the full org tree (maestros -> teams -> workers).",
         examples=("/org",),
     ),
+    "project": HelpEntry(
+        category="Organization",
+        usage="/project new|assign|list [args]",
+        description="Manage the project registry; owned projects are read-only to the PA maestro.",
+        examples=(
+            "/project list",
+            "/project new acme /home/hezki/projects/acme acme-lead",
+            "/project assign acme acme-lead",
+        ),
+    ),
     "team": HelpEntry(
         category="Organization",
         usage="/team create|list|kill [args]",

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from hive.config import ALLOW_AUTO_MERGE
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
+from hive.models.project import Project, ProjectOwnershipError
 from hive.models.task import TaskStatus
 from hive.process import git_ops
 from hive.telegram.commands import Command, parse_command
@@ -80,6 +81,7 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(
         "audit",
         "team",
         "teams",
+        "project",
         "agent",
         "mode",
         "loop",
@@ -269,6 +271,9 @@ class CommandDispatcher:
 
         if cmd.name == "teams":
             return CommandResult(text=self._format_teams())
+
+        if cmd.name == "project":
+            return CommandResult(text=await self._execute_project(cmd.target, cmd.args))
 
         if cmd.name == "agent":
             return CommandResult(
@@ -634,6 +639,10 @@ class CommandDispatcher:
             return f"Send what to {entity_name}?"
 
         try:
+            # Ticket 029: this is the user-sourced path. If the entity was parked
+            # waiting on a decision from the user, this reply unparks it (cleared
+            # before the turn runs, so a re-ask within the turn can re-arm it).
+            await self.process_manager.clear_awaiting_decision(entity_name)
             response = await self.process_manager.send_to_entity(entity_name, message)
             await self.process_manager.router.route("user", entity_name, message)
             await self.process_manager.router.route(entity_name, "user", response)
@@ -677,6 +686,52 @@ class CommandDispatcher:
             return f"Team {name!r} killed."
 
         return f"Unknown team subcommand: {subcommand}"
+
+    async def _execute_project(self, subcommand: str | None, args: str) -> str:
+        """Handle /project new|assign|list — the ownership registry (Ticket 024)."""
+        store = self.process_manager.project_store
+        if store is None:
+            return "Project registry unavailable."
+        sub = (subcommand or "list").lower()
+
+        if sub == "list":
+            projects = await store.all()
+            if not projects:
+                return "No projects registered."
+            lines = [
+                f"- {p.name} → {p.root_path} "
+                f"({'owner: ' + p.owning_maestro if p.owning_maestro else 'ownerless'})"
+                for p in projects
+            ]
+            return "Projects:\n" + "\n".join(lines)
+
+        if sub == "new":
+            parts = args.split()
+            if len(parts) < 2:
+                return "Usage: /project new <name> <path> [maestro]"
+            name, path = parts[0], parts[1]
+            maestro = parts[2] if len(parts) > 2 else None
+            await store.upsert(Project(name=name, root_path=Path(path)))
+            if maestro:
+                try:
+                    await store.assign(name, maestro)
+                except ProjectOwnershipError as e:
+                    return f"Project {name!r} created, but assign failed: {e}"
+                return f"Project {name!r} created at {path}, assigned to {maestro!r}."
+            return f"Project {name!r} created at {path} (ownerless)."
+
+        if sub == "assign":
+            parts = args.split()
+            if len(parts) < 2:
+                return "Usage: /project assign <name> <maestro>"
+            name, maestro = parts[0], parts[1]
+            try:
+                await store.assign(name, maestro)
+            except ProjectOwnershipError as e:
+                return f"Error: {e}"
+            return f"Project {name!r} assigned to {maestro!r}."
+
+        return f"Unknown project subcommand: {subcommand}"
 
     async def _execute_mode(self, mode_name: str | None, entity_name: str) -> str:
         """Handle /mode <plan|edit|auto|yolo|yotree> [entity].

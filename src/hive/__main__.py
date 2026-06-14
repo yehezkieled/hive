@@ -12,6 +12,7 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
+from hive.bus.project_store import ProjectStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
@@ -155,6 +156,7 @@ async def main() -> None:
 
     router = MessageRouter(store)
     entity_store = EntityStore(store.pool)
+    project_store = ProjectStore(store.pool)
     token_store = TokenStore(store.pool)
     task_store = TaskStore(store.pool)
     audit_log = AuditLog(store.pool)
@@ -195,6 +197,7 @@ async def main() -> None:
         router=router,
         max_sessions=MAX_CONCURRENT_SESSIONS,
         entity_store=entity_store,
+        project_store=project_store,
         token_store=token_store,
         audit_log=audit_log,
         blueprint_store=blueprint_store,

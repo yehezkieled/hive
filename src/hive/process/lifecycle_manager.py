@@ -17,11 +17,15 @@ load-bearing — do not reorder or add awaits inside it.
 
 from __future__ import annotations
 
+import json
 import logging
+import sys
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from hive.config import DEFAULT_MAESTRO
 from hive.mcp.config import mcp_servers_enabled
 from hive.models.entity import (
     Entity,
@@ -31,6 +35,7 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
+from hive.process.ownership_policy import WritablePolicy, settings_payload, writable_policy
 from hive.process.skill_curation import skill_denylist_for
 from hive.process.tool_policy import role_tool_denylist
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
@@ -118,6 +123,56 @@ def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
         mcp_config_path=Path(entity.mcp_config_path) if mcp_servers_enabled() else None,
         advisor=resolve_advisor(entity.model, entity.advisor, entity.role),
     )
+
+
+def _maestro_fence(
+    entity: Entity,
+    *,
+    is_pa: bool,
+    own_root: str | None,
+    owned_roots: list[str],
+) -> WritablePolicy | None:
+    """The ownership write-fence for a maestro spawn, or None if nothing to fence.
+
+    Project ownership (Ticket 024, ADR 0017) only fences maestros — leaf work
+    is already scoped by the worktree floor (ADR 0010). The PA is fenced *out*
+    of every owned project root; a project maestro is fenced *into* its own
+    root. A maestro with no fence target (PA with no owned projects, or a
+    project maestro with no project yet) gets no policy.
+    """
+    if not isinstance(entity, Maestro):
+        return None
+    if is_pa:
+        if not owned_roots:
+            return None
+        return writable_policy(is_pa=True, own_root=None, owned_roots=owned_roots)
+    if not own_root:
+        return None
+    return writable_policy(is_pa=False, own_root=own_root, owned_roots=owned_roots)
+
+
+def _guard_command() -> str:
+    """The hook command that runs the ownership guard, using this interpreter.
+
+    ``sys.executable`` is the service venv's python, which has ``hive``
+    installed — so ``-m hive.hooks.ownership_guard`` resolves regardless of the
+    spawned entity's cwd (a project maestro runs in its project root, not the
+    Hive checkout).
+    """
+    return f"{sys.executable} -m hive.hooks.ownership_guard"
+
+
+def _write_spawn_settings(entity_name: str, payload: dict) -> Path:
+    """Write the per-spawn settings.json carrying the guard hook, return its path.
+
+    Overwritten every spawn (restart-proof, same contract as the tool
+    denylist). One stable path per entity so stale files don't accumulate.
+    """
+    spawn_dir = Path(tempfile.gettempdir()) / "hive-spawn-settings"
+    spawn_dir.mkdir(parents=True, exist_ok=True)
+    path = spawn_dir / f"{entity_name}.settings.json"
+    path.write_text(json.dumps(payload, indent=2))
+    return path
 
 
 class LifecycleManager:
@@ -240,6 +295,32 @@ class LifecycleManager:
         self._mgr.router.register(entity.name)
         logger.info("Registered entity: %s (role=%s)", entity.name, entity.role)
 
+    async def _ownership_spawn_overrides(self, entity: Entity) -> tuple[Path | None, Path | None]:
+        """Per-spawn ownership fence: (settings_path, project-home cwd override).
+
+        Builds the PreToolUse ownership-guard settings file for a maestro
+        (Ticket 024, ADR 0017) and, for a project maestro, returns its project
+        root as the cwd override. Returns ``(None, None)`` for non-maestros,
+        when no project store is wired (unit tests), or when the maestro has no
+        fence target.
+        """
+        store = getattr(self._mgr, "project_store", None)
+        if not isinstance(entity, Maestro) or store is None:
+            return (None, None)
+        owned_roots = await store.owned_roots()
+        is_pa = entity.name == DEFAULT_MAESTRO
+        own_root: str | None = None
+        if not is_pa:
+            project = await store.for_maestro(entity.name)
+            own_root = str(project.root_path) if project else None
+        policy = _maestro_fence(entity, is_pa=is_pa, own_root=own_root, owned_roots=owned_roots)
+        settings_path: Path | None = None
+        if policy is not None:
+            payload = settings_payload(policy, guard_command=_guard_command())
+            settings_path = _write_spawn_settings(entity.name, payload)
+        cwd = Path(own_root) if own_root else None
+        return (settings_path, cwd)
+
     async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
         """Return a live PTY adapter for entity, creating one if needed.
 
@@ -260,12 +341,20 @@ class LifecycleManager:
                 entity.name, branch=f"hive/{entity.name}"
             )
 
-        cwd = (
+        config = _adapter_config_from_entity(entity)
+        lead_cwd = (
             Path(entity.worktree_path)
             if isinstance(entity, TeamLead) and entity.worktree_path
             else None
         )
-        config = _adapter_config_from_entity(entity)
+        # Project ownership (Ticket 024, ADR 0017): fence a maestro's writes with
+        # a per-spawn PreToolUse guard hook, and home a project maestro in its
+        # project root. No-op for leads (worktree floor scopes them) and the PA
+        # when it owns nothing.
+        settings_path, maestro_cwd = await self._ownership_spawn_overrides(entity)
+        if settings_path is not None:
+            config.settings_path = settings_path
+        cwd = lead_cwd or maestro_cwd
         adapter = ClaudeAdapter(
             config,
             cwd=cwd,

@@ -224,6 +224,13 @@ class PriorityScheduler:
             if pm.is_parked_at_gate(m.name):
                 logger.info("scheduler: skipping %s — parked at an interactive gate", m.name)
                 continue
+            # Ticket 029: a maestro waiting on a user decision must not be poked
+            # — only the user's reply may advance it. Separate check from the
+            # gate skip (awaiting_decision is a flag on a RUNNING/IDLE entity,
+            # not a GATED state).
+            if m.awaiting_decision:
+                logger.info("scheduler: skipping %s — awaiting a user decision", m.name)
+                continue
             try:
                 facts = await self.build_facts_prompt(m.name)
                 await pm.send_to_entity(m.name, facts)
@@ -245,6 +252,12 @@ class PriorityScheduler:
             notice = (
                 f"{maestro_name} is parked at an interactive gate; skipped (answer the gate first)."
             )
+            logger.info("scheduler: %s", notice)
+            return notice
+        # Ticket 029: don't poke a maestro awaiting a user decision.
+        awaiting = self.process_manager.entities.get(maestro_name)
+        if awaiting is not None and awaiting.awaiting_decision:
+            notice = f"{maestro_name} is awaiting a user decision; skipped (reply to it first)."
             logger.info("scheduler: %s", notice)
             return notice
         facts = await self.build_facts_prompt(maestro_name)

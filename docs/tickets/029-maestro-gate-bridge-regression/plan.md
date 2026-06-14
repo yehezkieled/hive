@@ -70,8 +70,34 @@ retired rather than fixed.
 - **019/ticket.md** — re-mechanized (this PR).
 - **README / DEPLOYMENT** — no operator-facing change.
 
+## Implementation status (2026-06-14)
+
+Core channel built test-first (TDD), unit-green:
+
+- ✅ `awaiting_decision` entity field + migration `029` + persist/restore
+- ✅ `can_request_decision` allows maestro→user (lead→user still denied)
+- ✅ `request_decision{to:user}` → notification dispatcher, sets the flag,
+  truncates trailing actions, rejects (no fictional delivery) when no
+  notification path is configured
+- ✅ flag clears only on a user-sourced reply (via the command path), never on
+  a peer/scheduler message
+- ✅ scheduler (`run_once` + `run_once_for`) skips an `awaiting_decision`
+  maestro — separate check from the interactive-gate skip
+- ✅ `AskUserQuestion` denied to coordinators (`_LEAD_DENY`, alongside
+  `ExitPlanMode`)
+
+Remaining (tracked on #144, not in this slice):
+
+- ⏳ **nudge cadence** — re-ping the user ~hourly while parked (red-team
+  "minor"); no parked coroutine exists yet.
+- ⏳ **binary-confirm** — verify `--disallowedTools AskUserQuestion` blocks
+  emission on the pinned CC (ExitPlanMode precedent says yes).
+- ⏳ **deployed re-smoke** (S6 DoD) — drive a real maestro propose-and-wait.
+- ⏳ optional dismiss-guard for a stray native gate (only if the binary-confirm
+  shows denial leaks).
+
 ## Build
 
-Direct lane, one feature PR that closes #144, built in the outline order. Unlike
-the first-pass docs, the implementation touches `src/` → the build PR runs full
-CI + a deployed re-smoke.
+Direct lane, one feature PR, built in the outline order. The implementation
+touches `src/` → full CI + a deployed re-smoke. #144 stays open until the
+remaining items (esp. the deployed re-smoke) land.
