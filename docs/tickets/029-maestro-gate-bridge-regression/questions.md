@@ -4,6 +4,15 @@ The unknowns going into the root-cause. Each is answered in `research.md`
 with a file:line or transcript reference, or explicitly deferred to the live
 re-smoke.
 
+> **Redirect note (2026-06-14).** Q1–Q7 below scoped the original *bridge-fix*.
+> The root-cause they established (the native-gate bridge is fragile and the
+> only live maestro gate, `AskUserQuestion`, can be denied — `ExitPlanMode`
+> already is) led to re-scoping 029 into the **conversational decision
+> channel**. The redirect's own design questions (Q1 liveness, Q2 mechanism,
+> Q3 native-gate fate, Q4 clearing, Q5 persistence) were resolved in a
+> grill-with-docs session and are captured in `research.md` (Part 2),
+> `design.md`, and [ADR 0017](../../adr/0017-conversational-decision-channel.md).
+
 ## Q1 — Is the gate *detector* even wired on a maestro's PTY?
 `pty_session.py:224` builds a `GateDetector` only when `gate_coordinator is
 not None`. Is a maestro's coordinator ever `None` at adapter-creation time
