@@ -669,21 +669,34 @@ class MessageDispatcher:
         )
 
     def _resolve_message_alias(self, sender: Entity, to: str) -> str:
-        """Resolve the ``maestro``/``parent`` addressing aliases.
+        """Resolve the addressing aliases.
 
-        ``to:"maestro"`` resolves to the sender's org root (the first dotted
-        segment); ``to:"parent"`` to its immediate parent (the sender's name
-        minus the last segment), so an entity never has to remember — or
-        invent — a dotted name (Ticket 023, design D2). An org root has no
-        parent, so its ``to:"parent"`` resolves to the empty string and is
-        rejected by the recipient lookup. Any other value passes through
-        unchanged: no fuzzy matching, because a silent misdelivery is worse
-        than a drop.
+        Upward (Ticket 023, design D2): ``to:"maestro"`` resolves to the
+        sender's org root (the first dotted segment); ``to:"parent"`` to its
+        immediate parent (the sender's name minus the last segment).
+
+        Downward (Ticket 031): ``to:"self"``/``to:"me"`` resolve to the
+        sender's own name, and ``to:"self.<child>"``/``to:"me.<child>"`` to
+        ``<sender>.<child>`` — so a maestro can address a freshly-spawned lead
+        as ``self.<team>`` without inventing its dotted name. Bare ``self``/
+        ``me`` resolve to the sender and are caught by the self-message ban.
+
+        Aliases let an entity never have to remember — or invent — a dotted
+        name. An org root has no parent, so its ``to:"parent"`` resolves to the
+        empty string and is rejected by the recipient lookup. Any other value
+        passes through unchanged: no fuzzy matching, because a silent
+        misdelivery is worse than a drop. The alias words are not reserved
+        entity names — a team literally named ``self``/``me``/``maestro``/
+        ``parent`` is shadowed by its alias (accepted risk, Ticket 023/031).
         """
         if to == "maestro":
             return sender.name.split(".")[0]
         if to == "parent":
             return ".".join(sender.name.split(".")[:-1])
+        if to in ("self", "me"):
+            return sender.name
+        if to.startswith(("self.", "me.")):
+            return f"{sender.name}.{to.split('.', 1)[1]}"
         return to
 
     async def _reject_action(
@@ -724,7 +737,8 @@ class MessageDispatcher:
         if len(parts) == 1:
             return (
                 "You are an org root: address entities in your org by "
-                'their full dotted name (e.g. "yourname.team").'
+                'their full dotted name (e.g. "yourname.team"), or a direct '
+                'child as "self.team".'
             )
         parent = ".".join(parts[:-1])
         if sender.role == "lead":

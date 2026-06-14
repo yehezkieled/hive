@@ -92,6 +92,16 @@ class TestRepoLevelRoleFiles:
         assert "spawn_worker" not in text
         assert "kill_entity" in text
 
+    def test_maestro_jd_teaches_self_alias(self) -> None:
+        """The maestro JD teaches the downward addressing alias (Ticket 031):
+        a maestro addresses its freshly-spawned lead as ``self.<team>`` — no
+        dotted name to remember or invent, mirroring the lead→maestro alias.
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-maestro.md").read_text()
+        assert "self.<team_name>" in text
+        assert "no name needed" in text
+
     def test_lead_jd_documents_workflow_leaf_path(self) -> None:
         """The lead JD teaches the Workflow leaf engine (ADR 0010):
         fan out via the Workflow tool, sync-wait on TaskOutput, isolate

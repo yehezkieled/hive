@@ -646,6 +646,123 @@ async def test_lead_parent_alias_delivers_to_maestro(
 
 
 # ---------------------------------------------------------------------------
+# Downward self/me alias (Ticket 031) — a sender addresses its own child
+# ---------------------------------------------------------------------------
+
+
+async def test_maestro_self_alias_delivers_to_own_lead(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A maestro's ``to:"self.<team>"`` resolves to ``<maestro>.<team>`` and
+    delivers to the freshly-spawned lead on the first attempt (Ticket 031)."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+
+    actions = [Action(type="message", to="self.backend", text="here is the goal")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert ("dev", "dev.backend", "here is the goal") in mgr.router.routed
+    assert mgr._last_routed_actions == ["dev.backend"]
+
+
+async def test_maestro_me_alias_delivers_to_own_lead(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """``me`` is an accepted synonym for ``self`` — robust to the model's
+    phrasing (Ticket 031, acceptance prong 2)."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+
+    actions = [Action(type="message", to="me.backend", text="here is the goal")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert ("dev", "dev.backend", "here is the goal") in mgr.router.routed
+    assert mgr._last_routed_actions == ["dev.backend"]
+
+
+async def test_bare_self_alias_rejected_as_self_message(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A bare ``to:"self"`` resolves to the sender — caught by the existing
+    self-message ban with a 'resolves to yourself' note, not a silent drop."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="message", to="self", text="hello me")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert mgr._last_routed_actions == []
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
+    assert len(notes) == 1
+    assert "yourself" in notes[0][2]
+
+
+async def test_self_prefix_word_is_not_an_alias(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """Only exact ``self``/``me`` or the ``self.``/``me.`` prefix resolve — a
+    name that merely starts with those letters (``selfless``, ``method``) passes
+    through unchanged and is rejected as an unknown recipient, never mis-resolved
+    to the sender.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    for bogus in ("selfless", "method"):
+        actions = [Action(type="message", to=bogus, text="x")]
+        await dispatcher._handle_actions("dev", "done", actions)
+
+    rejected = {t: d for (a, t, d) in mgr.audit_calls if a == "action_rejected"}
+    assert "unknown" in rejected["selfless"]["reason"]
+    assert "unknown" in rejected["method"]["reason"]
+
+
+async def test_self_alias_resolves_to_sender_not_org_root(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """``self`` is the sender's OWN name, distinct from ``maestro`` (the org
+    root): a lead's ``self.<x>`` prepends its full name, so it does NOT reach a
+    sibling under the org root."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+    mgr._entities["dev.payments"] = TeamLead(
+        name="dev.payments", team_name="payments", maestro_name="dev"
+    )
+
+    # self.payments from dev.backend → dev.backend.payments (nonexistent),
+    # NOT the sibling dev.payments.
+    actions = [Action(type="message", to="self.payments", text="sibling?")]
+    await dispatcher._handle_actions("dev.backend", "done", actions)
+
+    assert ("dev.backend", "dev.payments", "sibling?") not in mgr.router.routed
+    assert mgr._last_routed_actions == []
+    rejected = [(t, d) for (a, t, d) in mgr.audit_calls if a == "action_rejected"]
+    assert len(rejected) == 1
+    assert "unknown" in rejected[0][1]["reason"]
+
+
+async def test_org_root_unknown_recipient_hint_advertises_self_alias(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """The org-root addressing hint now teaches the downward ``self.<team>``
+    form, so a maestro that mis-addresses a child self-corrects toward it."""
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="message", to="dev.ghost", text="anyone?")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
+    assert len(notes) == 1
+    assert "self." in notes[0][2]
+
+
+# ---------------------------------------------------------------------------
 # _handle_parse_errors — debounce window + cap escalation
 # ---------------------------------------------------------------------------
 
