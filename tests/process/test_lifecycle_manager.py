@@ -215,6 +215,27 @@ def test_maestro_config_denies_prototype_but_keeps_thinking_skills() -> None:
     assert "Task" in args
 
 
+def test_maestro_spawn_denies_native_gate_tools() -> None:
+    """Binary-confirm (#144): the native interactive-gate tools reach the CC
+    spawn command as ``--disallowedTools`` tokens for a maestro.
+
+    Ticket 029 retired native gates for coordinators in favour of the
+    conversational decision channel. This asserts the deny *reaches the
+    binary* (the flag is built); CC honouring the flag rides the ExitPlanMode
+    precedent (same mechanism) and the live re-smoke (otter never emitted it).
+    """
+    from hive.runtime.claude_adapter import ClaudeAdapter
+
+    maestro = Maestro(name="dev", model="opus")
+    config = _adapter_config_from_entity(maestro)
+    args = ClaudeAdapter(config)._build_pty_extra_args()
+
+    assert "AskUserQuestion" in args
+    assert "ExitPlanMode" in args
+    # the tokens live under the --disallowedTools flag, not --allowedTools
+    assert "--disallowedTools" in args
+
+
 def test_adapter_config_merges_entity_role_and_skill_denylists() -> None:
     """disallowed_tools = entity tokens + role policy + skill denylist.
 

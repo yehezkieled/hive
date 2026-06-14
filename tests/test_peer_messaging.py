@@ -179,6 +179,8 @@ class TestRequestDecision:
         assert any("approve the plan?" in m for m in channel.messages)
         assert manager._entities["dev"].awaiting_decision is True
         assert "user" in manager._last_routed_actions
+        # #144: parking arms the nudge clock (the original ask is nudge #0)
+        assert manager._entities["dev"].last_nudged_at is not None
 
     async def test_request_decision_to_user_truncates_trailing_actions(
         self, manager: ProcessManager

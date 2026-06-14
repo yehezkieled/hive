@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest_asyncio
@@ -325,3 +326,96 @@ async def test_run_once_for_parked_returns_notice_without_poking(
 
     assert "gate" in result.lower()
     manager.send_to_entity.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Ticket 029 / #144: nudge cadence — re-ping the user about a pending decision
+# ---------------------------------------------------------------------------
+
+
+class _CapturingChannel:
+    """Notification channel that records every notification's text + kind."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.kinds: list[str] = []
+
+    async def send(self, notification) -> None:  # noqa: ANN001 — duck-typed
+        self.messages.append(notification.text)
+        self.kinds.append(notification.kind)
+
+
+def _capture_notifications(manager: ProcessManager) -> _CapturingChannel:
+    channel = _CapturingChannel()
+    dispatcher = NotificationDispatcher()
+    dispatcher.register(channel)
+    manager.notification_dispatcher = dispatcher
+    return channel
+
+
+async def test_run_once_nudges_user_after_interval(manager: ProcessManager) -> None:
+    """A maestro parked on a decision whose last nudge is older than the
+    interval gets a reminder re-pinged to the user — but is still never poked."""
+    channel = _capture_notifications(manager)
+
+    dev = Maestro(name="dev", model="sonnet")
+    dev.awaiting_decision = True
+    dev.last_nudged_at = datetime.now(UTC) - timedelta(minutes=61)
+    manager._entities["dev"] = dev
+    manager.router.register("dev")
+
+    sent: list[str] = []
+
+    async def fake_send(name: str, prompt: str) -> str:
+        sent.append(name)
+        return ""
+
+    manager.send_to_entity = fake_send  # type: ignore[method-assign]
+
+    sched = PriorityScheduler(process_manager=manager, decision_nudge_minutes=60)
+    poked = await sched.run_once()
+
+    assert poked == []  # never poked — still awaiting the user
+    assert sent == []  # PTY untouched
+    assert any("dev" in m for m in channel.messages)  # user re-pinged
+    assert "decision_reminder" in channel.kinds
+    # clock reset so the next reminder waits another full interval
+    assert datetime.now(UTC) - dev.last_nudged_at < timedelta(minutes=1)
+
+
+async def test_run_once_does_not_nudge_within_interval(manager: ProcessManager) -> None:
+    """A recently-nudged parked maestro is skipped silently — no spam."""
+    channel = _capture_notifications(manager)
+
+    dev = Maestro(name="dev", model="sonnet")
+    dev.awaiting_decision = True
+    dev.last_nudged_at = datetime.now(UTC) - timedelta(minutes=10)
+    manager._entities["dev"] = dev
+    manager.router.register("dev")
+
+    sched = PriorityScheduler(process_manager=manager, decision_nudge_minutes=60)
+    poked = await sched.run_once()
+
+    assert poked == []
+    assert channel.messages == []  # no reminder within the interval
+
+
+async def test_run_once_establishes_nudge_baseline_after_restart(
+    manager: ProcessManager,
+) -> None:
+    """A restored parked maestro (flag persisted, in-memory clock lost) gets a
+    fresh baseline on the first tick — no immediate nudge storm."""
+    channel = _capture_notifications(manager)
+
+    dev = Maestro(name="dev", model="sonnet")
+    dev.awaiting_decision = True
+    dev.last_nudged_at = None  # restored: persisted flag, transient clock gone
+    manager._entities["dev"] = dev
+    manager.router.register("dev")
+
+    sched = PriorityScheduler(process_manager=manager, decision_nudge_minutes=60)
+    poked = await sched.run_once()
+
+    assert poked == []
+    assert channel.messages == []  # baseline established, not nudged this tick
+    assert dev.last_nudged_at is not None  # clock armed for next interval
