@@ -41,6 +41,31 @@ goal.
 _Note_: with the Worker entity retired (ADR 0013) and deleted (Ticket
 018), a Team in practice is a Team Lead plus its Workflow runs.
 
+**Project**:
+A codebase a Maestro owns — a first-class registry record (name → root
+path → owning Maestro, nullable). **Not an Entity.** At most one Maestro
+owns a Project, and a Maestro owns at most one Project; the **PA Maestro**
+owns none. Distinct from the project-management sense of "project"
+(Sprints/Tickets) — see Flagged ambiguities.
+_Avoid_: repo (a Project is the ownership record, not the git repo),
+workspace.
+
+**Project ownership**:
+The 1-Project-↔-≤1-Maestro model plus the write-policy it drives: a
+project Maestro writes only its own Project; the **PA Maestro** reads any
+Project but writes only **ownerless** ones. Enforced by the **Ownership
+guard** (Ticket 024, [ADR 0017](adr/0017-ownership-guard-pretooluse-hook.md)).
+
+**Ownership guard**:
+The enforcement layer behind **Project ownership**: a Claude Code
+`PreToolUse` hook, generated into a per-spawn settings file and injected
+with `--settings`, that blocks an Entity's file-edit tools
+(`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) on paths outside its writable
+set. It fires **even under bypass mode** (where permission `deny` rules do
+not), but fences only the file tools — a guardrail against accidental
+cross-project writes, **not** a `Bash`/subprocess-proof wall.
+_Avoid_: permission rule, sandbox, deny rule.
+
 ### Execution
 
 **Harness**:
@@ -218,3 +243,7 @@ one or more Tickets).
 - **"agent" vs "Entity"** — the README and older docs say "agent"; the code's base class is `Entity`. Resolved: **Entity** is canonical.
 - **"runtime" vs "Harness"** — a **Harness** is the external tool; a **Runtime** is which Harness an Entity is assigned to. Not synonyms.
 - **"subsidised"** — informal word for **Plan-billed**. Use Plan-billed.
+- **"project"** — two senses. A **Project** (capital P) is a codebase a
+  Maestro owns (Ticket 024 registry record). A lowercase "project" in
+  `docs/` means the project-management altitude (Sprints/Tickets). Prefer
+  the capital-P term when ownership is meant.
