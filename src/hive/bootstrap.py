@@ -19,6 +19,7 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
+from hive.bus.project_store import ProjectStore
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -36,6 +37,7 @@ def build_process_manager(
     router: MessageRouter,
     max_sessions: int = 3,
     entity_store: EntityStore | None = None,
+    project_store: ProjectStore | None = None,
     token_store: TokenStore | None = None,
     audit_log: AuditLog | None = None,
     blueprint_store: BlueprintStore | None = None,
@@ -63,6 +65,7 @@ def build_process_manager(
         worktree_mgr=worktree_mgr,
         max_sessions=max_sessions,
         entity_store=entity_store,
+        project_store=project_store,
         token_store=token_store,
         audit_log=audit_log,
         blueprint_store=blueprint_store,

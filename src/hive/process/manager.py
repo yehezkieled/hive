@@ -25,6 +25,7 @@ from hive.bus.permissions import (
     can_spawn_team,  # noqa: F401  re-exported; moved to MessageDispatcher
     cc_targets_for,  # noqa: F401  re-exported; moved to MessageDispatcher
 )
+from hive.bus.project_store import ProjectStore
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -86,6 +87,7 @@ class ProcessManager:
         worktree_mgr: WorktreeManager | None = None,
         max_sessions: int = 3,
         entity_store: EntityStore | None = None,
+        project_store: ProjectStore | None = None,
         token_store: TokenStore | None = None,
         audit_log: AuditLog | None = None,
         blueprint_store: BlueprintStore | None = None,
@@ -104,6 +106,7 @@ class ProcessManager:
         self.worktree_mgr = worktree_mgr
         self.max_sessions = max_sessions
         self.entity_store = entity_store
+        self.project_store = project_store
         self.token_store = token_store
         self.audit_log = audit_log
         self.blueprint_store = blueprint_store

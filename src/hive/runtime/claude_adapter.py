@@ -65,6 +65,9 @@ class ClaudeAdapterConfig:
     name: str = ""
     mcp_config_path: Path | None = None
     advisor: str | None = None
+    # Per-spawn settings file carrying the ownership-guard PreToolUse hook
+    # (Ticket 024, ADR 0017). Injected via --settings; None = no fence.
+    settings_path: Path | None = None
 
 
 class ClaudeAdapter(Runtime):
@@ -135,6 +138,10 @@ class ClaudeAdapter(Runtime):
             # MCP servers (those add minutes of cold-start latency per spawn).
             args.extend(["--mcp-config", str(cfg.mcp_config_path)])
             args.append("--strict-mcp-config")
+        if cfg.settings_path is not None:
+            # Ownership-guard PreToolUse hook (Ticket 024, ADR 0017). A hook
+            # fires even under bypass mode, where permission deny rules do not.
+            args.extend(["--settings", str(cfg.settings_path)])
         return args
 
     async def start(self) -> None:

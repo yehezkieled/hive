@@ -13,6 +13,7 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
+from hive.bus.project_store import ProjectStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
@@ -110,6 +111,7 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE blueprints RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE mode_requests RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE attachments RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE projects RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
@@ -168,3 +170,9 @@ async def mode_request_store(store: MessageStore) -> AsyncIterator[ModeRequestSt
 async def attachment_store(store: MessageStore) -> AsyncIterator[AttachmentStore]:
     """Function-scoped AttachmentStore sharing the test pool."""
     yield AttachmentStore(store.pool)
+
+
+@pytest_asyncio.fixture
+async def project_store(store: MessageStore) -> AsyncIterator[ProjectStore]:
+    """Function-scoped ProjectStore sharing the test pool."""
+    yield ProjectStore(store.pool)
