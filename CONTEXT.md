@@ -118,6 +118,25 @@ the **native** tool. The retired *custom advisor* (a Hive MCP server that
 spawned a `claude -p` subprocess) is gone — do not conflate them.
 _Avoid_: custom advisor, advisor MCP server, `claude -p` advisor.
 
+**Worktree reconciliation**:
+The startup pass that makes the worktree floor crash-safe (Ticket 025,
+ADR 0015). After entities are restored, it re-adopts each Lead's own
+worktree (path derived from the Lead's name, uncommitted edits intact) and
+sweeps **orphan worktrees**. The sweep is scoped strictly to
+`WORKTREES_DIR` — it can never touch the main checkout or the developer's
+`.claude/worktrees/` sessions — and never deletes a worktree holding
+uncommitted work.
+_Avoid_: orphan cleanup, worktree GC.
+
+**Orphan worktree**:
+A directory under `WORKTREES_DIR` with no owning Entity — left by a crash
+mid-spawn (worktree created before the Entity persisted) or a failed,
+swallowed removal mid-kill. Disposed by [[Worktree reconciliation]]:
+git-admin-stale → `prune`, clean → remove, dirty → quarantine (audit +
+warn, kept for a human). Not the same as a Claude Code leaf-agent worktree
+under `.claude/worktrees/`, which Hive does not sweep.
+_Avoid_: stale worktree, dead worktree.
+
 ### Billing
 
 **Plan-billed**:
