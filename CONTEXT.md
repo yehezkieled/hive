@@ -123,6 +123,16 @@ completing the Turn — plan-mode approval (`ExitPlanMode`), an
 blocks the Turn until answered and Hive bridges it (hold-and-inject).
 _Avoid_: prompt, menu, interrupt
 
+**Auto-bounce**:
+Hive automatically killing a jammed Entity's Harness session and respawning
+it — the conversation preserved via the Harness's own resume — when the
+Entity stalls past a threshold and is **not** legitimately waiting (at an
+**[[Interactive gate]]** or on a live **[[Workflow run]]**). The recovery
+net for jams a transcript can't reveal: an un-bridgeable permission prompt
+(ADR 0005) or a wedged session. Repeated bounces in a short window stop and
+escalate to the user instead of flapping. Per Ticket 020 / ADR 0015.
+_Avoid_: restart, reboot, kill-and-retry.
+
 **Thinking skill**:
 A Claude Code skill that pauses mid-Turn to involve a human — an
 interview/Q&A, an `AskUserQuestion` selection, or a STOP/approval
@@ -142,6 +152,25 @@ at spawn); model-driven and Plan-billed. _Note_: from Ticket 013 this is
 the **native** tool. The retired *custom advisor* (a Hive MCP server that
 spawned a `claude -p` subprocess) is gone — do not conflate them.
 _Avoid_: custom advisor, advisor MCP server, `claude -p` advisor.
+
+**Worktree reconciliation**:
+The startup pass that makes the worktree floor crash-safe (Ticket 025,
+ADR 0016). After entities are restored, it re-adopts each Lead's own
+worktree (path derived from the Lead's name, uncommitted edits intact) and
+sweeps **orphan worktrees**. The sweep is scoped strictly to
+`WORKTREES_DIR` — it can never touch the main checkout or the developer's
+`.claude/worktrees/` sessions — and never deletes a worktree holding
+uncommitted work.
+_Avoid_: orphan cleanup, worktree GC.
+
+**Orphan worktree**:
+A directory under `WORKTREES_DIR` with no owning Entity — left by a crash
+mid-spawn (worktree created before the Entity persisted) or a failed,
+swallowed removal mid-kill. Disposed by [[Worktree reconciliation]]:
+git-admin-stale → `prune`, clean → remove, dirty → quarantine (audit +
+warn, kept for a human). Not the same as a Claude Code leaf-agent worktree
+under `.claude/worktrees/`, which Hive does not sweep.
+_Avoid_: stale worktree, dead worktree.
 
 ### Billing
 
