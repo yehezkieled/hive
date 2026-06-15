@@ -7,9 +7,10 @@ the answer is summarised here with a pointer.
 
 1. **What fires a bounce — a blind count of consecutive timeouts, or a
    count plus liveness checks?**
-   → Two **safety checks** re-run at decision time: `is_parked_at_gate`
-   and `workflow_active`. Bounce only when a stall threshold (default 2)
-   is reached **and both checks are clear**. See `design.md` §D1.
+   → **Safety checks** re-run at decision time: `is_parked_at_gate`,
+   `workflow_active`, and `entity.awaiting_decision` (029 defense-in-depth).
+   Bounce only when a stall threshold (default 2) is reached **and all
+   checks are clear**. See `design.md` §D1.
 
 2. **Does a held-off timeout (entity legitimately waiting) count toward
    the stall threshold?** → No. Only a timeout where both safety checks
@@ -57,12 +58,13 @@ the answer is summarised here with a pointer.
 
 ## Scope & sequencing
 
-9. **Does 020 depend on 029 (gate bridge, in flight)?** → Not a build
-   dependency — 020 consumes the already-shipped public
-   `is_parked_at_gate` contract (Ticket 028), not 029's internals. They
-   are semantically coupled through gate-registration state, so 020
-   assumes **post-029 gate semantics** and ships a regression test that a
-   gated maestro is never bounced. `research.md` §R5.
+9. **Does 020 depend on 029 (now MERGED, #157)?** → No build dependency.
+   029 shipped as a maestro→user *conversational decision channel* (not a
+   gate-bridge rework), adding the durable `entity.awaiting_decision` flag.
+   020's hook point (`send_to_entity:218`) is untouched; safety-check #1
+   uses only the public `is_parked_at_gate` contract (Ticket 028). 020
+   honors `awaiting_decision` as a defense-in-depth check, though it cannot
+   currently overlap with an in-flight send. `research.md` §R5.
 
 10. **Does 020 need 030 to land first?** → Soft, not hard. The
     `workflow_active` safety check is a second guard on the exact

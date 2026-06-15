@@ -205,6 +205,8 @@ class ProcessManager:
         if entity is None or not entity.awaiting_decision:
             return
         entity.awaiting_decision = False
+        # #144: disarm the nudge clock so no stray reminder fires after unpark.
+        entity.last_nudged_at = None
         await self._persist(entity)
 
     async def _audit(

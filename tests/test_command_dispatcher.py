@@ -539,11 +539,15 @@ async def test_user_reply_clears_awaiting_decision(
     await manager.register_maestro("dev")
     manager._entities["dev"].awaiting_decision = True
 
+    manager._entities["dev"].last_nudged_at = datetime.now(UTC)
+
     adapter = FakeAdapter(responses="acknowledged")
     with using_adapter(manager, adapter):
         await dispatcher._send_to_entity("dev", "go ahead")
 
     assert manager._entities["dev"].awaiting_decision is False
+    # #144: unparking also disarms the nudge clock — no stray reminders
+    assert manager._entities["dev"].last_nudged_at is None
 
 
 async def test_peer_triggered_send_does_not_clear_awaiting_decision(

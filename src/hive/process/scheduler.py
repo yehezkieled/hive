@@ -54,12 +54,16 @@ class PriorityScheduler:
         token_store: TokenStore | None = None,
         eval_interval_minutes: int = 120,
         spawn_limit: int = 3,
+        decision_nudge_minutes: int = 60,
     ) -> None:
         self.process_manager = process_manager
         self.task_store = task_store
         self.token_store = token_store
         self.eval_interval = timedelta(minutes=eval_interval_minutes)
         self.spawn_limit = spawn_limit
+        # #144: how long a parked maestro may sit before the user is re-pinged
+        # about the pending decision. The maestro itself is never poked.
+        self.decision_nudge = timedelta(minutes=decision_nudge_minutes)
         self._spawn_counts: dict[str, int] = defaultdict(int)
         self._window_started_at = datetime.now(UTC)
 
@@ -205,6 +209,30 @@ class PriorityScheduler:
     # Tick / loop
     # ------------------------------------------------------------------
 
+    async def _maybe_nudge_decision(self, maestro) -> None:  # noqa: ANN001
+        """Re-ping the user about a maestro's pending decision (#144).
+
+        Called only for an ``awaiting_decision`` maestro. Fires a reminder when
+        a full ``decision_nudge`` interval has elapsed since the last nudge, then
+        resets the clock. A restored maestro (flag persisted, in-memory clock
+        lost on restart) has ``last_nudged_at is None`` — we arm a fresh baseline
+        without nudging, so a restart never triggers a reminder storm. Never
+        pokes the maestro itself — only the human is reminded.
+        """
+        now = datetime.now(UTC)
+        if maestro.last_nudged_at is None:
+            maestro.last_nudged_at = now  # arm baseline (post-restart), no nudge
+            return
+        if now - maestro.last_nudged_at < self.decision_nudge:
+            return
+        await self.process_manager._notify(
+            f"⏰ {maestro.name} is still waiting on your decision — reply to it to continue.",
+            kind="decision_reminder",
+            data={"entity": maestro.name},
+        )
+        maestro.last_nudged_at = now
+        logger.info("scheduler: nudged user about %s's pending decision", maestro.name)
+
     async def run_once(self) -> list[str]:
         """One scheduler tick — reset window, eval each alive maestro.
 
@@ -227,8 +255,11 @@ class PriorityScheduler:
             # Ticket 029: a maestro waiting on a user decision must not be poked
             # — only the user's reply may advance it. Separate check from the
             # gate skip (awaiting_decision is a flag on a RUNNING/IDLE entity,
-            # not a GATED state).
+            # not a GATED state). #144: while skipping, re-ping the user once a
+            # full nudge interval has passed so the question can't sit silently
+            # forever — the maestro is still never poked.
             if m.awaiting_decision:
+                await self._maybe_nudge_decision(m)
                 logger.info("scheduler: skipping %s — awaiting a user decision", m.name)
                 continue
             try:
