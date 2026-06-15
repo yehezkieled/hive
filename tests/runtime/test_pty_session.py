@@ -60,13 +60,15 @@ def _sentinel_line(session_id: str) -> str:
     return json.dumps(entry) + "\n"
 
 
-def test_claude_projects_dir_replaces_slashes_and_dots() -> None:
-    """Regression: Claude Code's slug rule replaces BOTH '/' and '.' with '-'.
+def test_claude_projects_dir_replaces_all_nonalnum() -> None:
+    """Claude Code's slug rule rewrites EVERY non-alphanumeric char to '-',
+    with no collapsing of runs.
 
     A cwd like /home/x/repo/.claude/worktrees/foo becomes
     -home-x-repo--claude-worktrees-foo (note the double-dash because '/.'
-    becomes '--'). Earlier code only replaced '/' and silently mis-located
-    the transcript dir for any cwd containing a dot.
+    becomes '--', not collapsed). See test_claude_projects_dir_replaces_underscore
+    for the '_' case that the earlier '/'-and-'.'-only rule silently mis-located
+    (Ticket 030).
     """
     cwd = Path("/home/hezki/projects/hive/.claude/worktrees/fix-pty-output")
     expected = (
@@ -82,6 +84,20 @@ def test_claude_projects_dir_for_dotless_path() -> None:
     """Sanity: a cwd with no dots produces the simple dash-substituted slug."""
     cwd = Path("/home/hezki/projects/hive")
     expected = Path.home() / ".claude" / "projects" / "-home-hezki-projects-hive"
+    assert _claude_projects_dir(cwd) == expected
+
+
+def test_claude_projects_dir_replaces_underscore() -> None:
+    """Regression (Ticket 030): Claude Code rewrites EVERY non-alphanumeric char
+    to '-', including '_'. A lead under a 'hive_dev' maestro has cwd
+    .../worktrees/hive_dev.smoke; CC creates .../-...-hive-dev-smoke (underscore
+    → dash). The old rule kept the '_' → Hive polled a dir that never existed →
+    a 180s phantom no-progress timeout on every turn.
+    """
+    cwd = Path("/home/hezki/projects/hive/worktrees/hive_dev.smoke")
+    expected = (
+        Path.home() / ".claude" / "projects" / "-home-hezki-projects-hive-worktrees-hive-dev-smoke"
+    )
     assert _claude_projects_dir(cwd) == expected
 
 
@@ -183,8 +199,10 @@ async def test_start_spawns_with_model_flag(mock_spawn, tmp_path: Path) -> None:
 async def test_start_adds_continue_when_prior_session_exists(mock_spawn, tmp_path: Path) -> None:
     mock_cls, proc = mock_spawn
     # Simulate an existing Claude session: create the projects dir + .jsonl file
-    cwd_slug = str(tmp_path).replace("/", "-")
-    projects_dir = Path.home() / ".claude" / "projects" / cwd_slug
+    # Build the dir at the SAME slug start() computes (Ticket 030): pytest
+    # tmp_path names contain '_', and CC's slug rewrites every non-alnum to '-',
+    # so a hand-rolled str.replace("/", "-") would diverge from _claude_projects_dir.
+    projects_dir = _claude_projects_dir(tmp_path)
     projects_dir.mkdir(parents=True, exist_ok=True)
     (projects_dir / "session.jsonl").write_text('{"role":"assistant"}\n')
 
@@ -214,8 +232,10 @@ async def test_start_snapshots_project_dir_jsonls(mock_spawn, tmp_path: Path) ->
     """start() must snapshot the *.jsonl set + sizes BEFORE spawning, so
     TranscriptReader can later tell our session's file apart from siblings."""
     mock_cls, proc = mock_spawn
-    cwd_slug = str(tmp_path).replace("/", "-")
-    projects_dir = Path.home() / ".claude" / "projects" / cwd_slug
+    # Build the dir at the SAME slug start() computes (Ticket 030): pytest
+    # tmp_path names contain '_', and CC's slug rewrites every non-alnum to '-',
+    # so a hand-rolled str.replace("/", "-") would diverge from _claude_projects_dir.
+    projects_dir = _claude_projects_dir(tmp_path)
     projects_dir.mkdir(parents=True, exist_ok=True)
     file_a = projects_dir / "a.jsonl"
     file_b = projects_dir / "b.jsonl"
@@ -554,6 +574,90 @@ async def test_send_reads_pinned_transcript_while_decoy_grows(tmp_path: Path) ->
 
     assert text == "the real answer"
     assert usage["session_id"] == "pin-sess"
+
+
+async def test_send_alarms_when_projects_dir_missing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Fail-loud slug-drift guard (Ticket 030): if Claude Code's projects dir
+    never appears after first input, log a loud ERROR naming the slug drift —
+    instead of silently dead-ending in a 180s phantom no-progress timeout.
+    """
+    pid = 5151
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / f"{pid}.json").write_text(
+        json.dumps({"pid": pid, "sessionId": "sess-x", "status": "busy"})
+    )
+    # Deliberately do NOT create _claude_projects_dir(tmp_path): simulates the
+    # slug pointing at a directory Claude Code never creates.
+    proc = _make_mock_proc()
+    proc.pid = pid
+
+    with (
+        patch("hive.runtime.pty_session.PtyProcess") as mock_cls,
+        patch("hive.runtime.pty_session._SLUG_GUARD_GRACE_S", 0.3),
+    ):
+        mock_cls.spawn.return_value = proc
+        session = PtySession(model="sonnet", cwd=tmp_path, sessions_dir=sessions_dir)
+        await session.start()
+        # The turn itself never lands (wrong dir) — short-circuit the await so the
+        # test exercises only the guard, not the real 180s timeout.
+        session._transcript_reader.await_next_assistant_turn = AsyncMock(
+            return_value=("", {"session_id": "sess-x"})
+        )
+        with caplog.at_level(logging.ERROR, logger="hive.runtime.pty_session"):
+            await session.send("do the work")
+
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("does not exist" in r.message and "slug" in r.message for r in errors), (
+        f"expected a slug-drift ERROR, got: {[r.message for r in caplog.records]}"
+    )
+
+
+async def test_send_no_alarm_on_lazy_creation(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The guard must NOT false-fire on the healthy path: Claude Code creates
+    the projects dir lazily a beat after first input, well within the grace
+    window (Ticket 030).
+    """
+    pid = 5252
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / f"{pid}.json").write_text(
+        json.dumps({"pid": pid, "sessionId": "sess-y", "status": "busy"})
+    )
+    projects_dir = _claude_projects_dir(tmp_path)
+    proc = _make_mock_proc()
+    proc.pid = pid
+
+    async def lazy_create() -> None:
+        # CC creates the dir shortly after input — inside the grace window.
+        await asyncio.sleep(0.2)
+        projects_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with (
+            patch("hive.runtime.pty_session.PtyProcess") as mock_cls,
+            patch("hive.runtime.pty_session._SLUG_GUARD_GRACE_S", 3.0),
+        ):
+            mock_cls.spawn.return_value = proc
+            session = PtySession(model="sonnet", cwd=tmp_path, sessions_dir=sessions_dir)
+            await session.start()
+            session._transcript_reader.await_next_assistant_turn = AsyncMock(
+                return_value=("ok", {"session_id": "sess-y"})
+            )
+            create_task = asyncio.create_task(lazy_create())
+            with caplog.at_level(logging.ERROR, logger="hive.runtime.pty_session"):
+                await session.send("do the work")
+            await create_task
+    finally:
+        shutil.rmtree(projects_dir, ignore_errors=True)
+
+    assert not [r for r in caplog.records if r.levelno == logging.ERROR], (
+        f"guard false-fired on the lazy-create path: {[r.message for r in caplog.records]}"
+    )
 
 
 async def test_send_falls_back_to_heuristic_when_pid_state_file_missing(
