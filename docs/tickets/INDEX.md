@@ -37,3 +37,4 @@ marked with ✱.
 | 029 ✱ | [Maestro→user conversational decision channel (was: gate-bridge regression)](029-maestro-gate-bridge-regression/) | 2026-Q2-S6 | done | #144, #157, #160, #164 |
 | 030 | [Workflow-turn no-progress timeout false-fires on long runs](030-workflow-turn-no-progress-timeout/) | 2026-Q2-S6 | done | #168, #170 |
 | 031 | [Maestro addresses its own lead as `self.<team>`](031-maestro-lead-addressing/) | 2026-Q2-S6 | done | #161, #165 |
+| 032 | [Validate entity/team names before they reach git/worktree paths](032-entity-name-validation/) | 2026-Q2-S7 | planned | — |
