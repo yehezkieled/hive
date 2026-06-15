@@ -125,7 +125,8 @@ Same `<hive_actions>` block, additional types:
 - **spawn_team** (maestro only):
   `{"type": "spawn_team", "team_name": "<short-name>", "display_name": "<optional>", "personality": "<optional>"}`.
   Creates a new team in your org. The lead is registered as
-  `<your-name>.<team_name>`.
+  `<your-name>.<team_name>`. To hand it the goal, address it as
+  `self.<team_name>` (no name needed).
 - **kill_entity** (maestro or lead):
   `{"type": "kill_entity", "target": "<full.entity.name>"}`. Removes an
   entity from your scope. Cannot kill yourself or the default maestro.
