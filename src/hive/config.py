@@ -110,6 +110,16 @@ WEB_TOKEN = os.environ.get("HIVE_WEB_TOKEN", "")
 # Auto-management (Sprint 10)
 AUTO_COMPACT_ENABLED = os.environ.get("HIVE_AUTO_COMPACT_ENABLED", "true").lower() == "true"
 AUTO_COMPACT_THRESHOLD = int(os.environ.get("HIVE_AUTO_COMPACT_THRESHOLD", "50000"))
+# Auto-bounce jammed PTY sessions (Ticket 020, ADR 0015). A genuine no-progress
+# stall past THRESHOLD consecutive turns kills + respawns the session
+# (conversation preserved); FLAP_MAX bounces within FLAP_WINDOW_S gives up loudly
+# instead of flapping. WORKFLOW_WINDOW_S is the liveness window the workflow-active
+# safety check consults (don't bounce a lead whose Workflow advanced recently).
+BOUNCE_STALL_THRESHOLD = int(os.environ.get("HIVE_BOUNCE_STALL_THRESHOLD", "2"))
+BOUNCE_FLAP_MAX = int(os.environ.get("HIVE_BOUNCE_FLAP_MAX", "3"))
+BOUNCE_FLAP_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_FLAP_WINDOW_S", "1800"))
+BOUNCE_WORKFLOW_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_WORKFLOW_WINDOW_S", "180"))
+
 AUTO_KILL_IDLE_ENABLED = os.environ.get("HIVE_AUTO_KILL_IDLE_ENABLED", "true").lower() == "true"
 IDLE_TIMEOUT_MINUTES = int(os.environ.get("HIVE_IDLE_TIMEOUT_MINUTES", "30"))
 DAILY_SUMMARY_ENABLED = os.environ.get("HIVE_DAILY_SUMMARY_ENABLED", "true").lower() == "true"

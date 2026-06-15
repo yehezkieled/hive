@@ -251,6 +251,11 @@ class StubManager:
         if usage is not None:
             self.usage_records.append(usage)
 
+    def _note_turn_success(self, entity_name: str) -> None:
+        # Ticket 020: the dispatcher resets the stall counter after every
+        # completed turn. No liveness state on the stub — a no-op suffices.
+        pass
+
     async def _get_or_create_adapter(self, entity: object) -> FakeTurnAdapter:
         return self.adapter
 
