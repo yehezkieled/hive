@@ -8,7 +8,12 @@ import pytest_asyncio
 
 from hive.bus.actions import Action
 from hive.bus.audit_log import AuditLog
-from hive.bus.permissions import can_message, can_request_decision, cc_targets_for
+from hive.bus.permissions import (
+    can_message,
+    can_message_user,
+    can_request_decision,
+    cc_targets_for,
+)
 from hive.bus.router import MessageRouter
 from hive.notifications.dispatcher import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
@@ -93,6 +98,20 @@ class TestCanRequestDecision:
     def test_lead_to_user_denied(self) -> None:
         # A lead escalates to its parent maestro, never directly to the user.
         assert can_request_decision("lead", "dev.backend", "user") is False
+
+
+# ---- can_message_user gate (Ticket 021) ----
+
+
+class TestCanMessageUser:
+    def test_maestro_to_user_allowed(self) -> None:
+        # Ticket 021: only a maestro may message the user directly (the one-way
+        # report channel), mirroring can_request_decision's user rule.
+        assert can_message_user("maestro") is True
+
+    def test_lead_to_user_denied(self) -> None:
+        # A lead reports through its maestro, never directly to the user.
+        assert can_message_user("lead") is False
 
 
 # ---- Routing integration tests (peer message + CC) ----
