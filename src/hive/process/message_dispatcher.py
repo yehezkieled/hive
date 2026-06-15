@@ -25,6 +25,7 @@ from hive.bus.actions import Action, neutralize_action_tags, parse_actions
 from hive.bus.permissions import (
     can_kill,
     can_message,
+    can_message_user,
     can_request_decision,
     can_spawn_team,
     cc_targets_for,
@@ -324,6 +325,45 @@ class MessageDispatcher:
             if action.type == "message":
                 requested_to = action.to or ""
                 recipient_name = self._resolve_message_alias(entity, requested_to)
+                if recipient_name == "user":
+                    # Ticket 021: maestro→user one-way report. Mirrors 029's
+                    # request_decision→user (ADR 0018) but FIRE-AND-FORGET — no
+                    # awaiting_decision, no break: a report isn't a blocking
+                    # question, so the maestro keeps processing its actions.
+                    body = action.text or ""
+                    if not can_message_user(entity.role):
+                        await self._reject_action(
+                            entity,
+                            "message",
+                            requested_to,
+                            "only a maestro may message the user; report to "
+                            'your maestro via to:"maestro" instead.',
+                        )
+                        continue
+                    if self._mgr.notification_dispatcher is None:
+                        # No path to the user — reject (don't claim delivery, so
+                        # the maestro can't narrate fictional success).
+                        await self._reject_action(
+                            entity,
+                            "message",
+                            "user",
+                            "no notification path to the user is configured — "
+                            "your message was not delivered.",
+                        )
+                        continue
+                    await self._mgr._notify(
+                        f"[{entity_name}] {body}",
+                        kind="entity_message",
+                        data={"entity": entity_name},
+                    )
+                    self._mgr._last_routed_actions.append("user")
+                    await self._mgr._audit(
+                        "user_message_sent",
+                        target="user",
+                        details={"sender": entity_name, "text": body[:200]},
+                        actor=entity_name,
+                    )
+                    continue
                 recipient = self._mgr._entities.get(recipient_name) if recipient_name else None
                 if not recipient:
                     logger.warning("Unknown recipient: %s", requested_to)

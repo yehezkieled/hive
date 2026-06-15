@@ -151,6 +151,11 @@ class StubManager:
         # existing full-turn tests are unaffected.
         self.gate_coordinator: FakeGateCoordinator | None = None
 
+        # Notification sink presence (real manager: manager.py:121). Truthy by
+        # default = a path to the user exists; Ticket 021 tests set this to None
+        # to exercise the no-notification-path reject branch.
+        self.notification_dispatcher: object | None = object()
+
         # --- send_to_entity surface (turn-end inbox check, Ticket 023 D4) ---
         # A REAL WakeScheduler wired to this stub: the turn-end check must
         # go through the existing budget machinery, so the tests exercise
@@ -392,6 +397,90 @@ async def test_message_to_unknown_recipient_skipped(
 
     assert [r for r in mgr.router.routed if r[0] != "system"] == []
     assert mgr._last_routed_actions == []
+
+
+# ---------------------------------------------------------------------------
+# message -> user (Ticket 021) — the one-way report channel
+# ---------------------------------------------------------------------------
+
+
+async def test_message_to_user_notifies_and_tracks(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A maestro message to ``user`` delivers via _notify (not the router).
+
+    Name-prefixed text, ``entity_message`` kind, ``user_message_sent`` audit,
+    and ``user`` recorded in _last_routed — no entity-router traffic.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="message", to="user", text="all green")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert mgr.notify_calls == [("[dev] all green", "entity_message", {"entity": "dev"})]
+    assert mgr._last_routed_actions == ["user"]
+    assert any(a == "user_message_sent" for (a, _t, _d) in mgr.audit_calls)
+    # nothing went through the entity-to-entity router
+    assert [r for r in mgr.router.routed if r[0] != "system"] == []
+
+
+async def test_message_to_user_no_path_rejects_without_fictional_delivery(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """No notification path → reject (no _notify), so the maestro can't fake success."""
+    mgr.notification_dispatcher = None
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    actions = [Action(type="message", to="user", text="all green")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert mgr.notify_calls == []
+    assert mgr._last_routed_actions == []
+    assert any(a == "action_rejected" for (a, _t, _d) in mgr.audit_calls)
+    # _reject_action queues a system -> sender failure note naming the cause
+    note = next(r[2] for r in mgr.router.routed if r[0] == "system" and r[1] == "dev")
+    assert "notification path" in note.lower()
+
+
+async def test_lead_message_to_user_denied_by_gate(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """Only maestros may message the user; a lead is rejected, pointed at its maestro."""
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+
+    actions = [Action(type="message", to="user", text="hi")]
+    await dispatcher._handle_actions("dev.backend", "done", actions)
+
+    assert mgr.notify_calls == []
+    assert mgr._last_routed_actions == []
+    assert any(a == "action_rejected" for (a, _t, _d) in mgr.audit_calls)
+    note = next(r[2] for r in mgr.router.routed if r[0] == "system" and r[1] == "dev.backend")
+    assert "only a maestro" in note.lower()
+
+
+async def test_message_to_user_does_not_end_turn(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """Messaging user is fire-and-forget: a trailing action in the same block still runs.
+
+    This is the divergence from 029's request_decision->user, which breaks.
+    """
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev.backend"] = TeamLead(
+        name="dev.backend", team_name="backend", maestro_name="dev"
+    )
+
+    actions = [
+        Action(type="message", to="user", text="fyi"),
+        Action(type="message", to="dev.backend", text="go"),
+    ]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert mgr.notify_calls == [("[dev] fyi", "entity_message", {"entity": "dev"})]
+    assert ("dev", "dev.backend", "go") in mgr.router.routed
+    assert mgr._last_routed_actions == ["user", "dev.backend"]
 
 
 async def test_request_mode_change_tracked(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
