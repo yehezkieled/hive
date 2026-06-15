@@ -35,5 +35,5 @@ marked with ✱.
 | 027 | [No-progress timeout false-fires on Workflow runs](027-workflow-run-false-timeout/) | 2026-Q2-S5 | superseded by 017 | #118 |
 | 028 | [Scheduler poke corrupts an entity parked at a gate](028-scheduler-poke-gate-guard/) | 2026-Q2-S5 | done | #125 |
 | 029 ✱ | [Maestro→user conversational decision channel (was: gate-bridge regression)](029-maestro-gate-bridge-regression/) | 2026-Q2-S6 | done | #144, #157, #160, #164 |
-| 030 | [Workflow-turn no-progress timeout false-fires on long runs](030-workflow-turn-no-progress-timeout/) | 2026-Q2-S6 | planned | — |
+| 030 | [Workflow-turn no-progress timeout false-fires on long runs](030-workflow-turn-no-progress-timeout/) | 2026-Q2-S6 | in progress | #168 |
 | 031 | [Maestro addresses its own lead as `self.<team>`](031-maestro-lead-addressing/) | 2026-Q2-S6 | done | #161, #165 |
