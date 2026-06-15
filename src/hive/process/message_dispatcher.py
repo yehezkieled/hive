@@ -215,7 +215,21 @@ class MessageDispatcher:
             _mgr_mod.generate_mcp_config(entity.name, entity.mcp_config_path)
 
         adapter = await self._mgr._get_or_create_adapter(entity)
-        response, usage = await adapter.send_turn(prompt)
+        # --- Ticket 020: auto-bounce a jammed session ---
+        # The 180s no-progress timeout surfaces here as a TimeoutError. The
+        # manager decides whether this is a genuine stall (kill + respawn,
+        # conversation preserved via --continue, then retry once on the fresh
+        # adapter) or a legitimate wait / sub-threshold blip that should
+        # propagate unchanged. A successful turn — first try or retry — resets
+        # the consecutive-stall count.
+        try:
+            response, usage = await adapter.send_turn(prompt)
+        except TimeoutError:
+            if not await self._mgr._maybe_bounce_on_timeout(entity, adapter):
+                raise
+            adapter = await self._mgr._get_or_create_adapter(entity)
+            response, usage = await adapter.send_turn(prompt)
+        self._mgr._note_turn_success(entity_name)
         await self._mgr._record_usage(entity, usage)
 
         # Auto-compact if context is too large

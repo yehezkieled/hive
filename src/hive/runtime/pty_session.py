@@ -419,16 +419,40 @@ class PtySession:
     @staticmethod
     def _parse_session_id(state_path: Path) -> str | None:
         """The sessionId in a session-state file, or None if unreadable/absent."""
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
-        if not isinstance(data, dict):
+        data = PtySession._parse_session_state(state_path)
+        if data is None:
             return None
         session_id = data.get("sessionId")
         if isinstance(session_id, str) and session_id:
             return session_id
         return None
+
+    @staticmethod
+    def _parse_session_state(state_path: Path) -> dict | None:
+        """The full session-state dict, or None if unreadable/absent (ADR 0011)."""
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def describe_session_state(self) -> dict | None:
+        """Best-effort ``{status, waitingFor}`` for this session's process.
+
+        Reason source only for the Ticket 020 auto-bounce notification — NEVER
+        the bounce decision. Reads the same ``~/.claude/sessions/<pid>.json``
+        the session pin uses (ADR 0011, an undocumented CC interface). Returns
+        None when the pid or file is unavailable; both keys may be None when the
+        field is absent.
+        """
+        proc = self._proc
+        pid = getattr(proc, "pid", None) if proc is not None else None
+        if not isinstance(pid, int):
+            return None
+        data = self._parse_session_state(self._sessions_dir / f"{pid}.json")
+        if data is None:
+            return None
+        return {"status": data.get("status"), "waitingFor": data.get("waitingFor")}
 
     async def _handle_gate(self, gated: Gated) -> None:
         """Park on the gate, inject the user's decision, resume the Turn.

@@ -17,7 +17,7 @@ from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
-from tests.fakes import FakeAdapter, using_adapter
+from tests.fakes import TIMEOUT, FakeAdapter, using_adapter, using_adapter_sequence
 
 
 class _CapturingChannel:
@@ -1575,3 +1575,212 @@ class TestIsParkedAtGate:
         mgr.gate_coordinator = _FakeGateCoordinator(live={"other"})  # type: ignore[assignment]
         assert mgr.is_parked_at_gate("dev") is False
         await mgr.kill_all()
+
+
+class _KindChannel:
+    """Capturing channel that records each notification's (text, kind)."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    async def send(self, notification: Notification) -> None:
+        self.events.append((notification.text, notification.kind))
+
+
+class TestAutoBounce:
+    """Ticket 020 — auto-bounce a jammed PTY session: kill + respawn
+    (conversation preserved via --continue), guarded by liveness safety checks
+    and a time-windowed flap-guard. The 180s no-progress timeout surfaces as a
+    ``TimeoutError`` out of ``adapter.send_turn`` (see ``transcript_reader``)."""
+
+    async def test_bounce_on_threshold_then_retry_succeeds(self, manager: ProcessManager) -> None:
+        channel = _KindChannel()
+        manager.notification_dispatcher.register(channel)
+        maestro = Maestro(name="otter", model="opus")
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+
+        jammed = FakeAdapter([TIMEOUT], jam_state={"waitingFor": "a permission prompt"})
+        healthy = FakeAdapter("ok")
+
+        with (
+            using_adapter_sequence(manager, [jammed, healthy]),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 2),
+        ):
+            # Turn 1: a single stall is below threshold — the timeout still
+            # surfaces to the caller, no bounce yet.
+            with pytest.raises(TimeoutError):
+                await manager.send_to_entity("otter", "hi")
+            assert manager._liveness["otter"]["stalls"] == 1
+            assert not jammed.stopped
+
+            # Turn 2: second consecutive stall hits the threshold → bounce the
+            # jammed session and retry once on the fresh adapter → success.
+            result = await manager.send_to_entity("otter", "hi again")
+
+        assert result == "ok"
+        assert jammed.stopped  # old session killed
+        assert healthy.started  # respawned (conversation preserved)
+        assert manager._liveness["otter"]["stalls"] == 0  # reset on success
+        kinds = [k for _, k in channel.events]
+        assert kinds.count("auto_bounce") == 1
+
+    async def test_success_resets_stall_counter(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="otter", model="opus")
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+
+        # timeout, success, timeout — the success in the middle must zero the
+        # counter so the third turn is stall #1, never reaching the threshold.
+        adapter = FakeAdapter([TIMEOUT, "ok", TIMEOUT])
+        with (
+            using_adapter_sequence(manager, [adapter]),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 2),
+        ):
+            with pytest.raises(TimeoutError):
+                await manager.send_to_entity("otter", "1")
+            assert manager._liveness["otter"]["stalls"] == 1
+            await manager.send_to_entity("otter", "2")
+            assert manager._liveness["otter"]["stalls"] == 0
+            with pytest.raises(TimeoutError):
+                await manager.send_to_entity("otter", "3")
+            assert manager._liveness["otter"]["stalls"] == 1
+
+        assert not adapter.stopped  # never bounced
+
+    async def test_gate_holds_off_bounce(self, manager: ProcessManager) -> None:
+        # A maestro parked at a plan/ask gate is legitimately waiting — even if
+        # the turn timed out, it must NOT be bounced and the stall must not count.
+        maestro = Maestro(name="otter", model="opus")
+        manager._entities["otter"] = maestro
+        manager.gate_coordinator = _FakeGateCoordinator(live={"otter"})  # type: ignore[assignment]
+        adapter = FakeAdapter([TIMEOUT])
+        manager._adapters["otter"] = adapter
+        adapter.started = True
+
+        retry = await manager._maybe_bounce_on_timeout(maestro, adapter)
+
+        assert retry is False
+        assert not adapter.stopped
+        assert manager._liveness.get("otter", {"stalls": 0})["stalls"] == 0
+
+    async def test_workflow_active_holds_off_bounce(self, manager: ProcessManager) -> None:
+        # A lead mid-Workflow is the 030 false-timeout class — hold off.
+        lead = TeamLead(name="otter.web", maestro_name="otter", model="opus")
+        manager._entities["otter.web"] = lead
+        adapter = FakeAdapter([TIMEOUT], workflow_active=True)
+        manager._adapters["otter.web"] = adapter
+        adapter.started = True
+
+        retry = await manager._maybe_bounce_on_timeout(lead, adapter)
+
+        assert retry is False
+        assert not adapter.stopped
+        assert manager._liveness.get("otter.web", {"stalls": 0})["stalls"] == 0
+
+    async def test_awaiting_decision_holds_off_bounce(self, manager: ProcessManager) -> None:
+        # 029 defense-in-depth: a maestro parked on a user decision is waiting,
+        # not jammed.
+        maestro = Maestro(name="otter", model="opus")
+        maestro.awaiting_decision = True
+        manager._entities["otter"] = maestro
+        adapter = FakeAdapter([TIMEOUT])
+        manager._adapters["otter"] = adapter
+        adapter.started = True
+
+        retry = await manager._maybe_bounce_on_timeout(maestro, adapter)
+
+        assert retry is False
+        assert not adapter.stopped
+        assert manager._liveness.get("otter", {"stalls": 0})["stalls"] == 0
+
+    async def test_flap_guard_gives_up(self, manager: ProcessManager) -> None:
+        channel = _KindChannel()
+        manager.notification_dispatcher.register(channel)
+        maestro = Maestro(name="otter", model="opus")
+        maestro.state = EntityState.RUNNING  # legal RUNNING → ERROR on give-up
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+
+        adapters = [FakeAdapter([TIMEOUT]) for _ in range(3)]
+        with (
+            using_adapter_sequence(manager, adapters),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 1),
+            patch("hive.process.manager.BOUNCE_FLAP_MAX", 2),
+        ):
+            await manager._get_or_create_adapter(maestro)  # register adapters[0]
+            cur = manager._adapters["otter"]
+            assert await manager._maybe_bounce_on_timeout(maestro, cur) is True  # bounce 1
+            cur = manager._adapters["otter"]
+            assert await manager._maybe_bounce_on_timeout(maestro, cur) is True  # bounce 2
+            cur = manager._adapters["otter"]
+            give_up = await manager._maybe_bounce_on_timeout(maestro, cur)  # flap → stop
+
+        assert give_up is False
+        assert maestro.state == EntityState.ERROR
+        assert cur.stopped  # last session stopped
+        assert "otter" not in manager._adapters  # NOT respawned after give-up
+        assert any(k == "auto_bounce_failed" for _, k in channel.events)
+
+    async def test_flap_window_resets(self, manager: ProcessManager) -> None:
+        maestro = Maestro(name="otter", model="opus")
+        maestro.state = EntityState.RUNNING
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+
+        adapters = [FakeAdapter([TIMEOUT]) for _ in range(5)]
+        clock = {"t": 1000.0}
+        with (
+            using_adapter_sequence(manager, adapters),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 1),
+            patch("hive.process.manager.BOUNCE_FLAP_MAX", 2),
+            patch("hive.process.manager.BOUNCE_FLAP_WINDOW_S", 100.0),
+            patch("hive.process.manager._monotonic", lambda: clock["t"]),
+        ):
+            await manager._get_or_create_adapter(maestro)
+            cur = manager._adapters["otter"]
+            assert await manager._maybe_bounce_on_timeout(maestro, cur) is True  # @1000
+            cur = manager._adapters["otter"]
+            clock["t"] = 1050.0
+            assert await manager._maybe_bounce_on_timeout(maestro, cur) is True  # @1050
+            cur = manager._adapters["otter"]
+            clock["t"] = 1200.0  # both prior bounces now outside the 100s window
+            # Were the window not pruned this would be the 3rd bounce → give up.
+            assert await manager._maybe_bounce_on_timeout(maestro, cur) is True
+
+        assert maestro.state == EntityState.RUNNING  # never gave up
+
+    async def test_reason_surfaced_in_notification(self, manager: ProcessManager) -> None:
+        channel = _KindChannel()
+        manager.notification_dispatcher.register(channel)
+
+        # waitingFor present → its text rides the bounce notification.
+        maestro = Maestro(name="otter", model="opus")
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+        jammed = FakeAdapter([TIMEOUT], jam_state={"waitingFor": "a permission prompt"})
+        healthy = FakeAdapter("ok")
+        with (
+            using_adapter_sequence(manager, [jammed, healthy]),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 1),
+        ):
+            await manager._get_or_create_adapter(maestro)
+            cur = manager._adapters["otter"]
+            assert await manager._maybe_bounce_on_timeout(maestro, cur) is True
+        assert any("permission prompt" in text for text, _ in channel.events)
+
+        # waitingFor absent → "cause unknown", and the bounce still fires.
+        channel.events.clear()
+        lynx = Maestro(name="lynx", model="opus")
+        manager._entities["lynx"] = lynx
+        manager.router.register("lynx")
+        jammed2 = FakeAdapter([TIMEOUT])  # describe_jam() → None
+        healthy2 = FakeAdapter("ok")
+        with (
+            using_adapter_sequence(manager, [jammed2, healthy2]),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 1),
+        ):
+            await manager._get_or_create_adapter(lynx)
+            cur = manager._adapters["lynx"]
+            assert await manager._maybe_bounce_on_timeout(lynx, cur) is True
+        assert any("unknown" in text.lower() for text, _ in channel.events)

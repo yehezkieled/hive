@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import defaultdict, deque
 from collections.abc import Iterable
 from datetime import datetime
@@ -36,8 +37,12 @@ from hive.config import (
     AUTO_RETRIEVE_ENABLED,  # noqa: F401  re-exported; read via this module
     AUTO_RETRIEVE_FIRST_TURN_ONLY,  # noqa: F401  re-exported; read via this module
     AUTO_RETRIEVE_INCLUDE_ATTACHMENTS,  # noqa: F401  re-exported; read via this module
-    AUTO_RETRIEVE_MAX_DISTANCE,  # noqa: F401  re-exported; read via this module
-    AUTO_RETRIEVE_TOP_K,  # noqa: F401  re-exported; read via this module
+    AUTO_RETRIEVE_MAX_DISTANCE,  # noqa: F401  read via this module
+    AUTO_RETRIEVE_TOP_K,  # noqa: F401  read via this module
+    BOUNCE_FLAP_MAX,  # Ticket 020: auto-bounce knobs, read as module globals + patched in tests
+    BOUNCE_FLAP_WINDOW_S,
+    BOUNCE_STALL_THRESHOLD,
+    BOUNCE_WORKFLOW_WINDOW_S,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import (
@@ -76,6 +81,12 @@ from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
 
 logger = logging.getLogger(__name__)
+
+
+def _monotonic() -> float:
+    """Indirection over ``time.monotonic`` so the flap window is patchable in
+    tests without monkeypatching the stdlib clock globally."""
+    return time.monotonic()
 
 
 class ProcessManager:
@@ -152,6 +163,13 @@ class ProcessManager:
         # instead of resending feedback.
         self._parse_failure_budget: dict[str, deque[datetime]] = defaultdict(deque)
         self._compacting: set[str] = set()
+        # Auto-bounce liveness state (Ticket 020, ADR 0015). Per-entity
+        # ``{"stalls": int, "bounces": deque[float]}``: the consecutive
+        # genuine-stall count and a monotonic-timestamp window of recent
+        # bounces for the flap-guard. MUST live here (not on the adapter) —
+        # the bounce destroys and respawns the adapter, so an adapter-held
+        # counter would be wiped exactly when the flap-guard must fire.
+        self._liveness: dict[str, dict] = {}
         # Set after construction by __main__.py so the dispatch site can
         # consult the rate limiter. Optional — tests construct managers
         # without a scheduler and the spawn dispatch falls back to "allow".
@@ -337,6 +355,188 @@ class ProcessManager:
         """
         gc = self.gate_coordinator
         return gc is not None and gc.pending_request_id(entity_name) is not None
+
+    # -----------------------------------------------------------------
+    # Auto-bounce jammed PTY sessions (Ticket 020, ADR 0015)
+    # -----------------------------------------------------------------
+
+    def _liveness_entry(self, name: str) -> dict:
+        """Per-entity liveness record, created on first access."""
+        return self._liveness.setdefault(name, {"stalls": 0, "bounces": deque()})
+
+    def _note_turn_success(self, entity_name: str) -> None:
+        """Reset the consecutive-stall count after any turn that completed.
+
+        A successful turn means the session is healthy again, so a later
+        isolated stall starts from zero rather than inheriting an old partial
+        count (Ticket 020 §D4).
+        """
+        entry = self._liveness.get(entity_name)
+        if entry is not None:
+            entry["stalls"] = 0
+
+    async def _maybe_bounce_on_timeout(self, entity: Entity, adapter: ClaudeAdapter) -> bool:
+        """Decide what to do when a turn raised ``TimeoutError`` (Ticket 020 §D1).
+
+        Returns ``True`` when the jammed session was bounced and the caller
+        should retry the send once on the fresh adapter; ``False`` when the
+        timeout should propagate unchanged — because the entity is legitimately
+        waiting (a safety check held off), the stall is still below threshold,
+        or the flap-guard gave up.
+
+        The safety checks are re-run HERE, at decision time, not inferred from
+        the fact that a timeout happened — so 020 stays correct even if an
+        upstream liveness reset is imperfect. Each is a reason to hold off:
+          1. parked at a plan/ask gate — a permission-prompt jam is undetectable
+             as a gate (ADR 0005), so this is False for exactly the jam to kill;
+          2. a Workflow run advanced within the liveness window (030's
+             false-timeout class);
+          3. parked on a user decision (029 defense-in-depth — cannot currently
+             overlap an in-flight send, but cheap insurance).
+        A held-off timeout does NOT count as a stall.
+        """
+        name = entity.name
+        if self.is_parked_at_gate(name):
+            logger.info("liveness: %s timed out while gated — holding off bounce", name)
+            return False
+        try:
+            if adapter.workflow_active(BOUNCE_WORKFLOW_WINDOW_S):
+                logger.info("liveness: %s timed out with a live Workflow — holding off", name)
+                return False
+        except Exception:
+            logger.exception("liveness: workflow_active probe failed for %s", name)
+        if getattr(entity, "awaiting_decision", False):
+            logger.info("liveness: %s timed out awaiting a user decision — holding off", name)
+            return False
+
+        entry = self._liveness_entry(name)
+        entry["stalls"] += 1
+        if entry["stalls"] < BOUNCE_STALL_THRESHOLD:
+            logger.warning(
+                "liveness: %s stalled (%d/%d consecutive) — not bouncing yet",
+                name,
+                entry["stalls"],
+                BOUNCE_STALL_THRESHOLD,
+            )
+            return False
+
+        reason = self._bounce_reason(entity, adapter)
+        return await self._bounce_adapter(entity, reason)
+
+    async def _bounce_adapter(self, entity: Entity, reason: str) -> bool:
+        """Kill + respawn a jammed session (conversation preserved), or give up.
+
+        Flap-guarded (Ticket 020 §D3): if ``BOUNCE_FLAP_MAX`` bounces already
+        landed inside ``BOUNCE_FLAP_WINDOW_S``, stop bouncing — move the entity
+        to ERROR and escalate to the user instead of flapping. Otherwise stop
+        the adapter, drop it from the cache, and re-provision through the normal
+        lazy path (which adds ``--continue`` when a prior transcript exists, so
+        the conversation resumes). Returns True when bounced, False on give-up.
+        """
+        name = entity.name
+        entry = self._liveness_entry(name)
+        bounces: deque = entry["bounces"]
+        now = _monotonic()
+        cutoff = now - BOUNCE_FLAP_WINDOW_S
+        while bounces and bounces[0] < cutoff:
+            bounces.popleft()
+
+        if len(bounces) >= BOUNCE_FLAP_MAX:
+            await self._bounce_give_up(entity, reason, len(bounces))
+            return False
+
+        adapter = self._adapters.pop(name, None)
+        if adapter is not None:
+            try:
+                await adapter.stop()
+            except Exception:
+                logger.exception("liveness: failed to stop adapter for %s on bounce", name)
+        try:
+            await self._get_or_create_adapter(entity)
+        except Exception:
+            logger.exception("liveness: respawn failed for %s after bounce", name)
+            return False
+
+        bounces.append(now)
+        entry["stalls"] = 0
+        logger.warning("Auto-bounced %s — %s (bounce %d in window)", name, reason, len(bounces))
+        await self._notify(
+            f"Auto-bounced {name} — {reason}. Conversation resumed.",
+            kind="auto_bounce",
+            data={"entity": name},
+        )
+        await self._audit(
+            "entity.bounce",
+            target=name,
+            details={"reason": reason, "bounces_in_window": len(bounces)},
+        )
+        return True
+
+    async def _bounce_give_up(self, entity: Entity, reason: str, bounce_count: int) -> None:
+        """Stop bouncing a session that keeps jamming; surface it for a human.
+
+        Stops the adapter without respawning, moves the entity to ERROR so it
+        reads as visibly broken (not silently dead), and escalates with the
+        best-effort reason. Recovery is now a human action (Ticket 020 §D3).
+        """
+        name = entity.name
+        adapter = self._adapters.pop(name, None)
+        if adapter is not None:
+            try:
+                await adapter.stop()
+            except Exception:
+                logger.exception("liveness: failed to stop adapter for %s on give-up", name)
+        if entity.state in (EntityState.RUNNING, EntityState.GATED):
+            try:
+                entity.transition_to(EntityState.ERROR)
+                await self._persist(entity)
+            except Exception:
+                logger.exception("liveness: could not move %s to ERROR on give-up", name)
+        minutes = int(BOUNCE_FLAP_WINDOW_S // 60)
+        logger.error(
+            "Gave up on %s — %d bounces in %dm, still stuck (%s)",
+            name,
+            bounce_count,
+            minutes,
+            reason,
+        )
+        await self._notify(
+            f"Gave up on {name} — {bounce_count} bounces in {minutes} min, {reason}. Needs you.",
+            kind="auto_bounce_failed",
+            data={"entity": name},
+        )
+        await self._audit(
+            "entity.bounce_failed",
+            target=name,
+            details={"reason": reason, "bounces": bounce_count},
+        )
+
+    def _bounce_reason(self, entity: Entity, adapter: ClaudeAdapter) -> str:
+        """Best-effort human reason for a bounce — ADVISORY only (Ticket 020 §D5).
+
+        First hit wins: the session-state ``waitingFor``/``status`` (the
+        permission-jam signal) → a dead process → "cause unknown". NEVER raises
+        and NEVER feeds the bounce DECISION (that is the safety-check logic in
+        ``_maybe_bounce_on_timeout``); this only enriches the notification, so a
+        dropped/renamed CC field degrades to "cause unknown", not a failure.
+        """
+        try:
+            state = adapter.describe_jam() if hasattr(adapter, "describe_jam") else None
+        except Exception:
+            state = None
+        if isinstance(state, dict):
+            waiting_for = state.get("waitingFor")
+            if waiting_for:
+                return f"waiting for {waiting_for}"
+            status = state.get("status")
+            if status:
+                return f"session status: {status}"
+        try:
+            if not adapter.is_alive():
+                return "the Claude process is no longer alive"
+        except Exception:
+            pass
+        return "no output past the no-progress timeout — cause unknown"
 
     async def send_to_entity(self, entity_name: str, prompt: str) -> str:
         return await self.dispatcher.send_to_entity(entity_name, prompt)
