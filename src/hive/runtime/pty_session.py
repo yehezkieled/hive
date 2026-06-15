@@ -48,6 +48,11 @@ _STARTUP_QUIET_S = 1.5
 _PIN_POLL_TIMEOUT_S = 10.0
 _PIN_POLL_INTERVAL_S = 0.1
 
+# Grace for Claude Code to lazily create the ~/.claude/projects/<slug>/ dir
+# after first input before the slug-drift guard alarms (Ticket 030). Generous
+# vs CC's sub-second create so a slow disk never false-fires.
+_SLUG_GUARD_GRACE_S = 5.0
+
 
 def _claude_sessions_dir() -> Path:
     """Default location of Claude Code's per-process session-state files.
@@ -63,14 +68,16 @@ def _claude_sessions_dir() -> Path:
 def _claude_projects_dir(cwd: Path) -> Path:
     """Return the ~/.claude/projects/<cwd-slug>/ path for a given working directory.
 
-    Claude Code's slug rule: replace BOTH ``/`` and ``.`` with ``-`` in the cwd
-    path. The dot replacement matters whenever the cwd traverses a hidden dir
-    (e.g. ``/home/x/repo/.claude/worktrees/foo`` → ``-home-x-repo--claude-...``,
-    note the double-dash because ``/.`` becomes ``--``). Skipping the dot
-    replacement (the original bug) silently mis-locates the transcript and
-    breaks the transcript route for any cwd containing a ``.``.
+    Claude Code's slug rule (verified against the live binary's on-disk project
+    dirs, 2.1.177): replace EVERY non-alphanumeric char with ``-``, with NO
+    collapsing of runs — so ``/.`` → ``--`` and ``_`` → ``-``. An earlier rule
+    rewrote only ``/`` and ``.``, silently keeping ``_`` (and other
+    punctuation); that mis-located the transcript dir for any cwd with an
+    underscore (e.g. a ``hive_dev`` maestro worktree → ``hive_dev.smoke``), so
+    the reader polled a directory Claude Code never created and every turn
+    dead-ended in a 180s phantom no-progress timeout (Ticket 030).
     """
-    slug = str(cwd).replace("/", "-").replace(".", "-")
+    slug = re.sub(r"[^a-zA-Z0-9]", "-", str(cwd))
     return Path.home() / ".claude" / "projects" / slug
 
 
@@ -332,6 +339,7 @@ class PtySession:
                 self._before_sizes,
                 timeout=10.0,
             )
+            await self._guard_projects_dir_exists()
 
         # Await loop: a normal turn returns (text, usage) on the first pass.
         # If the Turn parks on an interactive gate, the reader returns Gated;
@@ -346,6 +354,41 @@ class PtySession:
             if not isinstance(outcome, Gated):
                 return outcome
             await self._handle_gate(outcome)
+
+    async def _guard_projects_dir_exists(self) -> None:
+        """Fail-loud slug-drift guard (Ticket 030).
+
+        The phantom-180s-timeout signature is a pinned transcript path under a
+        projects dir Claude Code never creates — because our slug rule
+        (``_claude_projects_dir``) drifted from CC's. CC creates the dir lazily
+        on first input, which ``_inject`` has already given by now, so the dir
+        MUST appear shortly if the slug is right. Poll the PARENT projects dir
+        (never the laggier per-session ``<uuid>.jsonl``) for a bounded grace,
+        then log a loud ERROR instead of silently eating a full no-progress
+        timeout.
+
+        Logs-and-continues (the alarm is visibility, not recovery): a genuine
+        slow disk still falls through to the real timeout + auto-bounce (Ticket
+        020), but the root cause is now named in the journal within seconds.
+        """
+        if self._session_path is None:
+            return
+        projects_dir = self._session_path.parent
+        deadline = time.monotonic() + _SLUG_GUARD_GRACE_S
+        while not projects_dir.is_dir():
+            if time.monotonic() >= deadline:
+                logger.error(
+                    "PtySession: Claude Code projects dir %s does not exist %.0fs "
+                    "after first input for cwd %s — the transcript-slug rule has "
+                    "likely drifted from Claude Code's (see _claude_projects_dir). "
+                    "This turn will dead-end in a phantom no-progress timeout; "
+                    "re-derive the slug against the live binary's on-disk dirs.",
+                    projects_dir,
+                    _SLUG_GUARD_GRACE_S,
+                    self._cwd,
+                )
+                return
+            await asyncio.sleep(0.2)
 
     async def _read_session_id(self, pid: int) -> str | None:
         """Poll for the sessionId Claude Code records for our child pid (ADR 0011).
