@@ -319,3 +319,25 @@ async def test_purge_role_absent_returns_zero(entity_store: EntityStore) -> None
     removed = await entity_store.purge_role("worker")
     assert removed == 0
     assert len(await entity_store.all()) == 1
+
+
+async def test_phase_confirmation_fields_persist(entity_store: EntityStore) -> None:
+    """Ticket 019 (ADR 0019): confirmed_with_user + phase_confirm survive a round-trip."""
+    m = Maestro(name="dev", model="opus")
+    m.confirmed_with_user = True
+    m.phase_confirm = False
+    await entity_store.upsert(m)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.confirmed_with_user is True
+    assert loaded.phase_confirm is False
+
+
+async def test_phase_confirmation_defaults_on_restore(entity_store: EntityStore) -> None:
+    """A maestro stored with defaults restores unconfirmed with the gate armed."""
+    await entity_store.upsert(Maestro(name="fresh", model="opus"))
+    loaded = await entity_store.load("fresh")
+    assert loaded is not None
+    assert loaded.confirmed_with_user is False
+    assert loaded.phase_confirm is True

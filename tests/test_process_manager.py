@@ -696,6 +696,7 @@ class TestAutonomousDispatch:
 
     async def test_maestro_spawn_team_creates_lead(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="dev", model="sonnet")
+        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -815,6 +816,7 @@ class TestAutonomousDispatch:
         """Spawn actions write audit events tagged with the emitting entity."""
         mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
         maestro = Maestro(name="dev", model="sonnet")
+        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
         await mgr.register_entity(maestro)
 
         response = (
@@ -870,6 +872,7 @@ class TestAutonomousDispatch:
         in ``_last_kickoffs`` and actually wakes the lead.
         """
         maestro = Maestro(name="dev", model="sonnet")
+        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -1784,3 +1787,85 @@ class TestAutoBounce:
             cur = manager._adapters["lynx"]
             assert await manager._maybe_bounce_on_timeout(lynx, cur) is True
         assert any("unknown" in text.lower() for text, _ in channel.events)
+
+
+class TestPhaseConfirmationGate:
+    """Ticket 019 (ADR 0019): a maestro can't spawn_team until the user confirms once."""
+
+    async def _send(self, manager: ProcessManager, name: str, response: str) -> str:
+        with using_adapter(manager, FakeAdapter(response)):
+            return await manager.send_to_entity(name, "go")
+
+    async def test_unconfirmed_maestro_spawn_team_denied(self, manager: ProcessManager) -> None:
+        """Fresh maestro (confirmed_with_user=False, phase_confirm=True) is gated."""
+        maestro = Maestro(name="dev", model="opus")
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev", response)
+
+        assert manager._last_spawned_teams == []
+        assert "dev.backend" not in manager.entities
+        feedback = await manager.router.store.get_messages("dev")
+        assert any(m["sender"] == "system" and "request_decision" in m["content"] for m in feedback)
+
+    async def test_confirmed_maestro_spawn_team_succeeds(self, manager: ProcessManager) -> None:
+        """A maestro that round-tripped a decision (confirmed_with_user) spawns freely."""
+        maestro = Maestro(name="dev", model="opus")
+        maestro.confirmed_with_user = True
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev", response)
+
+        assert manager._last_spawned_teams == ["dev.backend"]
+        assert "dev.backend" in manager.entities
+
+    async def test_opt_out_maestro_spawn_team_succeeds(self, manager: ProcessManager) -> None:
+        """phase_confirm=False (unattended) skips the gate even when unconfirmed."""
+        maestro = Maestro(name="dev", model="opus")
+        maestro.phase_confirm = False
+        manager._entities["dev"] = maestro
+        manager.router.register("dev")
+        response = (
+            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
+        )
+        await self._send(manager, "dev", response)
+
+        assert manager._last_spawned_teams == ["dev.backend"]
+
+    async def test_clear_awaiting_decision_confirms_maestro(self, manager: ProcessManager) -> None:
+        """A user reply that unparks a maestro lifts the phase-confirmation floor."""
+        maestro = Maestro(name="dev", model="opus")
+        maestro.awaiting_decision = True
+        manager._entities["dev"] = maestro
+        await manager.clear_awaiting_decision("dev")
+
+        assert maestro.awaiting_decision is False
+        assert maestro.confirmed_with_user is True
+
+    async def test_clear_awaiting_decision_noop_when_not_parked(
+        self, manager: ProcessManager
+    ) -> None:
+        """No round-trip happened (not parked) → the floor is not lifted."""
+        maestro = Maestro(name="dev", model="opus")
+        manager._entities["dev"] = maestro
+        await manager.clear_awaiting_decision("dev")
+
+        assert maestro.confirmed_with_user is False
+
+    async def test_clear_awaiting_decision_does_not_confirm_lead(
+        self, manager: ProcessManager
+    ) -> None:
+        """Only maestros gate, so clearing a lead's wait never sets the floor."""
+        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        lead.awaiting_decision = True
+        manager._entities["dev.backend"] = lead
+        await manager.clear_awaiting_decision("dev.backend")
+
+        assert lead.awaiting_decision is False
+        assert lead.confirmed_with_user is False

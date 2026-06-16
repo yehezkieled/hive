@@ -554,6 +554,33 @@ class MessageDispatcher:
                         actor=entity_name,
                     )
                     continue
+                # Ticket 019 (ADR 0019): the phase-confirmation gate. A maestro
+                # cannot spend (spawn a team) until it has completed one user
+                # decision round-trip (confirmed_with_user). Fires before the
+                # spawn, so it catches both [spawn_team, request_decision] and
+                # [request_decision, spawn_team] orderings. phase_confirm=False
+                # opts an unattended maestro out. The reject feeds a corrective
+                # note back so the maestro asks first instead of stalling.
+                if (
+                    entity.role == "maestro"
+                    and entity.phase_confirm
+                    and not entity.confirmed_with_user
+                ):
+                    logger.warning("spawn_team denied (phase gate): %s", entity.name)
+                    await self._mgr._audit(
+                        "entity.spawn_team_denied",
+                        target=action.team_name,
+                        details={"reason": "phase_not_confirmed"},
+                        actor=entity_name,
+                    )
+                    await self._reject_action(
+                        entity,
+                        "spawn_team",
+                        action.team_name,
+                        "you must get the user's confirmation before spawning teams — "
+                        "emit a request_decision to 'user' and wait for their reply first.",
+                    )
+                    continue
                 if self._mgr.scheduler is not None and not self._mgr.scheduler.can_autospawn(
                     entity_name
                 ):

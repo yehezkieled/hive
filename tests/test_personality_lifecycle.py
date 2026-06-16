@@ -291,6 +291,7 @@ class TestActionDispatchWiresFieldsThrough:
         self, lifecycle_manager: ProcessManager, tmp_path: Path
     ) -> None:
         maestro = Maestro(name="dev", model="sonnet")
+        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
         lifecycle_manager._entities["dev"] = maestro
         lifecycle_manager.router.register("dev")
 

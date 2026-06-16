@@ -225,6 +225,19 @@ class ProcessManager:
         entity.awaiting_decision = False
         # #144: disarm the nudge clock so no stray reminder fires after unpark.
         entity.last_nudged_at = None
+        # Ticket 019 (ADR 0019): reaching here means the entity WAS parked on a
+        # request_decision and a user reply is unparking it — one decision
+        # round-trip is complete. For a maestro that lifts the phase-confirmation
+        # floor (durable, set once). Hive stays content-dumb: this proves the
+        # maestro *asked* and the user *replied*, not that the user approved —
+        # obeying the reply is the maestro's job (ADR 0018).
+        if entity.role == "maestro" and not entity.confirmed_with_user:
+            entity.confirmed_with_user = True
+            await self._audit(
+                "entity.phase_confirmation_cleared",
+                target=entity_name,
+                actor="user",
+            )
         await self._persist(entity)
 
     async def _audit(
