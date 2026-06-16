@@ -24,7 +24,7 @@ marked with ✱.
 | 016 ✱ | [Migrate leaf dispatch: `spawn_worker` → Workflow](016-migrate-leaf-dispatch-to-workflow/) | 2026-Q2-S5 | done | #109–#111 |
 | 017 ✱ | [Bridge Workflow progress to dashboard + Telegram](017-bridge-workflow-progress/) | 2026-Q2-S5 | done | #116–#119 |
 | 018 | [Retire the persistent Worker entity](018-retire-worker-entity/) | 2026-Q2-S5 | done | #132–#137 |
-| 019 | [Maestro phase-confirmation gate](019-maestro-phase-confirmation/) | 2026-Q2-S6 | planned | — |
+| 019 | [Maestro phase-confirmation gate](019-maestro-phase-confirmation/) | 2026-Q2-S6 | in progress | #179 |
 | 020 | [Adapter liveness escalation: auto-bounce jammed PTY sessions](020-adapter-liveness-escalation/) | 2026-Q2-S6 | done | #147 |
 | 021 | [Route maestro→user messages first-class](021-router-user-queue/) | 2026-Q2-S6 | done | #171, #175 |
 | 022 | [Maestro delegates research (un-bridged interactive gate)](022-maestro-research-delegation/) | 2026-Q2-S6 | superseded by 029+020 | — |

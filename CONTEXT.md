@@ -134,6 +134,20 @@ net for jams a transcript can't reveal: an un-bridgeable permission prompt
 escalate to the user instead of flapping. Per Ticket 020 / ADR 0015.
 _Avoid_: restart, reboot, kill-and-retry.
 
+**Phase-confirmation gate**:
+A code-enforced floor (Ticket 019, [ADR 0019](adr/0019-maestro-phase-confirmation-gate.md))
+that blocks a Maestro's **first** `spawn_team` until it has completed one
+user decision round-trip — tracked by the durable `confirmed_with_user` flag,
+set when a user reply clears `awaiting_decision`. It rides Ticket 029's
+conversational decision channel (the maestro-facing replacement for the
+**[[Interactive gate]]**, ADR 0018) fired at the planning→executing boundary.
+**Content-dumb**: it proves the Maestro *asked*, not that the user *approved* —
+obeying a "no" stays the Maestro's job. Per-Maestro opt-out via the
+`phase_confirm` flag (default on, including the PA Maestro); a user-typed
+`/team create` is exempt (the human is the confirmation).
+_Avoid_: approval gate (Hive reads nothing), native gate (not a TUI gate),
+plan-mode gate.
+
 **Thinking skill**:
 A Claude Code skill that pauses mid-Turn to involve a human — an
 interview/Q&A, an `AskUserQuestion` selection, or a STOP/approval
