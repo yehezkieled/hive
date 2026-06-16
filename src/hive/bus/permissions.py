@@ -109,6 +109,17 @@ def can_request_decision(
     return False
 
 
+def can_message_user(sender_role: str) -> bool:
+    """Gate for a ``message`` action to ``user`` (Ticket 021).
+
+    Only a maestro may message the user directly — the one-way report channel
+    that mirrors ``can_request_decision``'s user rule. A lead reports through
+    its maestro, never straight to the user. Role-only: the rule needs no name
+    or target.
+    """
+    return sender_role == "maestro"
+
+
 def can_spawn_team(actor_role: str, actor_name: str) -> bool:
     """Maestros can spawn teams in their own org. The team name is scoped
     automatically (lead becomes ``<actor>.<team_name>``), so org boundary

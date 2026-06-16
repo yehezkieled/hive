@@ -98,3 +98,28 @@ Found diagnosing the failed 015 live smoke test. Pairs with Ticket 020
 and touches the premises of ADR 0005 (permission prompts now have a
 detection channel) and ADR 0008 (maestro thinking-skill gates don't
 all bridge).
+
+## Resolution — superseded by 029 + 020 (2026-06-15)
+
+Closed without a dedicated PR: the fix shipped across two merged tickets,
+covering 022's prevention + recovery layers.
+
+**Prevention (fix layers a + b) — Ticket 029 / ADR 0018.** The maestro JD now
+routes every clarify-the-goal question through a `request_decision` action —
+*"Surface each such question to the user with a `request_decision` action … ask,
+end your turn, and continue on the user's reply"* (`personalities/role-maestro.md`,
+thinking-skills section) — and the native interactive gate tools those skills
+would reach for are **denied** to maestros (`tool_policy._MAESTRO_DENY`:
+`AskUserQuestion`, `ExitPlanMode`). So the autonomous maestro path can no longer
+*reach* an un-bridged native prompt; it asks via the bridged channel instead.
+
+**Recovery (defence-in-depth) — Ticket 020 / ADR 0015.** Auto-bounce kills and
+respawns any session that jams past threshold while not legitimately waiting —
+the recovery net 022 explicitly named as complementary (issue #147 merged).
+
+**Caveat.** The exact 2026-06-10 repro ("do research yourself" → permission-prompt
+jam) was not re-run under a dedicated 022 effort; it is structurally prevented by
+the prevention layer and recovered by auto-bounce if a residual tool prompt slips
+through. The 021 deployed re-smoke (2026-06-15) exercised the maestro→user
+conversational path cleanly. If a belt-and-suspenders exact-repro smoke is wanted,
+it's a quick follow-up — but not a blocker for this close.

@@ -188,6 +188,19 @@ class ClaudeAdapter(Runtime):
         session_dir = self._pty.session_dir if self._pty is not None else None
         return run_active(session_dir, window)
 
+    def describe_jam(self) -> dict | None:
+        """Best-effort session-state for the Ticket 020 bounce reason-assembler.
+
+        ``{status, waitingFor}`` from the session-state file, or None when no
+        PTY is live. Fail-soft — never raises; advisory only (never the bounce
+        decision)."""
+        if self._pty is None:
+            return None
+        try:
+            return self._pty.describe_session_state()
+        except Exception:
+            return None
+
     async def send_turn(self, prompt: str) -> tuple[str, dict]:
         async with self._lock:
             assert self._pty is not None, "PtySession not started — call start() first"
