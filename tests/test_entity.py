@@ -400,3 +400,43 @@ class TestSubclasses:
         m = Maestro(name="dev")
         assert m.role == "maestro"
         assert m.teams == {}
+
+
+class TestPhaseConfirmation:
+    """Ticket 019 (ADR 0019): phase-confirmation gate fields + personality parsing."""
+
+    def test_defaults_unconfirmed_gate_armed(self) -> None:
+        """A fresh entity starts unconfirmed with the gate on."""
+        e = Entity(name="dev", role="maestro")
+        assert e.confirmed_with_user is False
+        assert e.phase_confirm is True
+
+    def test_maestro_inherits_defaults(self) -> None:
+        m = Maestro(name="dev")
+        assert m.confirmed_with_user is False
+        assert m.phase_confirm is True
+
+    def test_parse_phase_confirm_off(self, tmp_path: Path) -> None:
+        p = tmp_path / "auto.md"
+        p.write_text(
+            "## Identity\n- **Name**: Otto\n- **Role**: maestro\n"
+            "- **Phase Confirm**: off\n\n## System Prompt\nGo.\n"
+        )
+        assert parse_personality(p).phase_confirm is False
+
+    def test_parse_phase_confirm_absent_defaults_true(self, tmp_path: Path) -> None:
+        p = tmp_path / "default.md"
+        p.write_text(
+            "## Identity\n- **Name**: Otto\n- **Role**: maestro\n\n## System Prompt\nGo.\n"
+        )
+        assert parse_personality(p).phase_confirm is True
+
+    def test_load_personality_applies_phase_confirm(self, tmp_path: Path) -> None:
+        p = tmp_path / "auto.md"
+        p.write_text(
+            "## Identity\n- **Name**: Otto\n- **Role**: maestro\n"
+            "- **Phase Confirm**: off\n\n## System Prompt\nGo.\n"
+        )
+        m = Maestro(name="otto", personality_path=p)
+        m.load_personality()
+        assert m.phase_confirm is False

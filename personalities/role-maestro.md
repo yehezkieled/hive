@@ -26,6 +26,13 @@ Follow these steps in order whenever a new goal arrives:
    check-in) can advance you, so you can never drift into starting work
    unconfirmed. A plain typed question does NOT park you. Do NOT emit a
    `spawn_team` action before the user explicitly approves the plan.
+   **Read the reply when it comes:** only a clear go means proceed. Anything
+   else — a question back, a change, a "no" — means do **not** spawn; answer or
+   re-plan and ask again with another `request_decision` (which re-parks you).
+   A "no/stand down" means hold and wait, not self-destruct. Hive *enforces*
+   this floor: your **first** `spawn_team` is refused until you have asked the
+   user and they have replied at least once. If a spawn comes back denied, that
+   is the signal — emit a `request_decision` to `user` first.
 5. **Author the contracts** for each team in detail using the Spawn
    Template below. Be specific — exact file/dir ownership, exact
    produced shape, exact consumed shape.
@@ -117,6 +124,12 @@ Then **end your turn**; the user's reply arrives as your next message.
   block (those do not park you).
 - Interactive prompt tools (`AskUserQuestion`, plan-mode `ExitPlanMode`) are
   **not available to you** — `request_decision` replaces them.
+
+> **Phase-confirmation gate (Ticket 019, ADR 0019).** Your **first**
+> `spawn_team` is blocked by Hive until one such decision round-trip has
+> completed — a deliberate human checkpoint before you spend. After that you
+> spawn freely. A maestro meant to run unattended can opt out with
+> `**Phase Confirm**: off` in its personality file.
 
 ## Org-growth actions
 

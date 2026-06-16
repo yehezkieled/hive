@@ -37,10 +37,11 @@ class EntityStore:
                  session_id, parent_name, team_name,
                  permission_mode, loop_mode, current_priority,
                  worktree_path, task_id, last_activity_at, awaiting_decision,
+                 confirmed_with_user, phase_confirm,
                  updated_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, $17, NOW())
+                 $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -58,6 +59,8 @@ class EntityStore:
                 task_id = EXCLUDED.task_id,
                 last_activity_at = EXCLUDED.last_activity_at,
                 awaiting_decision = EXCLUDED.awaiting_decision,
+                confirmed_with_user = EXCLUDED.confirmed_with_user,
+                phase_confirm = EXCLUDED.phase_confirm,
                 updated_at = NOW()
             """,
             entity.name,
@@ -77,6 +80,8 @@ class EntityStore:
             None,  # task_id — was Worker-only; Workers retired (Ticket 018)
             entity.last_activity_at,
             entity.awaiting_decision,
+            entity.confirmed_with_user,  # Ticket 019 (ADR 0019)
+            entity.phase_confirm,  # Ticket 019 (ADR 0019)
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -148,6 +153,11 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         # but awaiting_decision is orthogonal — an IDLE entity can still be
         # parked on a user decision, and the scheduler skip keys off the flag).
         awaiting_decision=bool(row["awaiting_decision"]),
+        # Ticket 019 (ADR 0019): restore the phase-confirmation floor + opt-out
+        # so a confirmed maestro stays confirmed across a restart (and an
+        # unconfirmed one stays gated).
+        confirmed_with_user=bool(row["confirmed_with_user"]),
+        phase_confirm=bool(row["phase_confirm"]),
     )
 
     role = row["role"]
