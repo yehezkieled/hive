@@ -111,6 +111,30 @@ _Note_: observed **read-only** — Hive watches a run, it does not steer it
 flight.
 _Avoid_: job, batch, "the Workflow" (the tool) vs. one run of it.
 
+**Interaction pattern**:
+A named, reusable coordination shape for a **[[Workflow run]]** — e.g.
+**debate**, blackboard, tournament. Delivered as a **recipe in the role files**
+(prose + a Workflow-script skeleton), pushed into an Entity's prompt at spawn,
+not as a skill or saved script (ADR 0020). Asymmetric depth: a **Team Lead**
+gets the full executable recipe and *runs* the pattern; a **Maestro** gets only
+a menu of names and *names* one in the contract it hands a Lead (it cannot drive
+a Workflow itself). Adds no engine capability — it makes free-form fan-out
+authoring a consistent, shared vocabulary.
+_Note_: `debate` ships in Ticket 034; `blackboard` (035) and `tournament` (036)
+follow in S8 on the same mechanism.
+_Avoid_: skill, template, macro, "the workflow" (one pattern is a *shape* a run
+takes, not the run).
+
+**debate**:
+The first **[[Interaction pattern]]**: N **[[Leaf agent]]s** each argue a
+different answer to one question, running in parallel and blind to each other;
+then one judge Leaf agent reads all the cases and returns a verdict with reasons.
+One round, one answer per agent. For decisions over a wide solution space or a
+claim needing adversarial scrutiny (the 2-side "true vs false" form is
+adversarial-verify). Distinct from blackboard (agents collaborate on a shared
+artifact) and tournament (candidates pruned in rounds).
+_Avoid_: vote, poll, ensemble.
+
 **hive_actions**:
 The protocol an Entity uses to act on the rest of Hive — message a peer,
 request a spawn, finish a task. The Entity emits a `<hive_actions>` block;
