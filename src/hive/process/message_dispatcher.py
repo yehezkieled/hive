@@ -619,6 +619,15 @@ class MessageDispatcher:
                     pending_kickoffs.append(lead.name)
                 except (KeyError, TypeError, ValueError) as exc:
                     logger.warning("spawn_team from %s failed: %s", entity_name, exc)
+                    # Ticket 032: a failed create_team (e.g. an invalid team
+                    # name) must reach the requesting maestro so it can retry —
+                    # not just hit the log. Reuse the existing parse-failure
+                    # feedback channel: collect the error into a human-readable
+                    # list[str] and route it system->maestro the same way.
+                    await self._mgr._handle_parse_errors(
+                        entity,
+                        [f"spawn_team for {action.team_name!r} failed: {exc}"],
+                    )
             elif action.type == "kill_entity":
                 if not action.target:
                     continue

@@ -347,6 +347,23 @@ async def test_register_maestro_rejects_duplicate(
         await lifecycle.register_maestro("dev")
 
 
+async def test_register_maestro_bad_name_rejected(
+    lifecycle: LifecycleManager, mgr: StubManager
+) -> None:
+    """A path-hostile maestro name is rejected and nothing is registered.
+
+    Ticket 032: validate_name runs at the top of register_maestro, before
+    the duplicate check and before any registration/persist — so a bad name
+    never reaches the registry or the router.
+    """
+    with pytest.raises(ValueError, match="maestro name"):
+        await lifecycle.register_maestro("bad name")
+
+    assert "bad name" not in mgr._entities
+    assert "bad name" not in mgr.router.registered
+    assert mgr.persisted == []
+
+
 async def test_register_entity_idle_no_spawn(lifecycle: LifecycleManager, mgr: StubManager) -> None:
     """register_entity adds a pre-built entity without spawning an adapter."""
     lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
@@ -388,6 +405,46 @@ async def test_create_team_unknown_maestro_raises(
 ) -> None:
     with pytest.raises(KeyError, match="not found"):
         await lifecycle.create_team("ghost", "backend")
+
+
+async def test_create_team_bad_name_rejected_before_worktree(
+    lifecycle: LifecycleManager, mgr: StubManager, tmp_path: Path
+) -> None:
+    """A path-hostile team name is rejected BEFORE any worktree is created.
+
+    Ticket 032: validate_name runs at the very top of create_team, before
+    entity.create_team and before worktree_mgr.create — so a bad name can
+    never derive a worktree dir or git branch. We assert the worktree
+    manager's ``create`` was never called.
+    """
+    mgr.worktree_mgr = FakeWorktreeManager(tmp_path / "worktrees")
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    with pytest.raises(ValueError, match="team name"):
+        await lifecycle.create_team("dev", "bad name", model="sonnet")
+
+    # The whole point: no worktree dir / git branch derived from a bad name.
+    assert mgr.worktree_mgr.created == []
+    # And no lead leaked into the registry.
+    assert "dev.bad name" not in mgr._entities
+
+
+async def test_create_team_valid_name_still_succeeds(
+    lifecycle: LifecycleManager, mgr: StubManager, tmp_path: Path
+) -> None:
+    """Regression: a valid team name (allowed ``-``/``_``) still provisions.
+
+    The 032 guard rejects path-hostile names without over-rejecting the
+    normal case — the worktree is created and the lead registered as before.
+    """
+    mgr.worktree_mgr = FakeWorktreeManager(tmp_path / "worktrees")
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    lead = await lifecycle.create_team("dev", "back-end_2", model="sonnet")
+
+    assert lead.name == "dev.back-end_2"
+    assert mgr._entities["dev.back-end_2"] is lead
+    assert mgr.worktree_mgr.created == [("dev.back-end_2", "hive/dev.back-end_2")]
 
 
 # ---------------------------------------------------------------------------
