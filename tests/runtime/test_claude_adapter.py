@@ -169,3 +169,39 @@ async def test_is_busy_reflects_in_flight_turn() -> None:
     async with adapter._lock:
         assert adapter.is_busy() is True
     assert adapter.is_busy() is False
+
+
+def test_pty_system_prompts_pa_maestro_appends_pa_block() -> None:
+    """A PA maestro's system prompt carries the PA identity block, not the
+    project one (Ticket 033)."""
+    from hive.process.loops import MAESTRO_IDENTITY
+
+    prompts = ClaudeAdapter(
+        _config(role="maestro", name="otter", is_pa=True)
+    )._build_pty_system_prompts()
+    joined = "\n".join(prompts)
+    assert MAESTRO_IDENTITY["pa"] in joined
+    assert MAESTRO_IDENTITY["project"] not in joined
+
+
+def test_pty_system_prompts_project_maestro_appends_project_block() -> None:
+    """A project maestro's system prompt carries the project identity block,
+    not the PA one (Ticket 033)."""
+    from hive.process.loops import MAESTRO_IDENTITY
+
+    prompts = ClaudeAdapter(
+        _config(role="maestro", name="dev", is_pa=False)
+    )._build_pty_system_prompts()
+    joined = "\n".join(prompts)
+    assert MAESTRO_IDENTITY["project"] in joined
+    assert MAESTRO_IDENTITY["pa"] not in joined
+
+
+def test_pty_system_prompts_lead_gets_no_maestro_identity() -> None:
+    """The identity block is maestro-only — leads never receive it."""
+    from hive.process.loops import MAESTRO_IDENTITY
+
+    prompts = ClaudeAdapter(_config(role="lead", name="dev.api"))._build_pty_system_prompts()
+    joined = "\n".join(prompts)
+    assert MAESTRO_IDENTITY["pa"] not in joined
+    assert MAESTRO_IDENTITY["project"] not in joined

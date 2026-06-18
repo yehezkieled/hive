@@ -92,6 +92,18 @@ class TestRepoLevelRoleFiles:
         assert "spawn_worker" not in text
         assert "kill_entity" in text
 
+    def test_maestro_jd_is_ownership_neutral(self) -> None:
+        """Ticket 033: the shared maestro JD must not assume project ownership
+        (the PA owns none) nor name the retired Worker entity (ADR 0013). The
+        PA-vs-project distinction is stated by the appended MAESTRO_IDENTITY
+        block, not baked into role-maestro.md.
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-maestro.md").read_text()
+        normalized = " ".join(text.split())
+        assert "decide what teams the project needs" not in normalized
+        assert "Workers do the actual coding" not in normalized
+
     def test_maestro_jd_teaches_self_alias(self) -> None:
         """The maestro JD teaches the downward addressing alias (Ticket 031):
         a maestro addresses its freshly-spawned lead as ``self.<team>`` — no
