@@ -41,6 +41,15 @@ goal.
 _Note_: with the Worker entity retired (ADR 0013) and deleted (Ticket
 018), a Team in practice is a Team Lead plus its Workflow runs.
 
+**Entity name**:
+An Entity's identifier, which doubles as its **address**. A **name
+component** — a Maestro's name or a Team's name (e.g. `otter`, `backend`) —
+never contains a dot. The dotted form `maestro.team` (e.g. `otter.backend`)
+is the **address**: Hive inserts the `.` as the hierarchy separator and
+reads identity by splitting on it (so `otter.backend` is Team `backend`
+under Maestro `otter`). Validated at creation (Ticket 032).
+_Avoid_: handle, slug.
+
 **Project**:
 A codebase a Maestro owns — a first-class registry record (name → root
 path → owning Maestro, nullable). **Not an Entity.** At most one Maestro
