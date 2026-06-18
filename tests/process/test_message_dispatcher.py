@@ -569,6 +569,57 @@ async def test_spawn_worker_is_unknown_action_dropped_with_feedback(
     assert any(a == "entity.parse_failure_feedback" for (a, _t, _d) in mgr.audit_calls)
 
 
+async def test_spawn_team_failure_feeds_back_to_maestro(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """A failed ``create_team`` routes the error BACK to the requesting maestro
+    so it can self-correct (Ticket 032).
+
+    Mirrors the existing parse-failure feedback path: the error text is
+    collected into a ``list[str]`` and delivered through the SAME
+    ``_handle_parse_errors`` mechanism. No team is registered.
+
+    ``create_team`` is mocked to raise ``ValueError`` so this stays
+    independent of the real name-validation wiring (names.py).
+    """
+    # confirmed_with_user=True clears the Ticket 019 phase gate so the
+    # spawn reaches create_team (the failure path under test).
+    maestro = Maestro(name="dev", model="sonnet", confirmed_with_user=True)
+    mgr._entities["dev"] = maestro
+
+    error_text = "Invalid team name 'bad/name': must not contain '/'"
+
+    async def boom(*_args: object, **_kwargs: object) -> object:
+        raise ValueError(error_text)
+
+    mgr.create_team = boom  # type: ignore[attr-defined]
+
+    # Spy on the existing feedback path to assert it is the channel reused.
+    feedback_calls: list[tuple[object, list[str]]] = []
+    orig_handle = dispatcher._handle_parse_errors
+
+    async def spy_handle(entity: object, messages: list[str]) -> None:
+        feedback_calls.append((entity, messages))
+        await orig_handle(entity, messages)
+
+    mgr._handle_parse_errors = spy_handle  # type: ignore[attr-defined]
+    dispatcher._handle_parse_errors = spy_handle  # type: ignore[assignment]
+
+    actions = [Action(type="spawn_team", team_name="bad/name")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    # The feedback path was invoked, carrying the error text, for the maestro.
+    assert len(feedback_calls) == 1
+    fed_entity, fed_messages = feedback_calls[0]
+    assert fed_entity is maestro
+    assert any(error_text in m for m in fed_messages)
+
+    # No team registered, and the spawn is not tracked as a success.
+    assert mgr._last_spawned_teams == []
+    assert mgr._last_kickoffs == []
+    assert mgr._kickoff_tasks == set()
+
+
 async def test_kill_entity_action_tracked(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
     """A permitted kill_entity routes through the facade and is recorded."""
     maestro = Maestro(name="dev", model="sonnet")
