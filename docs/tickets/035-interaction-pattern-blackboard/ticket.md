@@ -1,5 +1,15 @@
 # 035 — Interaction pattern: `blackboard`
 
+> **⊘ Superseded (2026-06-18) — see [ADR 0021](../../adr/0021-further-patterns-as-global-skills.md).**
+> The named-library track is retired: further coordination shapes ship as
+> **user-authored global skills** (`~/.claude/skills`, inherited by Leads via
+> Ticket 012 / ADR 0008), not Hive-native JD recipes. `blackboard` becomes an
+> implementation detail inside such a skill, with zero Hive engine work — so
+> there is no Hive ticket to build. `debate` (034) remains as the one shipped
+> JD recipe. The original framing below is kept for the record.
+
+---
+
 > The second pattern on the Track 2 delivery mechanism shipped in **034**.
 > **Blocked by 034** — the mechanism + `debate` must land first; this is
 > replication on a proven shape, not greenfield.
