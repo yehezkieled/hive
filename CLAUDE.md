@@ -192,18 +192,20 @@ integration test
 curation
 ([`012`](docs/tickets/012-entity-skill-inheritance/), ADR 0008).
 
-**Phase 3 — Workflow-native orchestration** is **in progress**. S5 (closed
+**Phase 3 — Workflow-native orchestration** is **✅ done** (2026-06-18). S5 (closed
 2026-06-13, goal met) shipped the core: Leads orchestrate leaf work through the
 Claude Code **Workflow** tool (015, ADR 0010), the persistent **Worker** entity
 is deleted (016/018, ADR 0013), and a read-only progress bridge surfaces live
 runs (017, ADR 0014). **S6 (closed 2026-06-16, goal met)** hardened the
 maestro→user loop (020/021/029/030/031), governed the now-live worktree floor
-(024/025), and added a maestro phase-confirmation gate (019). **S7 (active,
-2026-06-16 → 06-30)** finishes Phase 3 by shipping **Track 2** — the
-debate/blackboard/tournament interaction-pattern library (034 mechanism +
-debate, 035 blackboard, 036 tournament) — plus two independent loop-correctness
-gaps (032 entity-name validation, 033 PA self-identity). The web/PWA **iPad
-daily driver** (Phase 4 — control Hive off Telegram) follows in **S8**.
+(024/025), and added a maestro phase-confirmation gate (019). **S7 (window
+2026-06-16 → 06-30, work complete)** finished Phase 3: Track 2 shipped `debate`
+as a Hive-native recipe (034 mechanism + debate, ADR 0020), then **superseded**
+the remaining patterns — `blackboard` (035) / `tournament` (036) now ship as
+user-authored **global skills**, not recipes ([ADR 0021](docs/adr/0021-further-patterns-as-global-skills.md)) —
+plus two independent loop-correctness gaps, both done (032 entity-name
+validation, 033 PA self-identity). The web/PWA **iPad daily driver** (Phase 4 —
+control Hive off Telegram) follows in **S8**.
 
 Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
 and plan-billed in production (Tickets 001 + 003); the headless

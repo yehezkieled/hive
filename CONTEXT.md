@@ -129,8 +129,12 @@ gets the full executable recipe and *runs* the pattern; a **Maestro** gets only
 a menu of names and *names* one in the contract it hands a Lead (it cannot drive
 a Workflow itself). Adds no engine capability — it makes free-form fan-out
 authoring a consistent, shared vocabulary.
-_Note_: `debate` ships in Ticket 034; `blackboard` (035) and `tournament` (036)
-follow in S8 on the same mechanism.
+_Note_: `debate` shipped in Ticket 034 as the one Hive-native recipe. The
+further named patterns (`blackboard`/`tournament`, Tickets 035/036) were
+**superseded** ([ADR 0021](adr/0021-further-patterns-as-global-skills.md)):
+further coordination shapes now ship as user-authored **global skills**
+(`~/.claude/skills`, inherited by Leads via Ticket 012 / ADR 0008), not JD
+recipes.
 _Avoid_: skill, template, macro, "the workflow" (one pattern is a *shape* a run
 takes, not the run).
 

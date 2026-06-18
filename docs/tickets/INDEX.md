@@ -40,5 +40,5 @@ marked with ✱.
 | 032 | [Validate entity/team names before they reach git/worktree paths](032-entity-name-validation/) | 2026-Q2-S7 | done | #186 |
 | 033 | [PA Maestro self-identity (tell the PA it's the PA)](033-pa-maestro-self-identity/) | 2026-Q2-S7 | done | #191 |
 | 034 | [Interaction-pattern library: delivery mechanism + `debate`](034-interaction-pattern-library/) | 2026-Q2-S7 | done | #188 |
-| 035 | [Interaction pattern: `blackboard`](035-interaction-pattern-blackboard/) | 2026-Q2-S7 | planned | — |
-| 036 | [Interaction pattern: `tournament`](036-interaction-pattern-tournament/) | 2026-Q2-S7 | planned | — |
+| 035 | [Interaction pattern: `blackboard`](035-interaction-pattern-blackboard/) | 2026-Q2-S7 | superseded by ADR 0021 | — |
+| 036 | [Interaction pattern: `tournament`](036-interaction-pattern-tournament/) | 2026-Q2-S7 | superseded by ADR 0021 | — |

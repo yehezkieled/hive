@@ -26,14 +26,18 @@ fleet — tracked async tasks (008), pinned Claude version (009),
 repaired integration test (010), CI coverage floor (011), and per-role
 skill curation (012). Phase 3 (Workflow-native orchestration) opens next.
 
-## Phase 3 — Workflow-native orchestration  ·  IN PROGRESS · deadline 2026-07-11
+## Phase 3 — Workflow-native orchestration  ·  ✅ DONE 2026-06-18
 
 Hive stops hand-rolling its leaf-agent coordination and runs it on Claude
 Code's Workflow primitive: Leads fan out deterministic, cheap, reliable
 work; persistent Workers retire; a progress bridge keeps every run visible
-and (later) steerable from your phone; and a library of interaction
-patterns — debate, blackboard, tournament — becomes the shared vocabulary
-Leads compose with.
+and (later) steerable from your phone. The engine shipped (015/016/017/018),
+and `debate` (034) proved a named coordination shape can be delivered to a
+Lead. The broader **named-pattern library** (blackboard/tournament) was
+**retired** ([ADR 0021](adr/0021-further-patterns-as-global-skills.md)):
+further coordination shapes ship as user-authored **global skills**
+(`~/.claude/skills`), not Hive-native recipes — zero engine work, so off the
+roadmap.
 
 ## Phase 4 — Web dashboard to PWA
 
