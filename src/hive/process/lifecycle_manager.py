@@ -35,6 +35,7 @@ from hive.models.entity import (
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
+from hive.process.names import validate_name
 from hive.process.ownership_policy import WritablePolicy, settings_payload, writable_policy
 from hive.process.skill_curation import skill_denylist_for
 from hive.process.tool_policy import role_tool_denylist
@@ -251,6 +252,10 @@ class LifecycleManager:
         Does not spawn a subprocess — the maestro stays IDLE until it
         receives its first message via send_to_entity.
         """
+        # Ticket 032: reject a path/ref-hostile maestro name before the
+        # duplicate check and before any registration/persist.
+        validate_name(name, kind="maestro name")
+
         if name in self._mgr._entities:
             raise ValueError(f"Entity {name!r} already exists.")
 
@@ -385,6 +390,11 @@ class LifecycleManager:
         file exists at the target path, an auto-generated personality
         file is written. Pair-or-nothing: either both fields or neither.
         """
+        # Ticket 032: reject a path/ref-hostile team name BEFORE anything is
+        # derived from it — before Maestro.create_team and, crucially, before
+        # worktree_mgr.create() makes a worktree dir or ``hive/<name>`` branch.
+        validate_name(team_name, kind="team name")
+
         entity = self._mgr._entities.get(maestro_name)
         if entity is None:
             raise KeyError(f"Maestro {maestro_name!r} not found.")
