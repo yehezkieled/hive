@@ -38,7 +38,7 @@ marked with ✱.
 | 030 | [Workflow-turn no-progress timeout false-fires on long runs](030-workflow-turn-no-progress-timeout/) | 2026-Q2-S6 | done | #168, #170 |
 | 031 | [Maestro addresses its own lead as `self.<team>`](031-maestro-lead-addressing/) | 2026-Q2-S6 | done | #161, #165 |
 | 032 | [Validate entity/team names before they reach git/worktree paths](032-entity-name-validation/) | 2026-Q2-S7 | planned | — |
-| 033 | [PA Maestro self-identity (tell the PA it's the PA)](033-pa-maestro-self-identity/) | 2026-Q2-S7 | planned | — |
+| 033 | [PA Maestro self-identity (tell the PA it's the PA)](033-pa-maestro-self-identity/) | 2026-Q2-S7 | in progress | #191 |
 | 034 | [Interaction-pattern library: delivery mechanism + `debate`](034-interaction-pattern-library/) | 2026-Q2-S7 | planned | — |
 | 035 | [Interaction pattern: `blackboard`](035-interaction-pattern-blackboard/) | 2026-Q2-S7 | planned | — |
 | 036 | [Interaction pattern: `tournament`](036-interaction-pattern-tournament/) | 2026-Q2-S7 | planned | — |
