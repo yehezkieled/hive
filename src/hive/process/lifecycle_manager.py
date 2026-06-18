@@ -25,7 +25,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hive.config import DEFAULT_MAESTRO
 from hive.mcp.config import mcp_servers_enabled
 from hive.models.entity import (
     Entity,
@@ -123,6 +122,7 @@ def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
         name=entity.name,
         mcp_config_path=Path(entity.mcp_config_path) if mcp_servers_enabled() else None,
         advisor=resolve_advisor(entity.model, entity.advisor, entity.role),
+        is_pa=getattr(entity, "is_pa", False),
     )
 
 
@@ -313,7 +313,7 @@ class LifecycleManager:
         if not isinstance(entity, Maestro) or store is None:
             return (None, None)
         owned_roots = await store.owned_roots()
-        is_pa = entity.name == DEFAULT_MAESTRO
+        is_pa = entity.is_pa  # single source of truth (Ticket 033)
         own_root: str | None = None
         if not is_pa:
             project = await store.for_maestro(entity.name)

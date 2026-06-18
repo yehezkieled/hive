@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from hive.config import DEFAULT_MAESTRO
 from hive.models.entity import Entity
 from hive.models.team import Team
 
@@ -14,6 +15,18 @@ class Maestro(Entity):
 
     role: str = "maestro"
     teams: dict[str, Team] = field(default_factory=dict)
+
+    @property
+    def is_pa(self) -> bool:
+        """True iff this maestro is the PA — Hive's default route (Ticket 033).
+
+        The PA owns no project and may read any project but write only
+        ownerless ones; every other maestro owns exactly one project. This
+        property is the single source of truth for that distinction (keyed on
+        the configured default-maestro name) — both the ownership write-fence
+        (Ticket 024) and prompt assembly read it.
+        """
+        return self.name == DEFAULT_MAESTRO
 
     def create_team(self, team_name: str) -> Team:
         """Create a new team under this maestro.

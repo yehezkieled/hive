@@ -440,3 +440,19 @@ class TestPhaseConfirmation:
         m = Maestro(name="otto", personality_path=p)
         m.load_personality()
         assert m.phase_confirm is False
+
+
+class TestMaestroIsPa:
+    """The PA Maestro is the default route (Ticket 033). ``is_pa`` is the
+    single source of truth for that structural role, keyed on the configured
+    default-maestro name."""
+
+    def test_is_pa_true_for_default_maestro(self) -> None:
+        from hive.config import DEFAULT_MAESTRO
+
+        assert Maestro(name=DEFAULT_MAESTRO).is_pa is True
+
+    def test_is_pa_false_for_project_maestro(self) -> None:
+        from hive.config import DEFAULT_MAESTRO
+
+        assert Maestro(name=f"not-{DEFAULT_MAESTRO}").is_pa is False

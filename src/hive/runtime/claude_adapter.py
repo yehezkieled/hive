@@ -68,6 +68,10 @@ class ClaudeAdapterConfig:
     # Per-spawn settings file carrying the ownership-guard PreToolUse hook
     # (Ticket 024, ADR 0017). Injected via --settings; None = no fence.
     settings_path: Path | None = None
+    # Whether this maestro is the PA — Hive's default route (Ticket 033).
+    # Selects the PA vs. project-maestro identity block in the system prompt.
+    # Always False for non-maestro roles.
+    is_pa: bool = False
 
 
 class ClaudeAdapter(Runtime):
@@ -104,13 +108,18 @@ class ClaudeAdapter(Runtime):
             "Do not narrate fictional success.",
         ]
         prompts.append("\n".join(identity_lines))
-        from hive.process.loops import LOOP_PROMPTS, load_role_jd
+        from hive.process.loops import LOOP_PROMPTS, MAESTRO_IDENTITY, load_role_jd
 
         loop_text = LOOP_PROMPTS.get(cfg.loop_mode)
         if loop_text:
             prompts.append(loop_text)
         if cfg.role in ("maestro", "lead"):
             prompts.append(load_role_jd(cfg.role))
+        # State the maestro's structural role (PA vs. project) after the shared,
+        # ownership-neutral role JD (Ticket 033). Maestro-only — leads never own
+        # a project, so the distinction is meaningless for them.
+        if cfg.role == "maestro":
+            prompts.append(MAESTRO_IDENTITY["pa" if cfg.is_pa else "project"])
         return prompts
 
     def _build_pty_extra_args(self) -> list[str]:

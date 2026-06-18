@@ -197,6 +197,15 @@ def test_adapter_config_maps_entity_fields() -> None:
     assert config.role == "maestro"
 
 
+def test_adapter_config_maps_is_pa() -> None:
+    """is_pa flows from the entity onto the adapter config (Ticket 033) so the
+    prompt builder can state PA vs. project-maestro identity."""
+    from hive.config import DEFAULT_MAESTRO
+
+    assert _adapter_config_from_entity(Maestro(name=DEFAULT_MAESTRO)).is_pa is True
+    assert _adapter_config_from_entity(Maestro(name="dev")).is_pa is False
+
+
 def test_maestro_config_denies_prototype_but_keeps_thinking_skills() -> None:
     """A maestro keeps the thinking skills; only Skill(prototype) is denied.
 
