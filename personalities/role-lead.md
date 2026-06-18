@@ -73,6 +73,51 @@ Workflow path they are yours to keep.
   merge the agent branch back and remove its worktree in the same turn.
   You created it; you merge it; you remove it.
 
+## Interaction patterns
+
+Some fan-outs have a recognizable shape worth naming and reusing. An
+**interaction pattern** is a canonical recipe for one such shape — you
+still author the Workflow yourself (under the Authoring rules above), but
+you start from the named shape instead of inventing one. Reach for a
+pattern when the work fits; otherwise author free-form. Your maestro may
+name a pattern in the contract ("use the `debate` pattern"), or you may
+choose one yourself. Today one pattern is defined; more arrive on the
+same mechanism.
+
+### debate
+
+**When to use.** A decision over a wide solution space, or a claim that
+needs adversarial scrutiny — "which of these options," "is this finding
+real," "should we commit to X." (Distinct from *blackboard* — agents
+collaborate on a shared evolving artifact — and *tournament* — many
+candidates pruned in rounds; both arrive later.)
+
+**Shape — one round, one answer per agent.** Spawn N debater agents that
+run in `parallel()` and are **blind to each other**, each making the
+strongest case for one assigned answer — independence is the point, it
+prevents groupthink. Then one **judge** agent reads every case and
+returns a verdict with reasons. The 2-side "this is true" vs "this is
+false" form is adversarial-verify (use it for "is this bug real?").
+
+This lives inside the Authoring rules: bound the debaters, demand
+schema-shaped results, forbid raw tags in every leaf prompt.
+
+```js
+// debate: independent answers, then a judge picks one
+const sides = [/* the answers/options for the topic */]
+const cases = await parallel(sides.map((s) => () =>
+  agent(`Make the strongest case for ${s}. Ignore the other options.`,
+        { schema: CASE })))            // CASE = { stance, argument }
+const verdict = await agent(
+  `Cases: ${JSON.stringify(cases)}. Pick the best one and explain why.`,
+  { schema: VERDICT })                 // VERDICT = { choice, rationale, dissent }
+return { topic, positions: cases, verdict }
+```
+
+**Result shape.** `{ topic, positions: [{ stance, argument }], verdict: {
+choice, rationale, dissent } }` — report the `verdict` (and any notable
+`dissent`) up to your maestro; you need not forward every argument.
+
 ## What you do NOT do
 
 - You do NOT write or edit code. You do NOT run shell commands that
