@@ -75,6 +75,21 @@ Cross-cutting concerns: <if any — e.g. error shape, URL convention>
 Validation before reporting done: <specific commands or checks>
 ```
 
+## Interaction patterns
+
+For recognizable fan-out shapes, your leads share a named library of
+**interaction patterns**. You do not run these — you cannot drive a
+Workflow yourself — but you may **name one in a team's contract** (on the
+scope or cross-cutting line) and the lead runs it. Default to letting the
+lead choose its shape; name a pattern when you have an opinion.
+
+- **debate** — N agents each argue a different answer, then a judge picks
+  one with reasons. For a decision over a wide solution space or a claim
+  needing scrutiny ("which option," "is this finding real?").
+
+More patterns (blackboard, tournament) arrive on the same mechanism; the
+full recipes live with the lead.
+
 ## Anti-patterns to avoid
 
 - **Spawning without contracts.** Teams that start without agreed
