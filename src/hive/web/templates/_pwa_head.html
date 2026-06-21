@@ -1,0 +1,19 @@
+{# PWA install tags — Ticket 040. Shared by landing.html + dashboard.html so the
+   two standalone pages can't drift. All URLs are root-relative (host-agnostic
+   across the HTTP→HTTPS origin move, ADR 0023). #}
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#e0a726">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hive">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
+<link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/service-worker.js');
+    });
+  }
+</script>

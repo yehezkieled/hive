@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Hive — offline</title>
+  <style>
+    :root { --paper: #faf7ed; --ink: #1f1812; --ink-3: #6f6356; --honey: #e0a726; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100dvh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0.75rem; padding: env(safe-area-inset-top) 1.5rem env(safe-area-inset-bottom);
+      background: var(--paper); color: var(--ink);
+      font-family: "Nunito Sans", system-ui, sans-serif; text-align: center;
+    }
+    .mark { width: 72px; height: 72px; }
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 800; letter-spacing: 0.01em; }
+    p { margin: 0; color: var(--ink-3); max-width: 30ch; line-height: 1.5; }
+    button {
+      margin-top: 0.5rem; min-height: 44px; padding: 0 1.25rem;
+      border: 1px solid var(--ink); border-radius: 10px;
+      background: var(--honey); color: var(--ink);
+      font: inherit; font-weight: 700; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <svg class="mark" viewBox="0 0 100 100" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="50,8 86,29 86,71 50,92 14,71 14,29" fill="#e0a726" stroke="#1f1812" stroke-width="6" stroke-linejoin="round"/>
+  </svg>
+  <h1>Hive is offline</h1>
+  <p>No network right now. The hive keeps running on the host — reconnect to see live state.</p>
+  <button onclick="location.reload()">Try again</button>
+</body>
+</html>
