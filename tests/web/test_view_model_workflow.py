@@ -83,6 +83,9 @@ def _pm_with_store(maestro: Maestro, store: object) -> MagicMock:
     pm = MagicMock()
     pm.entities = {maestro.name: maestro}
     pm.progress_store = store
+    # Ticket 039: view_model now reads this predicate; a bare MagicMock would
+    # return a truthy mock and falsely flag every card as awaiting-you.
+    pm.is_parked_at_gate = MagicMock(return_value=False)
     return pm
 
 
