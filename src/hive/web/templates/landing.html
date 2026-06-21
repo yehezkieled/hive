@@ -98,6 +98,7 @@
               name="text"
               rows="1"
               placeholder="Message Hive…  (try /help)"
+              enterkeyhint="send"
               autocomplete="off"></textarea>
           </div>
           <div id="composer-attach-chip" class="composer__attach-chip" hidden>
@@ -636,11 +637,25 @@ composer.addEventListener('input', () => { autosize(); refreshSendState(); });
     });
   }
 })();
+// Submit the composer the same way whether triggered by Enter or the Send
+// button. requestSubmit() is Safari 16+ only — on older iPadOS it throws, and
+// because we already called preventDefault() the keypress would do nothing at
+// all (the classic "Enter does nothing on iPad" bug). Fall back to calling the
+// handler directly so Enter always works.
+function submitComposer() {
+  const form = document.getElementById('chat-form');
+  if (typeof form.requestSubmit === 'function') form.requestSubmit();
+  else sendChatCommand(new Event('submit', { cancelable: true }));
+}
 composer.addEventListener('keydown', (ev) => {
+  // iOS predictive text / autocorrect: pressing Return to commit a suggestion
+  // fires keydown mid-composition (isComposing / keyCode 229). Ignore those so
+  // the commit isn't mistaken for a send.
+  if (ev.isComposing || ev.keyCode === 229) return;
   if (dropdownOpen) return;
   if (ev.key === 'Enter' && !ev.shiftKey) {
     ev.preventDefault();
-    document.getElementById('chat-form').requestSubmit();
+    submitComposer();
   }
 });
 // Delegated [data-cmd] handler — catches composer chips, maestro card
@@ -804,7 +819,10 @@ const HIVE_COMMANDS = {{ commands|tojson }};
       ev.preventDefault(); ev.stopPropagation(); moveActive(-1);
     } else if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault(); ev.stopPropagation();
-      activeIndex >= 0 ? selectItem(activeIndex) : closeDropdown();
+      // An item is highlighted → pick it. Nothing highlighted → the user meant
+      // to send what they typed: close the menu and submit (don't swallow it).
+      if (activeIndex >= 0) { selectItem(activeIndex); }
+      else { closeDropdown(); submitComposer(); }
     } else if (ev.key === 'Tab') {
       ev.preventDefault(); ev.stopPropagation();
       selectItem(activeIndex >= 0 ? activeIndex : 0);
