@@ -160,6 +160,20 @@ completing the Turn — plan-mode approval (`ExitPlanMode`), an
 blocks the Turn until answered and Hive bridges it (hold-and-inject).
 _Avoid_: prompt, menu, interrupt
 
+**Decision request**:
+A Maestro's free-text question to the user — emitted as
+`request_decision{to:"user"}` — that parks the Maestro on the durable
+`awaiting_decision` flag until the user replies. The conversational,
+maestro-facing replacement for the **[[Interactive gate]]** (Ticket 029,
+ADR 0018): the reply is prose the Maestro interprets, and Hive stays dumb about
+its content. **One-deep** — a Maestro has at most one open decision at a time
+(emitting one ends the Turn). Distinct from an **approval** (a `mode_request` or
+`vault_action`: a structured, row-id'd allow/deny backed by its own store) and
+from the vault's hard money-approval rail. Surfaced on the web — answerable from
+the iPad — in Ticket 038 ([ADR 0023](adr/0023-decision-channel-entity-keyed.md)),
+where it stays **entity-keyed**, not row-id'd.
+_Avoid_: approval, gate, prompt, poll, vote.
+
 **Auto-bounce**:
 Hive automatically killing a jammed Entity's Harness session and respawning
 it — the conversation preserved via the Harness's own resume — when the
