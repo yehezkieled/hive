@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Hive — Landing</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,6 +17,15 @@
 
   {# ── Top bar ─────────────────────────────────────────────────────────── #}
   <header class="top-bar">
+    <button class="drawer-toggle" id="drawer-toggle" type="button"
+            aria-expanded="false" aria-controls="chat-rail" aria-label="Open chat">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span class="drawer-toggle__dot" aria-hidden="true"></span>
+      <span class="sr-only">Open chat</span>
+    </button>
     <div class="top-bar__brand">
       <span class="top-bar__bee">{{ bee(size=30) }}</span>
       <span class="top-bar__brand-text">
@@ -50,15 +59,17 @@
   <div class="main-row">
 
     {# ── Chat rail ────────────────────────────────────────────────────── #}
-    <aside class="chat-rail">
+    <aside class="chat-rail" id="chat-rail" role="dialog" aria-modal="true"
+           aria-labelledby="chat-rail-title">
       <div class="chat-rail__resizer" id="chat-rail-resizer" title="Drag to resize"></div>
       <div class="chat-rail__head">
-        <span class="chat-rail__title">Chat</span>
+        <span class="chat-rail__title" id="chat-rail-title">Chat</span>
         <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
         <span class="chat-rail__head-actions">
           <button class="btn">History</button>
           <button class="btn btn--primary">+ New</button>
         </span>
+        <button class="drawer-close" id="drawer-close" type="button" aria-label="Close chat">×</button>
       </div>
       <div class="chat-rail__addressed">
         <span class="chat-rail__addressed-label">Talking to:</span>
@@ -162,7 +173,11 @@
           <h3 class="section-head__title">Active maestros</h3>
           <span class="section-head__count section-head__count--active">{{ view.active|length }}</span>
           <span class="section-head__rule"></span>
-          <span class="section-head__right">sorted by P0·P1 pending</span>
+          <span class="section-head__right">
+            <button type="button" id="awaiting-filter" class="chip-awaiting" aria-pressed="false">
+              <span class="chip-awaiting__dot"></span>Waiting on me
+            </button>
+          </span>
         </div>
         <div class="cards-grid" hx-get="/api/landing/active" hx-trigger="every 5s" hx-swap="innerHTML">
           {% include "_partials/active.html" %}
@@ -177,6 +192,9 @@
         <div class="idle-list" hx-get="/api/landing/idle" hx-trigger="every 5s" hx-swap="innerHTML">
           {% include "_partials/idle.html" %}
         </div>
+        {# Ticket 039: shown only when the "Waiting on me" filter is on and
+           nothing (incl. the pinned PA) is awaiting — toggled in JS below. #}
+        <div class="awaiting-empty" id="awaiting-empty">Nothing needs you right now.</div>
 
         {# Dormant #}
         <div class="section-head">
@@ -199,6 +217,12 @@
     <span class="terminal-bar__hint">{{ view.terminal.hint }}</span>
     <span class="terminal-bar__prompt">~/hive $</span>
   </footer>
+
+  {# Drawer scrim — tap-to-dismiss target behind the open chat drawer. #}
+  <div class="drawer-scrim" id="drawer-scrim" aria-hidden="true"></div>
+  {# Polite-but-assertive announcer so SSE decisions reach a user whose
+     drawer is shut (D8) — visually hidden, read by the screen reader. #}
+  <div class="sr-only" id="drawer-live" aria-live="assertive" role="status"></div>
 
 </div>
 
@@ -377,6 +401,12 @@ function appendVaultRequestBubble(data) {
     + '</div></div></div>';
   rail.appendChild(wrap);
   rail.scrollTop = rail.scrollHeight;
+  // Attention routing (D8): a vault request behind a shut drawer must signal.
+  if (window.HiveDrawer) {
+    HiveDrawer.announce(data.requester + ' requests a vault payment — open chat to decide.');
+    HiveDrawer.markUnread('Open chat — ' + data.requester + ' needs a payment decision');
+    HiveDrawer.scrollMessagesToBottom();
+  }
 
   wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -435,6 +465,12 @@ function appendModeRequestBubble(data) {
     + '</div></div></div>';
   rail.appendChild(wrap);
   rail.scrollTop = rail.scrollHeight;
+  // Attention routing (D8): a mode request behind a shut drawer must signal.
+  if (window.HiveDrawer) {
+    HiveDrawer.announce(data.requester + ' requests ' + data.requested_mode + ' — open chat to decide.');
+    HiveDrawer.markUnread('Open chat — ' + data.requester + ' needs a mode decision');
+    HiveDrawer.scrollMessagesToBottom();
+  }
 
   wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -669,6 +705,30 @@ document.addEventListener('click', (ev) => {
   composer.focus();
   composer.dispatchEvent(new Event('input'));
 });
+
+// Ticket 039 — "Waiting on me" attention filter. Toggles a body class so the
+// CSS hides non-awaiting cards. Delegated + body-class (not a per-card listener)
+// so it survives the 5s HTMX swaps: cards re-render server-side each poll with
+// their .is-awaiting class, and the body class lives on the un-swapped <body>.
+document.addEventListener('click', (ev) => {
+  const chip = ev.target.closest('#awaiting-filter');
+  if (!chip) return;
+  const on = document.body.classList.toggle('show-awaiting-only');
+  chip.classList.toggle('is-pressed', on);
+  chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+  refreshAwaitingEmpty();
+});
+// Empty-state shows only when the filter is on and nothing anywhere is awaiting
+// (the pinned PA card counts, so an awaiting otter suppresses it).
+function refreshAwaitingEmpty() {
+  const empty = document.getElementById('awaiting-empty');
+  if (!empty) return;
+  const on = document.body.classList.contains('show-awaiting-only');
+  const anyAwaiting = document.querySelector('.maestro-card.is-awaiting, .idle-strip.is-awaiting');
+  empty.classList.toggle('is-shown', on && !anyAwaiting);
+}
+// Re-evaluate after every HTMX swap — a polled card may have just cleared.
+document.body.addEventListener('htmx:afterSwap', refreshAwaitingEmpty);
 refreshSendState();
 
 // Render markdown on server-rendered initial messages.
@@ -680,11 +740,177 @@ document.querySelectorAll('.chat-rail__messages .msg__bubble').forEach(el => {
 const initialRail = document.querySelector('.chat-rail__messages');
 if (initialRail) initialRail.scrollTop = initialRail.scrollHeight;
 
+// ── Slide-over chat drawer (D1/D2/D8) ──────────────────────────────────────
+// At narrow width (<=900px) the chat rail is a fixed-overlay dialog. We
+// hand-build the dialog machinery: `inert` the off-drawer world in both
+// states so focus can't escape into hidden content, move focus to the close-x
+// on open / back to the toggle on close, lock the page scroller, and tap-/
+// Escape-dismiss through a single close path. Exposed as window.HiveDrawer so
+// the SSE bubbles (mode/vault requests) can flag unread + announce.
+const HiveDrawer = window.HiveDrawer = (function setupDrawer() {
+  const shell   = document.querySelector('.shell');
+  const rail    = document.getElementById('chat-rail');
+  const toggle  = document.getElementById('drawer-toggle');
+  const closeBtn = document.getElementById('drawer-close');
+  const scrim   = document.getElementById('drawer-scrim');
+  const live    = document.getElementById('drawer-live');
+  const content = document.querySelector('.content');
+  const topBar  = document.querySelector('.top-bar');
+  const scroller = document.querySelector('.content-inner');
+  const narrowMq = window.matchMedia('(max-width: 900px)');
+
+  const noop = () => {};
+  if (!shell || !rail || !toggle || !scrim) {
+    return { open: noop, close: noop, isOpen: () => false, isNarrow: () => false,
+             markUnread: noop, announce: noop, scrollMessagesToBottom: noop };
+  }
+
+  const OPEN_LABEL = 'Open chat';
+  let unread = false;
+
+  function isNarrow() { return narrowMq.matches; }
+  function isOpen() { return shell.classList.contains('drawer-open'); }
+
+  function scrollMessagesToBottom() {
+    const msgs = rail.querySelector('.chat-rail__messages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function setBackgroundInert(on) {
+    [topBar, content].forEach(el => {
+      if (!el) return;
+      if (on) el.setAttribute('inert', '');
+      else el.removeAttribute('inert');
+    });
+  }
+
+  function clearUnread() {
+    unread = false;
+    toggle.classList.remove('has-unread');
+    toggle.setAttribute('aria-label', OPEN_LABEL);
+    const lbl = toggle.querySelector('.sr-only');
+    if (lbl) lbl.textContent = OPEN_LABEL;
+  }
+
+  function markUnread(label) {
+    // Only flag when the drawer is shut — an open drawer already shows it.
+    if (isOpen()) return;
+    unread = true;
+    toggle.classList.add('has-unread');
+    const text = label || 'Open chat — new request waiting';
+    toggle.setAttribute('aria-label', text);
+    const lbl = toggle.querySelector('.sr-only');
+    if (lbl) lbl.textContent = text;
+  }
+
+  function announce(text) {
+    if (live && text) live.textContent = text;
+  }
+
+  function open() {
+    if (isOpen()) return;
+    shell.classList.add('drawer-open');
+    toggle.setAttribute('aria-expanded', 'true');
+    rail.removeAttribute('inert');
+    if (isNarrow()) {
+      setBackgroundInert(true);
+      if (scroller) scroller.style.overflow = 'hidden';  // scroll-lock the page
+    }
+    clearUnread();
+    scrollMessagesToBottom();
+    // Focus the close-x so keyboard/AX focus lands inside the dialog.
+    if (closeBtn) closeBtn.focus();
+  }
+
+  function close() {
+    if (!isOpen()) return;
+    shell.classList.remove('drawer-open');
+    toggle.setAttribute('aria-expanded', 'false');
+    setBackgroundInert(false);
+    if (scroller) scroller.style.overflow = '';
+    if (isNarrow()) rail.setAttribute('inert', '');  // closed = off-screen, AX-out
+    toggle.focus();
+  }
+
+  toggle.addEventListener('click', () => { isOpen() ? close() : open(); });
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  // Single close path: scrim tap, Escape, close-x (above) all route here.
+  scrim.addEventListener('pointerdown', close);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && isOpen()) { ev.preventDefault(); close(); }
+  });
+
+  // Keep the rail's `inert` state in sync with the viewport:
+  //  - narrow + closed → rail is off-screen, must be inert (AX-out, no escape)
+  //  - wide → desktop two-column, rail is always-visible content, clear inert
+  //    and drop any open-drawer state so resizing back up is clean.
+  function syncToViewport() {
+    if (isNarrow()) {
+      // Drop any saved desktop drag width — it would fight the drawer's own
+      // `width: min(364px, 86vw)` (D7). Cleared, not merely unapplied.
+      rail.style.width = '';
+      if (!isOpen()) rail.setAttribute('inert', '');
+    } else {
+      shell.classList.remove('drawer-open');
+      toggle.setAttribute('aria-expanded', 'false');
+      rail.removeAttribute('inert');
+      setBackgroundInert(false);
+      if (scroller) scroller.style.overflow = '';
+    }
+  }
+  if (narrowMq.addEventListener) narrowMq.addEventListener('change', syncToViewport);
+  else if (narrowMq.addListener) narrowMq.addListener(syncToViewport);  // Safari <14
+  window.addEventListener('orientationchange', syncToViewport);
+  syncToViewport();  // set the initial inert state
+
+  return { open, close, isOpen, isNarrow, markUnread, announce,
+           scrollMessagesToBottom };
+})();
+
+// ── Soft-keyboard handling (D6) ────────────────────────────────────────────
+// iOS shrinks only the *visual* viewport when the keyboard opens, so 100dvh is
+// blind to it. We measure the gap and write it to --kb; the drawer's
+// `bottom: calc(env(safe-area-inset-bottom) + var(--kb))` shrinks the fixed box
+// so the flex:1 messages scroller contracts and the just-sent message stays
+// visible. (A composer-only translateY would desync the scroller — rejected.)
+(function setupKeyboardInset() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  let raf = 0;
+  function update() {
+    raf = 0;
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb', kb + 'px');
+  }
+  function schedule() {
+    if (!raf) raf = requestAnimationFrame(update);
+  }
+  vv.addEventListener('resize', schedule);
+  vv.addEventListener('scroll', schedule);
+  window.addEventListener('orientationchange', schedule);
+  update();
+
+  // Belt-and-suspenders: when the composer focuses, nudge it into view. This
+  // is a NEW listener — it does NOT touch the Enter-to-send keydown handler.
+  const input = document.getElementById('chat-input');
+  if (input) {
+    input.addEventListener('focus', () => {
+      setTimeout(() => input.scrollIntoView({ block: 'nearest' }), 50);
+    });
+  }
+})();
+
 // Drag-resizable chat-rail. Width persists in localStorage.
 (function setupRailResizer() {
   const rail = document.querySelector('.chat-rail');
   const handle = document.getElementById('chat-rail-resizer');
   if (!rail || !handle) return;
+  // At narrow width the rail is a fixed-overlay drawer with no neighbour to
+  // resize and the handle is display:none — wiring the drag would be a dead
+  // tap-eater, and a saved inline width would fight the drawer's own width
+  // (D7). The shared syncToViewport() clears any saved inline width on the
+  // narrow crossing. The mouse drag path stays for >900px only.
+  if (window.matchMedia('(max-width: 900px)').matches) return;
   const KEY = 'hive_chat_rail_width';
   const MIN = 280, MAX = Math.min(720, Math.floor(window.innerWidth * 0.6));
   const saved = parseInt(localStorage.getItem(KEY) || '', 10);
@@ -768,7 +994,10 @@ const HIVE_COMMANDS = {{ commands|tojson }};
       item.innerHTML =
         '<span class="cmd-dropdown__usage">' + escapeHtml(usage) + '</span>' +
         '<span class="cmd-dropdown__desc">'  + escapeHtml(cmd.description) + '</span>';
-      item.addEventListener('mousedown', e => { e.preventDefault(); selectItem(i); });
+      // pointerdown (not mousedown): iOS synthesizes click on tap but not
+      // mousedown, so a mousedown pick would silently fail on touch. The
+      // preventDefault keeps focus in the input so the dropdown stays usable.
+      item.addEventListener('pointerdown', e => { e.preventDefault(); selectItem(i); });
       dropdown.appendChild(item);
     });
   }
@@ -831,7 +1060,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
     }
   });
 
-  document.addEventListener('mousedown', e => {
+  document.addEventListener('pointerdown', e => {
     if (dropdownOpen && !dropdown.contains(e.target) && e.target !== input)
       closeDropdown();
   });
@@ -894,14 +1123,23 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   function positionPopup() {
     const r = toggleBtn.getBoundingClientRect();
     const margin = 8;
-    const maxH = Math.min(480, window.innerHeight - 24);
+    // Use the *visual* viewport so the popup is bounded above the soft keyboard
+    // on iOS (the keyboard shrinks the visual viewport only). vv.offsetTop is
+    // how far the visual viewport has scrolled inside the layout viewport; the
+    // popup is `position: fixed` so its `bottom` is measured from the layout
+    // viewport — we add back offsetTop so the gap is taken from the *visible*
+    // bottom edge, not the (possibly off-screen) layout bottom.
+    const vv = window.visualViewport;
+    const vh = vv ? vv.height : window.innerHeight;
+    const vOffset = vv ? vv.offsetTop : 0;
+    const maxH = Math.min(480, vh - 24);
     popup.style.maxHeight = maxH + 'px';
     let left = r.left;
     if (left + 340 > window.innerWidth - 12) {
       left = window.innerWidth - 340 - 12;
     }
     popup.style.left = Math.max(12, left) + 'px';
-    popup.style.bottom = (window.innerHeight - r.top + margin) + 'px';
+    popup.style.bottom = (vh - (r.top - vOffset) + margin) + 'px';
     popup.style.top = 'auto';
   }
 
@@ -964,8 +1202,9 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   toggleBtn.addEventListener('click', togglePanel);
   if (closeBtn) closeBtn.addEventListener('click', closePanel);
 
-  // Close on outside click / Esc; reposition on resize/scroll.
-  document.addEventListener('mousedown', e => {
+  // Close on outside click / Esc; reposition on resize/scroll. pointerdown,
+  // not mousedown — iOS doesn't synthesize mousedown on tap.
+  document.addEventListener('pointerdown', e => {
     if (popup.hasAttribute('hidden')) return;
     if (popup.contains(e.target) || toggleBtn.contains(e.target)) return;
     closePanel();
@@ -1086,7 +1325,8 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   bellBtn.addEventListener('click', togglePanel);
   if (closeBtn) closeBtn.addEventListener('click', closePanel);
 
-  document.addEventListener('mousedown', e => {
+  // pointerdown, not mousedown — iOS doesn't synthesize mousedown on tap.
+  document.addEventListener('pointerdown', e => {
     if (popup.hasAttribute('hidden')) return;
     if (popup.contains(e.target) || bellBtn.contains(e.target)) return;
     closePanel();
@@ -1207,7 +1447,8 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   gateBtn.addEventListener('click', togglePanel);
   if (closeBtn) closeBtn.addEventListener('click', closePanel);
 
-  document.addEventListener('mousedown', e => {
+  // pointerdown, not mousedown — iOS doesn't synthesize mousedown on tap.
+  document.addEventListener('pointerdown', e => {
     if (popup.hasAttribute('hidden')) return;
     if (popup.contains(e.target) || gateBtn.contains(e.target)) return;
     closePanel();
@@ -1274,8 +1515,10 @@ document.addEventListener('click', (ev) => {
   display: flex; flex-direction: column; gap: 2px;
   padding: 7px 14px; cursor: pointer;
 }
-.cmd-dropdown__item:hover,
 .cmd-dropdown__item.is-active { background: var(--honey-soft); }
+@media (hover: hover) {
+  .cmd-dropdown__item:hover { background: var(--honey-soft); }
+}
 .cmd-dropdown__usage {
   color: var(--ink); font-weight: 700;
   font-family: var(--font-mono); font-size: 11.5px;
