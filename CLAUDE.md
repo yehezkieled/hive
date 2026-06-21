@@ -6,7 +6,7 @@ Project-specific rules for any Claude Code session working on Hive.
 
 @CONTEXT.md
 @docs/roadmap.md
-@docs/sprints/2026-Q2-S7.md
+@docs/sprints/2026-Q2-S8.md
 @docs/tickets/INDEX.md
 
 > When the sprint rolls over, update the sprint `@`-reference above.
@@ -204,8 +204,18 @@ as a Hive-native recipe (034 mechanism + debate, ADR 0020), then **superseded**
 the remaining patterns — `blackboard` (035) / `tournament` (036) now ship as
 user-authored **global skills**, not recipes ([ADR 0021](docs/adr/0021-further-patterns-as-global-skills.md)) —
 plus two independent loop-correctness gaps, both done (032 entity-name
-validation, 033 PA self-identity). The web/PWA **iPad daily driver** (Phase 4 —
-control Hive off Telegram) follows in **S8**.
+validation, 033 PA self-identity). **S7 closed 2026-06-21 on goal-met.**
+
+**Phase 4 — Web dashboard to PWA** is **in progress**. **S8 (window 2026-06-21 →
+07-05, active)** makes the web the **primary control surface** for Hive from an
+iPad: a responsive touch shell (037, with the Enter-to-send hotfix already
+shipped), decision answers on the web (038, 029 → web), an "awaiting-you"
+attention router (039), and an installable PWA (040). **Web Push** (041 — what
+demotes Telegram to debug/log) is the designated **spill → S9**. From S9, sprints
+**combine a web track with a backend/logic + bug-fix track**; the S9 backend
+track's first candidate is the **6-pattern interaction-skill library**
+(loop-engineering infrastructure — the autonomous loop self-organizes its
+fan-outs without the human dictating; a new ADR will amend 0021).
 
 Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
 and plan-billed in production (Tickets 001 + 003); the headless

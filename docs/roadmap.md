@@ -39,10 +39,13 @@ further coordination shapes ship as user-authored **global skills**
 (`~/.claude/skills`), not Hive-native recipes — zero engine work, so off the
 roadmap.
 
-## Phase 4 — Web dashboard to PWA
+## Phase 4 — Web dashboard to PWA  ·  IN PROGRESS (S8 →)
 
 Control Hive from a phone, off Telegram. The existing dashboard
 becomes a responsive installable PWA — one codebase, no app store.
+S8 ships the interaction layer (touch shell, decision-UI parity,
+attention router, PWA install); Web Push (demotes Telegram to
+debug/log) follows in S9.
 
 ## Phase 5 — Codex + OpenCode adapters
 
@@ -70,3 +73,12 @@ one-line bullet here.
 Phases 4 and 5 can swap. Phase 4 (PWA) is daily-use value; Phase 5
 (extra harnesses) is insurance against Claude quota becoming a real
 ceiling. That ordering is a judgement call.
+
+## Direction — loop engineering (emerging)
+
+The long-run aim is **less human in the loop**: Hive's autonomy loop runs
+more on its own, reserving the human for the few high-stakes decisions. This
+re-weights the surfaces — the **async ping** (Web Push) and a **crisp decision
+channel** matter more than the live glance, and coordination shapes (the
+interaction-pattern skills) are how the loop **self-organizes its fan-outs
+without being told**. A theme, not a phase yet.
