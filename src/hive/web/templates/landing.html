@@ -224,6 +224,26 @@
      drawer is shut (D8) — visually hidden, read by the screen reader. #}
   <div class="sr-only" id="drawer-live" aria-live="assertive" role="status"></div>
 
+  {# Token entry — an in-page form, NOT window.prompt() (iOS Safari suppresses
+     prompt() in the requestSubmit() send path, so the token could never be
+     entered on iPad). A `.shell` child so it is never inside the inert
+     background when the drawer is open. #}
+  <div class="token-modal" id="token-modal" role="dialog" aria-modal="true"
+       aria-labelledby="token-modal-title" hidden>
+    <form class="token-modal__box" id="token-form">
+      <h2 class="token-modal__title" id="token-modal-title">Enter access token</h2>
+      <p class="token-modal__hint">Paste your <code>HIVE_WEB_TOKEN</code> to send commands. Stored for this tab only.</p>
+      <input class="token-modal__input" id="token-input" type="password"
+             name="token" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" inputmode="text"
+             placeholder="HIVE_WEB_TOKEN" aria-label="Access token" />
+      <div class="token-modal__actions">
+        <button type="button" class="btn" id="token-cancel">Cancel</button>
+        <button type="submit" class="btn btn--primary" id="token-save">Save &amp; send</button>
+      </div>
+    </form>
+  </div>
+
 </div>
 
 {# ── Help popup (floating, anchored to ? button) ─────────────────────── #}
@@ -258,13 +278,41 @@
 </div>
 
 <script>
+// Returns a Promise<string|null>. window.prompt() is suppressed by iOS Safari
+// in the requestSubmit() send path, so the token could never be entered on
+// iPad — we show an in-page form (#token-modal) instead and resolve when the
+// user saves or cancels. Already-stored tokens resolve synchronously.
 function ensureToken() {
-  let token = sessionStorage.getItem('hive_web_token');
-  if (!token) {
-    token = prompt('Enter HIVE_WEB_TOKEN:');
-    if (token) sessionStorage.setItem('hive_web_token', token);
-  }
-  return token;
+  const existing = sessionStorage.getItem('hive_web_token');
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve) => {
+    const modal  = document.getElementById('token-modal');
+    const form   = document.getElementById('token-form');
+    const input  = document.getElementById('token-input');
+    const cancel = document.getElementById('token-cancel');
+    if (!modal || !form || !input) { resolve(null); return; }  // no UI → give up cleanly
+    function finish(value) {
+      modal.hidden = true;
+      form.removeEventListener('submit', onSubmit);
+      if (cancel) cancel.removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKey);
+      resolve(value || null);
+    }
+    function onSubmit(ev) {
+      ev.preventDefault();
+      const v = input.value.trim();
+      if (v) sessionStorage.setItem('hive_web_token', v);
+      input.value = '';
+      finish(v);
+    }
+    function onCancel() { input.value = ''; finish(null); }
+    function onKey(ev) { if (ev.key === 'Escape') onCancel(); }
+    form.addEventListener('submit', onSubmit);
+    if (cancel) cancel.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey);
+    modal.hidden = false;
+    setTimeout(() => input.focus(), 50);  // let the modal paint before focusing
+  });
 }
 
 function escapeHtml(s) {
@@ -512,7 +560,7 @@ async function sendChatCommand(event) {
   const stagedFile = fileInput && fileInput.files && fileInput.files[0];
   const text = input.value.trim();
   if (!text && !stagedFile) return false;
-  const token = ensureToken();
+  const token = await ensureToken();
   if (!token) return false;
 
   // Optimistic UI: paint user message + clear composer immediately.

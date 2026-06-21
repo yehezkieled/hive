@@ -146,3 +146,20 @@ class TestPointerdownDismiss:
 
     def test_pointerdown_used(self) -> None:
         assert "pointerdown" in _html()
+
+
+class TestTokenEntry:
+    """iPad: window.prompt() for the token is suppressed by iOS Safari in the
+    requestSubmit() path → no popup → send is blocked. Use an in-page form."""
+
+    def test_token_modal_markup_present(self) -> None:
+        html = _html()
+        assert 'id="token-modal"' in html
+        assert 'id="token-form"' in html
+        assert 'id="token-input"' in html
+
+    def test_no_window_prompt_for_token(self) -> None:
+        html = _html()
+        # window.prompt() must NOT be the token-entry path (fails on iPad).
+        assert "prompt('Enter HIVE_WEB_TOKEN" not in html
+        assert 'prompt("Enter HIVE_WEB_TOKEN' not in html

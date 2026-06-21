@@ -1685,3 +1685,76 @@ body.show-awaiting-only .idle-list .idle-strip:not(.is-awaiting) {
   }
   .dormant-pill:hover { transform: translateY(-1px); }
 }
+
+/* ─── Token entry modal ──────────────────────────────────────
+   In-page token form (replaces window.prompt(), which iOS Safari
+   suppresses in the requestSubmit() send path). A `.shell` child, so it is
+   never inside the inert background when the drawer is open. */
+.token-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;                       /* above the drawer (40) + scrim (39) */
+  display: flex;
+  align-items: flex-start;           /* sit high so the keyboard can't cover it */
+  justify-content: center;
+  padding: max(48px, env(safe-area-inset-top)) 16px 16px;
+  background: rgba(31, 24, 18, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.token-modal[hidden] { display: none; }
+.token-modal__box {
+  width: 100%;
+  max-width: 360px;
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 12px 30px -8px rgba(31, 24, 18, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.token-modal__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.token-modal__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+.token-modal__hint code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--paper-soft);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.token-modal__input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 16px;                   /* >=16px stops iOS auto-zoom on focus */
+  padding: 11px 12px;
+  min-height: 44px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 9px;
+  background: var(--paper-soft);
+  color: var(--ink);
+  outline: none;
+}
+.token-modal__input:focus-visible {
+  border-color: var(--ink-3);
+  box-shadow: 0 0 0 3px rgba(31, 24, 18, 0.08);
+}
+.token-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.token-modal__actions .btn { min-height: 44px; }
