@@ -247,6 +247,41 @@ Defaults & Tailscale binding:
 Auth is deferred — do **not** flip `HIVE_WEB_HOST` to `0.0.0.0` until a
 later sprint ships session-cookie or OAuth-based authentication.
 
+### HTTPS for the PWA install (Ticket 040 / ADR 0023)
+
+The home-screen PWA (Ticket 040) relies on a **service worker**, and a
+service worker only runs in a **secure context** — `https://` or
+`http://localhost`. Plain `http://100.79.194.84:8080/` is neither, so the
+worker silently refuses to register and the install fails. Fix it by serving
+the dashboard over HTTPS with **`tailscale serve`** (no app code, no extra
+daemon, no public port — tailnet-only). See
+[ADR 0023](adr/0023-https-via-tailscale-serve-for-pwa.md).
+
+One-time setup on the VPS:
+
+```bash
+# 1. Enable MagicDNS + HTTPS certificates in the tailnet admin
+#    (admin console → DNS → enable MagicDNS, then "HTTPS Certificates").
+
+# 2. Re-bind uvicorn to loopback — tailscale serve fronts it, so the app
+#    no longer needs to listen on the tailnet IP directly.
+#    In .env:  HIVE_WEB_HOST=127.0.0.1   (HIVE_WEB_PORT stays 8080)
+
+# 3. Reverse-proxy HTTPS → the local uvicorn (syntax varies by Tailscale
+#    version; confirm with `tailscale serve --help` / `tailscale serve status`):
+tailscale serve --bg https / http://127.0.0.1:8080
+
+# 4. Apply and verify
+systemctl --user restart hive.service
+tailscale serve status        # shows the https://<node>.<tailnet>.ts.net mapping
+```
+
+Then browse — **and install** — from the iPad at the HTTPS MagicDNS name,
+e.g. `https://ubuntu-s-4vcpu-8gb-sgp1-01.tailfb3900.ts.net/`. The first
+request may take ~a minute while the cert is issued. This **replaces** the
+plain-HTTP IP as the access surface; update the smoke URL below accordingly
+(`https://<node>.<tailnet>.ts.net/...` instead of `http://100.79.194.84:8080/...`).
+
 ### Web write surface (Sprint 15 + 2026-04-26 polish)
 
 Endpoints that accept input from the browser tab:

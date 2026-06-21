@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -471,6 +471,26 @@ def create_app(
     async def landing_dormant(request: Request):
         view = await _build_view()
         return templates.TemplateResponse(request, "_partials/dormant.html", {"view": view})
+
+    # ─── PWA: manifest + service worker (Ticket 040) ───────────────────
+    # The service worker is served from the root so its scope is "/" — it must
+    # control both "/" and "/dashboard" (a worker under /static could not).
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def web_manifest():
+        return FileResponse(
+            STATIC_DIR / "manifest.webmanifest",
+            media_type="application/manifest+json",
+        )
+
+    @app.get("/service-worker.js", include_in_schema=False)
+    async def service_worker():
+        # no-cache so an updated worker is fetched on the next navigation
+        # rather than pinned by the HTTP cache.
+        return FileResponse(
+            STATIC_DIR / "service-worker.js",
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     # ─── Landing page ──────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse)
