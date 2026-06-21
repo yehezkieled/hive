@@ -122,6 +122,43 @@ def _runs_for(process_manager: ProcessManager | None, name: str) -> list[dict]:
     ]
 
 
+def _is_awaiting(process_manager: ProcessManager | None, entity: Entity) -> bool:
+    """True when ``entity`` is blocked on a human reply (Ticket 039).
+
+    Two "frozen until you answer" sources: a 029 decision
+    (``awaiting_decision``, durable on the entity) or an interactive gate
+    (003, ``is_parked_at_gate``). Read both defensively so cold starts and
+    test fakes without the predicate degrade to the durable flag alone.
+    Mode/vault approvals (source C) stay on the bell, not the card.
+    """
+    if bool(getattr(entity, "awaiting_decision", False)):
+        return True
+    checker = getattr(process_manager, "is_parked_at_gate", None)
+    if checker is None:
+        return False
+    return bool(checker(entity.name))
+
+
+def _awaiting_rollup(process_manager: ProcessManager | None, entity: Entity) -> bool:
+    """``entity``'s own awaiting flag OR any entity beneath it in the org tree.
+
+    Hive names are ``maestro.team`` (see ``Team``), so a maestro rolls up any
+    lead under its ``maestro.`` prefix — the same idiom ``_open_tasks_for``
+    uses. Leads/runs aren't rendered as their own nodes (Ticket 039 scope), so
+    a lead blocked on the user surfaces on its maestro's card.
+    """
+    if _is_awaiting(process_manager, entity):
+        return True
+    if process_manager is None:
+        return False
+    prefix = f"{entity.name}."
+    return any(
+        _is_awaiting(process_manager, other)
+        for other in process_manager.entities.values()
+        if other.name.startswith(prefix)
+    )
+
+
 async def _entity_to_card(
     entity: Entity,
     *,
@@ -153,6 +190,8 @@ async def _entity_to_card(
         "tasks": tasks,
         "mode": entity.permission_mode,
         "model": entity.model,
+        # Ticket 039: rolled-up "blocked on the user" signal (own + any lead).
+        "awaiting_you": _awaiting_rollup(process_manager, entity),
     }
 
 
@@ -188,6 +227,8 @@ _OTTER_STUB: dict = {
     "tasks": [],
     "mode": "—",
     "model": "—",
+    # Ticket 039: cold-start stub is never blocked on the user.
+    "awaiting_you": False,
 }
 
 
@@ -223,6 +264,9 @@ async def build_landing_view_model(
             "role": m.role,
             "state": "idle",
             "last_active": _relative_time(m.last_activity_at),
+            # Ticket 039: an entity parked on a decision collapses to IDLE after
+            # ~10 min — exactly when the badge matters most, so it rides here too.
+            "awaiting_you": _awaiting_rollup(process_manager, m),
         }
         for m in idle_maestros
     ]

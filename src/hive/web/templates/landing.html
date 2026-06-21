@@ -162,7 +162,11 @@
           <h3 class="section-head__title">Active maestros</h3>
           <span class="section-head__count section-head__count--active">{{ view.active|length }}</span>
           <span class="section-head__rule"></span>
-          <span class="section-head__right">sorted by P0·P1 pending</span>
+          <span class="section-head__right">
+            <button type="button" id="awaiting-filter" class="chip-awaiting" aria-pressed="false">
+              <span class="chip-awaiting__dot"></span>Waiting on me
+            </button>
+          </span>
         </div>
         <div class="cards-grid" hx-get="/api/landing/active" hx-trigger="every 5s" hx-swap="innerHTML">
           {% include "_partials/active.html" %}
@@ -177,6 +181,9 @@
         <div class="idle-list" hx-get="/api/landing/idle" hx-trigger="every 5s" hx-swap="innerHTML">
           {% include "_partials/idle.html" %}
         </div>
+        {# Ticket 039: shown only when the "Waiting on me" filter is on and
+           nothing (incl. the pinned PA) is awaiting — toggled in JS below. #}
+        <div class="awaiting-empty" id="awaiting-empty">Nothing needs you right now.</div>
 
         {# Dormant #}
         <div class="section-head">
@@ -669,6 +676,30 @@ document.addEventListener('click', (ev) => {
   composer.focus();
   composer.dispatchEvent(new Event('input'));
 });
+
+// Ticket 039 — "Waiting on me" attention filter. Toggles a body class so the
+// CSS hides non-awaiting cards. Delegated + body-class (not a per-card listener)
+// so it survives the 5s HTMX swaps: cards re-render server-side each poll with
+// their .is-awaiting class, and the body class lives on the un-swapped <body>.
+document.addEventListener('click', (ev) => {
+  const chip = ev.target.closest('#awaiting-filter');
+  if (!chip) return;
+  const on = document.body.classList.toggle('show-awaiting-only');
+  chip.classList.toggle('is-pressed', on);
+  chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+  refreshAwaitingEmpty();
+});
+// Empty-state shows only when the filter is on and nothing anywhere is awaiting
+// (the pinned PA card counts, so an awaiting otter suppresses it).
+function refreshAwaitingEmpty() {
+  const empty = document.getElementById('awaiting-empty');
+  if (!empty) return;
+  const on = document.body.classList.contains('show-awaiting-only');
+  const anyAwaiting = document.querySelector('.maestro-card.is-awaiting, .idle-strip.is-awaiting');
+  empty.classList.toggle('is-shown', on && !anyAwaiting);
+}
+// Re-evaluate after every HTMX swap — a polled card may have just cleared.
+document.body.addEventListener('htmx:afterSwap', refreshAwaitingEmpty);
 refreshSendState();
 
 // Render markdown on server-rendered initial messages.

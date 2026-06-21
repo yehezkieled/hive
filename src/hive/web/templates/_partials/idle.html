@@ -1,10 +1,11 @@
 {# Idle maestro strips — inner contents of .idle-list. #}
 {% from "_macros.html" import state_dot %}
 {% for m in view.idle %}
-<div class="idle-strip">
+<div class="idle-strip{% if m.awaiting_you %} is-awaiting{% endif %}">
   {{ state_dot(m.state, size=8) }}
   <span class="idle-strip__addr">/m:{{ m.name }}</span>
   <span class="idle-strip__role">{{ m.role }}</span>
+  {% if m.awaiting_you %}<span class="awaits" title="Blocked — awaiting your reply">● you</span>{% endif %}
   <span class="idle-strip__last">last active {{ m.last_active }}</span>
 </div>
 {% endfor %}

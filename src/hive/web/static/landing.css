@@ -1392,6 +1392,72 @@ body {
 .terminal-bar__hint { color: rgba(250, 247, 237, 0.5); }
 .terminal-bar__prompt { margin-left: auto; color: var(--honey); font-weight: 700; }
 
+/* ─── Ticket 039: "awaiting-you" badge + "Waiting on me" filter ───────────
+   Appended here, above the @media tail (Ticket 037's zone) — keeps the
+   039→037 rebase a clean tail-append. */
+.awaits {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  background: var(--accent);
+  border: 2px solid var(--paper);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  animation: a3-badge 1.8s ease-in-out infinite;
+}
+.maestro-card__chip + .awaits { margin-left: 6px; }
+.idle-strip .awaits { margin-left: auto; }
+
+.chip-awaiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px; /* Ticket 037 touch tap-target floor */
+  padding: 0 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--paper-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.chip-awaiting:hover { background: var(--honey-soft); color: var(--ink); }
+.chip-awaiting__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.chip-awaiting.is-pressed {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.chip-awaiting.is-pressed .chip-awaiting__dot { background: #fff; }
+
+/* Filter scope: the active fleet + idle list only. The pinned PA card and the
+   vault stay anchored (the vault's pending approvals are themselves attention). */
+body.show-awaiting-only .cards-grid:not(.cards-grid--pinned) .maestro-card:not(.is-awaiting),
+body.show-awaiting-only .idle-list .idle-strip:not(.is-awaiting) {
+  display: none;
+}
+.awaiting-empty {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  padding: 8px 2px;
+}
+.awaiting-empty.is-shown { display: block; }
+
 /* ─── Animations ─────────────────────────────────────────── */
 @keyframes a3-pulse-ring {
   0% { transform: scale(0.6); opacity: 0.55; }

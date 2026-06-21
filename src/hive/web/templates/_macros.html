@@ -69,7 +69,7 @@
 {%- endmacro %}
 
 {% macro maestro_card(m, pinned=false) -%}
-<div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}">
+<div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}{% if m.awaiting_you %} is-awaiting{% endif %}">
   {% if pinned %}<span class="maestro-card__pin">PINNED · {{ m.name|upper }}</span>{% endif %}
   <div class="maestro-card__head">
     <div class="maestro-card__icon{% if pinned %} maestro-card__icon--pinned{% endif %}">{{ m.name[:2] }}</div>
@@ -78,6 +78,7 @@
       <span class="maestro-card__role">{{ m.role }}</span>
     </div>
     <span class="maestro-card__chip">{{ tasks_chip(m.tasks) }}</span>
+    {% if m.awaiting_you %}<span class="awaits" title="Blocked — awaiting your reply">● you</span>{% endif %}
   </div>
   <div class="maestro-card__summary">{{ m.summary }}</div>
   {% if m.runs %}
