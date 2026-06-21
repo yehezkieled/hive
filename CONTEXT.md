@@ -170,7 +170,7 @@ its content. **One-deep** — a Maestro has at most one open decision at a time
 (emitting one ends the Turn). Distinct from an **approval** (a `mode_request` or
 `vault_action`: a structured, row-id'd allow/deny backed by its own store) and
 from the vault's hard money-approval rail. Surfaced on the web — answerable from
-the iPad — in Ticket 038 ([ADR 0023](adr/0023-decision-channel-entity-keyed.md)),
+the iPad — in Ticket 038 ([ADR 0024](adr/0024-decision-channel-entity-keyed.md)),
 where it stays **entity-keyed**, not row-id'd.
 _Avoid_: approval, gate, prompt, poll, vote.
 

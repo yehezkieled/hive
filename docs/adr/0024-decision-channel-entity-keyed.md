@@ -1,4 +1,4 @@
-# ADR 0023 — The web decision channel stays entity-keyed and one-deep: question on the entity row, not a DecisionStore
+# ADR 0024 — The web decision channel stays entity-keyed and one-deep: question on the entity row, not a DecisionStore
 
 - **Status:** Accepted
 - **Date:** 2026-06-21

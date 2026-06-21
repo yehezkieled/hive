@@ -2,7 +2,7 @@
 
 Chosen approach for porting the 029 maestro→user decision channel to the web.
 Grounded in [`research.md`](research.md); the keystone storage/keying decision is
-recorded in [ADR 0023](../../adr/0023-decision-channel-entity-keyed.md). The
+recorded in [ADR 0024](../../adr/0024-decision-channel-entity-keyed.md). The
 responsive surface is owned by [ADR 0022](../../adr/0022-responsive-touch-shell-contract.md)
 (Ticket 037) — 038 composes with it, it does not rebuild it.
 
@@ -18,7 +18,7 @@ the browser, give it an interactive surface, make it recoverable on reload.
 
 | # | Lever | Decision | Why (1-liner) |
 |---|-------|----------|---------------|
-| 1 | Question storage | **Entity row** — nullable `last_decision_question` col (migration 032), set where `awaiting_decision=True` is | one-deep channel; keep `awaiting_decision` the single source of truth (ADR 0023) |
+| 1 | Question storage | **Entity row** — nullable `last_decision_question` col (migration 032), set where `awaiting_decision=True` is | one-deep channel; keep `awaiting_decision` the single source of truth (ADR 0024) |
 | 2 | Endpoint keying | **Entity-keyed** `POST /api/decision/{entity}/reply` | `{entity}` is always a maestro; matches `clear_awaiting_decision(entity_name)` |
 | 3 | Resume wiring | **Thin wrapper** → `dispatch_command(Command("message", entity, reply))` | reuse `_send_to_entity`'s clear→send→route; never fork it |
 | 4 | Resolution | **Client-side** — disable + pending state on submit, render the maestro reply as a chat line; no new SSE event | mirrors `mode_request`; cross-tab is out of scope |
@@ -114,11 +114,11 @@ producer test — `request_decision` sets `last_decision_question` + enriched
 - **CONTEXT.md** — add a glossary entry sharpening **Decision request** (the 029
   free-text, entity-keyed, one-deep channel) vs an **approval** (mode/vault,
   row-id'd allow/deny). Done in this ticket.
-- **ADR 0023** — the entity-keyed / question-on-entity-row divergence from the
+- **ADR 0024** — the entity-keyed / question-on-entity-row divergence from the
   mode/vault store pattern. New.
 - No README/DEPLOYMENT change (no new service, port, or env var).
 
-## Alternatives rejected (full reasoning in ADR 0023)
+## Alternatives rejected (full reasoning in ADR 0024)
 - **New `DecisionStore` table** — dual source of truth with `awaiting_decision`;
   drift hazard for a one-deep channel; history nobody asked for.
 - **Overload `mode_requests` (`kind='decision'`)** — approve/deny + `requested_mode`

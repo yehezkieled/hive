@@ -4,7 +4,7 @@
 **sequential** — persistence → producer → resume → endpoints → frontend — so
 fan-out parallelism buys nothing; it ships as one PR with one real-iPad re-smoke.
 Build order and per-step detail in [`outline.md`](outline.md); the chosen approach
-and rejected alternatives in [`design.md`](design.md) / [ADR 0023](../../adr/0023-decision-channel-entity-keyed.md).
+and rejected alternatives in [`design.md`](design.md) / [ADR 0024](../../adr/0024-decision-channel-entity-keyed.md).
 
 ## Files this Ticket creates / modifies
 
@@ -46,7 +46,7 @@ and rejected alternatives in [`design.md`](design.md) / [ADR 0023](../../adr/002
 ## Cross-cutting impact (declared upfront)
 - **CONTEXT.md** — **Decision request** glossary entry added (decision vs approval).
   *Already committed in this run.*
-- **ADR 0023** — entity-keyed / question-on-entity-row divergence. *Already
+- **ADR 0024** — entity-keyed / question-on-entity-row divergence. *Already
   committed in this run.*
 - No `README.md` / `DEPLOYMENT.md` change — no new service, port, or env var.
 
@@ -57,7 +57,7 @@ Single PR on a `ticket-038/…` branch, target `main`, squash-merge, that **clos
 ends here (planning only) — the implementation is a separate build step.
 
 ## Migration / ADR number watch
-`032` (migration) and `0023` (ADR) are correct against origin/main at authoring
+`032` (migration) and `0024` (ADR) are correct against origin/main at authoring
 (highest committed: migration 031, ADR 0022). Numbers race across parallel
 worktrees — **re-verify at ship time**; if taken, bump and fix refs (only mine,
 not origin's).
