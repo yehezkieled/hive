@@ -44,6 +44,6 @@ marked with ✱.
 | 036 | [Interaction pattern: `tournament`](036-interaction-pattern-tournament/) | 2026-Q2-S7 | superseded by ADR 0021 | — |
 | 037 | [Responsive / touch shell (iPad daily driver)](037-responsive-touch-shell/) | 2026-Q2-S8 | in progress | #200 |
 | 038 | [Web decision-UI parity (029 → web)](038-web-decision-ui-parity/) | 2026-Q2-S8 | planned | — |
-| 039 | [Awaiting-you fleet view (attention router)](039-awaiting-you-fleet-view/) | 2026-Q2-S8 | planned | — |
+| 039 | [Awaiting-you fleet view (attention router)](039-awaiting-you-fleet-view/) | 2026-Q2-S8 | in progress | #202 |
 | 040 | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | planned | — |
 | 041 | [Web Push (retire Telegram's alert role)](041-web-push/) | 2026-Q2-S8 | planned (spill → S9) | — |
