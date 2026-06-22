@@ -48,3 +48,4 @@ marked with ✱.
 | 040 ✱ | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | done | #205 |
 | 041 | [Web Push (retire Telegram's alert role)](041-web-push/) | 2026-Q2-S8 | planned (spill → S9) | — |
 | 042 | [iPad web polish & token-entry UX (037 follow-ups)](042-ipad-web-polish/) | 2026-Q2-S9 | planned | — |
+| 043 | [Standalone PWA: status bar overlaps the top bar (040 follow-up)](043-standalone-status-bar-overlap/) | 2026-Q2-S9 | planned | — |
