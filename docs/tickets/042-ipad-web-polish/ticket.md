@@ -1,8 +1,9 @@
 # 042 — iPad web polish & token-entry UX (S8 follow-ups)
 
-> Deferred to **S9** from the Ticket 037 real-iPad re-smoke. None of these
-> block daily use; they are rough edges + a web-auth UX preference + a
-> PWA-cache bug. Pairs with the S9 web track.
+> Deferred to **S9** from the Ticket 037 real-iPad re-smoke + the 040
+> home-screen install. None of these block daily use; they are rough edges + a
+> web-auth UX preference + two 040 PWA follow-ups (stale-shell cache #3,
+> standalone status-bar overlap #5). Pairs with the S9 web track.
 
 ## What
 
@@ -34,6 +35,19 @@ Clean up the iPad web experience surfaced while re-smoking 037:
    real `--kb` / safe-area layout bug in 037 or just the stale cache (#3); fix
    if real. Carries the remaining **037 keyboard-visibility re-smoke**
    (sent message + reply stay above the keyboard).
+
+5. **Standalone status-bar overlap** — in the **installed PWA** the iOS status
+   bar (clock / VPN / battery) overlaps the `.top-bar` (the brand sits under the
+   clock). Surfaced by the 040 home-screen install. Cause: 040 sets
+   `apple-mobile-web-app-status-bar-style: black-translucent`, so the web view
+   extends under the status bar, while `.top-bar` doesn't clear
+   `env(safe-area-inset-top)` in the standalone context (037's safe-area padding
+   is present but insufficient here — verify on-device). Fix: either drop to
+   `status-bar-style: default` (the status bar gets its own opaque strip, no
+   overlap) **or** keep edge-to-edge and add a `padding-top:
+   env(safe-area-inset-top)` to `.top-bar` that actually applies when standalone.
+   Needs on-device debugging (Safari remote inspector). _A 040 follow-up;
+   grouped here._
 
 ## Why
 
