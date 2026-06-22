@@ -44,6 +44,10 @@ class CommandRequest(BaseModel):
     text: str
 
 
+class DecisionReplyRequest(BaseModel):
+    reply: str
+
+
 logger = logging.getLogger("hive.web")
 
 WEB_DIR = Path(__file__).parent
@@ -307,6 +311,47 @@ def create_app(
             return {"requests": []}
         rows = await mode_request_store.list_pending(default_maestro)
         return {"requests": rows}
+
+    # ─── Decision channel on the web (Ticket 038, ADR 0024) ────────────
+    @app.post("/api/decision/{entity}/reply")
+    async def api_decision_reply(
+        entity: str,
+        body: DecisionReplyRequest,
+        _: None = Depends(require_token),
+    ):
+        """Answer a maestro's 029 decision from the web.
+
+        A decision reply *is* a user message to the maestro, so this is a thin
+        wrapper over the command-dispatcher message path: the unpark+resume
+        sequence (clear_awaiting_decision → send_to_entity → route, including the
+        Ticket 019 phase-confirm side effect and the load-bearing clear-before-
+        send ordering) lives in ``_send_to_entity`` and is never re-implemented
+        here. Entity-keyed because the channel is one-deep per maestro.
+        """
+        if command_dispatcher is None:
+            raise HTTPException(status_code=503, detail="Command surface not configured")
+        if not body.reply.strip():
+            raise HTTPException(status_code=400, detail="Empty reply")
+        if entity not in process_manager.entities:
+            raise HTTPException(status_code=404, detail=f"Entity {entity!r} not found")
+        result = await command_dispatcher.dispatch_command(
+            Command(name="message", target=entity, args=body.reply), actor="web:user"
+        )
+        return {"ok": True, "entity": entity, "text": result.text}
+
+    @app.get("/api/decisions/pending")
+    async def api_decisions_pending(_: None = Depends(require_token)):
+        """Outstanding 029 decisions, so a fresh load re-shows them.
+
+        Scans entities for the durable ``awaiting_decision`` flag (the one source
+        of truth) + the stored question — no separate store (ADR 0024).
+        """
+        decisions = [
+            {"entity": e.name, "question": getattr(e, "last_decision_question", None)}
+            for e in process_manager.entities.values()
+            if getattr(e, "awaiting_decision", False)
+        ]
+        return {"decisions": decisions}
 
     @app.post("/api/mode-request/{request_id}/approve")
     async def api_mode_approve(

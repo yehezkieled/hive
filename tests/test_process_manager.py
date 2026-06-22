@@ -1869,3 +1869,13 @@ class TestPhaseConfirmationGate:
 
         assert lead.awaiting_decision is False
         assert lead.confirmed_with_user is False
+
+    async def test_clear_awaiting_decision_nulls_question(self, manager: ProcessManager) -> None:
+        """Ticket 038: unparking clears the stored decision question."""
+        maestro = Maestro(name="dev", model="opus")
+        maestro.awaiting_decision = True
+        maestro.last_decision_question = "auth or sessions?"
+        manager._entities["dev"] = maestro
+        await manager.clear_awaiting_decision("dev")
+
+        assert maestro.last_decision_question is None

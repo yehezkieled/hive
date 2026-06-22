@@ -227,6 +227,12 @@ class Entity:
     # is parked waiting for the human's reply. Durable (survives restart) so the
     # scheduler keeps skipping it and it can't be poked into acting unconfirmed.
     awaiting_decision: bool = False
+    # Ticket 038: the free-text question a maestro asked the user via
+    # request_decision, stored alongside ``awaiting_decision`` so the web can
+    # render the decision bubble and ``/api/decisions/pending`` can re-show it
+    # after a reload (SSE is best-effort). Durable; nulled on unpark. The
+    # channel is one-deep, so a single field (not a store) is the whole state.
+    last_decision_question: str | None = None
     # Ticket 029 / #144: when the last decision-reminder was sent to the user
     # while parked. In-memory only (NOT persisted) — the durable signal is
     # ``awaiting_decision``; the nudge *clock* needn't survive a restart, the
