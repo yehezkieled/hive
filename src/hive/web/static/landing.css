@@ -572,6 +572,21 @@ body {
   letter-spacing: 0.4px;
 }
 .mode-req--error .mode-req__bubble { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+/* Ticket 038: decision reply field — reuses .mode-req__* (the row inherits
+   flex+gap from .mode-req__actions; the Send button is a .mode-req__btn). */
+.decision-req__reply { align-items: center; }
+.decision-req__input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.decision-req__input:disabled { opacity: 0.5; }
 .msg--system {
   align-self: center;
   font-family: var(--font-mono);

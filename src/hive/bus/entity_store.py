@@ -37,11 +37,11 @@ class EntityStore:
                  session_id, parent_name, team_name,
                  permission_mode, loop_mode, current_priority,
                  worktree_path, task_id, last_activity_at, awaiting_decision,
-                 confirmed_with_user, phase_confirm,
+                 confirmed_with_user, phase_confirm, last_decision_question,
                  updated_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -61,6 +61,7 @@ class EntityStore:
                 awaiting_decision = EXCLUDED.awaiting_decision,
                 confirmed_with_user = EXCLUDED.confirmed_with_user,
                 phase_confirm = EXCLUDED.phase_confirm,
+                last_decision_question = EXCLUDED.last_decision_question,
                 updated_at = NOW()
             """,
             entity.name,
@@ -82,6 +83,7 @@ class EntityStore:
             entity.awaiting_decision,
             entity.confirmed_with_user,  # Ticket 019 (ADR 0019)
             entity.phase_confirm,  # Ticket 019 (ADR 0019)
+            entity.last_decision_question,  # Ticket 038
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -153,6 +155,9 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         # but awaiting_decision is orthogonal — an IDLE entity can still be
         # parked on a user decision, and the scheduler skip keys off the flag).
         awaiting_decision=bool(row["awaiting_decision"]),
+        # Ticket 038: restore the stored decision question so a pending decision
+        # survives a restart (durable, like the flag it rides alongside).
+        last_decision_question=row["last_decision_question"],
         # Ticket 019 (ADR 0019): restore the phase-confirmation floor + opt-out
         # so a confirmed maestro stays confirmed across a restart (and an
         # unconfirmed one stays gated).

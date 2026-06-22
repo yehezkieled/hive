@@ -24,6 +24,25 @@ async def test_load_missing_returns_none(entity_store: EntityStore) -> None:
     assert await entity_store.load("nobody") is None
 
 
+async def test_last_decision_question_round_trips(entity_store: EntityStore) -> None:
+    """Ticket 038: the 029 decision question is durable (survives restart)."""
+    entity = Entity(name="dev", role="maestro", model="sonnet")
+    entity.awaiting_decision = True
+    entity.last_decision_question = "auth table or new sessions table?"
+    await entity_store.upsert(entity)
+
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.last_decision_question == "auth table or new sessions table?"
+
+
+async def test_last_decision_question_defaults_none(entity_store: EntityStore) -> None:
+    await entity_store.upsert(Entity(name="dev", role="maestro", model="sonnet"))
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.last_decision_question is None
+
+
 async def test_upsert_updates_existing(entity_store: EntityStore) -> None:
     entity = Entity(name="dev", role="maestro", model="sonnet")
     await entity_store.upsert(entity)

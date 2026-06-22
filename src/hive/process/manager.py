@@ -225,6 +225,9 @@ class ProcessManager:
         entity.awaiting_decision = False
         # #144: disarm the nudge clock so no stray reminder fires after unpark.
         entity.last_nudged_at = None
+        # Ticket 038: drop the stored question — the decision is answered, so it
+        # must not surface in /api/decisions/pending (which scans the flag).
+        entity.last_decision_question = None
         # Ticket 019 (ADR 0019): reaching here means the entity WAS parked on a
         # request_decision and a user reply is unparking it — one decision
         # round-trip is complete. For a maestro that lifts the phase-confirmation

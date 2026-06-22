@@ -464,10 +464,15 @@ class MessageDispatcher:
                         )
                         continue
                     text = action.text or ""
+                    # Ticket 038: persist the question on the entity (so the web
+                    # decision bubble can recover it after a reload) and carry it
+                    # in the notification data (so the live SSE bubble has the
+                    # text — the data dict is the only channel to the browser).
+                    entity.last_decision_question = text
                     await self._mgr._notify(
                         f"[decision needed] {text}",
                         kind="decision_request",
-                        data={"entity": entity_name},
+                        data={"entity": entity_name, "question": text},
                     )
                     entity.awaiting_decision = True
                     # #144: arm the nudge clock — this original ask is nudge #0;

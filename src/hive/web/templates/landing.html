@@ -554,6 +554,102 @@ function appendModeRequestBubble(data) {
   return wrap;
 }
 
+// Ticket 038 (ADR 0024): a maestro's 029 decision, rendered in the chat rail
+// with a free-text reply field. Cloned from appendModeRequestBubble but swaps
+// the allow/deny buttons for an answer input that POSTs to the entity-keyed
+// reply endpoint. Resolves client-side (no decision_resolved SSE event).
+function appendDecisionBubble(data) {
+  const rail = document.querySelector('.chat-rail__messages');
+  if (!rail || !data || !data.entity) return null;
+  const entity = data.entity;
+  // One-deep per maestro: a re-ask supersedes any stale bubble for this entity
+  // (live SSE re-emit or a pending-on-load reseed — both land here idempotently).
+  rail.querySelectorAll('.msg--decision').forEach(el => {
+    if (el.dataset.entity === entity) el.remove();
+  });
+  const wrap = document.createElement('div');
+  wrap.className = 'msg msg--agent msg--decision';
+  wrap.dataset.entity = entity;
+  const question = data.question ? escapeHtml(data.question) : '<em>(no question text)</em>';
+  wrap.innerHTML =
+    '<div class="msg__avatar">?</div>'
+    + '<div class="msg__body"><span class="msg__from">decision · ' + escapeHtml(entity) + '</span>'
+    + '<div class="msg__bubble mode-req__bubble">'
+    + '<div class="mode-req__head">' + question + '</div>'
+    + '<div class="mode-req__actions decision-req__reply">'
+    + '<input type="text" class="decision-req__input" placeholder="Your answer…" '
+    + 'aria-label="Reply to ' + escapeHtml(entity) + '">'
+    + '<button class="mode-req__btn mode-req__btn--allow decision-req__send">Send</button>'
+    + '</div></div></div>';
+  rail.appendChild(wrap);
+  rail.scrollTop = rail.scrollHeight;
+  // Attention routing (037/D8): a decision behind a shut drawer must signal.
+  if (window.HiveDrawer) {
+    HiveDrawer.announce(entity + ' needs a decision — open chat to reply.');
+    HiveDrawer.markUnread('Open chat — ' + entity + ' needs a decision');
+    HiveDrawer.scrollMessagesToBottom();
+  }
+
+  const field = wrap.querySelector('.decision-req__input');
+  const sendBtn = wrap.querySelector('.decision-req__send');
+  async function submit() {
+    const reply = field.value.trim();
+    if (!reply) return;
+    const token = sessionStorage.getItem('hive_web_token');
+    if (!token) {
+      appendChatLine('system', 'No auth token — send a message first to set it.');
+      return;
+    }
+    field.disabled = true;
+    sendBtn.disabled = true;
+    appendChatLine('user', reply);
+    const typingEl = appendTypingBubble(entity);
+    try {
+      const resp = await fetch('/api/decision/' + encodeURIComponent(entity) + '/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ reply: reply }),
+      });
+      if (typingEl) typingEl.remove();
+      if (!resp.ok) {
+        field.disabled = false;
+        sendBtn.disabled = false;
+        wrap.classList.add('mode-req--error');
+        setTimeout(() => wrap.classList.remove('mode-req--error'), 1500);
+        appendChatLine('system', 'Decision reply failed: ' + resp.status);
+        return;
+      }
+      const json = await resp.json();
+      wrap.querySelector('.mode-req__actions').innerHTML =
+        '<span class="mode-req__resolved">Replied</span>';
+      if (json && json.text) appendChatLine(json.entity || entity, json.text);
+    } catch (err) {
+      field.disabled = false;
+      sendBtn.disabled = false;
+      appendChatLine('system', 'Network error: ' + err.message);
+    }
+  }
+  sendBtn.addEventListener('click', submit);
+  field.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
+  return wrap;
+}
+
+// Ticket 038: re-show outstanding decisions on a fresh load / token set — SSE is
+// best-effort and drops frames, so the page can miss a decision_request. Seeded
+// once per page load; the supersede logic keeps it idempotent with the stream.
+async function loadPendingDecisions(token) {
+  try {
+    const resp = await fetch('/api/decisions/pending', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    (data.decisions || []).forEach(d => appendDecisionBubble(d));
+  } catch (_) { /* best-effort recovery; the live stream still covers new ones */ }
+}
+
 async function sendChatCommand(event) {
   event.preventDefault();
   const input = document.getElementById('chat-input');
@@ -994,11 +1090,19 @@ function startNotificationStream() {
   const token = sessionStorage.getItem('hive_web_token');
   if (!token) return;  // user hasn't authenticated yet; will start after first /api/command
   const es = new EventSource('/sse/notifications?token=' + encodeURIComponent(token));
+  // Ticket 038: seed outstanding decisions once per page load (not on every
+  // reconnect — the DOM bubbles survive an SSE drop, and supersede keeps it safe).
+  if (!startNotificationStream._seeded) {
+    startNotificationStream._seeded = true;
+    loadPendingDecisions(token);
+  }
   es.onmessage = (ev) => {
     try {
       const evt = JSON.parse(ev.data);
       if (evt.kind === 'mode_request' && evt.data) {
         appendModeRequestBubble(evt.data);
+      } else if (evt.kind === 'decision_request' && evt.data) {
+        appendDecisionBubble(evt.data);
       } else if (evt.kind === 'vault_action_pending' && evt.data) {
         appendVaultRequestBubble(evt.data);
       } else if (evt.kind === 'vault_action_resolved' && evt.data) {

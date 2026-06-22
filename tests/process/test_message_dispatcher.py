@@ -483,6 +483,28 @@ async def test_message_to_user_does_not_end_turn(
     assert mgr._last_routed_actions == ["user", "dev.backend"]
 
 
+async def test_request_decision_to_user_persists_question_and_enriches_payload(
+    dispatcher: MessageDispatcher, mgr: StubManager
+) -> None:
+    """029→web (Ticket 038): the question is stored on the entity AND carried in
+    the notification ``data`` so the web decision bubble can render it."""
+    maestro = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev"] = maestro
+
+    actions = [Action(type="request_decision", to="user", text="auth table or new one?")]
+    await dispatcher._handle_actions("dev", "done", actions)
+
+    assert maestro.awaiting_decision is True
+    assert maestro.last_decision_question == "auth table or new one?"
+    assert mgr.notify_calls == [
+        (
+            "[decision needed] auth table or new one?",
+            "decision_request",
+            {"entity": "dev", "question": "auth table or new one?"},
+        )
+    ]
+
+
 async def test_request_mode_change_tracked(dispatcher: MessageDispatcher, mgr: StubManager) -> None:
     """A request_mode_change action calls the facade and records the req id."""
     mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
