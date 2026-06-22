@@ -45,6 +45,6 @@ marked with ✱.
 | 037 | [Responsive / touch shell (iPad daily driver)](037-responsive-touch-shell/) | 2026-Q2-S8 | in progress | #200 |
 | 038 | [Web decision-UI parity (029 → web)](038-web-decision-ui-parity/) | 2026-Q2-S8 | in progress | #209 |
 | 039 | [Awaiting-you fleet view (attention router)](039-awaiting-you-fleet-view/) | 2026-Q2-S8 | done | #202 |
-| 040 ✱ | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | in progress | #205 |
+| 040 ✱ | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | done | #205 |
 | 041 | [Web Push (retire Telegram's alert role)](041-web-push/) | 2026-Q2-S8 | planned (spill → S9) | — |
 | 042 | [iPad web polish & token-entry UX (037 follow-ups)](042-ipad-web-polish/) | 2026-Q2-S9 | planned | — |
