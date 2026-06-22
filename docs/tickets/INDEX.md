@@ -42,7 +42,7 @@ marked with ✱.
 | 034 | [Interaction-pattern library: delivery mechanism + `debate`](034-interaction-pattern-library/) | 2026-Q2-S7 | done | #188 |
 | 035 | [Interaction pattern: `blackboard`](035-interaction-pattern-blackboard/) | 2026-Q2-S7 | superseded by ADR 0021 | — |
 | 036 | [Interaction pattern: `tournament`](036-interaction-pattern-tournament/) | 2026-Q2-S7 | superseded by ADR 0021 | — |
-| 037 | [Responsive / touch shell (iPad daily driver)](037-responsive-touch-shell/) | 2026-Q2-S8 | in progress | #200 |
+| 037 | [Responsive / touch shell (iPad daily driver)](037-responsive-touch-shell/) | 2026-Q2-S8 | done | #200 |
 | 038 | [Web decision-UI parity (029 → web)](038-web-decision-ui-parity/) | 2026-Q2-S8 | in progress | #209 |
 | 039 | [Awaiting-you fleet view (attention router)](039-awaiting-you-fleet-view/) | 2026-Q2-S8 | done | #202 |
 | 040 ✱ | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | done | #205 |
