@@ -43,7 +43,7 @@ marked with ✱.
 | 035 | [Interaction pattern: `blackboard`](035-interaction-pattern-blackboard/) | 2026-Q2-S7 | superseded by ADR 0021 | — |
 | 036 | [Interaction pattern: `tournament`](036-interaction-pattern-tournament/) | 2026-Q2-S7 | superseded by ADR 0021 | — |
 | 037 | [Responsive / touch shell (iPad daily driver)](037-responsive-touch-shell/) | 2026-Q2-S8 | done | #200 |
-| 038 | [Web decision-UI parity (029 → web)](038-web-decision-ui-parity/) | 2026-Q2-S8 | in progress | #209 |
+| 038 | [Web decision-UI parity (029 → web)](038-web-decision-ui-parity/) | 2026-Q2-S8 | done | #209 |
 | 039 | [Awaiting-you fleet view (attention router)](039-awaiting-you-fleet-view/) | 2026-Q2-S8 | done | #202 |
 | 040 ✱ | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | done | #205 |
 | 041 | [Web Push (retire Telegram's alert role)](041-web-push/) | 2026-Q2-S8 | planned (spill → S9) | — |
