@@ -46,6 +46,8 @@ marked with ✱.
 | 038 | [Web decision-UI parity (029 → web)](038-web-decision-ui-parity/) | 2026-Q2-S8 | done | #209 |
 | 039 | [Awaiting-you fleet view (attention router)](039-awaiting-you-fleet-view/) | 2026-Q2-S8 | done | #202 |
 | 040 ✱ | [PWA install (home-screen app)](040-pwa-install/) | 2026-Q2-S8 | done | #205 |
-| 041 | [Web Push (retire Telegram's alert role)](041-web-push/) | 2026-Q2-S8 | planned (spill → S9) | — |
+| 041 | [Web Push (retire Telegram's alert role)](041-web-push/) | 2026-Q2-S9 | planned | — |
 | 042 | [iPad web polish & token-entry UX (037 follow-ups)](042-ipad-web-polish/) | 2026-Q2-S9 | planned | — |
 | 043 | [Standalone PWA: status bar overlaps the top bar (040 follow-up)](043-standalone-status-bar-overlap/) | 2026-Q2-S9 | planned | — |
+| 044 | [Pattern-library awareness (global skills + JD pointer)](044-pattern-library-awareness/) | 2026-Q2-S9 | created | — |
+| 045 | [CommandRouter registry + read-only Formatter split](045-command-router-registry/) | 2026-Q2-S9 | created | — |
