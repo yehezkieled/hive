@@ -2,7 +2,6 @@
 
 from hive.runtime.base import Runtime
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
-from hive.runtime.output_parser import clean
 from hive.runtime.pty_session import PtySession
 from hive.runtime.quota_monitor import (
     QuotaMonitor,
@@ -20,7 +19,6 @@ __all__ = [
     "QuotaReading",
     "Runtime",
     "WindowReading",
-    "clean",
     "format_quota_text",
     "read_last_usage",
 ]
