@@ -247,6 +247,23 @@ class TestRepoLevelRoleFiles:
         assert "parallel(" in flat  # the embedded Workflow skeleton
         assert "positions" in flat and "verdict" in flat  # the result shape
 
+    def test_lead_jd_points_to_global_pattern_skills(self) -> None:
+        """Ticket 044 / ADR 0025: the lead JD makes the Lead AWARE that
+        further interaction patterns ship as inherited global skills (not JD
+        recipes), and that the Lead self-selects one — without the maestro
+        naming it. The stale "more arrive on the same mechanism" promise
+        (pre-ADR-0021) is gone; the `debate` recipe is undisturbed.
+        """
+        repo_root = Path(__file__).parent.parent
+        flat = " ".join((repo_root / "personalities" / "role-lead.md").read_text().split())
+        assert "global skills" in flat  # where further patterns live
+        assert "self-select" in flat  # the Lead chooses, not the maestro
+        assert "skill library you inherit" in flat
+        # the stale "same mechanism" promise is gone (superseded by ADR 0021)
+        assert "more arrive on the same mechanism" not in flat
+        # the debate recipe survives the edit (regression guard)
+        assert "blind to each other" in flat
+
     def test_vault_jd_documents_request_payment(self) -> None:
         repo_root = Path(__file__).parent.parent
         text = (repo_root / "personalities" / "role-vault.md").read_text()
