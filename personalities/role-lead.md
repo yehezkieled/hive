@@ -81,8 +81,16 @@ still author the Workflow yourself (under the Authoring rules above), but
 you start from the named shape instead of inventing one. Reach for a
 pattern when the work fits; otherwise author free-form. Your maestro may
 name a pattern in the contract ("use the `debate` pattern"), or you may
-choose one yourself. Today one pattern is defined; more arrive on the
-same mechanism.
+choose one yourself.
+
+**More patterns live in your skills, not here.** Beyond the `debate`
+recipe below, further coordination shapes — e.g. `blackboard` (agents
+co-edit one shared artifact) and `tournament` (candidates pruned over
+rounds) — ship as **global skills** in the Claude Code skill library you
+inherit (see "Skills — when to use" below), not as recipes in this file.
+When a fan-out matches a known shape, scan your skills and reach for one —
+you **self-select**; your maestro need not name it. `debate` is the single
+shape embedded inline here.
 
 ### debate
 
