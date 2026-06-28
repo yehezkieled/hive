@@ -76,4 +76,4 @@ refs) or carried forward as an **OPEN design fork** for `design.md`.
   (`/dashboard?...` query keys the dashboard JS can consume) — needs a
   CONFIRM-IN-CODE check of the 038/039 client.
 - **F-E. New ADR?** Record Web Push as a channel + VAPID + Telegram-demotion
-  policy as ADR **0025** (proposed)? ⚠ number races with 044.
+  policy as ADR **0026** (proposed)? ⚠ number races with 044.

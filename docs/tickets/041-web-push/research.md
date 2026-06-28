@@ -145,10 +145,11 @@ number, ADR number, the "run finished" kind). File refs are `path:line` at
 
 F-A push scope / Telegram parity · F-B Telegram turn-down mechanism · F-C lane
 (fan-out vs direct) · F-D deep-link URL contract (CONFIRM IN CODE against the
-038/039 dashboard JS) · F-E new ADR **0025** (number races with 044).
+038/039 dashboard JS) · F-E new ADR **0026** (renumbered from 0025 — 044 merged
+0025 mid-run).
 
 ## Verified-fact log (don't re-trust the agents on these)
 
-- Next migration = **033** · Next ADR = **0025** · "run finished" =
+- Next migration = **033** · Next ADR = **0026** · "run finished" =
   **`workflow_completed`** · no existing webpush dep · decision surface =
   `/api/decision/{entity}/reply` + `/api/decisions/pending`, entity-keyed.

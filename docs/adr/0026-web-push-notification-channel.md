@@ -1,4 +1,4 @@
-# ADR 0025 — Web Push is a fourth NotificationChannel that filters by kind; Telegram's alert role is demoted by policy toggle, not deleted
+# ADR 0026 — Web Push is a fourth NotificationChannel that filters by kind; Telegram's alert role is demoted by policy toggle, not deleted
 
 - **Status:** Accepted
 - **Date:** 2026-06-28
@@ -107,7 +107,7 @@ toggle; never delete the channel.**
 - 041 merges **inert**: no VAPID keys → no pushes; toggle on → Telegram
   unchanged. The behaviour change is a deliberate operator action, not a
   side effect of the merge.
-- **Migration / ADR number race:** migration `033` and this ADR `0025` are the
+- **Migration / ADR number race:** migration `033` and this ADR `0026` are the
   next free numbers against `origin/main` at authoring time, but worktrees for
   Tickets 043/044/045 are in flight (044 also adds an ADR). Re-verify and
   renumber both at ship time if a parallel branch took them — a known Hive

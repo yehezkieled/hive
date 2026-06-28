@@ -6,7 +6,7 @@ The four slices below are the **build order inside the one PR**, not separate
 issues: the feature is inert until every layer lands and is verified as one
 integrated on-device smoke.
 
-See `design.md` (decisions + ADR 0025) and `outline.md` (signatures). Build
+See `design.md` (decisions + ADR 0026) and `outline.md` (signatures). Build
 W1 (I1‖I2) then W2 (I3‖I4).
 
 ## Files this Ticket creates / modifies
@@ -27,7 +27,7 @@ W1 (I1‖I2) then W2 (I3‖I4).
 | `tests/web/test_push_subscribe.py` | create | I2 — endpoint stores subscription; 401 without token; upsert idempotent |
 | `tests/notifications/test_web_push_channel.py` | create | I3 — kind filter, payload/url per kind, `410`→prune, no-keys no-op (`pywebpush` mocked) |
 | `tests/telegram/test_alerts_toggle.py` | create | I3 — alerts-off suppresses actionable kinds, relays the rest |
-| `docs/adr/0025-web-push-notification-channel.md` | (created this run) | — design decision |
+| `docs/adr/0026-web-push-notification-channel.md` | (created this run) | — design decision |
 | `CONTEXT.md` | (edited this run) | — glossary: Notification channel / Web Push channel / Push subscription / Alert role |
 
 ## Verification
@@ -53,11 +53,12 @@ highlight.
 ## Cross-cutting impact
 
 - **`docs/DEPLOYMENT.md`** — new VAPID-keys ops note (I1).
-- **`docs/adr/0025-web-push-notification-channel.md`** — recorded this run.
+- **`docs/adr/0026-web-push-notification-channel.md`** — recorded this run.
 - **`CONTEXT.md`** — glossary cluster recorded this run.
-- ⚠ **Number race:** migration `033` and ADR `0025` are next-free against
-  `origin/main` at planning time, but worktrees for 043/044/045 are in flight.
-  Re-verify and renumber both at build/ship — known Hive gotcha.
+- ⚠ **Number race:** ADR already hit it — **044 merged `0025` mid-run, so this
+  ADR is `0026`**. Migration `033` is still next-free against `origin/main`
+  (max = 032) but isn't a file yet — **re-verify `033` at build** before
+  creating it; other in-flight worktrees could take it. Known Hive gotcha.
 
 ## To build
 

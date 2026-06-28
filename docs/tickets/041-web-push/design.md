@@ -13,7 +13,7 @@ with the user.
 | **B — Telegram turn-down** | Build a `HIVE_TELEGRAM_ALERTS` toggle (**default ON**) that silences alert-kind sends in `TelegramBridge`. 041 ships the switch in the ON position. | Satisfies acceptance #5 ("alert role *can* be turned down") without risking going dark. Operator flips it OFF after the on-device parity smoke. |
 | **C — lane** | **Fan-out, 4 slices** (2×2 waves). | Genuine parallelism (server ∥ frontend), each slice independently reviewable, matches the sprint's "large anchor" framing. |
 | **D — deep-link** | Notification `data` carries `{url, entity, kind, run_id?}`. Tap → focus an open client (or `openWindow('/?focus=<entity>[&run=<run_id>]')`); a **new** minimal client handler scrolls+highlights that entity (reusing 039's `.is-awaiting`/card targeting). | Dashboard has **no** deep-link handler today — only the 039 awaiting *filter*. So focus-on-tap is net-new and lives in the frontend slice. Keep it minimal (scroll+highlight); rich focus polish is out of scope. |
-| **E — ADR** | Record as **ADR 0025** (Web Push channel + VAPID via env + Telegram-demotion policy). ⚠ number races with 044 — re-check at ship. | Matches how 0023/0024 captured PWA/decision decisions. |
+| **E — ADR** | Recorded as **ADR 0026** (Web Push channel + VAPID via env + Telegram-demotion policy) — renumbered from 0025 after 044 merged 0025 mid-run. | Matches how 0023/0024 captured PWA/decision decisions. |
 
 ## Architecture — a 4th channel, nothing more
 
@@ -118,7 +118,7 @@ logical blockers — the fleet merges one at a time.
 ## Cross-cutting impact (declared up front)
 
 - **`docs/DEPLOYMENT.md`** — VAPID keygen + `.env` + restart ops note (in I1).
-- **`docs/adr/0025-web-push-notification-channel.md`** — new (this run).
+- **`docs/adr/0026-web-push-notification-channel.md`** — new (this run).
 - **`CONTEXT.md`** — glossary: Web Push channel, Push subscription, alert-vs-log
   Telegram role (this run).
 

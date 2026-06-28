@@ -102,7 +102,7 @@ issues expand.
 
 ## Cross-cutting / reference-doc impact
 
-- `docs/DEPLOYMENT.md` (I1), `docs/adr/0025-*.md` (this run), `CONTEXT.md`
+- `docs/DEPLOYMENT.md` (I1), `docs/adr/0026-*.md` (this run), `CONTEXT.md`
   glossary (this run).
 
 ## On-device acceptance (post-merge, not a unit)
