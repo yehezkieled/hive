@@ -66,10 +66,6 @@
       <div class="chat-rail__head">
         <span class="chat-rail__title" id="chat-rail-title">Chat</span>
         <span class="chat-rail__meta">{{ view.chat.participants|length }} participant{% if view.chat.participants|length != 1 %}s{% endif %}</span>
-        <span class="chat-rail__head-actions">
-          <button class="btn">History</button>
-          <button class="btn btn--primary">+ New</button>
-        </span>
         <button class="drawer-close" id="drawer-close" type="button" aria-label="Close chat">×</button>
       </div>
       <div class="chat-rail__addressed">
@@ -233,7 +229,7 @@
        aria-labelledby="token-modal-title" hidden>
     <form class="token-modal__box" id="token-form">
       <h2 class="token-modal__title" id="token-modal-title">Enter access token</h2>
-      <p class="token-modal__hint">Paste your <code>HIVE_WEB_TOKEN</code> to send commands. Stored for this tab only.</p>
+      <p class="token-modal__hint">Paste your <code>HIVE_WEB_TOKEN</code> to send commands. Stored on this device.</p>
       <input class="token-modal__input" id="token-input" type="password"
              name="token" autocomplete="off" autocapitalize="off"
              autocorrect="off" spellcheck="false" inputmode="text"
@@ -284,7 +280,7 @@
 // iPad — we show an in-page form (#token-modal) instead and resolve when the
 // user saves or cancels. Already-stored tokens resolve synchronously.
 function ensureToken() {
-  const existing = sessionStorage.getItem('hive_web_token');
+  const existing = localStorage.getItem('hive_web_token');
   if (existing) return Promise.resolve(existing);
   return new Promise((resolve) => {
     const modal  = document.getElementById('token-modal');
@@ -302,7 +298,7 @@ function ensureToken() {
     function onSubmit(ev) {
       ev.preventDefault();
       const v = input.value.trim();
-      if (v) sessionStorage.setItem('hive_web_token', v);
+      if (v) localStorage.setItem('hive_web_token', v);
       input.value = '';
       finish(v);
     }
@@ -460,7 +456,7 @@ function appendVaultRequestBubble(data) {
   wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const action = btn.dataset.action;
-      const token = sessionStorage.getItem('hive_web_token');
+      const token = localStorage.getItem('hive_web_token');
       if (!token) {
         appendChatLine('system', 'No auth token — send a message first to set it.');
         return;
@@ -524,7 +520,7 @@ function appendModeRequestBubble(data) {
   wrap.querySelectorAll('.mode-req__btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const action = btn.dataset.action;
-      const token = sessionStorage.getItem('hive_web_token');
+      const token = localStorage.getItem('hive_web_token');
       if (!token) {
         appendChatLine('system', 'No auth token — send a message first to set it.');
         return;
@@ -595,7 +591,7 @@ function appendDecisionBubble(data) {
   async function submit() {
     const reply = field.value.trim();
     if (!reply) return;
-    const token = sessionStorage.getItem('hive_web_token');
+    const token = localStorage.getItem('hive_web_token');
     if (!token) {
       appendChatLine('system', 'No auth token — send a message first to set it.');
       return;
@@ -701,7 +697,7 @@ async function sendChatCommand(event) {
     }
     if (typingEl) typingEl.remove();
     if (resp.status === 401) {
-      sessionStorage.removeItem('hive_web_token');
+      localStorage.removeItem('hive_web_token');
       appendChatLine('system', 'Auth failed — token cleared. Try again.');
       return false;
     }
@@ -1087,7 +1083,7 @@ const HiveDrawer = window.HiveDrawer = (function setupDrawer() {
 // Live notification stream (Sprint 15 Phase 4). EventSource cannot set
 // custom headers, so the token rides in the query string — same gate.
 function startNotificationStream() {
-  const token = sessionStorage.getItem('hive_web_token');
+  const token = localStorage.getItem('hive_web_token');
   if (!token) return;  // user hasn't authenticated yet; will start after first /api/command
   const es = new EventSource('/sse/notifications?token=' + encodeURIComponent(token));
   // Ticket 038: seed outstanding decisions once per page load (not on every
@@ -1395,7 +1391,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
 
   async function loadPending() {
     body.innerHTML = '<div class="bell-popup__empty">Loading…</div>';
-    const token = sessionStorage.getItem('hive_web_token');
+    const token = localStorage.getItem('hive_web_token');
     if (!token) {
       body.innerHTML = '<div class="bell-popup__empty">Send a message first to set auth token.</div>';
       return;
@@ -1442,7 +1438,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
       row.querySelectorAll('.mode-req__btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const action = btn.dataset.action;
-          const token = sessionStorage.getItem('hive_web_token');
+          const token = localStorage.getItem('hive_web_token');
           if (!token) return;
           row.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = true);
           try {
@@ -1517,7 +1513,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
 
   async function loadPending() {
     body.innerHTML = '<div class="bell-popup__empty">Loading…</div>';
-    const token = sessionStorage.getItem('hive_web_token');
+    const token = localStorage.getItem('hive_web_token');
     if (!token) {
       body.innerHTML = '<div class="bell-popup__empty">Send a message first to set auth token.</div>';
       return;
@@ -1564,7 +1560,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
       row.querySelectorAll('.mode-req__btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const action = btn.dataset.action;
-          const token = sessionStorage.getItem('hive_web_token');
+          const token = localStorage.getItem('hive_web_token');
           if (!token) return;
           row.querySelectorAll('.mode-req__btn').forEach(b => b.disabled = true);
           try {

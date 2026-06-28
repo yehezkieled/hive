@@ -286,11 +286,6 @@ body {
   font-size: 10px;
   color: var(--ink-3);
 }
-.chat-rail__head-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 6px;
-}
 .btn {
   border: 1px solid var(--rule-soft);
   background: var(--paper);
