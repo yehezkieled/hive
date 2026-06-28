@@ -2,7 +2,7 @@
 // payload into window.HIVE_DASH so React widgets re-read it.
 //
 // Auth: /api/dashboard/all is bearer-token gated. The token lands in
-// sessionStorage on the user's first chat command from the landing page.
+// localStorage on the user's first chat command from the landing page.
 // If absent we silently skip — first paint still works because the server
 // embedded HIVE_DASH inline.
 
@@ -11,7 +11,7 @@
 
   function getToken() {
     try {
-      return sessionStorage.getItem('hive_web_token');
+      return localStorage.getItem('hive_web_token');
     } catch (_) {
       return null;
     }
