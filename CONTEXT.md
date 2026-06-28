@@ -238,6 +238,45 @@ warn, kept for a human). Not the same as a Claude Code leaf-agent worktree
 under `.claude/worktrees/`, which Hive does not sweep.
 _Avoid_: stale worktree, dead worktree.
 
+**Notification channel**:
+One outbound delivery target for Hive's notifications. All channels implement a
+single async `send(Notification)` protocol and register with the
+**NotificationDispatcher**, which fans every event out to all of them with
+per-channel error isolation. The live channels are Telegram, SSE (the dashboard
+live stream), Email digest, and — from Ticket 041 — **[[Web Push channel]]**.
+The one emit point is `ProcessManager._notify(text, kind, data)`.
+_Avoid_: notifier, sink, bridge (Telegram's class is a `Bridge`, but the
+abstraction is a channel).
+
+**Web Push channel**:
+The **[[Notification channel]]** (Ticket 041) that delivers native push
+notifications to an installed PWA — the iPad's async-ping tier. It filters the
+dispatcher's events to the **actionable set** (the "Needs you" kinds —
+`decision_request`, `mode_request`, `vault_action_pending` — and the "Run
+ended" kinds — `workflow_completed`, `workflow_failed`), signs each with VAPID,
+and POSTs to every stored **[[Push subscription]]**, pruning any the push
+service reports `410 Gone`. Inert until VAPID keys are configured. Requires an
+installed PWA on iOS/iPadOS 16.4+ over HTTPS (ADR 0023).
+_Avoid_: push notifier, APNs (Apple's transport sits underneath; Hive speaks
+the Web Push standard, not APNs directly).
+
+**Push subscription**:
+A browser's durable handle for receiving Web Push — an `endpoint` URL plus the
+`p256dh`/`auth` crypto keys — created by the service worker's `pushManager` and
+POSTed to `/api/push-subscribe`. Stored per `endpoint` (unique per
+device+browser; Hive has no per-user identity — `HIVE_WEB_TOKEN` is a single
+shared secret). Pruned on `410 Gone`.
+_Avoid_: device token, registration.
+
+**Alert role**:
+The notification tier that pings you when you are **away** from the dashboard —
+distinct from the **log/debug role** (a passive record you read when you choose
+to). Until Ticket 041, Telegram carried both. 041 moves the alert role to the
+**[[Web Push channel]]** and adds a `HIVE_TELEGRAM_ALERTS` toggle (default on)
+that, when turned off, silences Telegram's alert-kinds while it stays a
+debug/log surface — Telegram is demoted, never deleted.
+_Avoid_: alerting, push (the role, not the transport).
+
 ### Billing
 
 **Plan-billed**:
