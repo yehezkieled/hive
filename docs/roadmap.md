@@ -39,13 +39,14 @@ further coordination shapes ship as user-authored **global skills**
 (`~/.claude/skills`), not Hive-native recipes — zero engine work, so off the
 roadmap.
 
-## Phase 4 — Web dashboard to PWA  ·  IN PROGRESS (S8 →)
+## Phase 4 — Web dashboard to PWA  ·  IN PROGRESS (S8 ✅ · S9)
 
 Control Hive from a phone, off Telegram. The existing dashboard
 becomes a responsive installable PWA — one codebase, no app store.
-S8 ships the interaction layer (touch shell, decision-UI parity,
-attention router, PWA install); Web Push (demotes Telegram to
-debug/log) follows in S9.
+S8 (✅ closed 2026-06-25) shipped the interaction layer (touch shell,
+decision-UI parity, attention router, PWA install); S9 lands Web Push
+(demotes Telegram to debug/log) + iPad polish, and opens the
+loop-engineering backend track.
 
 ## Phase 5 — Codex + OpenCode adapters
 
@@ -67,6 +68,27 @@ one-line bullet here.
 - The 8 deferred spec features in
   [`archive/AUDIT_2026-05-05.md`](archive/AUDIT_2026-05-05.md) § 7 —
   review and pick any worth doing.
+- **Architecture deepening backlog** (from the 2026-06-25 audit; each a
+  future backend-weighted Ticket, all following the
+  [ADR 0006](adr/0006-god-object-breakup-composition.md) composition
+  pattern). The codebase is largely deep already; friction
+  concentrates in three fat files:
+  - **ActionRouter** — split `message_dispatcher._handle_actions`'s
+    844-LOC action switch + per-type `Action.validate()` at parse time
+    (audit #1; high blast radius — wants its own sprint).
+  - **Turn-coordination collapse** — fold the 4-tier acceptance ladder
+    into `TranscriptReader.await_turn()`, thin out `PtySession.send()`
+    (audit #2; runtime correctness — needs a deployed PTY re-smoke).
+  - **PhaseConfirmationGate** — pull ADR 0019's 3-way-split protocol
+    into one owner (audit #5; small/pure, bundles with ActionRouter).
+  - **EscalationChain** — unify ApprovalHandler's 4 duplicated
+    lead→maestro→user chains (audit #6).
+  - **DecisionChannel** — consolidate the scattered `request_decision`
+    → user flow (audit #4; the alternative to S9's 045 — pull in first
+    if the Web-Push work wants it). Stays entity-keyed (ADR 0024).
+  (`Entity` split → `PersonalityLoader`/`CliArgsBuilder` is parked in
+  Phase 5 — the Codex adapter forces it. The orphaned
+  `runtime/output_parser.py` was removed as a drive-by, 2026-06-25.)
 
 ## Priority note
 

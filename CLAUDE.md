@@ -6,7 +6,7 @@ Project-specific rules for any Claude Code session working on Hive.
 
 @CONTEXT.md
 @docs/roadmap.md
-@docs/sprints/2026-Q2-S8.md
+@docs/sprints/2026-Q2-S9.md
 @docs/tickets/INDEX.md
 
 > When the sprint rolls over, update the sprint `@`-reference above.
@@ -206,16 +206,21 @@ user-authored **global skills**, not recipes ([ADR 0021](docs/adr/0021-further-p
 plus two independent loop-correctness gaps, both done (032 entity-name
 validation, 033 PA self-identity). **S7 closed 2026-06-21 on goal-met.**
 
-**Phase 4 — Web dashboard to PWA** is **in progress**. **S8 (window 2026-06-21 →
-07-05, active)** makes the web the **primary control surface** for Hive from an
-iPad: a responsive touch shell (037, with the Enter-to-send hotfix already
-shipped), decision answers on the web (038, 029 → web), an "awaiting-you"
-attention router (039), and an installable PWA (040). **Web Push** (041 — what
-demotes Telegram to debug/log) is the designated **spill → S9**. From S9, sprints
-**combine a web track with a backend/logic + bug-fix track**; the S9 backend
-track's first candidate is the **6-pattern interaction-skill library**
-(loop-engineering infrastructure — the autonomous loop self-organizes its
-fan-outs without the human dictating; a new ADR will amend 0021).
+**Phase 4 — Web dashboard to PWA** is **in progress**. **S8 (closed 2026-06-25,
+goal met)** made the web the **primary control surface** from an iPad: responsive
+touch shell (037, ADR 0022), web decision-UI parity (038, ADR 0024), an
+"awaiting-you" attention router (039), and an installable PWA (040, ADR 0023) —
+all shipped + iPad-re-smoked. **S9 (window 2026-06-25 → 07-09, active)** is the
+first **FE+BE-combined** sprint: it finishes the daily driver with **Web Push**
+(041 — pulled in from its S8 spill; demotes Telegram to debug/log) plus iPad
+polish (042) and the standalone status-bar fix (043), and opens the
+**loop-engineering backend track** — pattern-library awareness (044: a thin JD
+pointer + an ADR amending 0021; the patterns ship as user-authored global skills)
+and a first architecture-deepening ticket, the `commands/dispatch.py`
+decomposition (045, from the 2026-06-25 audit). The audit's other deepening
+candidates are banked in [`docs/roadmap.md`](docs/roadmap.md) Phase 6. A literal
+bug-fix track is deferred until dogfooding (the finance-app build on Hive)
+surfaces concrete bugs.
 
 Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
 and plan-billed in production (Tickets 001 + 003); the headless
