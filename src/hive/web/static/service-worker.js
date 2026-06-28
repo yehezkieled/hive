@@ -8,7 +8,7 @@
  *
  * Bump CACHE_VERSION on any shell/asset change so activate() drops stale caches.
  */
-const CACHE_VERSION = 'hive-v2';
+const CACHE_VERSION = 'hive-v3';
 const OFFLINE_URL = '/static/offline.html';
 
 // Small, safe precache: the offline shell + icons + the landing stylesheet.
