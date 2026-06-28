@@ -94,7 +94,11 @@ body {
 
 /* ─── Top bar ───────────────────────────────────────────── */
 .top-bar {
-  height: 52px;
+  /* Grow the bar by the top inset (Ticket 043). Under `box-sizing: border-box`
+     the `+ env(...)` keeps the 52px content box intact while the whole bar drops
+     below the iOS status bar — padding-top alone would shrink the content and
+     slide it *under* the clock in the standalone PWA. */
+  height: calc(52px + max(0px, env(safe-area-inset-top)));
   border-bottom: 1.5px solid var(--rule);
   background: var(--paper);
   display: flex;
@@ -103,8 +107,11 @@ body {
   color: var(--ink);
   position: relative;
   z-index: 3;
-  /* Safe-area: keep the bar clear of the notch / rounded corners (D5).
-     max() with 0px means desktop (insets == 0) is byte-identical. */
+  /* Safe-area: keep the bar clear of the notch / rounded corners / status bar.
+     max() with 0px means desktop + in-Safari (insets == 0) are byte-identical;
+     only the installed standalone PWA, where the top inset is non-zero, shifts.
+     Top inset added in Ticket 043 (037 reserved left/right only). */
+  padding-top: max(0px, env(safe-area-inset-top));
   padding-left: max(0px, env(safe-area-inset-left));
   padding-right: max(0px, env(safe-area-inset-right));
 }
@@ -285,11 +292,6 @@ body {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--ink-3);
-}
-.chat-rail__head-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 6px;
 }
 .btn {
   border: 1px solid var(--rule-soft);

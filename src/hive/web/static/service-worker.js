@@ -3,12 +3,13 @@
  * Minimal offline shell. Caching is split by request class (see design.md D4):
  *   - /api/* , /sse/*           → network-only, NOT intercepted (live/auth/stream)
  *   - navigations (/, /dashboard) → network-first → cache → offline fallback
+ *   - /static/landing.css        → network-first (Ticket 042: shell CSS never goes stale)
  *   - /static/*                  → stale-while-revalidate (versioned by ?v=N)
  *   - cross-origin CDN           → cache-first (opaque), runtime-cached
  *
  * Bump CACHE_VERSION on any shell/asset change so activate() drops stale caches.
  */
-const CACHE_VERSION = 'hive-v2';
+const CACHE_VERSION = 'hive-v3';
 const OFFLINE_URL = '/static/offline.html';
 
 // Small, safe precache: the offline shell + icons + the landing stylesheet.
@@ -62,6 +63,21 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => caches.match(request).then((cached) => cached || caches.match(OFFLINE_URL)))
+    );
+    return;
+  }
+
+  // landing.css is the shell stylesheet — serve it network-first so a deploy can
+  // never leave the iPad on stale CSS (Ticket 042); fall back to cache offline.
+  if (url.origin === self.location.origin && url.pathname === '/static/landing.css') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
