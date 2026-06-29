@@ -9,15 +9,19 @@ isolation.
 """
 
 from hive.notifications.dispatcher import (
+    ALERT_KINDS,
     Notification,
     NotificationChannel,
     NotificationDispatcher,
 )
 from hive.notifications.email import EmailDigest
+from hive.notifications.web_push import WebPushChannel
 
 __all__ = [
+    "ALERT_KINDS",
     "EmailDigest",
     "Notification",
     "NotificationChannel",
     "NotificationDispatcher",
+    "WebPushChannel",
 ]

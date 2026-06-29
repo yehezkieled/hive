@@ -77,8 +77,9 @@ class TestServiceWorkerCache:
 
     def test_cache_version_bumped(self) -> None:
         body = _client().get("/service-worker.js").text
-        assert "hive-v3" in body
-        assert "hive-v2" not in body
+        # Bumped to v4 when Ticket 041 added the push/notificationclick handlers.
+        assert "hive-v4" in body
+        assert "hive-v3" not in body
 
     def test_landing_css_has_dedicated_network_first_branch(self) -> None:
         body = _client().get("/service-worker.js").text

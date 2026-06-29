@@ -11,9 +11,75 @@
 <link rel="icon" href="/static/icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
 <script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('/service-worker.js');
-    });
-  }
+  // SW registration (Ticket 040) + Web Push subscribe + deep-link (Ticket 041).
+  (function () {
+    var VAPID_PUBLIC_KEY = '{{ vapid_public_key|default("") }}';
+
+    function urlB64ToUint8Array(base64String) {
+      var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+      var b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      var raw = atob(b64);
+      var out = new Uint8Array(raw.length);
+      for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    }
+
+    async function subscribeForPush(reg) {
+      // Inert unless the server published a VAPID key and the browser supports
+      // push (iOS/iPadOS 16.4+ installed PWA). Best-effort — SSE-while-open stays.
+      if (!VAPID_PUBLIC_KEY || !('PushManager' in window) || !('Notification' in window)) return;
+      try {
+        if ((await Notification.requestPermission()) !== 'granted') return;
+        var sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY),
+          });
+        }
+        var token = localStorage.getItem('hive_web_token');
+        await fetch('/api/push-subscribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: token ? 'Bearer ' + token : '',
+          },
+          body: JSON.stringify({
+            endpoint: sub.endpoint,
+            keys: sub.toJSON().keys,
+            user_agent: navigator.userAgent,
+          }),
+        });
+      } catch (e) {
+        /* push is best-effort */
+      }
+    }
+
+    // A notification tap either focuses an open window (SW posts {type:'hive-focus'})
+    // or cold-opens with ?focus=<entity>. Scroll+highlight that entity's card.
+    function focusEntity(url) {
+      try {
+        var entity = new URL(url, window.location.origin).searchParams.get('focus');
+        if (!entity) return;
+        var el =
+          document.querySelector('[data-entity="' + entity + '"]') ||
+          document.getElementById('card-' + entity);
+        if (el && el.scrollIntoView) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('is-focused');
+          setTimeout(function () { el.classList.remove('is-focused'); }, 2500);
+        }
+      } catch (e) {}
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', function (ev) {
+        if (ev.data && ev.data.type === 'hive-focus') focusEntity(ev.data.url);
+      });
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/service-worker.js').then(subscribeForPush);
+        if (window.location.search.indexOf('focus=') !== -1) focusEntity(window.location.href);
+      });
+    }
+  })();
 </script>
