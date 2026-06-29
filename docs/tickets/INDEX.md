@@ -51,4 +51,4 @@ marked with ✱.
 | 043 | [Standalone PWA: status bar overlaps the top bar (040 follow-up)](043-standalone-status-bar-overlap/) | 2026-Q2-S9 | in progress | #221 |
 | 044 | [Pattern-library awareness (global skills + JD pointer)](044-pattern-library-awareness/) | 2026-Q2-S9 | in progress | #222 |
 | 045 | [CommandRouter registry + read-only Formatter split](045-command-router-registry/) | 2026-Q2-S9 | created | — |
-| 046 | [Scheduler poke induces malformed `<hive_actions>` block on idle maestros](046-scheduler-poke-prose/) | 2026-Q2-S9 | in progress | #233 |
+| 046 | [Scheduler poke induces malformed `<hive_actions>` block on idle maestros](046-scheduler-poke-prose/) | 2026-Q2-S9 | done | #233 |
