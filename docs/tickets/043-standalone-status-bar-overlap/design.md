@@ -87,3 +87,44 @@ device and orientation. The `.top-bar` env-top padding was reverted (dead under
 lose 040's edge-to-edge translucent look for guaranteed correctness on the iPad
 daily driver. `CACHE_VERSION` bumped `hive-v3 → hive-v4` so installed PWAs flush
 the old shell.
+
+## On-device correction #2 (2026-06-29) — `default` alone also failed; the real fix
+
+`status-bar-style: default` (#235) **still overlapped** after a clean iPad
+remove + re-add. A researched, sourced pass (Apple Safari HTML Reference, an
+Apple engineer's forum post, multiple 2023-2025 PWA write-ups) pinned the true
+mechanism: **`viewport-fit=cover`** (Ticket 037) makes the web view full-bleed
+under the status bar *regardless of `status-bar-style`* — the style only sets the
+bar's appearance, not whether content sits under it. Combined with
+`env(safe-area-inset-top) == 0` on a non-notch iPad, nothing reserved the space.
+
+**Final fix — reserve a fixed top strip, gated to standalone:**
+
+```css
+@media all and (display-mode: standalone) {
+  .top-bar {
+    height: calc(52px + max(env(safe-area-inset-top), 24px));
+    padding-top: max(env(safe-area-inset-top), 24px);
+  }
+}
+```
+
+Load-bearing detail: **`max(env(...), 24px)`**, not `env(.., 24px)` — env's
+fallback argument only fires when the value is *undefined*; iPad reports `0` (a
+defined value), so the fallback never triggers. `max()` floors at the 24px iPad
+status-bar height and still grows to the real notch inset on iPhone. Gated to
+`display-mode: standalone` so the in-Safari tab (env == 0 is correct there) gets
+no phantom gap. **`viewport-fit=cover` is kept** — removing it would collapse
+*every* safe-area inset to 0 and break 037's composer / terminal-bar / drawer /
+notch handling. `status-bar-style: default` is kept too, now purely for **dark
+icons** visible over the light paper strip. `CACHE_VERSION → hive-v5`.
+
+Also folded in: the **Dashboard tab misalignment** — it is the only `<a>` among
+`<button>` tabs, so without a pinned `display`/`line-height` the `.tab` rule let
+it inherit `line-height: 1.4` and sit a few px high. Fixed by normalizing `.tab`
+to `display: inline-flex; align-items: center; line-height: 1`.
+
+**Lesson:** the env()-padding approach (and the `status-bar-style` toggle) are
+iPhone-shaped; iPad needs a constant floor via `max()`. A CSS/PWA fix here is
+only observable in the installed standalone PWA — gate on the on-device re-smoke,
+not curl/pytest.
