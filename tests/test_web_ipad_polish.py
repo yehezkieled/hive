@@ -77,8 +77,8 @@ class TestServiceWorkerCache:
 
     def test_cache_version_bumped(self) -> None:
         body = _client().get("/service-worker.js").text
-        assert "hive-v4" in body  # bumped in 043 (status-bar-style fix)
-        assert "hive-v3" not in body
+        assert "hive-v5" in body  # bumped in 043 (standalone status-bar reservation)
+        assert "hive-v4" not in body
         assert "hive-v2" not in body
 
     def test_landing_css_has_dedicated_network_first_branch(self) -> None:

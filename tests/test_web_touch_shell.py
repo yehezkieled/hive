@@ -163,3 +163,25 @@ class TestTokenEntry:
         # window.prompt() must NOT be the token-entry path (fails on iPad).
         assert "prompt('Enter HIVE_WEB_TOKEN" not in html
         assert 'prompt("Enter HIVE_WEB_TOKEN' not in html
+
+
+class TestTabAlignment:
+    """043 follow-up — the nav tabs mix <button> and one <a> (Dashboard). The
+    base `.tab` rule must pin display + line-height so the element type can't
+    shift one tab vertically (Dashboard sat a couple px high)."""
+
+    def test_tab_rule_normalizes_layout(self) -> None:
+        css = _css()
+        # Body of the base `.tab` rule (not `.tab.is-active` / `.tab__*`).
+        match = re.search(r"\.tab\s*\{([^}]*)\}", css)
+        assert match, ".tab rule not found in landing.css"
+        rule = match.group(1)
+        # A flex box + fixed line-height makes <a> and <button> tabs identical.
+        assert "inline-flex" in rule, (
+            ".tab must set display: inline-flex so the <a> Dashboard tab lays out "
+            "like its <button> siblings"
+        )
+        assert "line-height" in rule, (
+            ".tab must pin line-height; otherwise the <a> inherits 1.4 and the "
+            "<button>s use the UA default, mis-aligning Dashboard"
+        )
