@@ -5,7 +5,11 @@
 <meta name="theme-color" content="#e0a726">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+{# `default` (not `black-translucent`): iOS gives the status bar its own opaque
+   strip and starts the web view BELOW it. black-translucent drew the view under
+   the bar and needed env(safe-area-inset-top) padding — which iPadOS reports as
+   0 (no notch), so the clock overlapped the top bar (Ticket 043). #}
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Hive">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
 <link rel="icon" href="/static/icons/favicon.ico" sizes="any">
