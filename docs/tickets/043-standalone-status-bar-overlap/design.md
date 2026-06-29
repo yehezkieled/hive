@@ -68,3 +68,22 @@ single shared `.top-bar` rule in `src/hive/web/static/landing.css`.
 
 A single two-line edit to one CSS rule has no module structure to sketch; the
 file-op lives directly in `plan.md`.
+
+## On-device correction (2026-06-29) — approach #2 failed, switched to #1
+
+The first build shipped approach #2 (keep `black-translucent`, reserve
+`env(safe-area-inset-top)` on `.top-bar`; PRs #228/#229). The on-device iPad
+re-smoke **still overlapped**. Root cause: on iPad (no notch), iPadOS reports
+`env(safe-area-inset-top)` as **0** in standalone mode, so `max(0px, env(...))`
+computed to zero padding — the reservation never happened. The research/design
+above was iPhone-correct but iPad-blind; the env() approach can't work where the
+inset is 0.
+
+**Switched to the rejected alternative #1 — `apple-mobile-web-app-status-bar-style:
+default`** (`_pwa_head.html`). With `default`, iOS gives the status bar its own
+opaque strip and starts the web view *below* it — no inset math, correct on every
+device and orientation. The `.top-bar` env-top padding was reverted (dead under
+`default`, since the inset is then always 0). Trade-off accepted by the developer:
+lose 040's edge-to-edge translucent look for guaranteed correctness on the iPad
+daily driver. `CACHE_VERSION` bumped `hive-v3 → hive-v4` so installed PWAs flush
+the old shell.
