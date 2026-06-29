@@ -165,6 +165,26 @@ async def test_facts_prompt_handles_empty_state(manager: ProcessManager) -> None
     assert "(no calls in last 24h)" in facts  # no token usage
 
 
+async def test_facts_prompt_no_action_path_uses_prose_not_block(
+    manager: ProcessManager,
+) -> None:
+    """The 'no change needed' path must steer the maestro to plain prose, NOT to
+    wrapping 'no action needed' in a <hive_actions> block — the latter parses as
+    malformed JSON and spams the scheduler-poke reject loop (Ticket 046)."""
+    manager._entities["dev"] = Maestro(name="dev", model="sonnet")
+    manager.router.register("dev")
+
+    sched = PriorityScheduler(process_manager=manager)
+    facts = await sched.build_facts_prompt("dev")
+
+    # Explicitly tell the maestro to omit the block when idle, and reply in prose.
+    assert "do NOT emit a <hive_actions> block" in facts
+    assert "plain prose" in facts
+    # And it must NOT present the old ambiguous "emit <hive_actions> … or respond
+    # 'no action needed'" juxtaposition that induced the malformed block.
+    assert "or respond 'no action needed'" not in facts
+
+
 async def test_run_once_pokes_each_alive_maestro(manager: ProcessManager) -> None:
     """run_once sends a facts prompt to every alive maestro and resets the budget window."""
     manager._entities["dev"] = Maestro(name="dev", model="sonnet")
