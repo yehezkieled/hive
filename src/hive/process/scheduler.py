@@ -198,8 +198,11 @@ class PriorityScheduler:
         lines.extend(
             [
                 "",
-                "Decide: emit <hive_actions> with spawn_team / kill_entity,",
-                "or respond 'no action needed' if the org is appropriately sized for the workload.",
+                "Decide: if the org needs a change, emit a <hive_actions> block with",
+                "spawn_team / kill_entity. If it is appropriately sized for the workload,",
+                "do NOT emit a <hive_actions> block at all — just reply in plain prose",
+                "(e.g. 'no action needed'). A block whose body is not valid action JSON",
+                "is rejected as malformed and re-pokes you, so never wrap prose in one.",
                 "Brief reasoning in your response is logged in the audit trail.",
             ]
         )
