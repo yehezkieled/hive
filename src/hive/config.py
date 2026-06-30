@@ -107,6 +107,19 @@ WEB_HOST = os.environ.get("HIVE_WEB_HOST", "127.0.0.1")
 # still works because the Tailscale bind already gates network access.
 WEB_TOKEN = os.environ.get("HIVE_WEB_TOKEN", "")
 
+# Web Push (Ticket 041, ADR 0026). VAPID keypair for signing push messages to
+# installed PWAs. Empty/unset → the Web Push channel is inert (no-ops), so it can
+# be registered unconditionally. Generate with `vapid --gen` (py-vapid).
+# VAPID_SUBJECT is the mailto:/https: contact the push services require.
+VAPID_PUBLIC_KEY = os.environ.get("HIVE_VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.environ.get("HIVE_VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT = os.environ.get("HIVE_VAPID_SUBJECT", "")
+# Telegram's alert role (Ticket 041). When false, the Telegram bridge stops
+# relaying the actionable alert-kinds (decisions/approvals/run-ended → those go
+# to Web Push) while still relaying everything else as a debug/log surface.
+# Default true: nothing changes until you flip it off after the iPad push smoke.
+TELEGRAM_ALERTS = os.environ.get("HIVE_TELEGRAM_ALERTS", "true").lower() == "true"
+
 # Auto-management (Sprint 10)
 AUTO_COMPACT_ENABLED = os.environ.get("HIVE_AUTO_COMPACT_ENABLED", "true").lower() == "true"
 AUTO_COMPACT_THRESHOLD = int(os.environ.get("HIVE_AUTO_COMPACT_THRESHOLD", "50000"))
