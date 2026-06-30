@@ -28,12 +28,16 @@
       return out;
     }
 
-    async function subscribeForPush(reg) {
+    function pushSupported() {
       // Inert unless the server published a VAPID key and the browser supports
-      // push (iOS/iPadOS 16.4+ installed PWA). Best-effort — SSE-while-open stays.
-      if (!VAPID_PUBLIC_KEY || !('PushManager' in window) || !('Notification' in window)) return;
+      // push (iOS/iPadOS 16.4+ installed PWA). Otherwise SSE-while-open stays.
+      return !!VAPID_PUBLIC_KEY && 'PushManager' in window && 'Notification' in window;
+    }
+
+    // Subscribe + register the endpoint with the server. Assumes permission is
+    // already 'granted' (so it needs no user gesture). Best-effort.
+    async function ensureSubscribed(reg) {
       try {
-        if ((await Notification.requestPermission()) !== 'granted') return;
         var sub = await reg.pushManager.getSubscription();
         if (!sub) {
           sub = await reg.pushManager.subscribe({
@@ -59,6 +63,33 @@
       }
     }
 
+    // iOS/iPadOS shows the permission prompt ONLY when requestPermission() runs
+    // inside a user gesture — calling it on page-load is silently ignored. So:
+    // already granted → subscribe now; undecided → ask on the first tap; denied
+    // → leave it. (Ticket 041 follow-up; the load-time call never prompted.)
+    function armPush(reg) {
+      if (!pushSupported()) return;
+      if (Notification.permission === 'granted') {
+        ensureSubscribed(reg);
+        return;
+      }
+      if (Notification.permission !== 'default') return;
+      var asked = false;
+      var onGesture = function () {
+        if (asked) return;
+        asked = true;
+        document.removeEventListener('pointerdown', onGesture, true);
+        document.removeEventListener('click', onGesture, true);
+        Notification.requestPermission()
+          .then(function (p) {
+            if (p === 'granted') ensureSubscribed(reg);
+          })
+          .catch(function () {});
+      };
+      document.addEventListener('pointerdown', onGesture, true);
+      document.addEventListener('click', onGesture, true);
+    }
+
     // A notification tap either focuses an open window (SW posts {type:'hive-focus'})
     // or cold-opens with ?focus=<entity>. Scroll+highlight that entity's card.
     function focusEntity(url) {
@@ -81,7 +112,7 @@
         if (ev.data && ev.data.type === 'hive-focus') focusEntity(ev.data.url);
       });
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/service-worker.js').then(subscribeForPush);
+        navigator.serviceWorker.register('/service-worker.js').then(armPush);
         if (window.location.search.indexOf('focus=') !== -1) focusEntity(window.location.href);
       });
     }
