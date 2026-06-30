@@ -77,10 +77,10 @@ class TestServiceWorkerCache:
 
     def test_cache_version_bumped(self) -> None:
         body = _client().get("/service-worker.js").text
-        # v5: bumped in 043 (standalone status-bar reservation); 041 added
-        # push/notificationclick handlers (behaviour, not assets) at the same version.
-        assert "hive-v5" in body
-        assert "hive-v4" not in body
+        # v6: bumped in 048 (deep-link shell + landing.css change) to force the
+        # installed PWA to refresh; v5 was 043's standalone status-bar reservation.
+        assert "hive-v6" in body
+        assert "hive-v5" not in body
         assert "hive-v2" not in body
 
     def test_landing_css_has_dedicated_network_first_branch(self) -> None:

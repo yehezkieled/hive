@@ -90,30 +90,18 @@
       document.addEventListener('click', onGesture, true);
     }
 
-    // A notification tap either focuses an open window (SW posts {type:'hive-focus'})
-    // or cold-opens with ?focus=<entity>. Scroll+highlight that entity's card.
-    function focusEntity(url) {
-      try {
-        var entity = new URL(url, window.location.origin).searchParams.get('focus');
-        if (!entity) return;
-        var el =
-          document.querySelector('[data-entity="' + entity + '"]') ||
-          document.getElementById('card-' + entity);
-        if (el && el.scrollIntoView) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          el.classList.add('is-focused');
-          setTimeout(function () { el.classList.remove('is-focused'); }, 2500);
-        }
-      } catch (e) {}
-    }
-
+    // A notification tap focuses an open window (the SW posts {type:'hive-focus'})
+    // or cold-opens the deep-link URL. The actual focus/reply behaviour lives in
+    // landing.html as window.hiveDeepLink (it owns the chat + cards); the cold-open
+    // URL case is handled there too. Here we just bridge the warm postMessage.
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', function (ev) {
-        if (ev.data && ev.data.type === 'hive-focus') focusEntity(ev.data.url);
+        if (ev.data && ev.data.type === 'hive-focus' && window.hiveDeepLink) {
+          window.hiveDeepLink(ev.data.url);
+        }
       });
       window.addEventListener('load', function () {
         navigator.serviceWorker.register('/service-worker.js').then(armPush);
-        if (window.location.search.indexOf('focus=') !== -1) focusEntity(window.location.href);
       });
     }
   })();

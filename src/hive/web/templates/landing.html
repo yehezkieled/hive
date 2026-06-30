@@ -646,6 +646,46 @@ async function loadPendingDecisions(token) {
   } catch (_) { /* best-effort recovery; the live stream still covers new ones */ }
 }
 
+// Ticket 048 — deep-link from a Web Push tap. A "needs you" push opens with
+// ?reply=<entity> → open the chat aimed at that maestro, input pre-addressed and
+// focused, ready to reply. A "run ended" push opens with ?focus=<entity> →
+// scroll to + briefly highlight that entity's card. Driven by the service worker
+// (postMessage on a warm focus, the URL on a cold open). Global so the SW bridge
+// in _pwa_head.html can call it.
+window.hiveDeepLink = function hiveDeepLink(url) {
+  try {
+    const u = new URL(url, window.location.origin);
+    const reply = u.searchParams.get('reply');
+    const focus = u.searchParams.get('focus');
+    if (reply) {
+      if (window.HiveDrawer) HiveDrawer.open();
+      const input = document.getElementById('chat-input');
+      if (input) {
+        if (input.value.indexOf('/m:' + reply) !== 0) input.value = '/m:' + reply + ' ';
+        input.focus();
+        try { input.setSelectionRange(input.value.length, input.value.length); } catch (_) {}
+        input.dispatchEvent(new Event('input'));  // trigger resize + send-state
+      }
+      if (window.HiveDrawer) HiveDrawer.scrollMessagesToBottom();
+    } else if (focus) {
+      const sel = (window.CSS && CSS.escape) ? CSS.escape(focus) : focus;
+      const card = document.querySelector('[data-entity="' + sel + '"]');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('is-focused');
+        setTimeout(() => card.classList.remove('is-focused'), 2600);
+      }
+    }
+  } catch (_) { /* deep-link is best-effort */ }
+};
+
+// Cold open: a notification tap launched the app with ?reply= / ?focus=.
+window.addEventListener('load', () => {
+  if (/[?&](reply|focus)=/.test(window.location.search)) {
+    window.hiveDeepLink(window.location.href);
+  }
+});
+
 async function sendChatCommand(event) {
   event.preventDefault();
   const input = document.getElementById('chat-input');

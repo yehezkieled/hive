@@ -69,7 +69,7 @@
 {%- endmacro %}
 
 {% macro maestro_card(m, pinned=false) -%}
-<div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}{% if m.awaiting_you %} is-awaiting{% endif %}">
+<div class="maestro-card{% if pinned %} maestro-card--pinned{% endif %}{% if m.awaiting_you %} is-awaiting{% endif %}" data-entity="{{ m.name }}">
   {% if pinned %}<span class="maestro-card__pin">PINNED · {{ m.name|upper }}</span>{% endif %}
   <div class="maestro-card__head">
     <div class="maestro-card__icon{% if pinned %} maestro-card__icon--pinned{% endif %}">{{ m.name[:2] }}</div>
