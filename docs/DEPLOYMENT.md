@@ -282,6 +282,41 @@ request may take ~a minute while the cert is issued. This **replaces** the
 plain-HTTP IP as the access surface; update the smoke URL below accordingly
 (`https://<node>.<tailnet>.ts.net/...` instead of `http://100.79.194.84:8080/...`).
 
+### Web Push notifications (Ticket 041 / ADR 0026)
+
+Once the PWA is installed over HTTPS (above), Web Push lets Hive ping the
+backgrounded iPad without Telegram. The channel is registered unconditionally
+but is **inert until a VAPID keypair is configured** — so deploying 041 changes
+nothing until you set the keys.
+
+One-time setup on the VPS:
+
+```bash
+# 1. Generate a VAPID keypair (py-vapid ships with the pywebpush dependency):
+.venv/bin/vapid --gen                      # writes private_key.pem + public_key.pem
+.venv/bin/vapid --applicationServerKey     # prints the base64url public key (client side)
+
+# 2. Put the keys in .env:
+#   HIVE_VAPID_PUBLIC_KEY=<applicationServerKey from step 1>
+#   HIVE_VAPID_PRIVATE_KEY=<private key (PEM contents or base64url)>
+#   HIVE_VAPID_SUBJECT=mailto:you@example.com   # contact the push services require
+
+# 3. Restart and confirm the channel comes up enabled (not "inert — no VAPID keys"):
+systemctl --user restart hive.service
+journalctl --user -u hive.service -n 30 | grep -i "web push"
+```
+
+Then, in the **installed** PWA on the iPad, allow notifications when prompted —
+the client subscribes and POSTs to `/api/push-subscribe`. Background the app and
+trigger a run-finished / decision event to confirm a banner arrives and
+deep-links on tap.
+
+**Turning Telegram's alert role down (only after parity is shown):** set
+`HIVE_TELEGRAM_ALERTS=false` and restart. Telegram then stops relaying the
+actionable alert-kinds (decisions, approvals, run-ended) — those arrive via Web
+Push — while still relaying everything else as a debug/log surface. Leave it
+`true` (the default) until the on-device push path is confirmed.
+
 ### Web write surface (Sprint 15 + 2026-04-26 polish)
 
 Endpoints that accept input from the browser tab:

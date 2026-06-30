@@ -112,6 +112,7 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE mode_requests RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE attachments RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE projects RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE push_subscriptions RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
