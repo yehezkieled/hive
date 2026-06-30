@@ -14,16 +14,33 @@ logger = logging.getLogger(__name__)
 class Notification:
     """A single proactive event the orchestrator wants to surface.
 
-    ``kind`` exists for future per-channel routing (e.g. "send P0 errors
-    to email but not SSE"). For now every channel receives every event.
-    ``data`` carries optional structured payload — used by the web UI
-    to render interactive bubbles (e.g. mode-request Allow/Deny).
+    ``kind`` drives per-channel routing: the Web Push channel and the
+    Telegram alert toggle both filter on it (see ``ALERT_KINDS``). SSE and
+    email still receive every event. ``data`` carries optional structured
+    payload — used by the web UI to render interactive bubbles (e.g.
+    mode-request Allow/Deny) and by Web Push to build the deep-link.
     """
 
     text: str
     kind: str = "info"
     data: dict | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+# The notification kinds worth pushing to a human's lock screen — the
+# "actionable" set (Ticket 041, ADR 0026). The Web Push channel delivers exactly
+# these, and the Telegram bridge suppresses exactly these when alerts are turned
+# down (HIVE_TELEGRAM_ALERTS=false). Single source of truth so the two surfaces
+# can't drift.
+ALERT_KINDS = frozenset(
+    {
+        "decision_request",
+        "mode_request",
+        "vault_action_pending",
+        "workflow_completed",
+        "workflow_failed",
+    }
+)
 
 
 @runtime_checkable

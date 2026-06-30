@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from hive.bus.attachment_store import AttachmentStore
     from hive.bus.audit_log import AuditLog
     from hive.bus.mode_request_store import ModeRequestStore
+    from hive.bus.push_subscription_store import PushSubscriptionStore
     from hive.bus.store import MessageStore
     from hive.bus.task_store import TaskStore
     from hive.bus.token_store import TokenStore
@@ -46,6 +47,14 @@ class CommandRequest(BaseModel):
 
 class DecisionReplyRequest(BaseModel):
     reply: str
+
+
+class PushSubscriptionRequest(BaseModel):
+    """A browser ``PushSubscription`` POSTed to ``/api/push-subscribe`` (Ticket 041)."""
+
+    endpoint: str
+    keys: dict
+    user_agent: str | None = None
 
 
 logger = logging.getLogger("hive.web")
@@ -70,6 +79,8 @@ def create_app(
     sse_broker: SSEBroker | None = None,
     attachment_store: AttachmentStore | None = None,
     health_monitor: HealthMonitor | None = None,
+    push_subscription_store: PushSubscriptionStore | None = None,
+    vapid_public_key: str = "",
 ) -> FastAPI:
     """Build and return a configured FastAPI application."""
     from hive.web.view_model import build_dashboard_view_model, build_landing_view_model
@@ -537,6 +548,26 @@ def create_app(
             headers={"Cache-Control": "no-cache"},
         )
 
+    # ─── Web Push subscription (Ticket 041, ADR 0026) ──────────────────
+    @app.post("/api/push-subscribe")
+    async def api_push_subscribe(
+        body: PushSubscriptionRequest,
+        _: None = Depends(require_token),
+    ):
+        """Register a browser's Web Push subscription so the server can deliver
+        actionable notifications to the installed PWA (upsert by endpoint)."""
+        if push_subscription_store is None:
+            raise HTTPException(status_code=503, detail="Web Push not configured")
+        await push_subscription_store.upsert(
+            {
+                "endpoint": body.endpoint,
+                "p256dh": body.keys.get("p256dh", ""),
+                "auth": body.keys.get("auth", ""),
+                "user_agent": body.user_agent,
+            }
+        )
+        return {"ok": True}
+
     # ─── Landing page ──────────────────────────────────────────────────
     @app.get("/", response_class=HTMLResponse)
     async def landing(request: Request):
@@ -554,7 +585,9 @@ def create_app(
             for name, entry in sorted(HELP_TEXT.items())
         ]
         return templates.TemplateResponse(
-            request, "landing.html", {"view": view, "commands": commands}
+            request,
+            "landing.html",
+            {"view": view, "commands": commands, "vapid_public_key": vapid_public_key},
         )
 
     # ─── Dashboard tab (Sprint 20) ─────────────────────────────────────
@@ -570,7 +603,9 @@ def create_app(
     @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard(request: Request):
         data = await _build_dashboard()
-        return templates.TemplateResponse(request, "dashboard.html", {"data": data})
+        return templates.TemplateResponse(
+            request, "dashboard.html", {"data": data, "vapid_public_key": vapid_public_key}
+        )
 
     @app.get("/api/dashboard/all")
     async def api_dashboard_all(_: None = Depends(require_token)):

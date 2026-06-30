@@ -22,6 +22,7 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "ptyprocess>=0.7",
     "pyte>=0.8.2",
+    "pywebpush>=1.14",
 ]
 
 [project.optional-dependencies]

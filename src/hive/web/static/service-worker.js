@@ -9,7 +9,7 @@
  *
  * Bump CACHE_VERSION on any shell/asset change so activate() drops stale caches.
  */
-const CACHE_VERSION = 'hive-v4';
+const CACHE_VERSION = 'hive-v5';
 const OFFLINE_URL = '/static/offline.html';
 
 // Small, safe precache: the offline shell + icons + the landing stylesheet.
@@ -117,4 +117,42 @@ self.addEventListener('fetch', (event) => {
       )
     );
   }
+});
+
+// ─── Web Push (Ticket 041, ADR 0026) ───────────────────────────────────────
+// The push service wakes the worker; we draw a native notification. The payload
+// is JSON {title, body, url} built server-side by WebPushChannel.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { title: 'Hive', body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Hive', {
+      body: data.body || '',
+      icon: '/static/icons/icon-192.png',
+      badge: '/static/icons/icon-192.png',
+      data: { url: data.url || '/' },
+      tag: data.url || 'hive', // collapse repeats for the same run/decision
+    })
+  );
+});
+
+// Tap → focus an open Hive window (and tell it where to focus) or open one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) {
+          client.postMessage({ type: 'hive-focus', url: target });
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
 });

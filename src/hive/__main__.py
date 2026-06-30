@@ -45,6 +45,9 @@ from hive.config import (
     SUMMARY_CHAT_ID,
     TELEGRAM_ALLOWED_USER_IDS,
     TELEGRAM_BOT_TOKEN,
+    VAPID_PRIVATE_KEY,
+    VAPID_PUBLIC_KEY,
+    VAPID_SUBJECT,
     WEB_HOST,
     WEB_PORT,
 )
@@ -358,7 +361,9 @@ async def main() -> None:
         if WEB_PORT > 0:
             import uvicorn
 
+            from hive.bus.push_subscription_store import PushSubscriptionStore
             from hive.commands.dispatch import CommandDispatcher
+            from hive.notifications import WebPushChannel
             from hive.web.app import create_app
             from hive.web.sse import SSEBroker
 
@@ -382,6 +387,21 @@ async def main() -> None:
                 notification_dispatcher.channel_count,
             )
 
+            # Web Push channel (Ticket 041, ADR 0026) — the iPad async-ping tier.
+            # Registered unconditionally; it no-ops until VAPID keys are set.
+            push_subscription_store = PushSubscriptionStore(store.pool)
+            web_push_channel = WebPushChannel(
+                push_subscription_store,
+                VAPID_PUBLIC_KEY,
+                VAPID_PRIVATE_KEY,
+                VAPID_SUBJECT,
+            )
+            notification_dispatcher.register(web_push_channel)
+            logger.info(
+                "Web Push channel registered (push %s)",
+                "enabled" if VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY else "inert — no VAPID keys",
+            )
+
             health_monitor = HealthMonitor(
                 pool=store.pool,
                 bridge=bridge,
@@ -402,6 +422,8 @@ async def main() -> None:
                 sse_broker=sse_broker,
                 attachment_store=attachment_store,
                 health_monitor=health_monitor,
+                push_subscription_store=push_subscription_store,
+                vapid_public_key=VAPID_PUBLIC_KEY,
             )
             config = uvicorn.Config(web_app, host=WEB_HOST, port=WEB_PORT, log_level="info")
             server = uvicorn.Server(config)

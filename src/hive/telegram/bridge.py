@@ -24,7 +24,7 @@ from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
 from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
 from hive.knowledge.attachment_embedder import embed_attachment
 from hive.models.task import TaskStatus
-from hive.notifications import Notification
+from hive.notifications import ALERT_KINDS, Notification
 from hive.telegram.commands import Command, parse_command
 
 if TYPE_CHECKING:
@@ -134,7 +134,17 @@ class TelegramBridge:
         logger.info("Telegram bridge started, polling for updates")
 
     async def send(self, notification: Notification) -> None:
-        """NotificationChannel implementation — delivers to the Telegram chat."""
+        """NotificationChannel implementation — delivers to the Telegram chat.
+
+        When the alert role is turned down (``HIVE_TELEGRAM_ALERTS=false``,
+        Ticket 041), the actionable alert-kinds are dropped here — they reach you
+        via Web Push instead — while Telegram keeps relaying everything else as a
+        debug/log surface.
+        """
+        from hive.config import TELEGRAM_ALERTS
+
+        if not TELEGRAM_ALERTS and notification.kind in ALERT_KINDS:
+            return
         await self._send_notification(notification.text)
 
     async def _send_notification(self, message: str) -> None:
