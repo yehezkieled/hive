@@ -21,13 +21,12 @@ from typing import TYPE_CHECKING
 from hive.commands._helpers import _parse_task_id, _strip_quotes
 from hive.commands.datastore_commands import DataStoreCommands
 from hive.commands.formatter import Formatter
+from hive.commands.git_commands import GitCommands
 from hive.commands.result import CommandResult
-from hive.config import ALLOW_AUTO_MERGE
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
 from hive.models.project import Project, ProjectOwnershipError
 from hive.models.task import TaskStatus
-from hive.process import git_ops
 from hive.telegram.commands import Command, parse_command
 
 if TYPE_CHECKING:
@@ -120,9 +119,9 @@ class CommandDispatcher:
         "help": ("formatter", "help"),
         "approve": (None, "_h_approve"),
         "deny": (None, "_h_deny"),
-        "commit": (None, "_h_commit"),
-        "pr": (None, "_h_pr"),
-        "merge": (None, "_h_merge"),
+        "commit": ("git", "commit"),
+        "pr": ("git", "pr"),
+        "merge": ("git", "merge"),
         "files": ("formatter", "files"),
         "eval": (None, "_h_eval"),
         "budget": (None, "_h_budget"),
@@ -169,6 +168,7 @@ class CommandDispatcher:
             vault_store=self.vault_store,
             blueprint_store=self.blueprint_store,
         )
+        self.git = GitCommands(self.process_manager, audit_log=self.audit_log)
 
         # Bind the routing table to live handlers once, at construction.
         self._registry: dict[str, Callable[[Command, str], Awaitable[CommandResult]]] = {
@@ -301,15 +301,6 @@ class CommandDispatcher:
 
     async def _h_deny(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_deny(cmd.target, cmd.args))
-
-    async def _h_commit(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_commit(cmd.target, cmd.args))
-
-    async def _h_pr(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_pr(cmd.target, cmd.args))
-
-    async def _h_merge(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_merge(cmd.target))
 
     async def _h_eval(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_eval(cmd.target))
@@ -843,105 +834,6 @@ class CommandDispatcher:
         await self.process_manager._persist(entity)
 
         return f"Reset {entity_name}. Session cleared, ready for fresh start."
-
-    def _worktree_for(self, entity_name: str):  # type: ignore[no-untyped-def]
-        """Return (entity, worktree_path) or (None, None) if entity has no worktree.
-
-        Kept private and untyped to avoid a public dependency on a specific
-        entity class — /commit and /pr only need the path, not the type.
-        """
-        entity = self.process_manager.entities.get(entity_name)
-        if entity is None:
-            return None, None
-        worktree = getattr(entity, "worktree_path", None)
-        return entity, worktree
-
-    async def _execute_commit(self, entity_name: str | None, args: str) -> str:
-        """Handle /commit <entity> "<message>" — stage+commit in entity's worktree."""
-        if not entity_name:
-            return 'Usage: /commit <entity> "<message>"'
-        entity, worktree = self._worktree_for(entity_name)
-        if entity is None:
-            return f"Entity {entity_name!r} not found."
-        if worktree is None:
-            return f"Entity {entity_name!r} has no worktree attached."
-        message = _strip_quotes(args).strip()
-        if not message:
-            return 'Usage: /commit <entity> "<message>"'
-
-        ok, summary = await git_ops.commit(worktree, message)
-        if not ok:
-            return summary
-        if self.audit_log is not None:
-            await self.audit_log.record(
-                actor="user",
-                action="git.commit",
-                target=entity_name,
-                details={"message": message[:200]},
-            )
-        return f"Committed in {entity_name}:\n{summary}"
-
-    async def _execute_pr(self, entity_name: str | None, args: str) -> str:
-        """Handle /pr <entity> ["<title>"] — push branch and open a PR via gh."""
-        if not entity_name:
-            return 'Usage: /pr <entity> ["<title>"]'
-        entity, worktree = self._worktree_for(entity_name)
-        if entity is None:
-            return f"Entity {entity_name!r} not found."
-        if worktree is None:
-            return f"Entity {entity_name!r} has no worktree attached."
-
-        branch = await git_ops.current_branch(worktree)
-        if not branch:
-            return "Cannot determine current branch (detached HEAD?)."
-
-        ok, push_out = await git_ops.push(worktree, branch)
-        if not ok:
-            return push_out
-
-        title = _strip_quotes(args).strip() or None
-        ok, pr_out = await git_ops.gh_pr_create(worktree, title)
-        if not ok:
-            return pr_out
-        if self.audit_log is not None:
-            await self.audit_log.record(
-                actor="user",
-                action="git.pr_create",
-                target=entity_name,
-                details={"branch": branch, "title": title},
-            )
-        return f"PR opened from {entity_name} (branch {branch}):\n{pr_out}"
-
-    async def _execute_merge(self, entity_name: str | None) -> str:
-        """Handle /merge <entity> — squash-merge the PR for the entity's branch.
-
-        Off by default; requires ``HIVE_ALLOW_AUTO_MERGE=1``. The user
-        running the command is the approval authority.
-        """
-        if not ALLOW_AUTO_MERGE:
-            return (
-                "merge is disabled. Set HIVE_ALLOW_AUTO_MERGE=1 in the "
-                "environment and restart Hive to enable /merge."
-            )
-        if not entity_name:
-            return "Usage: /merge <entity>"
-        entity, worktree = self._worktree_for(entity_name)
-        if entity is None:
-            return f"Entity {entity_name!r} not found."
-        if worktree is None:
-            return f"Entity {entity_name!r} has no worktree attached."
-
-        ok, output = await git_ops.gh_pr_merge(worktree)
-        if not ok:
-            return output
-        if self.audit_log is not None:
-            await self.audit_log.record(
-                actor="user",
-                action="git.pr_merge",
-                target=entity_name,
-                details={},
-            )
-        return f"Merged PR for {entity_name}:\n{output}"
 
 
 # Derived single source of truth: every command the dispatcher executes.
