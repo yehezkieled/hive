@@ -36,18 +36,21 @@ class WebPushChannel:
 
         d = n.data or {}
         entity = d.get("entity", "")
+        # "Needs you" kinds deep-link to ?reply=<entity> (opens the chat aimed at
+        # the maestro, ready to reply); "Run ended" kinds use ?focus=<entity>
+        # (scrolls to + highlights that entity's card). Ticket 048.
         if n.kind == "decision_request":
             title = f"{entity} needs your decision"
             body = d.get("question", "")
-            url = f"/?focus={entity}"
+            url = f"/?reply={entity}"
         elif n.kind == "mode_request":
             title = f"{entity} — approval needed"
             body = n.text
-            url = f"/?focus={entity}"
+            url = f"/?reply={entity}"
         elif n.kind == "vault_action_pending":
             title = f"{entity} — vault approval"
             body = n.text
-            url = f"/?focus={entity}"
+            url = f"/?reply={entity}"
         elif n.kind == "workflow_completed":
             title = f"✅ {entity} — run finished"
             body = d.get("name", "")

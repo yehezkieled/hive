@@ -53,3 +53,4 @@ marked with ✱.
 | 045 | [CommandRouter registry + read-only Formatter split](045-command-router-registry/) | 2026-Q2-S9 | done | #243 |
 | 046 | [Scheduler poke induces malformed `<hive_actions>` block on idle maestros](046-scheduler-poke-prose/) | 2026-Q2-S9 | done | #233 |
 | 047 | [Strengthen lead JD pointer: drive pattern-skill *invocation* (044 follow-up)](047-lead-pattern-skill-invocation/) | — | created | — |
+| 048 | [Useful Web Push deep-link (041 follow-up)](048-useful-deep-link/) | 2026-Q2-S9 | in progress | #248 |

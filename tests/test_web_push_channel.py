@@ -76,7 +76,7 @@ async def test_decision_request_builds_payload(monkeypatch):
     payload = _payload_of(mock)
     assert payload["title"] == "otter needs your decision"
     assert payload["body"] == "which db?"
-    assert payload["url"] == "/?focus=otter"
+    assert payload["url"] == "/?reply=otter"
 
 
 async def test_workflow_completed_builds_payload(monkeypatch):
@@ -144,7 +144,7 @@ async def test_mode_request_sends(monkeypatch):
     payload = _payload_of(mock)
     assert payload["title"] == "otter — approval needed"
     assert payload["body"] == "bypass mode?"
-    assert payload["url"] == "/?focus=otter"
+    assert payload["url"] == "/?reply=otter"
 
 
 async def test_vault_action_pending_sends(monkeypatch):
@@ -165,7 +165,7 @@ async def test_vault_action_pending_sends(monkeypatch):
     payload = _payload_of(mock)
     assert payload["title"] == "otter — vault approval"
     assert payload["body"] == "spend $5?"
-    assert payload["url"] == "/?focus=otter"
+    assert payload["url"] == "/?reply=otter"
 
 
 async def test_inert_without_vapid_keys(monkeypatch):
