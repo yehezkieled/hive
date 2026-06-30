@@ -64,12 +64,12 @@ def lead_with_worktree(manager: ProcessManager, tmp_path: Path) -> TeamLead:
 
 
 async def test_commit_without_entity_returns_usage(bridge: TelegramBridge) -> None:
-    result = await bridge.dispatcher._execute_commit(None, "")
+    result = await bridge.dispatcher.git._execute_commit(None, "")
     assert "Usage" in result
 
 
 async def test_commit_unknown_entity(bridge: TelegramBridge) -> None:
-    result = await bridge.dispatcher._execute_commit("ghost", '"message"')
+    result = await bridge.dispatcher.git._execute_commit("ghost", '"message"')
     assert "not found" in result
 
 
@@ -79,7 +79,7 @@ async def test_commit_entity_without_worktree(
     lead = TeamLead(name="dev.frontend", team_name="frontend", maestro_name="dev")
     manager._entities[lead.name] = lead
     manager.router.register(lead.name)
-    result = await bridge.dispatcher._execute_commit(lead.name, '"message"')
+    result = await bridge.dispatcher.git._execute_commit(lead.name, '"message"')
     assert "no worktree" in result
 
 
@@ -99,7 +99,7 @@ async def test_commit_success(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_commit(
+    result = await bridge.dispatcher.git._execute_commit(
         lead_with_worktree.name, '"retry on transient errors"'
     )
     assert "Committed in" in result
@@ -122,7 +122,7 @@ async def test_commit_propagates_git_failure(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_commit(lead_with_worktree.name, '"empty"')
+    result = await bridge.dispatcher.git._execute_commit(lead_with_worktree.name, '"empty"')
     assert "git commit failed" in result
     assert "nothing to commit" in result
 
@@ -150,7 +150,7 @@ async def test_pr_pushes_and_creates(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_pr(lead_with_worktree.name, '"my change"')
+    result = await bridge.dispatcher.git._execute_pr(lead_with_worktree.name, '"my change"')
     assert "pull/42" in result
     assert "hive/dev.backend.w1" in result
     # gh should have been called with --title when title provided
@@ -174,7 +174,7 @@ async def test_pr_without_title_uses_fill(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    await bridge.dispatcher._execute_pr(lead_with_worktree.name, "")
+    await bridge.dispatcher.git._execute_pr(lead_with_worktree.name, "")
     gh_calls = [c for c in recorded if c[:3] == ["gh", "pr", "create"]]
     assert gh_calls and "--fill" in gh_calls[0]
 
@@ -190,7 +190,7 @@ async def test_pr_detached_head_error(
         return 0, "", ""
 
     monkeypatch.setattr("hive.process.git_ops.run", fake_run)
-    result = await bridge.dispatcher._execute_pr(lead_with_worktree.name, "")
+    result = await bridge.dispatcher.git._execute_pr(lead_with_worktree.name, "")
     assert "detached" in result.lower() or "branch" in result.lower()
 
 
@@ -204,8 +204,8 @@ async def test_merge_disabled_by_default(
     lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("hive.commands.dispatch.ALLOW_AUTO_MERGE", False)
-    result = await bridge.dispatcher._execute_merge(lead_with_worktree.name)
+    monkeypatch.setattr("hive.commands.git_commands.ALLOW_AUTO_MERGE", False)
+    result = await bridge.dispatcher.git._execute_merge(lead_with_worktree.name)
     assert "disabled" in result
     assert "HIVE_ALLOW_AUTO_MERGE" in result
 
@@ -215,10 +215,10 @@ async def test_merge_when_enabled(
     lead_with_worktree: TeamLead,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("hive.commands.dispatch.ALLOW_AUTO_MERGE", True)
+    monkeypatch.setattr("hive.commands.git_commands.ALLOW_AUTO_MERGE", True)
     fake = AsyncMock(return_value=(0, "Squashed and merged!", ""))
     monkeypatch.setattr("hive.process.git_ops.run", fake)
-    result = await bridge.dispatcher._execute_merge(lead_with_worktree.name)
+    result = await bridge.dispatcher.git._execute_merge(lead_with_worktree.name)
     assert "Merged PR" in result
     assert "Squashed and merged" in result
     # Verify the actual gh invocation
