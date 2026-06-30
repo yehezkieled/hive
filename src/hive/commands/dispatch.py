@@ -16,8 +16,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from hive.commands.formatter import Formatter
+from hive.commands.result import CommandResult
 from hive.config import ALLOW_AUTO_MERGE
 from hive.models.entity import EntityState
 from hive.models.maestro import Maestro
@@ -25,7 +27,6 @@ from hive.models.project import Project, ProjectOwnershipError
 from hive.models.task import TaskStatus
 from hive.process import git_ops
 from hive.telegram.commands import Command, parse_command
-from hive.telegram.help_text import format_all, format_one
 
 if TYPE_CHECKING:
     from hive.bus.attachment_store import AttachmentStore
@@ -35,7 +36,6 @@ if TYPE_CHECKING:
     from hive.bus.token_store import TokenStore
     from hive.bus.vault_store import VaultStore
     from hive.knowledge.blueprints import BlueprintStore
-    from hive.models.task import Task
     from hive.process.manager import ProcessManager
     from hive.process.scheduler import PriorityScheduler
 
@@ -70,23 +70,6 @@ class _PendingNewMaestro:
 # /help drift guard.
 
 
-@dataclass
-class CommandResult:
-    """Outcome of executing a command — plain text plus optional metadata.
-
-    Surfaces read ``text`` for display. ``metadata`` is a free-form dict
-    for transport-specific hints (e.g. a future web UI rendering
-    structured data instead of a string). ``routed`` is True when the
-    dispatcher already persisted the round-trip through the bus router,
-    so transport layers must not log it again.
-    """
-
-    text: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    routed: bool = False
-    entity: str = ""
-
-
 class CommandDispatcher:
     """Executes parsed commands against ProcessManager + stores.
 
@@ -103,20 +86,20 @@ class CommandDispatcher:
     # one handler method + one entry here (no separate if-chain / set to sync).
     _ROUTES: dict[str, tuple[str | None, str]] = {
         "empty": (None, "_h_empty"),
-        "status": (None, "_h_status"),
-        "health": (None, "_h_health"),
-        "maestros": (None, "_h_maestros"),
-        "org": (None, "_h_org"),
-        "comms": (None, "_h_comms"),
+        "status": ("formatter", "status"),
+        "health": ("formatter", "health"),
+        "maestros": ("formatter", "maestros"),
+        "org": ("formatter", "org"),
+        "comms": ("formatter", "comms"),
         "kill": (None, "_h_kill"),
         "message": (None, "_h_message"),
-        "cost": (None, "_h_cost"),
-        "quota": (None, "_h_quota"),
+        "cost": ("formatter", "cost"),
+        "quota": ("formatter", "quota"),
         "task": (None, "_h_task"),
-        "tasks": (None, "_h_tasks"),
-        "audit": (None, "_h_audit"),
+        "tasks": ("formatter", "tasks"),
+        "audit": ("formatter", "audit"),
         "team": (None, "_h_team"),
-        "teams": (None, "_h_teams"),
+        "teams": ("formatter", "teams"),
         "project": (None, "_h_project"),
         "agent": (None, "_h_agent"),
         "mode": (None, "_h_mode"),
@@ -132,13 +115,13 @@ class CommandDispatcher:
         "model": (None, "_h_model"),
         "vault": (None, "_h_vault"),
         "blueprint": (None, "_h_blueprint"),
-        "help": (None, "_h_help"),
+        "help": ("formatter", "help"),
         "approve": (None, "_h_approve"),
         "deny": (None, "_h_deny"),
         "commit": (None, "_h_commit"),
         "pr": (None, "_h_pr"),
         "merge": (None, "_h_merge"),
-        "files": (None, "_h_files"),
+        "files": ("formatter", "files"),
         "eval": (None, "_h_eval"),
         "budget": (None, "_h_budget"),
     }
@@ -169,6 +152,16 @@ class CommandDispatcher:
         self.scheduler = scheduler
         self.personalities_dir = personalities_dir or Path("personalities")
         self._pending_new: dict[str, _PendingNewMaestro] = {}
+
+        # Collaborator groups (ADR 0006). Read-only views go to the Formatter,
+        # which takes only the read-only stores — no vault/mode_request/blueprint.
+        self.formatter = Formatter(
+            self.process_manager,
+            token_store=self.token_store,
+            audit_log=self.audit_log,
+            task_store=self.task_store,
+            attachment_store=self.attachment_store,
+        )
 
         # Bind the routing table to live handlers once, at construction.
         self._registry: dict[str, Callable[[Command, str], Awaitable[CommandResult]]] = {
@@ -221,35 +214,6 @@ class CommandDispatcher:
     async def _h_empty(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text="")
 
-    async def _h_status(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._format_status())
-
-    async def _h_health(self, cmd: Command, actor: str) -> CommandResult:
-        unhealthy = await self.process_manager.health_check()
-        if unhealthy:
-            return CommandResult(text=f"Unhealthy entities: {', '.join(unhealthy)}")
-        return CommandResult(text="All entities healthy.")
-
-    async def _h_maestros(self, cmd: Command, actor: str) -> CommandResult:
-        entities = self.process_manager.entities
-        maestros = [e for e in entities.values() if e.role == "maestro"]
-        if not maestros:
-            return CommandResult(text="No maestros running.")
-        lines = [f"- {m.name} ({m.state.value}, model={m.model})" for m in maestros]
-        return CommandResult(text="Maestros:\n" + "\n".join(lines))
-
-    async def _h_org(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._format_org())
-
-    async def _h_comms(self, cmd: Command, actor: str) -> CommandResult:
-        recent = await self.process_manager.router.store.get_recent(limit=10)
-        if not recent:
-            return CommandResult(text="No messages yet.")
-        lines = []
-        for msg in reversed(recent):
-            lines.append(f"[{msg['sender']} -> {msg['recipient']}] {msg['content'][:80]}")
-        return CommandResult(text="Recent comms:\n" + "\n".join(lines))
-
     async def _h_kill(self, cmd: Command, actor: str) -> CommandResult:
         if not cmd.target:
             return CommandResult(text="Usage: /kill <entity_name>")
@@ -268,20 +232,8 @@ class CommandDispatcher:
             entity=cmd.target or "",
         )
 
-    async def _h_cost(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._format_cost(cmd.args))
-
-    async def _h_quota(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._format_quota())
-
     async def _h_task(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_task(cmd.target, cmd.args, actor=actor))
-
-    async def _h_tasks(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._format_tasks_list())
-
-    async def _h_audit(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._format_audit(cmd.args))
 
     async def _h_team(self, cmd: Command, actor: str) -> CommandResult:
         # /t:dev.backend <msg> routes to the lead entity directly;
@@ -293,9 +245,6 @@ class CommandDispatcher:
                 entity=cmd.target or "",
             )
         return CommandResult(text=await self._execute_team(cmd.target, cmd.args))
-
-    async def _h_teams(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._format_teams())
 
     async def _h_project(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_project(cmd.target, cmd.args))
@@ -346,9 +295,6 @@ class CommandDispatcher:
     async def _h_blueprint(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_blueprint(cmd.target, cmd.args))
 
-    async def _h_help(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._execute_help(cmd.target))
-
     async def _h_approve(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_approve(cmd.target, cmd.args))
 
@@ -364,9 +310,6 @@ class CommandDispatcher:
     async def _h_merge(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_merge(cmd.target))
 
-    async def _h_files(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_files(cmd.args))
-
     async def _h_eval(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_eval(cmd.target))
 
@@ -376,12 +319,6 @@ class CommandDispatcher:
     # ------------------------------------------------------------------
     # Per-command execution helpers (extracted from TelegramBridge)
     # ------------------------------------------------------------------
-
-    def _execute_help(self, name: str | None) -> str:
-        """Format a /help response — grouped listing or per-command detail."""
-        if name:
-            return format_one(name)
-        return format_all()
 
     async def _execute_approve(self, subcommand: str | None, args: str) -> str:
         """Handle /approve mode <id> — approve a pending mode-elevation request.
@@ -471,47 +408,6 @@ class CommandDispatcher:
             return f"Request #{req_id} not found or already resolved."
         return f"Denied #{row['id']}: {row['requester']} -> {row['requested_mode']}."
 
-    def _format_quota(self) -> str:
-        """Render the on-demand /quota response using the manager's monitor."""
-        from hive.config import HIVE_QUOTA_POLL_SECONDS
-        from hive.runtime.quota_monitor import format_quota_text
-
-        monitor = self.process_manager.quota_monitor
-        reading = monitor.get_quota() if monitor is not None else None
-        return format_quota_text(
-            reading,
-            now=datetime.now(UTC),
-            stale_after_seconds=HIVE_QUOTA_POLL_SECONDS * 2,
-        )
-
-    async def _format_cost(self, args: str) -> str:
-        """Format a /cost report over an optional time window (default 24h)."""
-        if self.token_store is None:
-            return "Token tracking not configured."
-
-        window = _parse_window(args)
-        since = datetime.now(UTC) - window.delta
-        totals = await self.token_store.totals(since=since)
-
-        calls = int(totals.get("call_count", 0))
-        if calls == 0:
-            return f"No token usage in the last {window.label}."
-
-        in_tok = int(totals.get("input_tokens", 0))
-        out_tok = int(totals.get("output_tokens", 0))
-        cache_create = int(totals.get("cache_creation_input_tokens", 0))
-        cache_read = int(totals.get("cache_read_input_tokens", 0))
-        cost = float(totals.get("cost_usd", 0) or 0)
-
-        return (
-            f"Tokens (last {window.label}, {calls} call(s)):\n"
-            f"  input:  {in_tok:,}\n"
-            f"  output: {out_tok:,}\n"
-            f"  cache create: {cache_create:,}\n"
-            f"  cache read:   {cache_read:,}\n"
-            f"  ${cost:.4f} equivalent API cost (covered by Max subscription)"
-        )
-
     async def _execute_task(
         self,
         subcommand: str | None,
@@ -561,21 +457,6 @@ class CommandDispatcher:
 
         return f"Unknown task subcommand: {subcommand}"
 
-    async def _format_audit(self, args: str) -> str:
-        """Format a /audit report — the last N events, optionally prefix-filtered."""
-        if self.audit_log is None:
-            return "Audit log not configured."
-
-        prefix, limit = _parse_audit_args(args)
-        events = await self.audit_log.recent(limit=limit, action_prefix=prefix)
-        if not events:
-            scope = f"{prefix}*" if prefix else "all"
-            return f"No audit events ({scope}, limit {limit})."
-
-        lines = [_format_audit_row(event) for event in events]
-        header = f"Audit (last {len(events)}):"
-        return header + "\n" + "\n".join(lines)
-
     async def _execute_eval(self, maestro_name: str | None) -> str:
         """Handle /eval [maestro] — fire one scheduler tick for a single maestro.
 
@@ -609,50 +490,6 @@ class CommandDispatcher:
             return f"Maestro {target!r} not found."
         facts = await self.scheduler.build_facts_prompt(target)
         return facts
-
-    async def _execute_files(self, args: str) -> str:
-        """Handle /files [N] — list the most recent uploads (default 20, max 100)."""
-        if self.attachment_store is None:
-            return "Attachments not configured."
-
-        limit = 20
-        raw = (args or "").strip()
-        if raw:
-            try:
-                limit = int(raw.split()[0])
-            except ValueError:
-                return "Usage: /files [N]"
-            if limit < 1:
-                return "Usage: /files [N] — N must be >= 1."
-            limit = min(limit, 100)
-
-        rows = await self.attachment_store.list_recent(limit=limit)
-        if not rows:
-            return "No attachments yet."
-
-        lines = [f"Recent attachments (last {len(rows)}):"]
-        for r in rows:
-            ts = r.created_at.strftime("%Y-%m-%d %H:%M")
-            forwarded = r.forwarded_to or "—"
-            mime = r.mime_type or "?"
-            size = _format_bytes(r.size_bytes)
-            name = r.original_name or Path(r.file_path).name
-            lines.append(f"  #{r.id} {ts} {r.source} →{forwarded} {mime} {size} {name}")
-        return "\n".join(lines)
-
-    async def _format_tasks_list(self) -> str:
-        """Format the open (pending + in-progress) tasks for /tasks."""
-        if self.task_store is None:
-            return "Task tracking not configured."
-
-        pending = await self.task_store.list(status=TaskStatus.PENDING)
-        in_progress = await self.task_store.list(status=TaskStatus.IN_PROGRESS)
-        open_tasks: list[Task] = pending + in_progress
-        if not open_tasks:
-            return "No open tasks."
-
-        lines = [_format_task_row(t) for t in open_tasks]
-        return "Open tasks:\n" + "\n".join(lines)
 
     async def _send_to_entity(self, entity_name: str, message: str) -> str:
         """Send a message to an entity and return its response."""
@@ -697,7 +534,7 @@ class CommandDispatcher:
                 return f"Error: {e}"
 
         if sub == "list":
-            return self._format_teams()
+            return self.formatter._format_teams()
 
         if sub == "kill":
             name = args.strip()
@@ -1213,60 +1050,6 @@ class CommandDispatcher:
             )
         return f"Merged PR for {entity_name}:\n{output}"
 
-    # ------------------------------------------------------------------
-    # Formatting helpers (read-only views of process_manager state)
-    # ------------------------------------------------------------------
-
-    def _format_teams(self) -> str:
-        """Format all teams across all maestros for /teams output."""
-        entities = self.process_manager.entities
-        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
-        if not maestros:
-            return "No maestros registered."
-
-        lines = []
-        for m in maestros:
-            if not m.teams:
-                lines.append(f"{m.name}: no teams")
-                continue
-            for team_name, team in m.teams.items():
-                worker_count = len(team.workers)
-                lead_status = "active" if team.lead and team.lead in entities else "none"
-                lines.append(f"{m.name}.{team_name}: lead={lead_status}, workers={worker_count}")
-        return "Teams:\n" + "\n".join(lines) if lines else "No teams."
-
-    def _format_org(self) -> str:
-        """Format a tree view of the organization for /org."""
-        entities = self.process_manager.entities
-        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
-        if not maestros:
-            return "No entities running."
-
-        lines = []
-        for m in sorted(maestros, key=lambda x: x.name):
-            lines.append(f"{m.name} [maestro] {m.state.value}")
-            for team_name, team in m.teams.items():
-                lines.append(f"  {team_name} [team]")
-                if team.lead and team.lead in entities:
-                    lead = entities[team.lead]
-                    lines.append(f"    {team.lead} [lead] {lead.state.value}")
-        return "\n".join(lines) if lines else "No entities running."
-
-    def _format_status(self) -> str:
-        """Format entity status for display."""
-        statuses = self.process_manager.get_status()
-        if not statuses:
-            return "No entities running."
-
-        lines = []
-        for s in statuses:
-            uptime = f", uptime={int(s['uptime'])}s" if s["uptime"] else ""
-            pid = f", pid={s['pid']}" if s["pid"] else ""
-            lines.append(
-                f"- {s['name']} [{s['role']}] {s['state']} (model={s['model']}{pid}{uptime})"
-            )
-        return "Entities:\n" + "\n".join(lines)
-
 
 # Derived single source of truth: every command the dispatcher executes.
 # ``empty`` is a parser artifact (blank input), not a user-facing command, so
@@ -1278,27 +1061,6 @@ KNOWN_COMMANDS: frozenset[str] = frozenset(CommandDispatcher._ROUTES) - {"empty"
 # ---------------------------------------------------------------------- #
 # Module-level helpers                                                    #
 # ---------------------------------------------------------------------- #
-
-
-class _Window:
-    """Time window for /cost queries — a delta + a human label."""
-
-    __slots__ = ("delta", "label")
-
-    def __init__(self, delta: timedelta, label: str) -> None:
-        self.delta = delta
-        self.label = label
-
-
-def _parse_window(raw: str) -> _Window:
-    """Parse /cost argument into a time window. Defaults to 24h on unrecognised input."""
-    raw = (raw or "").strip().lower()
-    windows = {
-        "24h": _Window(timedelta(hours=24), "24h"),
-        "7d": _Window(timedelta(days=7), "7d"),
-        "30d": _Window(timedelta(days=30), "30d"),
-    }
-    return windows.get(raw, windows["24h"])
 
 
 def _strip_quotes(text: str) -> str:
@@ -1319,35 +1081,6 @@ def _parse_task_id(raw: str) -> int | None:
         return int(first)
     except ValueError:
         return None
-
-
-def _format_task_row(task: Task) -> str:
-    """Render a single task as a one-liner for /tasks output."""
-    return f"- #{task.id} [{task.status.value}] p{task.priority} {task.title}"
-
-
-def _parse_audit_args(raw: str) -> tuple[str | None, int]:
-    """Parse /audit args into (prefix, limit).
-
-    Accepts a category prefix (``entity``, ``command``, ``task``) or
-    nothing. Limit defaults to 20.
-    """
-    raw = (raw or "").strip().lower()
-    if not raw:
-        return None, 20
-    known_prefixes = {"entity", "command", "task"}
-    if raw in known_prefixes:
-        return f"{raw}.", 20
-    return None, 20
-
-
-def _format_audit_row(event: dict) -> str:
-    """Render one audit event as a one-liner for /audit output."""
-    ts = event["timestamp"]
-    actor = event["actor"]
-    action = event["action"]
-    target = event["target"] or "-"
-    return f"{ts:%H:%M:%S} {actor} {action} {target}"
 
 
 def _render_personality_md(name: str, purpose: str, style: str, model: str) -> str:
@@ -1380,16 +1113,3 @@ def _render_personality_md(name: str, purpose: str, style: str, model: str) -> s
         "- Prefer `yotree` (elevated + sandboxed worktree) for code-heavy work.\n"
         "- Use `yolo` only for trivial scripted tasks where a worktree is overhead.\n"
     )
-
-
-def _format_bytes(n: int | None) -> str:
-    """Pretty-print a byte count (B/KB/MB/GB) for /files output."""
-    if n is None:
-        return "?"
-    if n < 1024:
-        return f"{n}B"
-    if n < 1024 * 1024:
-        return f"{n / 1024:.1f}KB"
-    if n < 1024 * 1024 * 1024:
-        return f"{n / (1024 * 1024):.1f}MB"
-    return f"{n / (1024 * 1024 * 1024):.1f}GB"
