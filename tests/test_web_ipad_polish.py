@@ -77,10 +77,10 @@ class TestServiceWorkerCache:
 
     def test_cache_version_bumped(self) -> None:
         body = _client().get("/service-worker.js").text
-        # v4: bumped in 043 (status-bar-style fix); 041 added push/notificationclick
-        # handlers (behaviour, not cached assets) so it rides the same version.
-        assert "hive-v4" in body
-        assert "hive-v3" not in body
+        # v5: bumped in 043 (standalone status-bar reservation); 041 added
+        # push/notificationclick handlers (behaviour, not assets) at the same version.
+        assert "hive-v5" in body
+        assert "hive-v4" not in body
         assert "hive-v2" not in body
 
     def test_landing_css_has_dedicated_network_first_branch(self) -> None:

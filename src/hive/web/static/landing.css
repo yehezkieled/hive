@@ -104,10 +104,23 @@ body {
   position: relative;
   z-index: 3;
   /* Safe-area: keep the bar clear of the notch / rounded corners (D5).
-     max() with 0px means desktop (insets == 0) is byte-identical. The TOP
-     status bar is handled by status-bar-style=default (Ticket 043), not here. */
+     max() with 0px means desktop (insets == 0) is byte-identical. */
   padding-left: max(0px, env(safe-area-inset-left));
   padding-right: max(0px, env(safe-area-inset-right));
+}
+
+/* Installed (standalone) PWA: viewport-fit=cover (037) makes the bar full-bleed
+   under the iOS status bar, and env(safe-area-inset-top) is 0 on a non-notch
+   iPad — so reserve a fixed 24px floor. max(env, 24px) keeps the real notch
+   inset on iPhone; the @media gate means the in-Safari tab (env == 0 is correct
+   there) gets no phantom gap. Grow the height too so the 52px content box
+   survives box-sizing: border-box. Ticket 043 (status-bar-style=default just
+   sets the icon colour, it does NOT reserve this space under cover). */
+@media all and (display-mode: standalone) {
+  .top-bar {
+    height: calc(52px + max(env(safe-area-inset-top), 24px));
+    padding-top: max(env(safe-area-inset-top), 24px);
+  }
 }
 .top-bar__brand {
   width: 220px;
@@ -149,6 +162,13 @@ body {
 }
 .tab {
   position: relative;
+  /* Normalize across element types: the tabs are <button>s except Dashboard,
+     which is an <a>. Without a pinned display + line-height the <a> inherits
+     line-height 1.4 (vs the UA button default) and sits a few px high. Ticket
+     043. */
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
   padding: 7px 14px;
   border-radius: 8px;
   background: transparent;
