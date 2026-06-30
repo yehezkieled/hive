@@ -12,6 +12,7 @@ so the web write surface can reuse the same execution paths.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -62,52 +63,11 @@ class _PendingNewMaestro:
     last_active: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
-# Every command the dispatcher executes. The Telegram bridge re-exports
-# this (plus its surface-only commands like /heartbeat) as
-# ``BRIDGE_COMMANDS`` for the /help drift guard. Keep in sync with the
-# if-chain in :meth:`CommandDispatcher.dispatch_command` below.
-KNOWN_COMMANDS: frozenset[str] = frozenset(
-    {
-        "status",
-        "health",
-        "maestros",
-        "org",
-        "comms",
-        "kill",
-        "message",
-        "cost",
-        "task",
-        "tasks",
-        "audit",
-        "team",
-        "teams",
-        "project",
-        "agent",
-        "mode",
-        "loop",
-        "priority",
-        "swarm",
-        "compact",
-        "reset",
-        "new",
-        "cancel",
-        "personality",
-        "broadcast",
-        "model",
-        "vault",
-        "blueprint",
-        "help",
-        "approve",
-        "deny",
-        "commit",
-        "pr",
-        "merge",
-        "files",
-        "eval",
-        "budget",
-        "quota",
-    }
-)
+# ``KNOWN_COMMANDS`` (the set of commands the dispatcher executes) is now
+# *derived* from ``CommandDispatcher._ROUTES`` — the single source of truth —
+# and defined just after the class below. The Telegram bridge re-exports it
+# (plus surface-only commands like /heartbeat) as ``BRIDGE_COMMANDS`` for the
+# /help drift guard.
 
 
 @dataclass
@@ -135,6 +95,54 @@ class CommandDispatcher:
     :meth:`dispatch_command` if they already parsed the input).
     """
 
+    # Single source of truth for routing. Maps a command name to
+    # ``(group_attr | None, handler_method)`` — ``None`` means the handler
+    # lives on the facade itself; a string names a collaborator attribute.
+    # Every handler has the uniform shape ``async (cmd, actor) -> CommandResult``.
+    # ``KNOWN_COMMANDS`` is derived from these keys, so adding a command is
+    # one handler method + one entry here (no separate if-chain / set to sync).
+    _ROUTES: dict[str, tuple[str | None, str]] = {
+        "empty": (None, "_h_empty"),
+        "status": (None, "_h_status"),
+        "health": (None, "_h_health"),
+        "maestros": (None, "_h_maestros"),
+        "org": (None, "_h_org"),
+        "comms": (None, "_h_comms"),
+        "kill": (None, "_h_kill"),
+        "message": (None, "_h_message"),
+        "cost": (None, "_h_cost"),
+        "quota": (None, "_h_quota"),
+        "task": (None, "_h_task"),
+        "tasks": (None, "_h_tasks"),
+        "audit": (None, "_h_audit"),
+        "team": (None, "_h_team"),
+        "teams": (None, "_h_teams"),
+        "project": (None, "_h_project"),
+        "agent": (None, "_h_agent"),
+        "mode": (None, "_h_mode"),
+        "loop": (None, "_h_loop"),
+        "priority": (None, "_h_priority"),
+        "swarm": (None, "_h_swarm"),
+        "compact": (None, "_h_compact"),
+        "reset": (None, "_h_reset"),
+        "cancel": (None, "_h_cancel"),
+        "new": (None, "_h_new"),
+        "personality": (None, "_h_personality"),
+        "broadcast": (None, "_h_broadcast"),
+        "model": (None, "_h_model"),
+        "vault": (None, "_h_vault"),
+        "blueprint": (None, "_h_blueprint"),
+        "help": (None, "_h_help"),
+        "approve": (None, "_h_approve"),
+        "deny": (None, "_h_deny"),
+        "commit": (None, "_h_commit"),
+        "pr": (None, "_h_pr"),
+        "merge": (None, "_h_merge"),
+        "files": (None, "_h_files"),
+        "eval": (None, "_h_eval"),
+        "budget": (None, "_h_budget"),
+    }
+
     def __init__(
         self,
         process_manager: ProcessManager,
@@ -161,6 +169,12 @@ class CommandDispatcher:
         self.scheduler = scheduler
         self.personalities_dir = personalities_dir or Path("personalities")
         self._pending_new: dict[str, _PendingNewMaestro] = {}
+
+        # Bind the routing table to live handlers once, at construction.
+        self._registry: dict[str, Callable[[Command, str], Awaitable[CommandResult]]] = {
+            name: getattr(getattr(self, group) if group else self, method)
+            for name, (group, method) in self._ROUTES.items()
+        }
 
     async def dispatch(self, text: str, actor: str = "system") -> CommandResult:
         """Parse ``text`` then dispatch — convenience for callers without a Command.
@@ -193,164 +207,171 @@ class CommandDispatcher:
 
     async def dispatch_command(self, cmd: Command, actor: str = "system") -> CommandResult:
         """Execute a parsed command and return a :class:`CommandResult`."""
-        if cmd.name == "empty":
-            return CommandResult(text="")
+        handler = self._registry.get(cmd.name)
+        if handler is None:
+            return CommandResult(text=f"Unknown command: /{cmd.name}")
+        return await handler(cmd, actor)
 
-        if cmd.name == "status":
-            return CommandResult(text=self._format_status())
+    # ------------------------------------------------------------------
+    # Registry handlers — uniform ``async (cmd, actor) -> CommandResult``.
+    # Each wraps a ``_format_*`` / ``_execute_*`` body (or inline logic) and
+    # is bound into ``self._registry`` via ``_ROUTES``. Order matches _ROUTES.
+    # ------------------------------------------------------------------
 
-        if cmd.name == "health":
-            unhealthy = await self.process_manager.health_check()
-            if unhealthy:
-                return CommandResult(text=f"Unhealthy entities: {', '.join(unhealthy)}")
-            return CommandResult(text="All entities healthy.")
+    async def _h_empty(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text="")
 
-        if cmd.name == "maestros":
-            entities = self.process_manager.entities
-            maestros = [e for e in entities.values() if e.role == "maestro"]
-            if not maestros:
-                return CommandResult(text="No maestros running.")
-            lines = [f"- {m.name} ({m.state.value}, model={m.model})" for m in maestros]
-            return CommandResult(text="Maestros:\n" + "\n".join(lines))
+    async def _h_status(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=self._format_status())
 
-        if cmd.name == "org":
-            return CommandResult(text=self._format_org())
+    async def _h_health(self, cmd: Command, actor: str) -> CommandResult:
+        unhealthy = await self.process_manager.health_check()
+        if unhealthy:
+            return CommandResult(text=f"Unhealthy entities: {', '.join(unhealthy)}")
+        return CommandResult(text="All entities healthy.")
 
-        if cmd.name == "comms":
-            recent = await self.process_manager.router.store.get_recent(limit=10)
-            if not recent:
-                return CommandResult(text="No messages yet.")
-            lines = []
-            for msg in reversed(recent):
-                lines.append(f"[{msg['sender']} -> {msg['recipient']}] {msg['content'][:80]}")
-            return CommandResult(text="Recent comms:\n" + "\n".join(lines))
+    async def _h_maestros(self, cmd: Command, actor: str) -> CommandResult:
+        entities = self.process_manager.entities
+        maestros = [e for e in entities.values() if e.role == "maestro"]
+        if not maestros:
+            return CommandResult(text="No maestros running.")
+        lines = [f"- {m.name} ({m.state.value}, model={m.model})" for m in maestros]
+        return CommandResult(text="Maestros:\n" + "\n".join(lines))
 
-        if cmd.name == "kill":
-            if not cmd.target:
-                return CommandResult(text="Usage: /kill <entity_name>")
-            try:
-                await self.process_manager.kill_entity(cmd.target)
-                return CommandResult(text=f"Killed {cmd.target}.")
-            except Exception as e:
-                return CommandResult(text=f"Error killing {cmd.target}: {e}")
+    async def _h_org(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=self._format_org())
 
-        if cmd.name == "message":
-            if not cmd.target:
-                return CommandResult(text="No target specified.")
+    async def _h_comms(self, cmd: Command, actor: str) -> CommandResult:
+        recent = await self.process_manager.router.store.get_recent(limit=10)
+        if not recent:
+            return CommandResult(text="No messages yet.")
+        lines = []
+        for msg in reversed(recent):
+            lines.append(f"[{msg['sender']} -> {msg['recipient']}] {msg['content'][:80]}")
+        return CommandResult(text="Recent comms:\n" + "\n".join(lines))
+
+    async def _h_kill(self, cmd: Command, actor: str) -> CommandResult:
+        if not cmd.target:
+            return CommandResult(text="Usage: /kill <entity_name>")
+        try:
+            await self.process_manager.kill_entity(cmd.target)
+            return CommandResult(text=f"Killed {cmd.target}.")
+        except Exception as e:
+            return CommandResult(text=f"Error killing {cmd.target}: {e}")
+
+    async def _h_message(self, cmd: Command, actor: str) -> CommandResult:
+        if not cmd.target:
+            return CommandResult(text="No target specified.")
+        return CommandResult(
+            text=await self._send_to_entity(cmd.target, cmd.args),
+            routed=True,
+            entity=cmd.target or "",
+        )
+
+    async def _h_cost(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._format_cost(cmd.args))
+
+    async def _h_quota(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=self._format_quota())
+
+    async def _h_task(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_task(cmd.target, cmd.args, actor=actor))
+
+    async def _h_tasks(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._format_tasks_list())
+
+    async def _h_audit(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._format_audit(cmd.args))
+
+    async def _h_team(self, cmd: Command, actor: str) -> CommandResult:
+        # /t:dev.backend <msg> routes to the lead entity directly;
+        # /team create|list|kill is a structural subcommand.
+        if cmd.target and "." in (cmd.target or ""):
             return CommandResult(
                 text=await self._send_to_entity(cmd.target, cmd.args),
                 routed=True,
                 entity=cmd.target or "",
             )
+        return CommandResult(text=await self._execute_team(cmd.target, cmd.args))
 
-        if cmd.name == "cost":
-            return CommandResult(text=await self._format_cost(cmd.args))
+    async def _h_teams(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=self._format_teams())
 
-        if cmd.name == "quota":
-            return CommandResult(text=self._format_quota())
+    async def _h_project(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_project(cmd.target, cmd.args))
 
-        if cmd.name == "task":
-            return CommandResult(text=await self._execute_task(cmd.target, cmd.args, actor=actor))
+    async def _h_agent(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(
+            text=await self._send_to_entity(cmd.target or "", cmd.args),
+            routed=True,
+            entity=cmd.target or "",
+        )
 
-        if cmd.name == "tasks":
-            return CommandResult(text=await self._format_tasks_list())
+    async def _h_mode(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_mode(cmd.target, cmd.args))
 
-        if cmd.name == "audit":
-            return CommandResult(text=await self._format_audit(cmd.args))
+    async def _h_loop(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_loop(cmd.target, cmd.args))
 
-        if cmd.name == "team":
-            # /t:dev.backend <msg> routes to the lead entity directly;
-            # /team create|list|kill is a structural subcommand.
-            if cmd.target and "." in (cmd.target or ""):
-                return CommandResult(
-                    text=await self._send_to_entity(cmd.target, cmd.args),
-                    routed=True,
-                    entity=cmd.target or "",
-                )
-            return CommandResult(text=await self._execute_team(cmd.target, cmd.args))
+    async def _h_priority(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_priority(cmd.target, cmd.args, actor=actor))
 
-        if cmd.name == "teams":
-            return CommandResult(text=self._format_teams())
+    async def _h_swarm(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_swarm(cmd.target, cmd.args))
 
-        if cmd.name == "project":
-            return CommandResult(text=await self._execute_project(cmd.target, cmd.args))
+    async def _h_compact(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_compact(cmd.target))
 
-        if cmd.name == "agent":
-            return CommandResult(
-                text=await self._send_to_entity(cmd.target or "", cmd.args),
-                routed=True,
-                entity=cmd.target or "",
-            )
+    async def _h_reset(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_reset(cmd.target))
 
-        if cmd.name == "mode":
-            return CommandResult(text=await self._execute_mode(cmd.target, cmd.args))
+    async def _h_cancel(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text="Nothing to cancel.")
 
-        if cmd.name == "loop":
-            return CommandResult(text=await self._execute_loop(cmd.target, cmd.args))
+    async def _h_new(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_new(cmd.target, cmd.args, actor=actor))
 
-        if cmd.name == "priority":
-            return CommandResult(
-                text=await self._execute_priority(cmd.target, cmd.args, actor=actor)
-            )
+    async def _h_personality(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_personality(cmd.target, cmd.args))
 
-        if cmd.name == "swarm":
-            return CommandResult(text=await self._execute_swarm(cmd.target, cmd.args))
+    async def _h_broadcast(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_broadcast(cmd.args))
 
-        if cmd.name == "compact":
-            return CommandResult(text=await self._execute_compact(cmd.target))
+    async def _h_model(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_model(cmd.target, cmd.args))
 
-        if cmd.name == "reset":
-            return CommandResult(text=await self._execute_reset(cmd.target))
+    async def _h_vault(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_vault(cmd.target, cmd.args))
 
-        if cmd.name == "cancel":
-            return CommandResult(text="Nothing to cancel.")
+    async def _h_blueprint(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_blueprint(cmd.target, cmd.args))
 
-        if cmd.name == "new":
-            return CommandResult(text=await self._execute_new(cmd.target, cmd.args, actor=actor))
+    async def _h_help(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=self._execute_help(cmd.target))
 
-        if cmd.name == "personality":
-            return CommandResult(text=await self._execute_personality(cmd.target, cmd.args))
+    async def _h_approve(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_approve(cmd.target, cmd.args))
 
-        if cmd.name == "broadcast":
-            return CommandResult(text=await self._execute_broadcast(cmd.args))
+    async def _h_deny(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_deny(cmd.target, cmd.args))
 
-        if cmd.name == "model":
-            return CommandResult(text=await self._execute_model(cmd.target, cmd.args))
+    async def _h_commit(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_commit(cmd.target, cmd.args))
 
-        if cmd.name == "vault":
-            return CommandResult(text=await self._execute_vault(cmd.target, cmd.args))
+    async def _h_pr(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_pr(cmd.target, cmd.args))
 
-        if cmd.name == "blueprint":
-            return CommandResult(text=await self._execute_blueprint(cmd.target, cmd.args))
+    async def _h_merge(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_merge(cmd.target))
 
-        if cmd.name == "help":
-            return CommandResult(text=self._execute_help(cmd.target))
+    async def _h_files(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_files(cmd.args))
 
-        if cmd.name == "approve":
-            return CommandResult(text=await self._execute_approve(cmd.target, cmd.args))
+    async def _h_eval(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_eval(cmd.target))
 
-        if cmd.name == "deny":
-            return CommandResult(text=await self._execute_deny(cmd.target, cmd.args))
-
-        if cmd.name == "commit":
-            return CommandResult(text=await self._execute_commit(cmd.target, cmd.args))
-
-        if cmd.name == "pr":
-            return CommandResult(text=await self._execute_pr(cmd.target, cmd.args))
-
-        if cmd.name == "merge":
-            return CommandResult(text=await self._execute_merge(cmd.target))
-
-        if cmd.name == "files":
-            return CommandResult(text=await self._execute_files(cmd.args))
-
-        if cmd.name == "eval":
-            return CommandResult(text=await self._execute_eval(cmd.target))
-
-        if cmd.name == "budget":
-            return CommandResult(text=await self._execute_budget(cmd.target))
-
-        return CommandResult(text=f"Unknown command: /{cmd.name}")
+    async def _h_budget(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_budget(cmd.target))
 
     # ------------------------------------------------------------------
     # Per-command execution helpers (extracted from TelegramBridge)
@@ -1245,6 +1266,13 @@ class CommandDispatcher:
                 f"- {s['name']} [{s['role']}] {s['state']} (model={s['model']}{pid}{uptime})"
             )
         return "Entities:\n" + "\n".join(lines)
+
+
+# Derived single source of truth: every command the dispatcher executes.
+# ``empty`` is a parser artifact (blank input), not a user-facing command, so
+# it is excluded. The Telegram bridge re-exports this (plus surface-only
+# commands like /heartbeat) as ``BRIDGE_COMMANDS`` for the /help drift guard.
+KNOWN_COMMANDS: frozenset[str] = frozenset(CommandDispatcher._ROUTES) - {"empty"}
 
 
 # ---------------------------------------------------------------------- #

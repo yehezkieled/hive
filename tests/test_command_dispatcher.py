@@ -82,6 +82,17 @@ def test_bridge_commands_extends_known_commands() -> None:
     assert "heartbeat" in BRIDGE_COMMANDS
 
 
+def test_registry_is_single_source_of_truth(dispatcher: CommandDispatcher) -> None:
+    """The name→handler registry drives routing; KNOWN_COMMANDS derives from it.
+
+    Guards the old failure mode where a new command needed an arm in the
+    if-chain AND a separate KNOWN_COMMANDS entry that could drift apart.
+    `empty` is a parser artifact (not a user command), so it is excluded.
+    """
+    assert set(dispatcher._registry) - {"empty"} == set(KNOWN_COMMANDS)
+    assert all(callable(handler) for handler in dispatcher._registry.values())
+
+
 # ---------------------------------------------------------------------------
 # dispatch() — text-based entry point used by the web write surface
 # ---------------------------------------------------------------------------
