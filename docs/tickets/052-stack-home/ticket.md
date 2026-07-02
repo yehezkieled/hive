@@ -36,5 +36,5 @@ delegate-and-supervise surface for autonomous loops — the actual daily driver
 
 ## Non-goals
 
-- The Work view internals (053) · project create/management (S11) · new
+- The Work view internals (053) · project create/management (backlog 058) · new
   observability widgets.

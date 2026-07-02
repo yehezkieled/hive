@@ -60,3 +60,12 @@ marked with ✱.
 | 052 | [Stack home (Delegator's Desk landing)](052-stack-home/) | 2026-Q2-S10 | created | — |
 | 053 | [Tabbed maestro Work view](053-tabbed-work-view/) | 2026-Q2-S10 | created | — |
 | 054 ✱ | [Hive project cleanup (incl. redesign mockups)](054-hive-cleanup/) | 2026-Q2-S10 | created | — |
+| 055 | [Project isolation design (sandbox model)](055-project-isolation-design/) | — | created | — |
+| 056 | [Per-project worktree floor](056-per-project-worktree-floor/) | — | created | — |
+| 057 | [Project isolation: own DB / env / ports](057-project-isolation-db-env/) | — | created | — |
+| 058 | [Create-project + maestro flow (git-validated)](058-create-project-flow/) | — | created | — |
+| 059 | [Reliability: quota-aware turns](059-quota-aware-turns/) | — | created | — |
+| 060 | [Reliability: bounce/idle guard bundle](060-bounce-idle-guards/) | — | created | — |
+| 061 | [Codex adapter](061-codex-adapter/) | — | created | — |
+| 062 | [OpenCode adapter](062-opencode-adapter/) | — | created | — |
+| 063 | [Dogfood kickoff + smoke (finance app on Hive)](063-dogfood-kickoff-smoke/) | — | created | — |
