@@ -69,11 +69,12 @@ the two header bells + three bubble renderers.
 - The redesign is mostly **re-surfacing existing capability**, not new plumbing:
   the needs-you data (039 + the approval/decision APIs), project status (024 +
   017), delegate (`/api/command`), quota (`/quota`) all exist. The **one new
-  binding** is project ↔ home/loop status — which the S11 dogfood needs anyway.
+  binding** is project ↔ home/loop status — which the dogfood needs later anyway.
 - The web stops being a monitor and becomes the **cockpit for driving autonomous
   loops** — the surface the loop-engineering direction requires.
 - S10 builds it (051 lane · 052 home · 053 work view · 050 command trim first ·
-  054 cleanup last). The dogfood + isolation + harnesses that *fill* it are S11.
+  054 cleanup last). The dogfood + isolation + harnesses that *fill* it are
+  future work (roadmap Phase 6/7; backlog tickets 055–063).
 - **Number-race caveat:** ADR `0027` is next-free against origin/main at authoring
   time; re-verify and renumber at ship if a parallel worktree took it.
 - Reversible in principle, but a home rebuilt on the wrong mental model is

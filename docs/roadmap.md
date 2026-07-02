@@ -58,7 +58,7 @@ the loop-engineering direction from theme to phase
 ([ADR 0027](adr/0027-web-delegators-desk.md)); mostly re-surfaces existing
 capability and trims the command set first.
 
-## Phase 6 — Dogfood on Hive: build a real product, safely  ·  S11+
+## Phase 6 — Dogfood on Hive: build a real product, safely
 
 Prove the loop by building a real product (the finance app) **fully on Hive**, and
 let the friction it surfaces drive Hive's hardening. Two hard prerequisites before
@@ -68,13 +68,12 @@ a **per-project worktree floor** (leads build in the project's own repo). Plus
 reliability for long unattended runs (quota-aware turns, bounce/idle guards). The
 finance-app build is the forcing function; the capabilities it needs are the work.
 
-## Phase 7 — Codex + OpenCode adapters  ·  S11+
+## Phase 7 — Codex + OpenCode adapters
 
 Vendor independence — pivot the fleet off Claude. Build the `codex` adapter
 (ChatGPT/Codex plan) and the `opencode` adapter (provider-agnostic, cheap models
-such as GLM); automatic quota-failover once both exist. Pulled forward into S11
-alongside the dogfood — a long unattended build is exactly what needs the quota
-headroom.
+such as GLM); automatic quota-failover once both exist. Runs alongside the dogfood
+(Phase 6) — a long unattended build is exactly what needs the quota headroom.
 
 ## Phase 8 — Features (ideas)
 
@@ -115,8 +114,9 @@ one-line bullet here.
 
 Phase 5 (the Delegator's Desk web) precedes Phase 6 (dogfood): a usable
 delegate-and-supervise surface first, then a real build driven from it. Phase 7
-(harnesses) is pulled into S11 alongside Phase 6 — a long unattended build is
-what makes quota headroom urgent.
+(harnesses) runs alongside Phase 6 — a long unattended build is what makes quota
+headroom urgent. (The Phase 6/7 work is stubbed as backlog tickets 055–063,
+sprint-unassigned — re-grill into a sprint after S10.)
 
 ## Direction — loop engineering (emerging)
 
