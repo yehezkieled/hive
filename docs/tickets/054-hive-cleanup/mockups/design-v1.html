@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hive — Delegator's Desk (design v1)</title>
+<style>
+  :root { --paper:#faf6ec; --ink:#2b2622; --rule:#e3d9c2; --honey:#e0a726; --red:#c8382a; --green:#3f7d4f; --soft:#f6dcd6; --muted:#8a8175; --card:#fff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:#efe8d6; color:var(--ink); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; padding:20px 12px 60px; }
+  .lead { max-width:900px; margin:0 auto 16px; }
+  .lead h1 { font-size:19px; margin:0 0 3px; }
+  .lead p { color:var(--muted); margin:0; font-size:13.5px; }
+  .stage { max-width:900px; margin:0 auto; display:grid; gap:26px; grid-template-columns:1fr; }
+  @media(min-width:820px){ .stage{ grid-template-columns:1fr 1fr; align-items:start; } }
+  .screen { background:var(--paper); border:1px solid var(--rule); border-radius:20px; overflow:hidden; box-shadow:0 6px 22px rgba(0,0,0,.08); }
+  .caption { text-align:center; font-size:12px; color:var(--muted); margin-top:8px; text-transform:uppercase; letter-spacing:.06em; }
+  /* chrome */
+  .top { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--rule); background:#fffdf7; }
+  .top .logo { font-weight:700; }
+  .top .spacer { flex:1; }
+  .chip { font-size:11px; border:1px solid var(--rule); border-radius:20px; padding:3px 9px; color:#5a5348; background:#fff; }
+  .chip b { color:var(--ink); }
+  .quota-bar { display:inline-block; width:34px; height:6px; border-radius:3px; background:linear-gradient(90deg,var(--green) 62%, #e6dcc4 62%); vertical-align:middle; margin-right:5px; }
+  .body { padding:14px; }
+  .h { text-transform:uppercase; letter-spacing:.07em; font-size:11px; color:var(--muted); margin:2px 2px 8px; display:flex; align-items:center; gap:6px; }
+  .h .n { background:var(--red); color:#fff; border-radius:20px; padding:0 7px; font-size:10px; }
+  /* needs-you */
+  .need { background:var(--soft); border:1px solid #e0a89f; border-radius:12px; padding:11px 12px; margin-bottom:10px; }
+  .need .who { font-weight:600; font-size:13px; }
+  .need .q { font-size:13.5px; margin:3px 0 8px; }
+  .replyfield { display:flex; gap:6px; }
+  .replyfield input { flex:1; border:1px solid #d8b6ae; border-radius:9px; padding:7px 9px; font-size:13px; background:#fff; }
+  .send { background:var(--red); color:#fff; border:none; border-radius:9px; padding:0 12px; font-weight:600; }
+  .approve { background:var(--green); color:#fff; border:none; border-radius:9px; padding:7px 14px; font-weight:600; font-size:13px; }
+  .deny { background:#fff; color:#7a4038; border:1px solid #d8b6ae; border-radius:9px; padding:7px 14px; font-size:13px; }
+  .allclear { text-align:center; color:var(--green); background:#eef5ef; border:1px solid #cfe3d3; border-radius:12px; padding:13px; font-size:13.5px; margin-bottom:10px; }
+  /* projects */
+  .proj { display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--rule); border-radius:12px; padding:11px 12px; margin-bottom:9px; }
+  .proj .ic { width:34px; height:34px; border-radius:9px; background:#f3ead2; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:#a98a3a; }
+  .proj .mid { flex:1; min-width:0; }
+  .proj .name { font-weight:600; font-size:14px; }
+  .proj .doing { font-size:12.5px; color:#5a5348; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
+  .run { background:var(--green); } .idle { background:#bdb49f; } .blocked { background:var(--red); }
+  .prog { height:6px; border-radius:3px; background:#ece3cd; margin-top:6px; overflow:hidden; }
+  .prog > i { display:block; height:100%; width:66%; background:var(--honey); }
+  .chev { color:#bdb49f; font-size:18px; }
+  .badge-you { background:var(--red); color:#fff; font-size:10px; border-radius:20px; padding:1px 7px; }
+  .newproj { text-align:center; color:var(--muted); border:1px dashed #cbbf9f; border-radius:12px; padding:10px; font-size:13px; }
+  /* delegate */
+  .delegate { position:sticky; bottom:0; padding:12px 14px; border-top:1px solid var(--rule); background:#fffdf7; }
+  .delegate .box { display:flex; gap:8px; align-items:center; }
+  .delegate input { flex:1; border:1px solid #cbbf9f; border-radius:22px; padding:9px 14px; font-size:14px; background:#fff; }
+  .delegate .go { width:38px; height:38px; border-radius:50%; background:var(--ink); color:#fff; border:none; font-size:16px; }
+  .delegate .to { font-size:11px; color:var(--muted); margin:0 4px 6px; }
+  /* focus extras */
+  .now { font-size:14px; margin:2px 0 4px; } .now b{ color:var(--ink); }
+  .trail { font-size:12.5px; color:#5a5348; line-height:1.7; }
+  .trail .ok { color:var(--green); }
+  .back { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+  <div class="lead">
+    <h1>The Delegator's Desk — design v1</h1>
+    <p>Left = the <b>Stack home</b> (calm by default, exceptions loud). Tap a project → the <b>Focus view</b> (right). Real content: your finance-app + the pending needs-you items.</p>
+  </div>
+
+  <div class="stage">
+
+    <!-- ===================== STACK HOME ===================== -->
+    <div>
+      <div class="screen">
+        <div class="top">
+          <span class="logo">🐝 hive</span>
+          <span class="spacer"></span>
+          <span class="chip"><span class="quota-bar"></span>quota <b>62%</b> · 3h</span>
+        </div>
+        <div class="body">
+          <div class="h">Needs you <span class="n">2</span></div>
+
+          <div class="need">
+            <div class="who">otter · finance-app</div>
+            <div class="q">Which database — Postgres or SQLite?</div>
+            <div class="replyfield"><input placeholder="Type your answer…"><button class="send">Send</button></div>
+          </div>
+
+          <div class="need">
+            <div class="who">vault</div>
+            <div class="q">Pay <b>AU$48</b> to bigspend@example.com — API credits</div>
+            <div style="display:flex; gap:8px;"><button class="approve">Approve</button><button class="deny">Deny</button></div>
+          </div>
+
+          <div class="h" style="margin-top:16px;">Projects</div>
+
+          <div class="proj">
+            <div class="ic">fi</div>
+            <div class="mid">
+              <div class="name"><span class="dot run"></span>finance-app</div>
+              <div class="doing">building the expense API · 6/9 agents</div>
+              <div class="prog"><i></i></div>
+            </div>
+            <div class="chev">›</div>
+          </div>
+
+          <div class="proj">
+            <div class="ic">hi</div>
+            <div class="mid">
+              <div class="name"><span class="dot idle"></span>hive</div>
+              <div class="doing">idle · nothing running</div>
+            </div>
+            <div class="chev">›</div>
+          </div>
+
+          <div class="newproj">+ new project</div>
+        </div>
+        <div class="delegate">
+          <div class="to">▸ delegating to <b>finance-app</b> (otter)</div>
+          <div class="box"><input placeholder="Tell it what to build or fix…"><button class="go">↑</button></div>
+        </div>
+      </div>
+      <div class="caption">Stack home · default</div>
+    </div>
+
+    <!-- ===================== FOCUS VIEW ===================== -->
+    <div>
+      <div class="screen">
+        <div class="top">
+          <span class="back">‹ home</span>
+          <span class="spacer"></span>
+          <span class="logo" style="font-size:14px;"><span class="dot run"></span>finance-app</span>
+          <span class="spacer"></span>
+          <span class="chip">otter · yolo</span>
+        </div>
+        <div class="body">
+          <div class="need" style="padding:8px 11px; margin-bottom:12px;">
+            <span style="font-size:12.5px;">⚠ needs you — which DB? </span><span class="send" style="padding:2px 10px; font-size:12px;">reply</span>
+          </div>
+
+          <div class="h">Now</div>
+          <div class="now"><b>backend lead</b> — building the expense API</div>
+          <div class="prog" style="margin:6px 0 3px;"><i></i></div>
+          <div style="font-size:12px; color:var(--muted);">phase: implement · 6/9 agents · ~4 min</div>
+
+          <div class="h" style="margin-top:16px;">Recent · what it did</div>
+          <div class="trail">
+            <span class="ok">✓</span> created <code>models/expense.py</code><br>
+            <span class="ok">✓</span> added <code>POST /expenses</code> route<br>
+            <span class="ok">✓</span> opened PR #3 · tests green<br>
+            · waiting on your DB answer to wire persistence
+          </div>
+        </div>
+        <div class="delegate">
+          <div class="to">▸ direct <b>otter</b></div>
+          <div class="box"><input placeholder="Add direction, or ask a question…"><button class="go">↑</button></div>
+        </div>
+      </div>
+      <div class="caption">Focus · tapping finance-app</div>
+    </div>
+
+  </div>
+</body>
+</html>

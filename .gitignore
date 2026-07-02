@@ -38,3 +38,6 @@ htmlcov/
 
 # Claude Code local config (machine-specific, not shared)
 .claude/
+
+# superpowers brainstorm scratch (visual-companion mockups)
+.superpowers/
