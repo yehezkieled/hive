@@ -39,23 +39,44 @@ further coordination shapes ship as user-authored **global skills**
 (`~/.claude/skills`), not Hive-native recipes — zero engine work, so off the
 roadmap.
 
-## Phase 4 — Web dashboard to PWA  ·  IN PROGRESS (S8 ✅ · S9)
+## Phase 4 — Web dashboard to PWA  ·  ✅ DONE 2026-06-30
 
-Control Hive from a phone, off Telegram. The existing dashboard
-becomes a responsive installable PWA — one codebase, no app store.
-S8 (✅ closed 2026-06-25) shipped the interaction layer (touch shell,
-decision-UI parity, attention router, PWA install); S9 lands Web Push
-(demotes Telegram to debug/log) + iPad polish, and opens the
-loop-engineering backend track.
+Hive is controllable from an iPad, off Telegram: a responsive installable PWA
+(S8 — touch shell, decision-UI parity, attention router, PWA install) plus
+**Web Push** (S9 — verified on-device; the async ping that demotes Telegram to
+debug/log). The web is the daily-driver *surface* now; making it genuinely
+*usable* for delegating to autonomous loops is Phase 5.
 
-## Phase 5 — Codex + OpenCode adapters
+## Phase 5 — The Delegator's Desk (web for autonomous loops)  ·  IN PROGRESS · S10
 
-Vendor independence — the ability to pivot the fleet off Claude.
-Build the `codex` adapter (ChatGPT/Codex plan) and the `opencode`
-adapter (provider-agnostic, cheap models such as GLM). Automatic
-quota-failover once both adapters exist.
+Make the web genuinely usable as the surface for **delegating to and supervising
+autonomous loops** — a *desk* you run projects from, not a fleet-monitor you read.
+"Default calm, exceptions loud": a **Stack home** (needs-you lane as hero +
+project glance + delegate bar + quota chip) that opens into a **tabbed Work view**
+(2–3 maestro conversations, active tab = default target, clear/history). Promotes
+the loop-engineering direction from theme to phase
+([ADR 0027](adr/0027-web-delegators-desk.md)); mostly re-surfaces existing
+capability and trims the command set first.
 
-## Phase 6 — Features (ideas)
+## Phase 6 — Dogfood on Hive: build a real product, safely  ·  S11+
+
+Prove the loop by building a real product (the finance app) **fully on Hive**, and
+let the friction it surfaces drive Hive's hardening. Two hard prerequisites before
+any unattended build: **project isolation** (a project's DB / env / ports must not
+bleed into Hive's — today the ownership guard fences files, not subprocesses) and
+a **per-project worktree floor** (leads build in the project's own repo). Plus
+reliability for long unattended runs (quota-aware turns, bounce/idle guards). The
+finance-app build is the forcing function; the capabilities it needs are the work.
+
+## Phase 7 — Codex + OpenCode adapters  ·  S11+
+
+Vendor independence — pivot the fleet off Claude. Build the `codex` adapter
+(ChatGPT/Codex plan) and the `opencode` adapter (provider-agnostic, cheap models
+such as GLM); automatic quota-failover once both exist. Pulled forward into S11
+alongside the dogfood — a long unattended build is exactly what needs the quota
+headroom.
+
+## Phase 8 — Features (ideas)
 
 Each becomes a Ticket when its time comes; until then, just a
 one-line bullet here.
@@ -87,14 +108,15 @@ one-line bullet here.
     → user flow (audit #4; the alternative to S9's 045 — pull in first
     if the Web-Push work wants it). Stays entity-keyed (ADR 0024).
   (`Entity` split → `PersonalityLoader`/`CliArgsBuilder` is parked in
-  Phase 5 — the Codex adapter forces it. The orphaned
+  Phase 7 — the Codex adapter forces it. The orphaned
   `runtime/output_parser.py` was removed as a drive-by, 2026-06-25.)
 
 ## Priority note
 
-Phases 4 and 5 can swap. Phase 4 (PWA) is daily-use value; Phase 5
-(extra harnesses) is insurance against Claude quota becoming a real
-ceiling. That ordering is a judgement call.
+Phase 5 (the Delegator's Desk web) precedes Phase 6 (dogfood): a usable
+delegate-and-supervise surface first, then a real build driven from it. Phase 7
+(harnesses) is pulled into S11 alongside Phase 6 — a long unattended build is
+what makes quota headroom urgent.
 
 ## Direction — loop engineering (emerging)
 
@@ -103,4 +125,5 @@ more on its own, reserving the human for the few high-stakes decisions. This
 re-weights the surfaces — the **async ping** (Web Push) and a **crisp decision
 channel** matter more than the live glance, and coordination shapes (the
 interaction-pattern skills) are how the loop **self-organizes its fan-outs
-without being told**. A theme, not a phase yet.
+without being told**. Now realized as **Phase 5 (the Delegator's Desk)** — the
+web surface for delegating to and supervising those loops.

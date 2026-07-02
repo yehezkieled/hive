@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hive — Tabbed Work view v2</title>
+<style>
+  :root { --paper:#faf6ec; --ink:#2b2622; --rule:#e3d9c2; --honey:#e0a726; --red:#c8382a; --green:#3f7d4f; --soft:#f6dcd6; --muted:#8a8175; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:#efe8d6; color:var(--ink); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; padding:20px 12px 50px; }
+  .lead { max-width:640px; margin:0 auto 14px; }
+  .lead h1 { font-size:19px; margin:0 0 3px; } .lead p { color:var(--muted); margin:0; font-size:13.5px; }
+  .screen { max-width:640px; margin:0 auto; background:var(--paper); border:1px solid var(--rule); border-radius:20px; overflow:hidden; box-shadow:0 6px 22px rgba(0,0,0,.08); position:relative; }
+  .tabs { display:flex; gap:4px; padding:9px 10px 0; background:#fffdf7; border-bottom:1px solid var(--rule); overflow-x:auto; }
+  .tab { border:1px solid var(--rule); border-bottom:none; border-radius:10px 10px 0 0; padding:8px 13px; font-size:13px; white-space:nowrap; background:#f2ead8; color:#6a6255; }
+  .tab.active { background:var(--paper); color:var(--ink); font-weight:600; margin-bottom:-1px; }
+  .tab .dot { width:7px; height:7px; border-radius:50%; display:inline-block; margin-right:5px; }
+  .run{background:var(--green);} .idle{background:#bdb49f;}
+  .tab.add { background:none; border:1px dashed #cbbf9f; color:var(--muted); }
+  .status { display:flex; align-items:center; gap:8px; padding:9px 12px 9px 14px; border-bottom:1px solid var(--rule); font-size:12.5px; color:#5a5348; background:#fbf7ec; }
+  .status .prog { height:6px; border-radius:3px; background:#ece3cd; overflow:hidden; width:90px; }
+  .status .prog > i { display:block; height:100%; width:66%; background:var(--honey); }
+  .status .grow { flex:1; }
+  .chip { font-size:11px; border:1px solid var(--rule); border-radius:20px; padding:2px 8px; background:#fff; }
+  /* dedicated header buttons */
+  .hbtn { display:inline-flex; align-items:center; gap:5px; font-size:12px; border:1px solid var(--rule); border-radius:9px; padding:5px 10px; background:#fff; color:#5a5348; }
+  .hbtn.active { border-color:var(--red); color:var(--red); background:#fff; }
+  .conv { padding:14px; min-height:230px; }
+  .earlier { text-align:center; font-size:12px; color:var(--muted); margin-bottom:12px; }
+  .earlier span { border:1px solid var(--rule); border-radius:20px; padding:3px 12px; background:#fff; }
+  .msg { margin-bottom:12px; max-width:82%; }
+  .msg .from { font-size:11px; color:var(--muted); margin-bottom:2px; }
+  .bubble { padding:9px 12px; border-radius:14px; font-size:14px; }
+  .me { margin-left:auto; text-align:right; } .me .bubble { background:var(--ink); color:#fff; border-bottom-right-radius:4px; display:inline-block; text-align:left; }
+  .ag .bubble { background:#fff; border:1px solid var(--rule); border-bottom-left-radius:4px; }
+  .decision .bubble { background:var(--soft); border:1px solid #e0a89f; }
+  .replyfield { display:flex; gap:6px; margin-top:8px; }
+  .replyfield input { flex:1; border:1px solid #d8b6ae; border-radius:9px; padding:7px 9px; font-size:13px; background:#fff; }
+  .send { background:var(--red); color:#fff; border:none; border-radius:9px; padding:0 12px; font-weight:600; }
+  .composer { display:flex; gap:8px; align-items:center; padding:12px 14px; border-top:1px solid var(--rule); background:#fffdf7; }
+  .composer input { flex:1; border:1px solid #cbbf9f; border-radius:22px; padding:9px 14px; font-size:14px; background:#fff; }
+  .composer .go { width:38px; height:38px; border-radius:50%; background:var(--ink); color:#fff; border:none; font-size:16px; }
+  .to { font-size:11px; color:var(--muted); padding:0 16px 8px; }
+  /* anchored popover near the Clear button */
+  .pop { position:absolute; top:97px; right:78px; width:236px; background:#fff; border:1px solid var(--rule); border-radius:14px; box-shadow:0 10px 26px rgba(0,0,0,.18); padding:14px; z-index:5; }
+  .pop::after { content:''; position:absolute; top:-8px; right:26px; width:14px; height:14px; background:#fff; border-left:1px solid var(--rule); border-top:1px solid var(--rule); transform:rotate(45deg); }
+  .pop h3 { margin:0 0 3px; font-size:14.5px; } .pop p { margin:0 0 12px; font-size:12.5px; color:var(--muted); }
+  .pop button { width:100%; padding:9px; border-radius:9px; font-size:13px; margin-bottom:7px; border:1px solid var(--rule); background:#fff; text-align:left; padding-left:12px; }
+  .pop .primary { background:var(--ink); color:#fff; border:none; font-weight:600; }
+  .pop .danger { color:var(--red); border-color:#e0a89f; }
+  .pop .cancel { color:var(--muted); border:none; margin-bottom:0; text-align:center; }
+</style>
+</head>
+<body>
+  <div class="lead">
+    <h1>Tabbed Work view — v2</h1>
+    <p>Dedicated <b>Clear</b> + <b>History</b> buttons in the header (no ⋯ menu). The erase confirm is a small <b>popover anchored to the Clear button</b>, not a centered modal.</p>
+  </div>
+
+  <div class="screen">
+    <div class="tabs">
+      <div class="tab active"><span class="dot run"></span>finance-app</div>
+      <div class="tab"><span class="dot idle"></span>hive</div>
+      <div class="tab">otter</div>
+      <div class="tab add">+</div>
+    </div>
+
+    <div class="status">
+      <span class="dot run" style="width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--green)"></span>
+      building the expense API · 6/9
+      <span class="prog"><i></i></span>
+      <span class="grow"></span>
+      <span class="hbtn"><span>🕘</span>History</span>
+      <span class="hbtn active"><span>🧹</span>Clear</span>
+    </div>
+
+    <div class="conv">
+      <div class="earlier"><span>↑ earlier · view history</span></div>
+      <div class="msg me"><div class="bubble">build the expense tracker API</div></div>
+      <div class="msg ag"><div class="from">otter</div><div class="bubble">On it — spinning up the backend team. I'll open PRs as slices land.</div></div>
+      <div class="msg ag decision"><div class="from">otter · needs you</div>
+        <div class="bubble">Which database — <b>Postgres</b> or <b>SQLite</b>?
+          <div class="replyfield"><input placeholder="Type your answer…"><button class="send">Send</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="to">▸ messages go to <b>otter</b> (this tab)</div>
+    <div class="composer"><input placeholder="Message otter…"><button class="go">↑</button></div>
+
+    <!-- popover anchored under the Clear button -->
+    <div class="pop">
+      <h3>Clear this chat?</h3>
+      <p>Tidy the view, or also wipe otter's memory.</p>
+      <button class="primary">🧹 Clear view</button>
+      <button class="danger">⏻ Clear + reset memory</button>
+      <button class="cancel">Cancel</button>
+    </div>
+  </div>
+</body>
+</html>
