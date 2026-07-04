@@ -671,9 +671,6 @@ HIVE_PRIORITY_PREEMPT_ENABLED=true        # allow preemption when at cap (false 
   maestro (defaults to `dev`). The maestro receives the facts prompt
   immediately and may emit autonomous spawn/kill actions in response.
   Use this to nudge re-allocation between intervals.
-- `/budget [maestro]` — print the facts prompt the scheduler *would*
-  send, without sending. Debug aid for reading exactly what the
-  maestro would see — capacity, pending tasks, org snapshot, 24h cost.
 
 **Rate limit**: each maestro can autonomously spawn at most
 `HIVE_AUTONOMOUS_SPAWN_LIMIT` entities per eval window. The counter
@@ -870,7 +867,7 @@ short-circuits when `otter` is already restored).
 > resolves with `/approve mode <id>` or `/deny mode <id> [reason]`.
 
 **Operations:**
-`/compact <entity>`, `/reset <entity>`, `/broadcast <msg>`, `/swarm <team> <goal>`
+`/compact <entity>`, `/reset <entity>`
 
 **Approvals:** `/approve [mode <id>]`, `/deny mode <id> [reason]`
 

@@ -315,7 +315,7 @@ class TelegramBridge:
         # Only route attachments through routable commands. Other commands
         # (/status, /task, etc.) ignore the file entirely so the file is at
         # least retrievable later via /files.
-        routable = cmd.name in {"message", "team", "agent"} and cmd.target
+        routable = cmd.name in {"message", "team"} and cmd.target
 
         forwarded_to = cmd.target if routable else None
         attachment_id = await self.attachment_store.save(
