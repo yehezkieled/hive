@@ -18,3 +18,14 @@ quota is exhausted mid-build.
 ## Acceptance
 
 TBD at grilling.
+
+## Note — extend the `/model` command (carry-in from the S10 command audit)
+
+`/model` hard-codes a Claude-only valid-model set (`{opus, sonnet, haiku,
+opusplan}`, `src/hive/commands/dispatch.py:792`) with **no billing guard**. When
+this adapter lands, its grilling must **extend `/model`'s valid set** with the
+provider-agnostic models it drives (GLM, etc.), **tag each plan- vs API-billed**
+(most opencode providers are API-billed — real money — so the warning matters
+most here), and keep the set **harness-aware** so a model is only offered on the
+entity whose harness can run it. Pairs with the same note in
+[061](../061-codex-adapter/ticket.md).
