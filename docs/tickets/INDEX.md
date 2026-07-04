@@ -69,3 +69,4 @@ marked with ✱.
 | 061 | [Codex adapter](061-codex-adapter/) | — | created | — |
 | 062 | [OpenCode adapter](062-opencode-adapter/) | — | created | — |
 | 063 | [Dogfood kickoff + smoke (finance app on Hive)](063-dogfood-kickoff-smoke/) | — | created | — |
+| 064 | [Command surface v2 (behaviour changes to kept commands)](064-command-surface-v2/) | — | created | — |
