@@ -263,7 +263,7 @@ def create_app(
             await file.close()
 
         cmd = parse_command(text or "", default_maestro=default_maestro)
-        routable = cmd.name in {"message", "team", "agent"} and cmd.target
+        routable = cmd.name in {"message", "team"} and cmd.target
 
         forwarded_to = cmd.target if routable else None
         attachment_id = await attachment_store.save(

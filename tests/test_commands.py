@@ -52,9 +52,11 @@ def test_team_command() -> None:
     assert cmd.args == "check logs"
 
 
-def test_agent_command() -> None:
+def test_a_addressing_routes_to_message() -> None:
+    # Ticket 050: /agent is consolidated into /message. The /a: addressing
+    # form stays, but now parses to the `message` command.
     cmd = parse_command("/a:dev.backend.coder1 fix the bug")
-    assert cmd.name == "agent"
+    assert cmd.name == "message"
     assert cmd.target == "dev.backend.coder1"
     assert cmd.args == "fix the bug"
 
@@ -204,13 +206,6 @@ def test_teams_simple() -> None:
     assert cmd.target is None
 
 
-def test_swarm_command() -> None:
-    cmd = parse_command("/swarm backend write all unit tests")
-    assert cmd.name == "swarm"
-    assert cmd.target == "backend"
-    assert cmd.args == "write all unit tests"
-
-
 def test_priority_command() -> None:
     cmd = parse_command('/priority P0 "fix prod bug"')
     assert cmd.name == "priority"
@@ -218,7 +213,7 @@ def test_priority_command() -> None:
     assert cmd.args == '"fix prod bug"'
 
 
-# -- Sprint 4: multi-maestro, personalities, broadcast --
+# -- Sprint 4: multi-maestro, personalities --
 
 
 def test_new_maestro_command() -> None:
@@ -240,12 +235,6 @@ def test_personality_reload_command() -> None:
     assert cmd.name == "personality"
     assert cmd.target == "reload"
     assert cmd.args == "dev"
-
-
-def test_broadcast_command() -> None:
-    cmd = parse_command("/broadcast standup time")
-    assert cmd.name == "broadcast"
-    assert cmd.args == "standup time"
 
 
 def test_model_command() -> None:

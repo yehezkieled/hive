@@ -69,7 +69,7 @@ async def dispatcher(
 def test_known_commands_is_frozenset() -> None:
     assert isinstance(KNOWN_COMMANDS, frozenset)
     # Spot-check a few commands across categories
-    assert {"status", "help", "task", "commit", "broadcast"} <= KNOWN_COMMANDS
+    assert {"status", "help", "task", "commit", "eval"} <= KNOWN_COMMANDS
     # Heartbeat is bridge-only — must NOT be in the dispatcher's surface
     assert "heartbeat" not in KNOWN_COMMANDS
 
@@ -226,6 +226,14 @@ async def test_dispatch_empty_returns_empty_result(dispatcher: CommandDispatcher
 async def test_dispatch_unknown_command(dispatcher: CommandDispatcher) -> None:
     result = await dispatcher.dispatch("/notarealcommand", actor="test")
     assert "Unknown command" in result.text
+
+
+async def test_cut_commands_return_unknown(dispatcher: CommandDispatcher) -> None:
+    """Ticket 050: /swarm, /broadcast, /budget, /agent are removed — dispatching
+    any of them hits the unknown-command path, not a stale handler."""
+    for text in ("/swarm backend go", "/broadcast hi", "/budget", "/agent dev hi"):
+        result = await dispatcher.dispatch(text, actor="test")
+        assert "Unknown command" in result.text, f"{text!r} should be unknown, got: {result.text!r}"
 
 
 async def test_dispatch_status_no_entities(dispatcher: CommandDispatcher) -> None:

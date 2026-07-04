@@ -89,7 +89,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "org": HelpEntry(
         category="Organization",
         usage="/org",
-        description="Show the full org tree (maestros -> teams -> workers).",
+        description="Show the full org tree (maestros -> teams -> leads).",
         examples=("/org",),
     ),
     "project": HelpEntry(
@@ -120,41 +120,24 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="List all teams across all maestros.",
         examples=("/teams",),
     ),
-    # Messaging — alphabetical: agent, broadcast, message
-    "agent": HelpEntry(
-        category="Messaging",
-        usage="/a:<maestro>.<team> <text>",
-        description="Send a message directly to a lead (or any addressable entity).",
-        examples=("/a:dev.backend run pytest",),
-    ),
-    "broadcast": HelpEntry(
-        category="Messaging",
-        usage="/broadcast <text>",
-        description="Send the same message to every registered entity.",
-        examples=("/broadcast sprint demo in 5 minutes",),
-    ),
+    # Messaging — message (the /a: addressing form folds in here)
     "message": HelpEntry(
         category="Messaging",
-        usage="/m:<maestro> <text> | <text>",
-        description="Send a message to a maestro.",
+        usage="/m:<maestro> <text> | /a:<entity> <text> | <text>",
+        description="Send a message to a maestro, team lead, or other entity.",
         display="m:",
         examples=(
             "/m:dev please audit the token usage",
+            "/a:dev.backend run pytest",
             "hello dev",
         ),
     ),
-    # Tasks — alphabetical: priority, swarm, task, tasks
+    # Tasks — alphabetical: priority, task, tasks
     "priority": HelpEntry(
         category="Tasks",
         usage='/priority P0|P1|P2|P3|P4 "<title>"',
         description="Create a task at the given priority (P0 = urgent, P4 = backlog).",
         examples=('/priority P0 "fix prod outage"',),
-    ),
-    "swarm": HelpEntry(
-        category="Tasks",
-        usage="/swarm <maestro.team> <goal>",
-        description="Send the same goal to every member of a team.",
-        examples=("/swarm dev.backend finish the /help command",),
     ),
     "task": HelpEntry(
         category="Tasks",
@@ -289,13 +272,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Push the entity's branch and open a pull request with gh pr create.",
         examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
     ),
-    # Admin — alphabetical: budget, cancel, eval, help, personality
-    "budget": HelpEntry(
-        category="Admin",
-        usage="/budget [maestro]",
-        description="Show the facts prompt the scheduler would send to a maestro.",
-        examples=("/budget", "/budget dev"),
-    ),
+    # Admin — alphabetical: cancel, eval, help, personality
     "cancel": HelpEntry(
         category="Admin",
         usage="/cancel",

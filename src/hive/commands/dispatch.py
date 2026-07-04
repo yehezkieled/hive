@@ -24,7 +24,6 @@ from hive.commands.formatter import Formatter
 from hive.commands.git_commands import GitCommands
 from hive.commands.result import CommandResult
 from hive.models.entity import EntityState
-from hive.models.maestro import Maestro
 from hive.models.project import Project, ProjectOwnershipError
 from hive.models.task import TaskStatus
 from hive.telegram.commands import Command, parse_command
@@ -102,17 +101,14 @@ class CommandDispatcher:
         "team": (None, "_h_team"),
         "teams": ("formatter", "teams"),
         "project": (None, "_h_project"),
-        "agent": (None, "_h_agent"),
         "mode": (None, "_h_mode"),
         "loop": (None, "_h_loop"),
         "priority": (None, "_h_priority"),
-        "swarm": (None, "_h_swarm"),
         "compact": (None, "_h_compact"),
         "reset": (None, "_h_reset"),
         "cancel": (None, "_h_cancel"),
         "new": (None, "_h_new"),
         "personality": (None, "_h_personality"),
-        "broadcast": (None, "_h_broadcast"),
         "model": (None, "_h_model"),
         "vault": ("datastore", "vault"),
         "blueprint": ("datastore", "blueprint"),
@@ -124,7 +120,6 @@ class CommandDispatcher:
         "merge": ("git", "merge"),
         "files": ("formatter", "files"),
         "eval": (None, "_h_eval"),
-        "budget": (None, "_h_budget"),
     }
 
     def __init__(
@@ -256,13 +251,6 @@ class CommandDispatcher:
     async def _h_project(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_project(cmd.target, cmd.args))
 
-    async def _h_agent(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(
-            text=await self._send_to_entity(cmd.target or "", cmd.args),
-            routed=True,
-            entity=cmd.target or "",
-        )
-
     async def _h_mode(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_mode(cmd.target, cmd.args))
 
@@ -271,9 +259,6 @@ class CommandDispatcher:
 
     async def _h_priority(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_priority(cmd.target, cmd.args, actor=actor))
-
-    async def _h_swarm(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_swarm(cmd.target, cmd.args))
 
     async def _h_compact(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_compact(cmd.target))
@@ -290,9 +275,6 @@ class CommandDispatcher:
     async def _h_personality(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_personality(cmd.target, cmd.args))
 
-    async def _h_broadcast(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_broadcast(cmd.args))
-
     async def _h_model(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_model(cmd.target, cmd.args))
 
@@ -304,9 +286,6 @@ class CommandDispatcher:
 
     async def _h_eval(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_eval(cmd.target))
-
-    async def _h_budget(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_budget(cmd.target))
 
     # ------------------------------------------------------------------
     # Per-command execution helpers (extracted from TelegramBridge)
@@ -467,21 +446,6 @@ class CommandDispatcher:
             logger.exception("eval failed for %s", target)
             return f"Error: {e}"
         return f"Eval fired for {target}.\n\nFacts sent:\n{facts}"
-
-    async def _execute_budget(self, maestro_name: str | None) -> str:
-        """Handle /budget [maestro] — print the facts prompt without sending.
-
-        Debug aid so the user can see exactly what the scheduler would
-        feed the maestro. Does not consume a spawn-budget slot or trigger
-        the maestro.
-        """
-        if self.scheduler is None:
-            return "Scheduler not configured."
-        target = (maestro_name or self.default_maestro).strip()
-        if target not in self.process_manager.entities:
-            return f"Maestro {target!r} not found."
-        facts = await self.scheduler.build_facts_prompt(target)
-        return facts
 
     async def _send_to_entity(self, entity_name: str, message: str) -> str:
         """Send a message to an entity and return its response."""
@@ -663,34 +627,6 @@ class CommandDispatcher:
             )
         return f"Task #{task.id} added at P{priority}: {title}"
 
-    async def _execute_swarm(self, team_name: str | None, goal: str) -> str:
-        """Handle /swarm <team> <goal> — send goal to all workers in a team."""
-        if not team_name:
-            return "Usage: /swarm <team> <goal>"
-        if not goal:
-            return "Usage: /swarm <team> <goal>"
-
-        maestro = self.process_manager.entities.get(self.default_maestro)
-        if not isinstance(maestro, Maestro):
-            return "Default maestro not found."
-
-        team = maestro.get_team(team_name)
-        if team is None:
-            return f"Team {team_name!r} not found."
-
-        if not team.workers:
-            return f"Team {team_name!r} has no workers."
-
-        results = []
-        for worker_name in team.workers:
-            try:
-                response = await self.process_manager.send_to_entity(worker_name, goal)
-                results.append(f"{worker_name}: {response[:100]}")
-            except Exception as e:
-                results.append(f"{worker_name}: Error — {e}")
-
-        return f"Swarm ({len(results)} workers):\n" + "\n".join(results)
-
     async def _execute_new(self, entity_type: str | None, args: str, actor: str = "system") -> str:
         """Handle /new maestro <name> [model].
 
@@ -767,25 +703,6 @@ class CommandDispatcher:
 
         await self.process_manager._persist(entity)
         return f"Reloaded personality for {entity_name}."
-
-    async def _execute_broadcast(self, message: str) -> str:
-        """Handle /broadcast <message> — send to all entities."""
-        if not message.strip():
-            return "Usage: /broadcast <message>"
-
-        entities = self.process_manager.entities
-        if not entities:
-            return "No entities to broadcast to."
-
-        results = []
-        for name in entities:
-            try:
-                response = await self.process_manager.send_to_entity(name, message)
-                results.append(f"{name}: {response[:80]}")
-            except Exception as e:
-                results.append(f"{name}: Error — {e}")
-
-        return f"Broadcast to {len(results)} entities:\n" + "\n".join(results)
 
     async def _execute_model(self, model_name: str | None, entity_name: str) -> str:
         """Handle /model <opus|sonnet|haiku|opusplan> [entity]."""

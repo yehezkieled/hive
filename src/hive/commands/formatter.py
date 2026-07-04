@@ -227,9 +227,10 @@ class Formatter:
                 lines.append(f"{m.name}: no teams")
                 continue
             for team_name, team in m.teams.items():
-                worker_count = len(team.workers)
-                lead_status = "active" if team.lead and team.lead in entities else "none"
-                lines.append(f"{m.name}.{team_name}: lead={lead_status}, workers={worker_count}")
+                lead_active = bool(team.lead and team.lead in entities)
+                lead_status = "active" if lead_active else "none"
+                lead_count = 1 if lead_active else 0
+                lines.append(f"{m.name}.{team_name}: lead={lead_status}, leads={lead_count}")
         return "Teams:\n" + "\n".join(lines) if lines else "No teams."
 
     def _format_org(self) -> str:

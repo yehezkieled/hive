@@ -56,10 +56,12 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
     if t_match:
         return Command(name="team", target=t_match.group(1), args=t_match.group(2).strip())
 
-    # /a:<maestro>.<team>.<agent> <message> — message a specific agent
+    # /a:<maestro>.<team> <message> — address a lead (or any entity) directly.
+    # Ticket 050: /agent was consolidated into /message, so the /a: addressing
+    # form now routes to the `message` command (empty target → message's guard).
     a_match = re.match(r"^/a:([\w.-]+)\s*(.*)", text, re.DOTALL)
     if a_match:
-        return Command(name="agent", target=a_match.group(1), args=a_match.group(2).strip())
+        return Command(name="message", target=a_match.group(1), args=a_match.group(2).strip())
 
     # Commands with a target argument: /kill dev, /compact dev, /reset dev.
     # /task uses the target slot for its subcommand (add|done|cancel), with
@@ -73,7 +75,6 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "priority",
         "task",
         "team",
-        "swarm",
         "project",
         "new",
         "personality",
@@ -88,7 +89,6 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "merge",
         "heartbeat",
         "eval",
-        "budget",
     }
     cmd_match = re.match(r"^/(\w+)\s+(.*)", text, re.DOTALL)
     if cmd_match:
