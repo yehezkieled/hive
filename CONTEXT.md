@@ -277,6 +277,34 @@ that, when turned off, silences Telegram's alert-kinds while it stays a
 debug/log surface — Telegram is demoted, never deleted.
 _Avoid_: alerting, push (the role, not the transport).
 
+**Needs-you rollup**:
+The single server-side aggregation of everything currently needing the human —
+decision + mode + vault + errored — re-derived on every dashboard poll from live
+Entity and store state (Ticket 051, [ADR 0028](adr/0028-unified-needs-you-polled-rollup.md)).
+The one source behind the **[[Needs-you lane]]**, the Stack home's hero count, and
+the Work view's per-tab filter. **Self-heals**: an item resolved on any surface (a
+second tab, Telegram) simply stops appearing on the next poll — no server "resolve"
+event needed. Generalizes and supersedes Ticket 039's decision+gate rollup, which
+deliberately excluded mode/vault. **[[gate]]** is *not* a member — dropped as dead
+(ADR 0028).
+_Avoid_: needs-you feed, attention rollup, awaiting-you (039's narrower predecessor).
+
+**Needs-you lane**:
+The one web component that renders the **[[Needs-you rollup]]** as a polled region
+with inline actions (reply / approve-deny / reset), reused verbatim by the Stack
+home hero (052) and the Work view (053). Replaces the two header "bell" popups and
+the three per-kind SSE chat-bubble renderers (Ticket 051). Its calm empty state is
+"✓ all clear".
+_Avoid_: bell, attention panel, notification bell.
+
+**Needs-you item**:
+One row in the **[[Needs-you rollup]]** — it carries the owning **[[Entity name]]**
+(the full dotted address), its kind, a one-line summary, and its inline action. Its
+**header** is the open-tab target the Work view binds; its **action controls** answer
+in place. `errored` items carry a `reset` action (the only state-clearing verb),
+distinct from a decision `reply`.
+_Avoid_: card, bubble, alert.
+
 ### Billing
 
 **Plan-billed**:
