@@ -2,6 +2,11 @@
 
 > S10 web redesign — the centerpiece. Hosts 051's needs-you lane; opens into 053.
 
+> **Design venue changed.** The visual/UX design for this ticket is now produced
+> in the **Claude design app**, not Claude Code — the deliverable here is an
+> approved design/mockup, not shipped code. The Claude Code implementation lands
+> in **ticket 065** (Implement the Delegator's Desk redesign).
+
 ## What
 
 Replace today's fleet-monitor landing with the Delegator's Desk **Stack** home:

@@ -56,7 +56,12 @@ project glance + delegate bar + quota chip) that opens into a **tabbed Work view
 (2–3 maestro conversations, active tab = default target, clear/history). Promotes
 the loop-engineering direction from theme to phase
 ([ADR 0027](adr/0027-web-delegators-desk.md)); mostly re-surfaces existing
-capability and trims the command set first.
+capability and trims the command set first. **Delivery split:** the redesign
+itself (needs-you lane, Stack home, tabbed Work view) is *designed in the
+external Claude design app* — its deliverable is an approved mockup, not
+shipped code — then implemented into the web app by a single follow-up Claude
+Code ticket. S10's window was extended (→ 2026-07-28) to fit the two-venue
+flow.
 
 ## Phase 6 — Dogfood on Hive: build a real product, safely
 

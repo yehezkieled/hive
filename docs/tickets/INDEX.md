@@ -56,9 +56,9 @@ marked with ✱.
 | 048 | [Useful Web Push deep-link (041 follow-up)](048-useful-deep-link/) | 2026-Q2-S9 | done | #248 |
 | 049 | [Deep-link composer-clear polish (048 follow-up)](049-deep-link-composer-clear/) | — | superseded by 053 | #250 |
 | 050 | [Audit & trim the command set (keep useful, cut vestigial)](050-command-audit-trim/) | 2026-Q2-S10 | done | #254 |
-| 051 | [Unified "needs-you" lane](051-unified-needs-you-lane/) | 2026-Q2-S10 | created | — |
-| 052 | [Stack home (Delegator's Desk landing)](052-stack-home/) | 2026-Q2-S10 | created | — |
-| 053 | [Tabbed maestro Work view](053-tabbed-work-view/) | 2026-Q2-S10 | created | — |
+| 051 | [Unified "needs-you" lane](051-unified-needs-you-lane/) — designed in Claude design app (impl. via 065) | 2026-Q2-S10 | created | — |
+| 052 | [Stack home (Delegator's Desk landing)](052-stack-home/) — designed in Claude design app (impl. via 065) | 2026-Q2-S10 | created | — |
+| 053 | [Tabbed maestro Work view](053-tabbed-work-view/) — designed in Claude design app (impl. via 065) | 2026-Q2-S10 | created | — |
 | 054 ✱ | [Hive project cleanup (incl. redesign mockups)](054-hive-cleanup/) | 2026-Q2-S10 | created | — |
 | 055 | [Project isolation design (sandbox model)](055-project-isolation-design/) | — | created | — |
 | 056 | [Per-project worktree floor](056-per-project-worktree-floor/) | — | created | — |
@@ -70,3 +70,4 @@ marked with ✱.
 | 062 | [OpenCode adapter](062-opencode-adapter/) | — | created | — |
 | 063 | [Dogfood kickoff + smoke (finance app on Hive)](063-dogfood-kickoff-smoke/) | — | created | — |
 | 064 | [Command surface v2 (behaviour changes to kept commands)](064-command-surface-v2/) | — | created | — |
+| 065 | [Implement the Delegator's Desk redesign (from Claude-design mockups)](065-implement-desk-redesign/) | 2026-Q2-S10 | created | — |
