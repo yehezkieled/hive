@@ -3,6 +3,10 @@
 > **Independent · run LAST in S10** — after the redesign build lands, so the
 > mockups' permanent fate is settled before this sweeps.
 
+> **Note.** The redesign moved to the **Claude design app** (implemented via
+> ticket 065), so the hand-coded `static/brainstorm/` mockups this ticket strips
+> are now superseded.
+
 ## What
 
 A single housekeeping pass over the Hive project + deciding the permanent home

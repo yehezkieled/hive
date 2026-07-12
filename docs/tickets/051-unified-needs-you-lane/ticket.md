@@ -2,6 +2,11 @@
 
 > S10 web redesign. Feeds the Stack home's hero (052).
 
+> **Design venue changed.** The visual/UX design for this ticket is now produced
+> in the **Claude design app**, not Claude Code — the deliverable here is an
+> approved design/mockup, not shipped code. The Claude Code implementation lands
+> in **ticket 065** (Implement the Delegator's Desk redesign).
+
 ## What
 
 Consolidate the **four scattered "needs-you" interrupts** into ONE actionable

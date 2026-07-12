@@ -2,6 +2,11 @@
 
 > S10 web redesign. Opened from the home's project cards (052). Absorbs 049.
 
+> **Design venue changed.** The visual/UX design for this ticket is now produced
+> in the **Claude design app**, not Claude Code — the deliverable here is an
+> approved design/mockup, not shipped code. The Claude Code implementation lands
+> in **ticket 065** (Implement the Delegator's Desk redesign).
+
 ## What
 
 A tabbed, conversation-rich workspace for actively working with 2–3 maestros:
