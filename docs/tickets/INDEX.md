@@ -71,3 +71,4 @@ marked with ✱.
 | 063 | [Dogfood kickoff + smoke (finance app on Hive)](063-dogfood-kickoff-smoke/) | — | created | — |
 | 064 | [Command surface v2 (behaviour changes to kept commands)](064-command-surface-v2/) | — | created | — |
 | 065 | [Implement the Delegator's Desk redesign (from Claude-design mockups)](065-implement-desk-redesign/) | 2026-Q2-S10 | created | — |
+| 066 | [Silence plan-quota pings on Telegram (`HIVE_TELEGRAM_QUOTA_ALERTS`)](066-quota-alert-telegram-toggle/) | — | in progress | — |
