@@ -10,6 +10,7 @@ isolation.
 
 from hive.notifications.dispatcher import (
     ALERT_KINDS,
+    QUOTA_KINDS,
     Notification,
     NotificationChannel,
     NotificationDispatcher,
@@ -23,5 +24,6 @@ __all__ = [
     "Notification",
     "NotificationChannel",
     "NotificationDispatcher",
+    "QUOTA_KINDS",
     "WebPushChannel",
 ]
