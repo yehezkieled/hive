@@ -42,6 +42,22 @@ ALERT_KINDS = frozenset(
     }
 )
 
+# Every kind the QuotaMonitor emits — plan-quota band crossings plus its own
+# reachability meta-alerts. These are *ambient* (the web quota chip and `/quota`
+# already show utilisation on demand), so the Telegram bridge can suppress them
+# via HIVE_TELEGRAM_QUOTA_ALERTS=false without losing any actionable signal.
+# Deliberately separate from ALERT_KINDS: quota is not actionable, so turning it
+# down must not touch the decision/approval alerts.
+QUOTA_KINDS = frozenset(
+    {
+        "quota_warn",
+        "quota_urgent",
+        "quota_exhausted",
+        "quota_monitor_blind",
+        "quota_monitor_recovered",
+    }
+)
+
 
 @runtime_checkable
 class NotificationChannel(Protocol):

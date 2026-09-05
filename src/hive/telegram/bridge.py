@@ -24,7 +24,7 @@ from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
 from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
 from hive.knowledge.attachment_embedder import embed_attachment
 from hive.models.task import TaskStatus
-from hive.notifications import ALERT_KINDS, Notification
+from hive.notifications import ALERT_KINDS, QUOTA_KINDS, Notification
 from hive.telegram.commands import Command, parse_command
 
 if TYPE_CHECKING:
@@ -140,10 +140,16 @@ class TelegramBridge:
         Ticket 041), the actionable alert-kinds are dropped here — they reach you
         via Web Push instead — while Telegram keeps relaying everything else as a
         debug/log surface.
+
+        Plan-quota alerts are gated separately by ``HIVE_TELEGRAM_QUOTA_ALERTS``:
+        they are ambient rather than actionable, so silencing the quota pings must
+        not silence decisions/approvals (and vice versa).
         """
-        from hive.config import TELEGRAM_ALERTS
+        from hive.config import TELEGRAM_ALERTS, TELEGRAM_QUOTA_ALERTS
 
         if not TELEGRAM_ALERTS and notification.kind in ALERT_KINDS:
+            return
+        if not TELEGRAM_QUOTA_ALERTS and notification.kind in QUOTA_KINDS:
             return
         await self._send_notification(notification.text)
 

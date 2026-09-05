@@ -119,6 +119,11 @@ VAPID_SUBJECT = os.environ.get("HIVE_VAPID_SUBJECT", "")
 # to Web Push) while still relaying everything else as a debug/log surface.
 # Default true: nothing changes until you flip it off after the iPad push smoke.
 TELEGRAM_ALERTS = os.environ.get("HIVE_TELEGRAM_ALERTS", "true").lower() == "true"
+# Telegram's plan-quota alerts (the 80/90/100% band crossings and the monitor's
+# own blind/recovered meta-alerts). Independent of TELEGRAM_ALERTS above: quota
+# is ambient, not actionable, so it is turned down on its own without silencing
+# decisions/approvals. Utilisation stays visible via `/quota` and the web chip.
+TELEGRAM_QUOTA_ALERTS = os.environ.get("HIVE_TELEGRAM_QUOTA_ALERTS", "true").lower() == "true"
 
 # Auto-management (Sprint 10)
 AUTO_COMPACT_ENABLED = os.environ.get("HIVE_AUTO_COMPACT_ENABLED", "true").lower() == "true"
