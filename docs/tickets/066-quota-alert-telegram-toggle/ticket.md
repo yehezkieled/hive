@@ -1,8 +1,8 @@
 # 066 — Silence plan-quota pings on Telegram (`HIVE_TELEGRAM_QUOTA_ALERTS`)
 
 > Un-sprinted live-annoyance fix, found while dogfooding on 2026-07-29.
-> **Implementation is written, tested, and deployed on this host but NOT yet
-> merged** — the code ships in its own PR; this ticket lands first.
+> **Implementation is written, tested, and deployed on this host — merged via
+> PR #264** (this ticket doc is PR #263).
 
 ## What
 
@@ -65,14 +65,18 @@ arriving. Hence a separate, disjoint gate rather than widening the existing one.
 
 ## Status of the work
 
-Done but unmerged, as of 2026-07-30:
+Done — merged 2026-09-05:
 
-- Code + `.env` written; 10 new tests in
-  `tests/test_telegram_quota_alerts_toggle.py`.
+- Ticket doc: PR #263. Code + 10 tests in
+  `tests/test_telegram_quota_alerts_toggle.py`: PR #264.
 - `ruff` clean; full suite **1432 passed, 2 skipped**.
-- `hive.service` restarted (all entities idle first — nothing interrupted),
-  clean startup, web smoke `HTTP 200` from the Tailscale IP.
-- **Not committed** — the code lands in a separate PR from this ticket doc.
+- Deployed on this host with `HIVE_TELEGRAM_QUOTA_ALERTS=false` since
+  2026-07-30; `hive.service` restarted (all entities idle first — nothing
+  interrupted), clean startup, web smoke `HTTP 200` from the Tailscale IP.
+- Unblocking drive-by (PR #265): CI installed deps with `pip`, ignoring
+  `uv.lock`, so `mcp` 2.0.0 broke every PR since 2026-07-12. CI now installs
+  with `uv sync --locked`; `mcp` capped `<2` until the knowledge server is
+  migrated to the 2.0 `MCPServer` API.
 
 ## Non-goals
 
