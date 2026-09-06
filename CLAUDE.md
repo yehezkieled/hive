@@ -5,117 +5,88 @@ Project-specific rules for any Claude Code session working on Hive.
 ## Live context (auto-loaded)
 
 @CONTEXT.md
-@docs/roadmap.md
-@docs/sprints/2026-Q2-S10.md
-@docs/tickets/INDEX.md
-
-> When the sprint rolls over, update the sprint `@`-reference above.
+@docs/pm/roadmap.md
 
 ---
 
-## Working method — three altitudes
+## Working method — the pm layout
 
-This repo follows a layered "altitude" structure for planning and
-execution, with a staged artifact workflow per Ticket. Read this
+Planning lives in `docs/pm/` and is driven by the **pm plugin**
+([ADR 0028](docs/adr/0028-adopt-pm-plugin-layout.md)). Read this
 section before doing any non-trivial work.
 
-### Directory layout
-
 ```
-.
-├── README.md
-├── CLAUDE.md           ← you are here
-├── CONTEXT.md          ← glossary
-└── docs/
-    ├── DEPLOYMENT.md
-    ├── CHANGELOG.md    ← one line per shipped sprint
-    ├── roadmap.md      ← vision/themes, months
-    ├── sprints/        ← 2-week windows
-    │   └── YYYY-QN-SN.md
-    ├── tickets/        ← work units (artifact folders)
-    │   ├── INDEX.md    ← registry
-    │   └── NNN-slug/
-    │       ├── ticket.md     ← what & why
-    │       ├── questions.md  ← what to find out
-    │       ├── research.md   ← what we found
-    │       ├── design.md     ← chosen approach
-    │       ├── outline.md    ← step-by-step structure
-    │       └── plan.md       ← final actionable plan
-    ├── adr/            ← decisions, append-only
-    └── archive/        ← retired docs
+milestone -> epic -> ticket -> subtask
+docs/pm/roadmap.md            milestones in order (M1, M2, ...) + Backlog
+docs/pm/epics/Exx-slug.md     goal, ticket list, dependency Flow
+docs/pm/tickets/Txxx-slug.md  What / Why / Acceptance / Subtasks / Plan
+docs/pm/decisions.md          process + tooling decisions (newest first)
+CONTEXT.md  ## pm             machine-read config: flow, gates, check
+docs/adr/                     architecture decisions, append-only
+docs/archive/                 retired docs (old roadmap, sprints, tickets 001–067)
 ```
 
-### The three altitudes
+Milestones are **ordered versions, not dates**. Never write a
+deadline or a target date anywhere in `docs/pm`.
 
-Each layer has a fixed scope. Do not mix them.
+### The skills
 
-- **Roadmap (months).** Vision, themes, milestones, non-goals. No
-  Ticket IDs, no tech choices.
-- **Sprint (weeks).** Window, goal, committed Ticket links, risks,
-  definition of done, out-of-scope. Links *down* into Ticket folders.
-  No API designs, no file paths, no code.
-- **Ticket (days).** The six artifacts above. Implementation-level
-  detail lives here and only here.
+| Want to…                                | Use            |
+|-----------------------------------------|----------------|
+| see the board, what's next, what's blocked | `/pm:status` |
+| add a ticket, epic, bug, or idea        | `/pm:plan`     |
+| make a ticket ready to build            | `/pm:grill Txxx` |
+| build one ticket end to end             | `/pm:work Txxx` |
+| find bugs and file them as tickets      | `/pm:audit`    |
+| close a milestone + retro               | `/pm:retro`    |
+| cheat sheet                             | `/pm:help`     |
 
-Higher layers never link down to specific Tickets — only sprints do.
-This keeps the roadmap stable as Tickets churn underneath.
+Scripts: `python3 /home/hezki/projects/pm-plugin/scripts/pm.py
+{board,next,flow,claim,validate,sync,...}`.
 
-### Ticket workflow
+### Ticket lifecycle
 
-For any non-trivial Ticket, produce the six artifacts (`ticket.md` →
-`questions.md` → `research.md` → `design.md` → `outline.md` →
-`plan.md`) in order. Each handoff must be clean: a wrong premise in
-`research.md` becomes a wrong design becomes a wrong plan.
+1. **Created thin** by `/pm:plan` (or migrated): `ready: no`.
+2. **Grilled** by `/pm:grill`: What, Why, a testable Acceptance line
+   per item, `plan: none|required`, priority, `depends_on` settled →
+   `ready: yes`. `/pm:work` refuses an un-grilled ticket.
+3. **Built** by `/pm:work`: claim, branch, plan (approved first when
+   `plan: required`), tests first, build, run the check command, two
+   read-only reviews (verifier + reviewer), docs, PR.
+4. **Done**: status set, epic Flow redrawn (`pm.py flow --all`),
+   GitHub issue closed by `pm.py sync`.
 
-**Trivial Tickets** (one or two files touched, one obvious approach,
-no questions to investigate) can skip straight to `plan.md` or just
-do the work. When in doubt, lean toward producing the artifacts.
-
-**Enforcement status:** the folder structure is live; the per-stage
-sandboxed Claude Code workflow (one CC session per artifact, context
-handed off via the artifact file) is **not yet built**. Until that
-infrastructure exists, produce only the artifacts the work needs.
+Gates for every ticket: `tdd, checks, review, docs`. The check
+command is in the `## pm` block of `CONTEXT.md`.
 
 ### Reference docs — different rules per category
 
-Reference docs are orthogonal to the altitudes. Each category has its
+Reference docs are orthogonal to the pm layout. Each category has its
 own edit rule.
 
-- **`CONTEXT.md` (glossary)** — free edits, anytime, no Ticket needed.
-- **`README.md` / `docs/DEPLOYMENT.md` / `docs/ARCHITECTURE.md`
-  (system maps + runbooks)** — edited inside the Ticket that changed
-  the underlying code. Declare reference-doc impact in `plan.md` so
-  it's visible upfront. This is a **cross-cutting Ticket**.
-- **`docs/adr/*.md` (decisions)** — append-only. New decision = new
-  file with the next number. Never edit an existing ADR.
-- **`docs/CHANGELOG.md`** — one line per sprint, appended at sprint
-  close.
+- **`CONTEXT.md` (glossary)** — free edits, anytime, no ticket needed.
+  The `## pm` block at the bottom is machine-read: plain `key: value`
+  lines only.
+- **`README.md` / `docs/DEPLOYMENT.md`** (system maps + runbooks) —
+  edited inside the ticket that changed the underlying code. Declare
+  the impact in the ticket's Plan section.
+- **`docs/adr/*.md`** (architecture decisions) — append-only. New
+  decision = new file with the next number. Never edit an existing
+  ADR. Smaller process decisions go in `docs/pm/decisions.md`.
+- **`docs/CHANGELOG.md`** — one line per shipped milestone, appended
+  at `/pm:retro`.
 
 ### Operating rules
 
-- Stay inside the Ticket folder for per-Ticket work; only cross-cutting
-  Tickets edit reference docs, and they declare the impact in `plan.md`.
-- Update `docs/tickets/INDEX.md` whenever a Ticket is created, changes
-  state, or closes.
-- Commit the docs alongside the code. Ticket artifacts *are* the
-  engineering work; they're not throwaway scratch.
-- Non-goals sections matter. Push back if a layer doesn't declare what
-  it's *not* building.
-- Match editing energy to layer stability. Don't agonise over wording
-  in a sprint file that will be archived in two weeks; do agonise over
-  the roadmap and ADRs.
-- Ask before changing structure. If a Ticket needs a new artifact
-  type, propose it — don't just add it.
-
-### When starting any task
-
-1. Check `docs/tickets/INDEX.md` to see if a Ticket already exists.
-2. If yes, read every existing artifact in that folder before writing
-   code.
-3. If no, ask whether to create one and at what altitude the work
-   belongs.
-4. Identify which workflow stage the work is at and produce the next
-   artifact — don't skip ahead.
+- Every non-trivial change belongs to a ticket. Check `/pm:status`
+  first; if none fits, ask whether to create one with `/pm:plan`.
+- Commit the pm docs alongside the code. Tickets *are* the engineering
+  record, not throwaway scratch.
+- Non-goals matter: a ticket's Notes say what it is *not* building.
+- Match editing energy to stability. Don't agonise over a ticket's
+  wording; do agonise over the roadmap and ADRs.
+- Ask before changing structure (a new artifact type, a new
+  top-level folder).
 
 ---
 
@@ -157,7 +128,7 @@ compile, and mount.
 Before every `git push`:
 
 ```
-ruff check src/ tests/ && ruff format --check src/ tests/
+uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/
 ```
 
 Hive CI runs both as separate gates. Fixing lint does not fix
@@ -173,58 +144,27 @@ Lona and Wonder run on isolated per-bot state dirs. Always use the
 
 ## Active work
 
-**Phase 2 — Restructure** is **✅ done** — closed Sprint
-[`2026-Q2-S4`](docs/sprints/2026-Q2-S4.md) on 2026-06-09 (goal met).
-The `process/manager.py` god object became a facade + four collaborators
-(Ticket [`004`](docs/tickets/004-manager-py-breakup/),
-[ADR 0006](docs/adr/0006-god-object-breakup-composition.md)),
-`WorkerAgent` → `Worker` (Ticket
-[`006`](docs/tickets/006-worker-rename/)), the headless runtime is gone —
-PTY-only (Ticket
-[`007`](docs/tickets/007-remove-headless-runtime/), ADR 0007), and S4
-hardened the live fleet: Vault config consolidated
-([`005`](docs/tickets/005-vault-consolidation/)), tracked async tasks
-([`008`](docs/tickets/008-track-background-tasks/)), pinned Claude Code
-version ([`009`](docs/tickets/009-pin-claude-version/)), repaired
-integration test
-([`010`](docs/tickets/010-repair-integration-test/)), CI coverage floor
-([`011`](docs/tickets/011-ci-coverage-floor/)), and per-role skill
-curation
-([`012`](docs/tickets/012-entity-skill-inheritance/), ADR 0008).
+**M1 — the Delegator's Desk** is current (former roadmap Phase 5,
+[ADR 0027](docs/adr/0027-web-delegators-desk.md)). The three design
+tickets (T001–T003) are produced in the external **Claude design
+app** — their deliverable is an approved mockup, closed by hand — and
+T004 implements them into `src/hive/web`. See `/pm:status` for the
+live board.
 
-**Phase 3 — Workflow-native orchestration** is **✅ done** (2026-06-18). S5 (closed
-2026-06-13, goal met) shipped the core: Leads orchestrate leaf work through the
-Claude Code **Workflow** tool (015, ADR 0010), the persistent **Worker** entity
-is deleted (016/018, ADR 0013), and a read-only progress bridge surfaces live
-runs (017, ADR 0014). **S6 (closed 2026-06-16, goal met)** hardened the
-maestro→user loop (020/021/029/030/031), governed the now-live worktree floor
-(024/025), and added a maestro phase-confirmation gate (019). **S7 (window
-2026-06-16 → 06-30, work complete)** finished Phase 3: Track 2 shipped `debate`
-as a Hive-native recipe (034 mechanism + debate, ADR 0020), then **superseded**
-the remaining patterns — `blackboard` (035) / `tournament` (036) now ship as
-user-authored **global skills**, not recipes ([ADR 0021](docs/adr/0021-further-patterns-as-global-skills.md)) —
-plus two independent loop-correctness gaps, both done (032 entity-name
-validation, 033 PA self-identity). **S7 closed 2026-06-21 on goal-met.**
-
-**Phase 4 — Web dashboard to PWA** is **in progress**. **S8 (closed 2026-06-25,
-goal met)** made the web the **primary control surface** from an iPad: responsive
-touch shell (037, ADR 0022), web decision-UI parity (038, ADR 0024), an
-"awaiting-you" attention router (039), and an installable PWA (040, ADR 0023) —
-all shipped + iPad-re-smoked. **S9 (window 2026-06-25 → 07-09, active)** is the
-first **FE+BE-combined** sprint: it finishes the daily driver with **Web Push**
-(041 — pulled in from its S8 spill; demotes Telegram to debug/log) plus iPad
-polish (042) and the standalone status-bar fix (043), and opens the
-**loop-engineering backend track** — pattern-library awareness (044: a thin JD
-pointer + an ADR amending 0021; the patterns ship as user-authored global skills)
-and a first architecture-deepening ticket, the `commands/dispatch.py`
-decomposition (045, from the 2026-06-25 audit). The audit's other deepening
-candidates are banked in [`docs/roadmap.md`](docs/roadmap.md) Phase 6. A literal
-bug-fix track is deferred until dogfooding (the finance-app build on Hive)
-surfaces concrete bugs.
-
-Phase 1 (Runtime migration) is **done**: the PTY harness is deployed
-and plan-billed in production (Tickets 001 + 003); the headless
-`claude -p` path is fully removed (007).
+**History.** Phases 1–4 shipped between 2026-06-01 and 2026-06-30:
+the PTY harness runs plan-billed (Phase 1), `process/manager.py` is a
+facade + collaborators and the headless runtime is gone (Phase 2,
+[ADR 0006](docs/adr/0006-god-object-breakup-composition.md),
+[ADR 0007](docs/adr/0007-pty-only-runtime.md)), Leads orchestrate
+leaf work through the Claude Code Workflow tool and the persistent
+Worker entity is retired (Phase 3,
+[ADR 0010](docs/adr/0010-leads-orchestrate-via-workflow.md),
+[ADR 0013](docs/adr/0013-retire-worker-creation-all-paths.md)), and
+the web is an installable PWA with Web Push (Phase 4,
+[ADR 0023](docs/adr/0023-https-via-tailscale-serve-for-pwa.md),
+[ADR 0026](docs/adr/0026-web-push-notification-channel.md)). Per-
+ticket detail is in `docs/archive/tickets/` and the sprint files in
+`docs/archive/sprints/`.
 
 Before working on `runtime/` or the `process/` modules, read the
 adapter code,

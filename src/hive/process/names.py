@@ -6,7 +6,7 @@ name with a path/ref-hostile character breaks worktree or branch creation —
 or escapes the intended directory. This module is the single chokepoint that
 rejects such names *before* any path or ref is derived from them.
 
-Policy (see ``docs/tickets/032-entity-name-validation/design.md``):
+Policy (see ``docs/archive/tickets/032-entity-name-validation/design.md``):
 
 - **Reject, never normalize** — a name is also an address, so silently
   rewriting it would collide identities and drift from what the user typed.

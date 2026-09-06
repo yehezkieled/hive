@@ -7,7 +7,8 @@ of the legacy Sprints 0–31 lives in
 > **Legacy note**: Sprints 0–31 below are the *legacy* meaning of
 > "sprint" — single units of shipped work, not 2-week calendar
 > windows. The current meaning (2-week window) starts from
-> `2026-Q2-S1` in `docs/sprints/`.
+> `2026-Q2-S1` in `docs/archive/sprints/`. From 2026-09-06 planning uses
+> ordered milestones (`docs/pm/`, ADR 0028); one line per shipped milestone.
 
 ## 2026-06
 

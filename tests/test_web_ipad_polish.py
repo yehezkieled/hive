@@ -1,6 +1,6 @@
 """Tests for Ticket 042 — iPad web polish & token-entry UX.
 
-Locks the contract from `docs/tickets/042-ipad-web-polish/design.md`:
+Locks the contract from `docs/archive/tickets/042-ipad-web-polish/design.md`:
 - D1: the web token persists in ``localStorage`` (not ``sessionStorage``), so the
   iPad prompts once per device, not once per tab. Modal copy matches.
 - D2: the dead ``+ New`` / ``History`` header buttons are removed.

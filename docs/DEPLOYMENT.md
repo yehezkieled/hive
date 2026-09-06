@@ -655,7 +655,7 @@ Permission gates restrict who each entity can address.
 > `action_rejected`, which also covers unknown recipients; every
 > rejection now additionally feeds a `system → sender` note back so
 > the sender can self-correct (see ADR 0011's sibling decisions in
-> `docs/tickets/023-activate-worktree-floor/design.md`).
+> `docs/archive/tickets/023-activate-worktree-floor/design.md`).
 
 **New env vars** (all optional — sensible defaults):
 

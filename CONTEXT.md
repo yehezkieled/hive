@@ -55,7 +55,7 @@ A codebase a Maestro owns — a first-class registry record (name → root
 path → owning Maestro, nullable). **Not an Entity.** At most one Maestro
 owns a Project, and a Maestro owns at most one Project; the **PA Maestro**
 owns none. Distinct from the project-management sense of "project"
-(Sprints/Tickets) — see Flagged ambiguities.
+(Milestones/Epics/Tickets) — see Flagged ambiguities.
 _Avoid_: repo (a Project is the ownership record, not the git repo),
 workspace.
 
@@ -301,22 +301,39 @@ _Avoid_: rate limit, token usage
 
 ### Project management
 
-**Sprint**:
-A 2-week calendar window holding committed Tickets. One file per
-sprint in `docs/sprints/YYYY-QN-SN.md`, peer files sorted
-chronologically by filename. Frozen at sprint close.
-_Note_: Sprints 0–31 in `docs/archive/PROJECT_PLAN.md` and
-`docs/CHANGELOG.md` are the **legacy** meaning — single units of
-shipped work, not 2-week windows. The current meaning starts from
-`2026-Q2-S1`.
+Live planning lives in `docs/pm/` (pm plugin layout, ADR 0028). The
+older three-altitude layout (roadmap / sprints / ticket folders, ADR
+0003) is archived under `docs/archive/`.
+
+**Milestone**:
+An ordered version of Hive — what the product does for its user when
+the milestone is done. Listed top to bottom in `docs/pm/roadmap.md`;
+never a calendar target. Ideas with no milestone yet sit in the
+roadmap's Backlog.
+_Avoid_: phase (the archived roadmap's word), sprint, release date.
+
+**Epic**:
+A big piece of work inside a Milestone — a goal plus the Tickets that
+reach it, with a dependency Flow drawn by `pm.py flow`. One file per
+epic in `docs/pm/epics/Exx-slug.md`.
+_Avoid_: theme, track, sprint.
 
 **Ticket**:
-One unit of work. Lives in `docs/tickets/NNN-slug/` as a folder of
-artifacts (`ticket.md`, `questions.md`, `research.md`, `design.md`,
-`outline.md`, `plan.md`). A Sprint commits a set of Tickets.
+One unit of work. A single file `docs/pm/tickets/Txxx-slug.md` with
+What / Why / Acceptance / Subtasks / Plan. Created thin by `/pm:plan`,
+grilled to `ready: yes` by `/pm:grill`, built end to end by `/pm:work`.
+_Note_: Tickets `001`–`067` in `docs/archive/tickets/` are the legacy
+folder-per-ticket form; the open ones were migrated to `T001`–`T016`.
 _Avoid_: task (overloaded — `/task add` in Telegram is a different
 concept), feature (a roadmap-level idea that may eventually become
-one or more Tickets).
+one or more Tickets), issue (the GitHub mirror of a Ticket, not the
+Ticket itself).
+
+**Sprint** _(retired)_:
+The former 2-week calendar window holding committed Tickets
+(`docs/archive/sprints/`). Sprints 0–31 in `docs/archive/PROJECT_PLAN.md`
+and `docs/CHANGELOG.md` are older still — single units of shipped work.
+Replaced by ordered **Milestones**.
 
 ## Relationships
 
@@ -350,5 +367,18 @@ one or more Tickets).
 - **"subsidised"** — informal word for **Plan-billed**. Use Plan-billed.
 - **"project"** — two senses. A **Project** (capital P) is a codebase a
   Maestro owns (Ticket 024 registry record). A lowercase "project" in
-  `docs/` means the project-management altitude (Sprints/Tickets). Prefer
+  `docs/` means the project-management sense (Milestones/Epics/Tickets). Prefer
   the capital-P term when ownership is meant.
+
+## pm
+flow: branch-pr
+host: github
+mirror: on
+merge: ask
+gates: tdd, checks, review, docs
+check: uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/ && uv run pytest -m "not integration"
+milestone: M1
+tools: python3=yes gh=yes
+routines: work=off audit=off
+auto_cap: 1
+review_model: sonnet

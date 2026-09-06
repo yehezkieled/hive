@@ -8,7 +8,7 @@ OpenCode adapters planned.
 
 See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
 Maestro, Harness, Plan-billed, …) and
-[`docs/roadmap.md`](docs/roadmap.md) for direction.
+[`docs/pm/roadmap.md`](docs/pm/roadmap.md) for direction.
 
 ## How it works
 
@@ -158,9 +158,9 @@ src/hive/
 ## Project documentation
 
 - [`CONTEXT.md`](CONTEXT.md) — terminology
-- [`docs/roadmap.md`](docs/roadmap.md) — vision and themes
-- [`docs/sprints/`](docs/sprints/) — current and past sprint plans
-- [`docs/tickets/INDEX.md`](docs/tickets/INDEX.md) — Ticket registry
+- [`docs/pm/roadmap.md`](docs/pm/roadmap.md) — milestones in order + backlog
+- [`docs/pm/epics/`](docs/pm/epics/) · [`docs/pm/tickets/`](docs/pm/tickets/) — the work (pm plugin layout, ADR 0028)
+- [`docs/archive/`](docs/archive/) — retired roadmap, sprints, and tickets 001–067
 - [`docs/adr/`](docs/adr/) — architecture decisions
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — install + ops runbook
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — what shipped, when
