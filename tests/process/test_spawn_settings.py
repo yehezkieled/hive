@@ -19,7 +19,11 @@ import pytest
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.process import lifecycle_manager
-from hive.process.lifecycle_manager import LifecycleManager, _spawn_settings_payload
+from hive.process.lifecycle_manager import (
+    LifecycleManager,
+    _spawn_settings_payload,
+    _write_spawn_settings,
+)
 from hive.process.ownership_policy import WritablePolicy, settings_payload
 
 # --- _spawn_settings_payload (pure) -----------------------------------------
@@ -36,6 +40,16 @@ def test_payload_keeps_ownership_hook_alongside_opt_out() -> None:
 
     assert payload["remoteControlAtStartup"] is False
     assert payload["hooks"] == fence["hooks"]
+
+
+def test_write_goes_under_the_isolated_spawn_settings_dir(tmp_path: Path) -> None:
+    # The autouse conftest fixture points _spawn_settings_dir at a per-test
+    # tmp dir, so no test can touch the live service's spawn-settings files.
+    path = _write_spawn_settings("otter", {"remoteControlAtStartup": False})
+
+    assert path == lifecycle_manager._spawn_settings_dir() / "otter.settings.json"
+    assert str(tmp_path) in str(path)
+    assert json.loads(path.read_text()) == {"remoteControlAtStartup": False}
 
 
 # --- _get_or_create_adapter wiring ------------------------------------------
@@ -76,10 +90,8 @@ def _lifecycle() -> LifecycleManager:
     ids=["maestro", "lead"],
 )
 async def test_every_spawn_passes_a_settings_file_that_disables_remote_control(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, entity: Maestro | TeamLead
+    monkeypatch: pytest.MonkeyPatch, entity: Maestro | TeamLead
 ) -> None:
-    # Keep the test's spawn-settings files out of the live service's tempdir.
-    monkeypatch.setattr(lifecycle_manager.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(lifecycle_manager, "ClaudeAdapter", _FakeAdapter)
 
     adapter = await _lifecycle()._get_or_create_adapter(entity)

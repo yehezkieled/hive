@@ -184,13 +184,18 @@ def _spawn_settings_payload(ownership: dict | None) -> dict:
     return {**_BASE_SPAWN_SETTINGS, **(ownership or {})}
 
 
+def _spawn_settings_dir() -> Path:
+    """Where per-spawn settings files live. Tests patch this (see conftest)."""
+    return Path(tempfile.gettempdir()) / "hive-spawn-settings"
+
+
 def _write_spawn_settings(entity_name: str, payload: dict) -> Path:
     """Write the per-spawn settings.json, return its path.
 
     Overwritten every spawn (restart-proof, same contract as the tool
     denylist). One stable path per entity so stale files don't accumulate.
     """
-    spawn_dir = Path(tempfile.gettempdir()) / "hive-spawn-settings"
+    spawn_dir = _spawn_settings_dir()
     spawn_dir.mkdir(parents=True, exist_ok=True)
     path = spawn_dir / f"{entity_name}.settings.json"
     path.write_text(json.dumps(payload, indent=2))

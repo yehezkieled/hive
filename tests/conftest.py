@@ -42,6 +42,21 @@ def _no_real_pty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("hive.process.manager.ProcessManager._get_or_create_adapter", _guard)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_spawn_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep per-spawn ``--settings`` files out of the live service's tempdir.
+
+    Every spawn writes ``<tempdir>/hive-spawn-settings/<entity>.settings.json``
+    (Ticket 067). On this host the tests share ``/tmp`` with the running
+    ``hive.service``, so an un-isolated test would overwrite a live maestro's
+    file with fixture data (e.g. a fake ownership fence for ``otter``).
+    """
+    monkeypatch.setattr(
+        "hive.process.lifecycle_manager._spawn_settings_dir",
+        lambda: tmp_path / "hive-spawn-settings",
+    )
+
+
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
     """Temporary directory for test data (logs, etc.)."""
