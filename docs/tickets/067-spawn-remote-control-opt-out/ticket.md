@@ -22,6 +22,15 @@ Every Hive spawn — maestro **and** lead — now carries an explicit
 Nothing else changes: no `--remote-control` flag is ever passed, the
 ownership fence is byte-identical inside the merged file.
 
+**Follow-up (test hygiene, same ticket).** The suite used to write spawn
+settings files with *live* entity names (`otter`, `acme-lead`) into the real
+`/tmp/hive-spawn-settings/` that `hive.service` reads — fixture data such as a
+fake `HIVE_WRITE_DENY=/p/acme:/p/foo` fence for `otter`. Now that every entity
+writes a file, that would have widened. `_spawn_settings_dir()` is the single
+patch point and an autouse fixture in `tests/conftest.py` redirects it to a
+per-test `tmp_path`; verified by running the full suite against an mtime
+marker — zero live files touched.
+
 ## Why
 
 **Root cause is Claude Code's startup resolver, not Hive passing a flag.** Hive
