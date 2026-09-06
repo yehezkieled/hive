@@ -72,3 +72,4 @@ marked with ✱.
 | 064 | [Command surface v2 (behaviour changes to kept commands)](064-command-surface-v2/) | — | created | — |
 | 065 | [Implement the Delegator's Desk redesign (from Claude-design mockups)](065-implement-desk-redesign/) | 2026-Q2-S10 | created | — |
 | 066 | [Silence plan-quota pings on Telegram (`HIVE_TELEGRAM_QUOTA_ALERTS`)](066-quota-alert-telegram-toggle/) | — | done | — |
+| 067 | [Hive spawns must not auto-connect to Remote Control](067-spawn-remote-control-opt-out/) | — | done | — |
