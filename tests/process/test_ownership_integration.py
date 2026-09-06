@@ -2,13 +2,12 @@
 
 Covers the wiring that turns the registry + guard modules into a per-spawn
 fence: ``_maestro_fence`` (which entities get a policy), the async
-``_ownership_spawn_overrides`` (settings file + project-home cwd), and the
+``_ownership_spawn_overrides`` (settings payload + project-home cwd), and the
 ``--settings`` flag on the adapter.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,11 +80,10 @@ async def test_overrides_project_maestro_writes_allow_settings_and_homes_cwd() -
     store = FakeProjectStore(owned=["/p/acme"], by_maestro={"acme-lead": project})
     lifecycle = _lifecycle(store)
 
-    settings_path, cwd = await lifecycle._ownership_spawn_overrides(Maestro(name="acme-lead"))
+    payload, cwd = await lifecycle._ownership_spawn_overrides(Maestro(name="acme-lead"))
 
     assert cwd == Path("/p/acme")
-    assert settings_path is not None and settings_path.exists()
-    payload = json.loads(settings_path.read_text())
+    assert payload is not None
     hook = payload["hooks"]["PreToolUse"][0]
     assert hook["matcher"] == "Write|Edit|MultiEdit|NotebookEdit"
     command = hook["hooks"][0]["command"]
@@ -97,11 +95,11 @@ async def test_overrides_pa_writes_deny_settings_no_cwd() -> None:
     store = FakeProjectStore(owned=["/p/acme", "/p/foo"], by_maestro={})
     lifecycle = _lifecycle(store)
 
-    settings_path, cwd = await lifecycle._ownership_spawn_overrides(Maestro(name=PA))
+    payload, cwd = await lifecycle._ownership_spawn_overrides(Maestro(name=PA))
 
     assert cwd is None
-    assert settings_path is not None
-    command = json.loads(settings_path.read_text())["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert payload is not None
+    command = payload["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert "HIVE_WRITE_DENY=/p/acme:/p/foo" in command
 
 

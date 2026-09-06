@@ -163,8 +163,29 @@ def _guard_command() -> str:
     return f"{sys.executable} -m hive.hooks.ownership_guard"
 
 
+# Settings every Hive spawn carries, whatever the entity's role (Ticket 067).
+#
+# ``remoteControlAtStartup: false`` — Hive drives its sessions over the PTY
+# itself; they must never auto-connect to Claude Code Remote Control. With the
+# key unset, the CLI falls through to its org/rollout default, which (when on)
+# bridges every flag-less interactive session — so each maestro surfaced in
+# the Claude app, retitled by the scheduler poke. An explicit ``false`` in the
+# ``--settings`` tier beats that default; only an explicit ``--remote-control``
+# flag (which Hive never passes) would override it.
+_BASE_SPAWN_SETTINGS: dict = {"remoteControlAtStartup": False}
+
+
+def _spawn_settings_payload(ownership: dict | None) -> dict:
+    """The per-spawn settings: the role-independent base plus an ownership fence.
+
+    ``ownership`` is the Ticket 024 guard-hook payload for a fenced maestro, or
+    None when the entity has nothing to fence (leads, the PA owning nothing).
+    """
+    return {**_BASE_SPAWN_SETTINGS, **(ownership or {})}
+
+
 def _write_spawn_settings(entity_name: str, payload: dict) -> Path:
-    """Write the per-spawn settings.json carrying the guard hook, return its path.
+    """Write the per-spawn settings.json, return its path.
 
     Overwritten every spawn (restart-proof, same contract as the tool
     denylist). One stable path per entity so stale files don't accumulate.
@@ -300,14 +321,15 @@ class LifecycleManager:
         self._mgr.router.register(entity.name)
         logger.info("Registered entity: %s (role=%s)", entity.name, entity.role)
 
-    async def _ownership_spawn_overrides(self, entity: Entity) -> tuple[Path | None, Path | None]:
-        """Per-spawn ownership fence: (settings_path, project-home cwd override).
+    async def _ownership_spawn_overrides(self, entity: Entity) -> tuple[dict | None, Path | None]:
+        """Per-spawn ownership fence: (settings payload, project-home cwd override).
 
-        Builds the PreToolUse ownership-guard settings file for a maestro
+        Builds the PreToolUse ownership-guard settings payload for a maestro
         (Ticket 024, ADR 0017) and, for a project maestro, returns its project
         root as the cwd override. Returns ``(None, None)`` for non-maestros,
         when no project store is wired (unit tests), or when the maestro has no
-        fence target.
+        fence target. The caller merges the payload into the spawn settings
+        file — see ``_spawn_settings_payload``.
         """
         store = getattr(self._mgr, "project_store", None)
         if not isinstance(entity, Maestro) or store is None:
@@ -319,12 +341,11 @@ class LifecycleManager:
             project = await store.for_maestro(entity.name)
             own_root = str(project.root_path) if project else None
         policy = _maestro_fence(entity, is_pa=is_pa, own_root=own_root, owned_roots=owned_roots)
-        settings_path: Path | None = None
+        payload: dict | None = None
         if policy is not None:
             payload = settings_payload(policy, guard_command=_guard_command())
-            settings_path = _write_spawn_settings(entity.name, payload)
         cwd = Path(own_root) if own_root else None
-        return (settings_path, cwd)
+        return (payload, cwd)
 
     async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
         """Return a live PTY adapter for entity, creating one if needed.
@@ -352,13 +373,15 @@ class LifecycleManager:
             if isinstance(entity, TeamLead) and entity.worktree_path
             else None
         )
-        # Project ownership (Ticket 024, ADR 0017): fence a maestro's writes with
-        # a per-spawn PreToolUse guard hook, and home a project maestro in its
-        # project root. No-op for leads (worktree floor scopes them) and the PA
-        # when it owns nothing.
-        settings_path, maestro_cwd = await self._ownership_spawn_overrides(entity)
-        if settings_path is not None:
-            config.settings_path = settings_path
+        # Every spawn gets a --settings file (Ticket 067: Remote Control
+        # opt-out). Project ownership (Ticket 024, ADR 0017) adds a PreToolUse
+        # guard hook to it for a fenced maestro and homes a project maestro in
+        # its project root; leads (worktree floor) and a PA owning nothing get
+        # the base settings only.
+        ownership_settings, maestro_cwd = await self._ownership_spawn_overrides(entity)
+        config.settings_path = _write_spawn_settings(
+            entity.name, _spawn_settings_payload(ownership_settings)
+        )
         cwd = lead_cwd or maestro_cwd
         adapter = ClaudeAdapter(
             config,
