@@ -144,23 +144,24 @@ Lona and Wonder run on isolated per-bot state dirs. Always use the
 
 ## Active work
 
-**M1 — the Delegator's Desk** is current (former roadmap Phase 5,
+**M1 — the Delegator's Desk** is current (the archived roadmap's Phase 5,
 [ADR 0027](docs/adr/0027-web-delegators-desk.md)). The three design
 tickets (T001–T003) are produced in the external **Claude design
 app** — their deliverable is an approved mockup, closed by hand — and
 T004 implements them into `src/hive/web`. See `/pm:status` for the
 live board.
 
-**History.** Phases 1–4 shipped between 2026-06-01 and 2026-06-30:
-the PTY harness runs plan-billed (Phase 1), `process/manager.py` is a
-facade + collaborators and the headless runtime is gone (Phase 2,
+**History.** Four milestones shipped between 2026-06-01 and 2026-06-30
+(the archived roadmap calls them Phases 1–4): the PTY harness runs
+plan-billed (runtime migration), `process/manager.py` is a facade +
+collaborators and the headless runtime is gone (restructure,
 [ADR 0006](docs/adr/0006-god-object-breakup-composition.md),
 [ADR 0007](docs/adr/0007-pty-only-runtime.md)), Leads orchestrate
 leaf work through the Claude Code Workflow tool and the persistent
-Worker entity is retired (Phase 3,
+Worker entity is retired (Workflow-native orchestration,
 [ADR 0010](docs/adr/0010-leads-orchestrate-via-workflow.md),
 [ADR 0013](docs/adr/0013-retire-worker-creation-all-paths.md)), and
-the web is an installable PWA with Web Push (Phase 4,
+the web is an installable PWA with Web Push (web dashboard to PWA,
 [ADR 0023](docs/adr/0023-https-via-tailscale-serve-for-pwa.md),
 [ADR 0026](docs/adr/0026-web-push-notification-channel.md)). Per-
 ticket detail is in `docs/archive/tickets/` and the sprint files in

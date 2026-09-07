@@ -3,8 +3,9 @@
 Milestones are ordered versions, not calendar targets. Work moves top to bottom.
 Each milestone lists its epics. Ideas with no home yet go in Backlog.
 
-Phases 1–4 (runtime migration, restructure, Workflow-native orchestration, web
-dashboard to PWA) shipped before this layout existed; their history is in
+Four milestones shipped before this layout existed — runtime migration,
+restructure, Workflow-native orchestration, and the web dashboard to PWA. The
+archived roadmap calls them "Phases 1–4"; their history is in
 `docs/archive/roadmap-phases.md`, `docs/archive/sprints/`, and
 `docs/archive/tickets/`. Decisions behind them are in `docs/adr/`.
 

@@ -1,5 +1,7 @@
 # Hive Roadmap
 
+> **Archived 2026-09-06.** Superseded by [`docs/pm/roadmap.md`](../pm/roadmap.md) (ADR 0028): Phase 5 → M1, Phase 6 → M2, Phase 7 → M3, Phase 8 → Backlog. Kept as the record of Phases 1–4.
+
 Vision and themes over months. Concrete work lives in
 `docs/sprints/` (current 2-week window) and `docs/tickets/`
 (individual work units). When a phase completes, mark it done and

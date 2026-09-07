@@ -310,7 +310,8 @@ An ordered version of Hive — what the product does for its user when
 the milestone is done. Listed top to bottom in `docs/pm/roadmap.md`;
 never a calendar target. Ideas with no milestone yet sit in the
 roadmap's Backlog.
-_Avoid_: phase (the archived roadmap's word), sprint, release date.
+_Avoid_: sprint, release date. "Phase" is only the archived roadmap's
+label for its milestones (Phases 1–8); do not use it for new work.
 
 **Epic**:
 A big piece of work inside a Milestone — a goal plus the Tickets that
