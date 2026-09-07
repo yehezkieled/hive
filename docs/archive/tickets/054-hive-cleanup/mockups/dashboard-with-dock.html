@@ -1,0 +1,1366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hive · dashboard + chat dock (ticket 053 idea)</title>
+
+<!-- The ONE external resource. Everything degrades to system fonts if it fails. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Nunito+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════
+   Hive "Paper Ops" tokens — lifted verbatim from the real landing.css so the
+   backdrop is byte-faithful to the app the developer already likes.
+   ══════════════════════════════════════════════════════════════════════ */
+:root{
+  --paper:#faf7ed; --paper-2:#f2ecd8; --paper-soft:#f6f1de; --paper-deep:#ece4cc;
+  --paper-shadow:rgba(60,45,25,.08);
+  --ink:#1f1812; --ink-2:#3d332a; --ink-3:#6f6356; --ink-4:#a79a89;
+  --rule:#1f1812; --rule-soft:#d9cfb6; --rule-faint:#e8dfc8;
+  --accent:#c8382a; --accent-soft:#f6dcd6;
+  --amber:#b7741a; --amber-soft:#f4e4c8;
+  --honey:#e0a726; --honey-soft:#f9ecc6; --ochre:#8a6a1a;
+  --sage:#4d8a3a; --sage-soft:#d7e6c5;
+  --vault:#1f6a5c; --vault-soft:#cfe3de; --vault-softer:#e5f0ec;
+
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
+  --font-display:"Nunito","Inter",system-ui,sans-serif;
+}
+
+*{ box-sizing:border-box; }
+/* Touch hygiene — kill the 300ms tap delay + grey iOS tap flash on controls. */
+button,a,.tab,.idle-strip,.dk-tab,.seg-btn,.hero__stat,.maestro-card,
+.chip-awaiting,.pop-opt{
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+html,body{ margin:0; padding:0; height:100%; }
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:var(--font-sans); font-size:13px; line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  /* Column: thin mockup chrome on top, the live app fills the rest.
+     overflow hidden here is the guarantee the PAGE never scrolls sideways. */
+  display:flex; flex-direction:column;
+  height:100vh; height:100dvh; overflow:hidden;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   MOCKUP CHROME — the only non-Hive furniture. Teaches the responsive story
+   in 5 seconds: title + [Dock | Drawer] force-toggle + one-line caption +
+   a live device-silhouette hint.
+   ══════════════════════════════════════════════════════════════════════ */
+.mock-chrome{
+  flex:0 0 auto;
+  background:var(--ink); color:var(--paper);
+  /* Reserve the iPad status-bar inset (installed-PWA safe area). */
+  padding:max(env(safe-area-inset-top),10px) 14px 10px;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  border-bottom:2px solid #000;
+  z-index:50;
+}
+.mock-title{
+  font-family:var(--font-display); font-weight:800; font-size:13px;
+  letter-spacing:-.1px; color:var(--paper); display:flex; align-items:center; gap:8px;
+}
+.mock-title .tk{
+  font-family:var(--font-mono); font-size:9px; font-weight:600; letter-spacing:.5px;
+  color:var(--honey); background:rgba(224,167,38,.12);
+  border:1px solid rgba(224,167,38,.4); border-radius:5px; padding:2px 6px;
+}
+
+/* Segmented force-toggle */
+.seg{
+  display:inline-flex; border:1.5px solid var(--honey); border-radius:999px;
+  overflow:hidden; background:rgba(250,247,237,.06);
+}
+.seg-btn{
+  appearance:none; border:0; background:transparent; cursor:pointer;
+  font-family:var(--font-mono); font-size:11px; font-weight:600;
+  color:var(--paper); padding:0 12px; min-height:40px; line-height:1;
+  display:inline-flex; align-items:center; gap:7px;
+  transition:background .16s ease,color .16s ease;
+}
+.seg-btn+.seg-btn{ border-left:1.5px solid var(--honey); }
+.seg-btn.active{ background:var(--honey); color:var(--ink); }
+.seg-btn:active{ transform:translateY(1px); }
+.seg-btn svg{ display:block; }
+
+.mock-caption{
+  flex:1 1 260px; min-width:220px;
+  font-size:12px; color:rgba(250,247,237,.82); line-height:1.4;
+}
+.mock-caption .note{
+  display:block; font-family:var(--font-mono); font-size:10px;
+  color:var(--honey); margin-top:3px; letter-spacing:.2px;
+}
+
+/* Live device silhouette: a screen with either a bottom-right corner box
+   (dock) or a full bottom sheet (drawer). The hint lives in the chrome (a
+   sibling of .app), so JS — not a descendant selector — toggles which SVG
+   shows, in applyMode(). Initial state: dock silhouette. */
+.mode-hint{ flex:0 0 auto; display:grid; place-items:center; width:46px; height:34px; }
+.mode-hint svg{ grid-area:1/1; }
+.hint-drawer{ display:none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   APP — reproduces the real Hive shell; also the positioning context for
+   the chat dock (pill / panel / drawer / scrim are absolute within it).
+   `data-effective` (dock|drawer) is the single source of truth for the
+   dock's presentation; JS keeps it in sync with the force-toggle OR viewport.
+   ══════════════════════════════════════════════════════════════════════ */
+.app{ flex:1 1 auto; position:relative; overflow:hidden; min-height:0; }
+
+.shell{
+  display:flex; flex-direction:column;
+  height:100%; position:relative; overflow:hidden; background:var(--paper);
+}
+
+/* ─── Top bar ─────────────────────────────────────────────────────────── */
+.top-bar{
+  height:52px; flex:0 0 auto;
+  border-bottom:1.5px solid var(--rule); background:var(--paper);
+  display:flex; align-items:stretch; font-size:13px; color:var(--ink);
+  position:relative; z-index:3;
+}
+.top-bar__brand{
+  width:210px; border-right:1px solid var(--rule-soft);
+  display:flex; align-items:center; padding:0 16px; gap:11px; flex:0 0 auto;
+}
+.top-bar__bee{ display:grid; place-items:center; animation:bob 4.5s ease-in-out infinite; }
+.top-bar__brand-text{ display:flex; flex-direction:column; line-height:1; }
+.top-bar__brand-name{ font-family:var(--font-display); font-weight:800; letter-spacing:-.4px; font-size:17px; }
+.top-bar__brand-meta{ font-family:var(--font-mono); font-size:9px; color:var(--ink-3); letter-spacing:1px; margin-top:3px; }
+.top-bar__tabs{ flex:1; display:flex; align-items:center; padding:0 8px; gap:2px; overflow-x:auto; }
+.top-bar__tabs::-webkit-scrollbar{ display:none; }
+.tab{
+  position:relative; display:inline-flex; align-items:center; line-height:1;
+  padding:7px 14px; border-radius:8px; background:transparent; color:var(--ink-2);
+  font-weight:600; font-size:13px; cursor:pointer; border:0; font-family:inherit;
+  white-space:nowrap; transition:background .15s,color .15s;
+}
+.tab.is-active{ background:var(--ink); color:var(--paper); font-weight:700; }
+.tab.is-active::after{
+  content:""; position:absolute; left:14px; right:14px; bottom:-3px; height:2px;
+  background:var(--accent); border-radius:2px;
+}
+.top-bar__right{
+  display:flex; align-items:center; gap:10px; padding:0 14px;
+  border-left:1px solid var(--rule-soft); flex:0 0 auto;
+}
+.health-pill{
+  display:inline-flex; align-items:center; gap:7px; padding:4px 11px;
+  background:var(--sage-soft); border:1px solid rgba(77,138,58,.2); border-radius:999px;
+  font-size:11px; font-weight:700; color:#2d5a23; white-space:nowrap;
+}
+.hp-dot{ width:7px; height:7px; border-radius:50%; background:var(--sage); }
+.bell{
+  position:relative; width:34px; height:34px; border-radius:9px; background:var(--paper);
+  border:1px solid var(--rule-soft); cursor:pointer; display:grid; place-items:center; padding:0;
+  transition:transform .12s,background .15s,border-color .15s;
+}
+.bell__count{
+  position:absolute; top:-4px; right:-4px; background:var(--accent); color:#fff;
+  font-size:10px; font-weight:800; font-family:var(--font-mono); border-radius:999px;
+  min-width:18px; height:18px; display:grid; place-items:center; border:2px solid var(--paper);
+  animation:badge 1.8s ease-in-out infinite;
+}
+.terminal-btn{
+  padding:6px 12px; border-radius:8px; background:var(--paper); color:var(--ink-2);
+  border:1px solid var(--rule-soft); font-family:var(--font-mono); font-size:11px; font-weight:600;
+  cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  transition:transform .12s,background .15s,border-color .15s;
+}
+.terminal-btn__caret{ color:var(--ink-3); }
+
+/* ─── Content + honeycomb backdrop ────────────────────────────────────── */
+.content{ flex:1 1 auto; position:relative; overflow:hidden; background:var(--paper); min-width:0; min-height:0; }
+.backdrop{
+  position:absolute; inset:0; pointer-events:none; z-index:0;
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='74' viewBox='0 0 64 74'%3E%3Cg fill='none' stroke='%231f1812' stroke-opacity='0.05' stroke-width='1.2' stroke-linejoin='round'%3E%3Cpath d='M16 1 L48 1 L64 18.5 L64 55.5 L48 73 L16 73 L0 55.5 L0 18.5 Z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size:64px 74px;
+}
+.content-inner{ position:relative; z-index:1; padding:20px 24px 40px; height:100%; overflow:auto; }
+@media (max-width:640px){ .content-inner{ padding:16px 14px 40px; } }
+
+/* ─── Hero strip ──────────────────────────────────────────────────────── */
+.hero{
+  display:flex; align-items:center; gap:18px; margin-bottom:18px; padding:14px 18px;
+  background:var(--paper); border:1px solid var(--rule-soft); border-radius:14px;
+  box-shadow:0 1px 0 var(--rule-faint);
+}
+.hero__bee{ flex-shrink:0; animation:bob 4.5s ease-in-out infinite; }
+.hero__copy{ flex:1; min-width:0; }
+.hero__title{ margin:0; font-family:var(--font-display); font-size:22px; font-weight:800; letter-spacing:-.5px; line-height:1.2; color:var(--ink); }
+.hero__title-accent{ color:var(--sage); }
+.hero__subtitle{ margin:3px 0 0; font-size:12.5px; color:var(--ink-3); font-weight:500; }
+.hero__hint{ font-family:var(--font-mono); color:var(--ink-4); margin-left:6px; }
+.hero__stats{ display:flex; gap:6px; flex-shrink:0; }
+.hero__stat{ background:var(--paper-soft); border:1px solid var(--rule-soft); border-radius:10px; padding:6px 12px; min-width:60px; text-align:center; }
+.hero__stat-n{ font-family:var(--font-display); font-size:20px; font-weight:800; line-height:1; letter-spacing:-.5px; }
+.hero__stat-n--active{ color:var(--sage); }
+.hero__stat-n--idle{ color:var(--ink-3); }
+.hero__stat-n--dormant{ color:var(--ink-4); }
+.hero__stat-label{ font-family:var(--font-mono); font-size:9px; color:var(--ink-3); text-transform:uppercase; letter-spacing:1px; font-weight:700; margin-top:3px; }
+@media (max-width:560px){ .hero__stats{ display:none; } }
+
+/* ─── Section heads ───────────────────────────────────────────────────── */
+.section-head{ display:flex; align-items:center; gap:10px; margin:4px 0 12px; }
+.section-head__title{ margin:0; font-family:var(--font-display); font-size:14px; font-weight:800; color:var(--ink); letter-spacing:-.1px; }
+.section-head__count{ font-family:var(--font-mono); font-size:10px; padding:1px 8px; background:var(--paper-soft); color:var(--ink-2); border:1px solid var(--rule-soft); border-radius:999px; font-weight:700; }
+.section-head__count--active{ background:var(--honey-soft); }
+.section-head__rule{ flex:1; height:1px; background:var(--rule-soft); }
+.section-head__right{ flex:0 0 auto; }
+
+/* "Waiting on me" filter chip */
+.chip-awaiting{
+  display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 13px;
+  font-family:var(--font-mono); font-size:11px; font-weight:600; color:var(--ink-3);
+  background:var(--paper-soft); border:1px solid var(--rule-soft); border-radius:999px; cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.chip-awaiting__dot{ width:7px; height:7px; border-radius:999px; background:var(--accent); }
+.chip-awaiting.is-pressed{ background:var(--accent); color:#fff; border-color:var(--accent); }
+.chip-awaiting.is-pressed .chip-awaiting__dot{ background:#fff; }
+
+/* ─── State dot ───────────────────────────────────────────────────────── */
+.state-dot{ position:relative; display:inline-block; width:9px; height:9px; flex-shrink:0; }
+.state-dot__core{ position:absolute; inset:0; border-radius:50%; }
+.state-dot__ring{ position:absolute; inset:0; border-radius:50%; animation:pulse-ring 2.2s ease-out infinite; }
+.state-dot--active .state-dot__core,.state-dot--active .state-dot__ring{ background:var(--sage); }
+.state-dot--idle .state-dot__core{ background:var(--ink-4); }
+.state-dot--error .state-dot__core{ background:var(--accent); }
+
+/* ─── Priority pill + tasks chip ──────────────────────────────────────── */
+.pri-pill{ font-family:var(--font-mono); font-size:10px; font-weight:700; padding:1.5px 6px; border-radius:4px; letter-spacing:.3px; display:inline-block; line-height:1.3; color:#fff; }
+.pri-pill--P0{ background:var(--accent); }
+.pri-pill--P1{ background:var(--amber); }
+.pri-pill--P2{ background:var(--honey); color:var(--ink); }
+.pri-pill--P3{ background:var(--ink-3); }
+.tasks-chip{ display:inline-flex; align-items:center; gap:6px; padding:3px 9px 3px 7px; border-radius:999px; font-family:var(--font-mono); font-size:11px; font-weight:700; cursor:pointer; border:1px solid; transition:transform .12s,background .15s; }
+.tasks-chip--P0{ background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
+.tasks-chip--P1{ background:var(--amber-soft); color:#8a5715; border-color:var(--amber); }
+.tasks-chip--P2{ background:var(--honey-soft); color:#7a5a10; border-color:var(--honey); }
+.tasks-chip__sep{ opacity:.7; }
+.no-tasks{ font-family:var(--font-mono); font-size:10px; color:var(--ink-4); font-weight:600; }
+
+/* ─── Maestro cards ───────────────────────────────────────────────────── */
+.cards-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; margin-bottom:22px; }
+.cards-grid--pinned{ grid-template-columns:1.1fr 1fr; }
+@media (max-width:900px){ .cards-grid--pinned{ grid-template-columns:1fr; } }
+.maestro-card{
+  background:var(--paper); border:1px solid var(--rule-soft); border-radius:14px; padding:16px;
+  font-size:13px; color:var(--ink); display:flex; flex-direction:column; gap:11px; position:relative;
+  box-shadow:0 1px 0 var(--rule-faint);
+  transition:transform .18s cubic-bezier(.2,.8,.3,1),box-shadow .18s,border-color .18s;
+}
+.maestro-card--pinned{ box-shadow:0 0 0 2px var(--honey),0 1px 0 var(--rule-faint); }
+.maestro-card--needsyou{ box-shadow:0 0 0 1.5px var(--accent),0 1px 0 var(--rule-faint); }
+.maestro-card__pin{ position:absolute; top:-10px; left:14px; padding:2px 9px; background:var(--honey); color:var(--ink); font-family:var(--font-mono); font-size:9px; font-weight:800; letter-spacing:1px; border-radius:999px; border:1px solid var(--ink); }
+.maestro-card__head{ display:flex; align-items:center; gap:10px; }
+.maestro-card__icon{ width:34px; height:34px; border-radius:9px; background:var(--paper-soft); border:1px solid var(--rule-soft); color:var(--ink); display:grid; place-items:center; flex-shrink:0; font-family:var(--font-mono); font-size:12px; font-weight:700; letter-spacing:-.3px; }
+.maestro-card__icon--pinned{ background:var(--honey); border-color:var(--honey); }
+.maestro-card__name{ display:flex; flex-direction:column; min-width:0; }
+.maestro-card__addr{ font-family:var(--font-mono); font-size:13.5px; font-weight:700; display:inline-flex; align-items:center; gap:7px; }
+.maestro-card__role{ color:var(--ink-3); font-size:11px; font-weight:600; margin-top:1px; }
+.maestro-card__chip{ margin-left:auto; }
+.awaits{ display:inline-flex; align-items:center; font-family:var(--font-mono); font-size:10px; font-weight:800; line-height:1; color:#fff; background:var(--accent); border:2px solid var(--paper); border-radius:999px; padding:2px 7px; white-space:nowrap; margin-left:6px; animation:badge 1.8s ease-in-out infinite; }
+.maestro-card__summary{ font-size:13px; line-height:1.55; color:var(--ink-2); min-height:44px; font-weight:500; }
+.maestro-card__runs{ display:flex; flex-direction:column; gap:6px; }
+.run-card{ border:1px solid var(--rule-soft); border-radius:9px; padding:8px 10px; background:var(--paper-soft); }
+.run-card__head{ display:flex; align-items:center; justify-content:space-between; font-family:var(--font-mono); font-size:10.5px; color:var(--ink-2); }
+.run-card__phase{ color:var(--sage); font-weight:700; }
+.run-card__bar{ height:6px; border-radius:999px; background:var(--paper-deep); overflow:hidden; border:1px solid var(--rule-faint); margin:6px 0 4px; }
+.run-card__bar-fill{ display:block; height:100%; background:var(--sage); border-radius:999px; }
+.run-card__count{ font-family:var(--font-mono); font-size:9.5px; color:var(--ink-3); }
+.maestro-card__meta{ display:flex; gap:8px; font-family:var(--font-mono); font-size:10px; color:var(--ink-3); font-weight:600; flex-wrap:wrap; padding-top:6px; border-top:1px dashed var(--rule-soft); }
+.maestro-card__meta-sep{ color:var(--ink-4); }
+.maestro-card__actions{ display:flex; gap:6px; }
+.btn-sm{ display:inline-flex; align-items:center; gap:5px; padding:5px 11px; border-radius:7px; background:var(--paper); color:var(--ink-2); border:1px solid var(--rule-soft); font-size:11.5px; font-weight:600; cursor:pointer; font-family:var(--font-sans); transition:transform .12s,background .15s,border-color .15s,color .15s; }
+.btn-sm--primary{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+
+/* ─── Vault card ──────────────────────────────────────────────────────── */
+.vault-card{ background:var(--paper); border:1px solid rgba(31,106,92,.33); border-radius:14px; padding:16px; position:relative; display:flex; flex-direction:column; gap:11px; box-shadow:0 0 0 1px rgba(31,106,92,.13),0 1px 0 var(--rule-faint); color:var(--ink); }
+.vault-card__badge{ position:absolute; top:-10px; left:14px; padding:2px 9px; background:var(--vault); color:#fff; font-family:var(--font-mono); font-size:9px; font-weight:800; letter-spacing:1px; border-radius:999px; display:inline-flex; align-items:center; gap:5px; }
+.vault-card__head{ display:flex; align-items:center; gap:10px; margin-top:2px; }
+.vault-card__icon{ width:34px; height:34px; border-radius:9px; background:var(--vault-softer); color:var(--vault); border:1px solid rgba(31,106,92,.33); display:grid; place-items:center; flex-shrink:0; }
+.vault-card__title{ font-family:var(--font-display); font-size:15px; font-weight:800; line-height:1.1; color:var(--vault); }
+.vault-card__sub{ font-size:11px; color:var(--ink-3); font-weight:600; margin-top:1px; }
+.vault-card__metrics{ display:flex; gap:10px; }
+.vault-metric{ flex:1; background:var(--paper-soft); border:1px solid var(--rule-soft); border-radius:10px; padding:9px 12px; }
+.vault-metric__label{ font-size:10px; color:var(--ink-3); font-family:var(--font-mono); text-transform:uppercase; letter-spacing:1px; font-weight:700; }
+.vault-metric__value-row{ display:flex; align-items:baseline; gap:7px; margin-top:2px; }
+.vault-metric__count{ font-family:var(--font-display); font-size:34px; font-weight:800; line-height:1; color:var(--accent); letter-spacing:-1px; }
+.vault-metric__caption{ font-size:11px; color:var(--ink-3); font-weight:600; }
+.vault-metric__pri-row{ display:flex; align-items:center; gap:7px; margin-top:5px; }
+.vault-metric__desc{ font-size:11.5px; color:var(--ink-2); font-weight:500; }
+.vault-card__recent{ padding-top:8px; border-top:1px dashed var(--rule-soft); display:grid; gap:5px; font-family:var(--font-mono); font-size:11px; }
+.vault-recent-row{ display:flex; gap:8px; align-items:center; }
+.vault-recent-row__desc{ flex:1; color:var(--ink-2); font-weight:500; }
+.vault-recent-row__amount{ color:var(--ink-3); font-weight:600; }
+.vault-card__actions{ display:flex; gap:6px; }
+.btn-sm--vault{ background:var(--vault); color:#fff; border-color:var(--vault); }
+
+/* ─── Idle strips ─────────────────────────────────────────────────────── */
+.idle-list{ display:grid; gap:7px; margin-bottom:8px; }
+.idle-strip{ display:flex; align-items:center; gap:12px; padding:9px 14px; background:var(--paper); border:1px solid var(--rule-soft); border-radius:10px; font-size:13px; cursor:pointer; transition:background .15s,transform .15s; }
+.idle-strip__addr{ font-family:var(--font-mono); font-weight:700; min-width:72px; }
+.idle-strip__role{ color:var(--ink-3); font-size:11.5px; flex:1; font-weight:600; }
+.idle-strip__last{ font-family:var(--font-mono); font-size:10px; color:var(--ink-4); font-weight:600; }
+
+/* "Reclaimed space" note — where the old chat rail used to live. */
+.reclaim-note{
+  margin:2px 0 20px; font-family:var(--font-mono); font-size:10.5px; color:var(--ink-4);
+  border:1px dashed var(--rule-soft); border-radius:9px; padding:8px 12px;
+  display:flex; align-items:center; gap:8px;
+}
+.reclaim-note b{ color:var(--ink-3); font-weight:700; }
+
+/* ─── Terminal bar ────────────────────────────────────────────────────── */
+.terminal-bar{
+  height:calc(30px + env(safe-area-inset-bottom)); flex:0 0 auto;
+  border-top:1.5px solid var(--rule); background:var(--ink); color:var(--paper);
+  font-family:var(--font-mono); font-size:11px; display:flex; align-items:center;
+  padding:0 16px env(safe-area-inset-bottom); gap:12px; position:relative; z-index:3;
+}
+.terminal-bar__label{ color:var(--paper); font-weight:700; }
+.terminal-bar__chip{ padding:1px 7px; background:var(--sage); color:#fff; border-radius:4px; font-weight:700; font-size:10px; }
+.terminal-bar__hint{ color:rgba(250,247,237,.5); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.terminal-bar__prompt{ margin-left:auto; color:var(--honey); font-weight:700; white-space:nowrap; }
+
+/* Filter: hide non-awaiting active cards + idle strips when "Waiting on me" is on. */
+.shell.show-awaiting .cards-grid--active .maestro-card:not(.is-awaiting),
+.shell.show-awaiting .idle-list .idle-strip:not(.is-awaiting){ display:none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   ★ THE NEW CHAT DOCK — bottom-right. Three states:
+     1. collapsed pill        (.dock-pill)
+     2. corner panel  (wide)  → data-effective="dock"
+     3. full drawer  (narrow) → data-effective="drawer"  + scrim
+   Open/closed is the .dock-open class on .app. The effective presentation is
+   driven purely by [data-effective], so it can be forced OR follow viewport.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* State 1 — collapsed pill (a FAB anchored bottom-right). */
+.dock-pill{
+  position:absolute; right:20px; bottom:20px; z-index:30;
+  display:inline-flex; align-items:center; gap:9px; padding:0 16px; height:48px;
+  border-radius:999px; cursor:pointer;
+  background:var(--honey); color:var(--ink); border:1.5px solid var(--ochre);
+  font-family:var(--font-display); font-weight:800; font-size:13.5px;
+  box-shadow:0 8px 22px -8px rgba(60,45,25,.5);
+  transition:transform .16s ease,box-shadow .16s ease,opacity .2s ease;
+}
+.dock-pill:active{ transform:translateY(1px); }
+.dock-pill__count{ font-family:var(--font-mono); font-size:11px; font-weight:700; background:rgba(31,24,18,.14); border-radius:999px; padding:2px 8px; }
+.dock-pill__unread{ position:absolute; top:-3px; right:-3px; width:14px; height:14px; border-radius:50%; background:var(--accent); border:2px solid var(--paper); display:none; }
+.dock-pill.has-unread .dock-pill__unread{ display:block; animation:badge 1.6s ease-in-out infinite; }
+.app.dock-open .dock-pill{ opacity:0; transform:scale(.9) translateY(6px); pointer-events:none; }
+
+/* Scrim — only in drawer mode, only when open. Tap to dismiss. */
+.dock-scrim{
+  position:absolute; inset:0; z-index:40; background:rgba(31,24,18,.42);
+  opacity:0; pointer-events:none; transition:opacity .25s ease;
+}
+.app[data-effective="drawer"].dock-open .dock-scrim{ opacity:1; pointer-events:auto; }
+
+/* Shared dock chrome (states 2 + 3) */
+.dock{
+  position:absolute; z-index:50; display:flex; flex-direction:column;
+  background:var(--paper); overflow:hidden; min-height:0;
+  border:1.5px solid var(--rule);
+  transition:transform .28s cubic-bezier(.22,.61,.36,1),opacity .2s ease;
+}
+.dock__head{ flex:0 0 auto; background:var(--paper-soft); border-bottom:1.5px solid var(--rule); }
+.dk-tabbar{ display:flex; align-items:stretch; gap:0; padding:7px 8px 0; }
+.dk-tabs{ display:flex; align-items:stretch; gap:3px; overflow-x:auto; -webkit-overflow-scrolling:touch; flex:1 1 auto; min-width:0; }
+.dk-tabs::-webkit-scrollbar{ display:none; }
+.dk-tab{
+  appearance:none; cursor:pointer; flex:0 0 auto; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:7px;
+  font-family:var(--font-display); font-weight:700; font-size:13px; color:var(--ink-3);
+  background:var(--paper-deep); border:1.5px solid var(--rule-soft); border-bottom:none;
+  border-radius:11px 11px 0 0; padding:0 13px; min-height:42px; position:relative; top:1.5px;
+  transition:background .14s,color .14s;
+}
+.dk-tab .tdot{ width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+.dk-tab.active{ background:var(--paper); color:var(--ink); border-color:var(--rule); z-index:2; }
+.dk-tab.active::after{ content:""; position:absolute; left:0; right:0; bottom:-1.5px; height:2px; background:var(--paper); }
+.dk-add-wrap{ position:relative; flex:0 0 auto; align-self:center; }
+.dk-add{
+  appearance:none; cursor:pointer; width:34px; height:34px; border-radius:9px; margin:0 2px;
+  background:transparent; border:1.5px dashed var(--rule-soft); color:var(--ink-3);
+  font-size:18px; display:flex; align-items:center; justify-content:center;
+}
+.dk-add:active{ transform:translateY(1px); }
+.dk-collapse{
+  appearance:none; cursor:pointer; flex:0 0 auto; align-self:center;
+  width:40px; height:40px; border-radius:9px; margin-left:4px;
+  background:var(--paper); border:1.5px solid var(--rule-soft); color:var(--ink-2);
+  display:flex; align-items:center; justify-content:center; font-size:18px; line-height:1;
+}
+.dk-collapse:active{ transform:translateY(1px); }
+/* Glyph is mode-aware: minimize chevron on the corner panel, × in the drawer. */
+.ci{ display:none; }
+.app[data-effective="dock"]   .ci-min{ display:block; }
+.app[data-effective="drawer"] .ci-x{ display:block; }
+
+/* Loop-status header for the active tab. */
+.dk-loopbar{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:8px 12px; border-top:1.5px solid var(--rule); background:var(--paper);
+  font-family:var(--font-mono); font-size:10.5px; color:var(--ink-2);
+}
+.dk-live{ display:inline-flex; align-items:center; gap:5px; font-weight:600; }
+.dk-live .dot{ width:7px; height:7px; border-radius:50%; }
+.dk-live.on{ color:var(--sage); } .dk-live.on .dot{ background:var(--sage); animation:blink 2s ease-in-out infinite; }
+.dk-live.off{ color:var(--ink-4); } .dk-live.off .dot{ background:var(--ink-4); }
+.dk-sep{ color:var(--ink-4); }
+.dk-state{ font-weight:700; }
+.dk-state.running{ color:#2c5a20; } .dk-state.idle{ color:var(--ink-3); } .dk-state.blocked{ color:var(--accent); }
+.dk-loop-actions{ margin-left:auto; display:flex; gap:6px; align-items:center; }
+.dk-btn{
+  appearance:none; cursor:pointer; font-family:var(--font-sans); font-weight:700; font-size:11px;
+  color:var(--ink-2); background:var(--paper); border:1.5px solid var(--rule-soft); border-radius:8px;
+  padding:0 10px; min-height:34px; display:inline-flex; align-items:center; gap:5px;
+  transition:transform .12s,background .14s;
+}
+.dk-btn:active{ transform:translateY(1px); }
+.dk-clear-wrap{ position:relative; }
+
+/* Thread */
+.dk-thread{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; min-height:0; padding:14px 12px 8px; background:var(--paper); }
+.dk-thread-inner{ display:flex; flex-direction:column; gap:12px; }
+.msg{ display:flex; gap:8px; align-items:flex-end; max-width:92%; }
+.msg.user{ flex-direction:row-reverse; align-self:flex-end; }
+.msg.agent{ align-self:flex-start; }
+.avatar{ width:26px; height:26px; border-radius:8px; flex:0 0 auto; display:grid; place-items:center; font-family:var(--font-mono); font-size:11px; font-weight:700; overflow:hidden; }
+.msg.user .avatar{ background:var(--ink); border:1px solid var(--ink); color:var(--paper); }
+.msg.agent .avatar{ background:var(--honey-soft); border:1px solid var(--rule-soft); color:var(--ink); }
+.bubble-wrap{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.msg.user .bubble-wrap{ align-items:flex-end; }
+.msg-from{ font-family:var(--font-mono); font-size:10px; color:var(--ink-3); font-weight:600; padding:0 4px; }
+.bubble{ padding:8px 12px; font-size:13px; line-height:1.5; border-radius:12px; white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere; }
+.msg.user .bubble{ background:var(--ink); color:var(--paper); border:1px solid var(--ink); border-bottom-right-radius:4px; }
+.msg.agent .bubble{ background:var(--paper-soft); color:var(--ink); border:1px solid var(--rule-soft); border-bottom-left-radius:4px; font-family:var(--font-mono); font-size:12px; line-height:1.55; }
+.bubble code{ font-family:var(--font-mono); font-size:11.5px; background:rgba(31,24,18,.08); padding:1px 5px; border-radius:4px; }
+.bubble strong{ font-weight:700; }
+.bubble em{ font-style:italic; color:var(--ink-2); }
+.bubble .md-p{ margin:0 0 7px; } .bubble .md-p:last-child{ margin-bottom:0; }
+.bubble .md-ul{ margin:4px 0 7px; padding-left:18px; } .bubble li{ margin:2px 0; }
+.bubble .md-ol{ margin:4px 0 7px; padding-left:20px; }
+.bubble .md-pre{ margin:6px 0; padding:8px 10px; background:rgba(31,24,18,.06); border:1px solid var(--rule-soft); border-radius:7px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.bubble .md-pre code{ background:none; padding:0; font-size:11.5px; white-space:pre; }
+.bubble .md-h{ font-family:var(--font-display); font-weight:800; margin:2px 0 6px; }
+.md-table-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; margin:6px 0 2px; border:1px solid var(--rule-soft); border-radius:6px; }
+.md-table{ border-collapse:collapse; font-family:var(--font-mono); font-size:11.5px; line-height:1.45; width:100%; min-width:320px; }
+.md-table th,.md-table td{ padding:4px 9px; border-bottom:1px solid var(--rule-soft); border-right:1px solid var(--rule-soft); text-align:left; white-space:nowrap; }
+.md-table th:last-child,.md-table td:last-child{ border-right:0; }
+.md-table tbody tr:last-child td{ border-bottom:0; }
+.md-table th{ background:rgba(31,24,18,.06); font-weight:700; }
+.bubble.typing{ display:inline-flex; align-items:center; gap:4px; min-height:18px; padding:9px 12px; }
+.bubble.typing span{ width:5px; height:5px; background:var(--ink-3); border-radius:50%; animation:typing 1.2s infinite; }
+.bubble.typing span:nth-child(2){ animation-delay:.2s; } .bubble.typing span:nth-child(3){ animation-delay:.4s; }
+
+/* Composer */
+.dk-composer{ flex:0 0 auto; border-top:1.5px solid var(--rule-soft); background:var(--paper-soft); padding:10px 12px calc(10px + env(safe-area-inset-bottom)); }
+.dk-composer-inner{ display:flex; align-items:flex-end; gap:8px; }
+.dk-field{ flex:1 1 auto; min-width:0; resize:none; font-family:var(--font-sans); font-size:13.5px; color:var(--ink); background:var(--paper); border:1.5px solid var(--rule-soft); border-radius:12px; padding:11px 13px; min-height:44px; max-height:120px; line-height:1.4; }
+.dk-field:focus{ outline:none; border-color:var(--honey); box-shadow:0 0 0 2px var(--honey-soft); }
+.dk-send{ flex:0 0 auto; appearance:none; cursor:pointer; width:44px; height:44px; border-radius:12px; background:var(--honey); color:var(--ink); border:1.5px solid var(--ochre); display:grid; place-items:center; transition:transform .12s,opacity .15s; }
+.dk-send:disabled{ background:var(--ink-4); border-color:var(--ink-4); opacity:.6; cursor:not-allowed; }
+.dk-send:active:not(:disabled){ transform:translateY(1px); }
+
+/* Anchored popovers (add-tab / Clear) */
+.pop{ position:absolute; z-index:60; min-width:210px; background:var(--paper); border:1.5px solid var(--rule); border-radius:12px; box-shadow:0 12px 30px -14px rgba(40,30,15,.45); padding:6px; display:none; }
+.pop.open{ display:block; animation:popin .14s ease; }
+.pop-add{ left:0; top:calc(100% + 7px); }
+.pop-clear{ right:0; top:calc(100% + 7px); }
+.pop-title{ font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-4); padding:6px 8px 4px; }
+.pop-opt{ display:block; width:100%; text-align:left; appearance:none; cursor:pointer; background:transparent; border:0; border-radius:8px; padding:9px 9px; min-height:42px; font-family:var(--font-sans); font-size:12.5px; color:var(--ink); }
+.pop-opt:active{ background:var(--paper-deep); }
+.pop-opt small{ display:block; font-family:var(--font-mono); font-size:9.5px; color:var(--ink-3); margin-top:2px; }
+.pop-opt.danger{ color:var(--accent); } .pop-opt.danger small{ color:var(--accent); opacity:.75; }
+.pop-divider{ height:1px; background:var(--rule-faint); margin:3px 6px; }
+
+/* ── State 2: corner PANEL (wide / forced dock) ─────────────────────────
+   Floating rounded box, bottom-right, never full-screen — the dashboard
+   stays visible around it. Fades + lifts on open. */
+.app[data-effective="dock"] .dock{
+  right:18px; bottom:18px;
+  width:min(384px, calc(100% - 32px));
+  height:min(552px, calc(100% - 40px));
+  border-radius:16px;
+  box-shadow:0 22px 55px -18px rgba(40,30,15,.55), 0 4px 14px -8px rgba(40,30,15,.4);
+}
+.app[data-effective="dock"]:not(.dock-open) .dock{ opacity:0; transform:translateY(14px) scale(.98); pointer-events:none; }
+.app[data-effective="dock"].dock-open .dock{ opacity:1; transform:none; pointer-events:auto; }
+
+/* ── State 3: full DRAWER (narrow / forced drawer) ──────────────────────
+   A corner box is too cramped for real conversation on a portrait tablet,
+   so the SAME dock expands to a near-full-height sheet with a scrim behind.
+   Top gap keeps the dashboard + a tap-to-dismiss zone visible. */
+.app[data-effective="drawer"] .dock{
+  left:0; right:0; bottom:0; top:84px;
+  border-radius:18px 18px 0 0; border-bottom:none;
+  box-shadow:0 -14px 40px -10px rgba(31,24,18,.4);
+}
+.app[data-effective="drawer"]:not(.dock-open) .dock{ transform:translateY(100%); pointer-events:none; }
+.app[data-effective="drawer"].dock-open .dock{ transform:translateY(0); pointer-events:auto; }
+/* A grab-handle affordance at the top of the sheet. */
+.dk-grab{ display:none; }
+.app[data-effective="drawer"] .dk-grab{ display:block; position:absolute; top:7px; left:50%; transform:translateX(-50%); width:40px; height:4px; border-radius:999px; background:var(--rule-soft); z-index:5; }
+.app[data-effective="drawer"] .dk-tabbar{ padding-top:15px; }
+
+/* ── Toasts ─────────────────────────────────────────────────────────── */
+.toast-wrap{ position:fixed; left:50%; bottom:calc(78px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:130; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; }
+.toast{ background:var(--ink); color:var(--paper); font-family:var(--font-mono); font-size:11.5px; padding:9px 14px; border-radius:999px; box-shadow:0 8px 22px -10px rgba(30,20,10,.6); opacity:0; transform:translateY(8px); transition:opacity .2s ease,transform .2s ease; max-width:90vw; text-align:center; }
+.toast.show{ opacity:1; transform:translateY(0); }
+.toast .ok{ color:var(--honey); }
+
+/* ── Animations ─────────────────────────────────────────────────────── */
+@keyframes bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2px); } }
+@keyframes badge{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.08); } }
+@keyframes pulse-ring{ 0%{ transform:scale(.6); opacity:.55; } 100%{ transform:scale(2.4); opacity:0; } }
+@keyframes blink{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+@keyframes typing{ 0%,60%,100%{ opacity:.3; transform:translateY(0); } 30%{ opacity:1; transform:translateY(-2px); } }
+@keyframes popin{ from{ opacity:0; transform:translateY(-4px); } to{ opacity:1; transform:translateY(0); } }
+@media (prefers-reduced-motion:reduce){
+  .dock,.dock-pill,.dock-scrim{ transition-duration:.01ms; }
+  .top-bar__bee,.hero__bee,.state-dot__ring,.dk-live .dot,.awaits,.bell__count{ animation:none; }
+}
+
+/* ── Hover lifts — devices that can actually hover only ──────────────── */
+@media (hover:hover){
+  .tab:hover{ background:var(--paper-soft); }
+  .bell:hover,.terminal-btn:hover,.btn-sm:hover{ transform:translateY(-1px); }
+  .maestro-card:hover{ transform:translateY(-2px); box-shadow:0 2px 0 var(--rule-faint),0 10px 24px -10px rgba(31,24,18,.22); }
+  .vault-card:hover{ transform:translateY(-2px); }
+  .idle-strip:hover{ background:var(--paper-soft); transform:translateX(2px); }
+  .chip-awaiting:hover{ background:var(--honey-soft); color:var(--ink); }
+  .dock-pill:hover{ transform:translateY(-1px); box-shadow:0 12px 26px -8px rgba(60,45,25,.55); }
+  .dk-tab:hover{ color:var(--ink); }
+  .dk-btn:hover,.dk-add:hover,.dk-collapse:hover{ background:var(--honey-soft); }
+  .pop-opt:hover{ background:var(--paper-soft); }
+  .seg-btn:hover:not(.active){ background:rgba(224,167,38,.14); }
+}
+
+/* Keyboard focus rings (keyboard nav only, not touch/mouse press). */
+.dk-collapse:focus-visible,.dk-add:focus-visible,.dk-send:focus-visible,
+.dock-pill:focus-visible,.bell:focus-visible,.seg-btn:focus-visible,
+.btn-sm:focus-visible,.dk-btn:focus-visible{ outline:2px solid var(--honey); outline-offset:2px; }
+
+/* Narrow phone tweaks (≥ must still hold at 390px). */
+@media (max-width:460px){
+  .top-bar__brand{ width:auto; padding:0 12px; }
+  .top-bar__brand-meta{ display:none; }
+  .cards-grid{ grid-template-columns:1fr; }
+  .msg{ max-width:96%; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ Mockup chrome (the only non-Hive furniture) ══ -->
+<header class="mock-chrome">
+  <span class="mode-hint" aria-hidden="true">
+    <!-- corner-box silhouette = dock; bottom-sheet silhouette = drawer -->
+    <svg class="hint-dock" width="46" height="34" viewBox="0 0 46 34" fill="none">
+      <rect x="1" y="1" width="44" height="32" rx="4" stroke="#faf7ed" stroke-opacity=".5" stroke-width="1.4"/>
+      <rect x="30" y="19" width="12" height="11" rx="2.5" fill="#e0a726" stroke="#1f1812" stroke-width="1"/>
+    </svg>
+    <svg class="hint-drawer" width="46" height="34" viewBox="0 0 46 34" fill="none">
+      <rect x="1" y="1" width="44" height="32" rx="4" stroke="#faf7ed" stroke-opacity=".5" stroke-width="1.4"/>
+      <rect x="4" y="13" width="38" height="17" rx="2.5" fill="#e0a726" stroke="#1f1812" stroke-width="1"/>
+    </svg>
+  </span>
+  <span class="mock-title">Hive · dashboard + chat dock <span class="tk">ticket 053</span></span>
+
+  <div class="seg" role="tablist" aria-label="Force the dock presentation">
+    <button class="seg-btn" data-force="dock" role="tab">
+      <svg width="15" height="12" viewBox="0 0 15 12" fill="none"><rect x=".7" y=".7" width="13.6" height="9" rx="1.4" stroke="currentColor" stroke-width="1.3"/><path d="M4.5 11.3h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Dock (wide)
+    </button>
+    <button class="seg-btn" data-force="drawer" role="tab">
+      <svg width="10" height="14" viewBox="0 0 10 14" fill="none"><rect x=".7" y=".7" width="8.6" height="12.6" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M4 11.4h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      Drawer (portrait)
+    </button>
+  </div>
+
+  <div class="mock-caption">
+    Keep the old dashboard; move chat into a tabbed dock — corner panel on
+    desktop, full drawer on the iPad.
+    <span class="note" id="modeNote"></span>
+  </div>
+</header>
+
+<!-- ══ APP — the reproduced dashboard + the new dock live here ══ -->
+<div class="app" id="app" data-effective="dock">
+
+  <div class="shell" id="shell">
+
+    <!-- ── Top bar ── -->
+    <header class="top-bar">
+      <div class="top-bar__brand">
+        <span class="top-bar__bee">
+          <svg viewBox="0 0 64 64" width="30" height="30" style="overflow:visible">
+            <g class="bee__wings">
+              <ellipse cx="22" cy="21" rx="9" ry="5.5" fill="#fff" stroke="#1f1812" stroke-width="1.8" opacity=".9"/>
+              <ellipse cx="42" cy="21" rx="9" ry="5.5" fill="#fff" stroke="#1f1812" stroke-width="1.8" opacity=".9"/>
+            </g>
+            <ellipse cx="32" cy="38" rx="17" ry="15" fill="#e0a726" stroke="#1f1812" stroke-width="2"/>
+            <path d="M19 34 Q32 30.5 45 34" stroke="#1f1812" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+            <path d="M20 42 Q32 45.5 44 42" stroke="#1f1812" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+            <circle cx="27.5" cy="36" r="1.3" fill="#1f1812"/><circle cx="36.5" cy="36" r="1.3" fill="#1f1812"/>
+            <path d="M28.5 40.5 Q32 42.5 35.5 40.5" stroke="#1f1812" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="top-bar__brand-text">
+          <span class="top-bar__brand-name">hive</span>
+          <span class="top-bar__brand-meta">v0.4 · personal</span>
+        </span>
+      </div>
+      <nav class="top-bar__tabs">
+        <button class="tab is-active" data-nav="Hive">Hive</button>
+        <button class="tab" data-nav="Projects">Projects</button>
+        <button class="tab" data-nav="Dashboard">Dashboard</button>
+        <button class="tab" data-nav="Knowledge">Knowledge</button>
+      </nav>
+      <div class="top-bar__right">
+        <span class="health-pill"><span class="hp-dot"></span> all systems ok</span>
+        <button class="bell" id="bellBtn" title="Pending approvals">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#3d332a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
+          <span class="bell__count">1</span>
+        </button>
+        <button class="terminal-btn" data-nav="terminal"><span class="terminal-btn__caret">⌃</span> terminal</button>
+      </div>
+    </header>
+
+    <!-- ── Content ── -->
+    <main class="content">
+      <div class="backdrop"></div>
+      <div class="content-inner">
+
+        <!-- Hero -->
+        <section class="hero">
+          <div class="hero__bee">
+            <svg viewBox="0 0 64 64" width="48" height="48" style="overflow:visible">
+              <g class="bee__wings">
+                <ellipse cx="22" cy="21" rx="9" ry="5.5" fill="#fff" stroke="#1f1812" stroke-width="1.8" opacity=".9"/>
+                <ellipse cx="42" cy="21" rx="9" ry="5.5" fill="#fff" stroke="#1f1812" stroke-width="1.8" opacity=".9"/>
+              </g>
+              <ellipse cx="32" cy="38" rx="17" ry="15" fill="#e0a726" stroke="#1f1812" stroke-width="2"/>
+              <path d="M19 34 Q32 30.5 45 34" stroke="#1f1812" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+              <path d="M20 42 Q32 45.5 44 42" stroke="#1f1812" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+              <circle cx="27.5" cy="36" r="1.3" fill="#1f1812"/><circle cx="36.5" cy="36" r="1.3" fill="#1f1812"/>
+              <path d="M28.5 40.5 Q32 42.5 35.5 40.5" stroke="#1f1812" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="hero__copy">
+            <h1 class="hero__title">The hive is <span class="hero__title-accent">humming</span>.</h1>
+            <p class="hero__subtitle">2 maestros active · 1 idle · 0 dormant.
+              <span class="hero__hint">chat lives in the dock now — bottom-right.</span></p>
+          </div>
+          <div class="hero__stats">
+            <div class="hero__stat"><div class="hero__stat-n hero__stat-n--active">2</div><div class="hero__stat-label">active</div></div>
+            <div class="hero__stat"><div class="hero__stat-n hero__stat-n--idle">1</div><div class="hero__stat-label">idle</div></div>
+            <div class="hero__stat"><div class="hero__stat-n hero__stat-n--dormant">0</div><div class="hero__stat-label">dormant</div></div>
+          </div>
+        </section>
+
+        <!-- Pinned: otter + Vault -->
+        <div class="section-head">
+          <h3 class="section-head__title">Pinned</h3>
+          <span class="section-head__count section-head__count--active">2</span>
+          <span class="section-head__rule"></span>
+        </div>
+        <div class="cards-grid cards-grid--pinned">
+          <!-- otter (PA, idle, pinned) -->
+          <div class="maestro-card maestro-card--pinned" data-entity="otter">
+            <span class="maestro-card__pin">PINNED · OTTER</span>
+            <div class="maestro-card__head">
+              <div class="maestro-card__icon maestro-card__icon--pinned">ot</div>
+              <div class="maestro-card__name">
+                <span class="maestro-card__addr"><span class="state-dot state-dot--idle" style="width:8px;height:8px"><span class="state-dot__core"></span></span>/m:otter</span>
+                <span class="maestro-card__role">PA maestro · no project</span>
+              </div>
+              <span class="maestro-card__chip"><span class="no-tasks">no pending</span></span>
+            </div>
+            <div class="maestro-card__summary">On your desk. Nothing waited on me overnight — dev is mid-workflow, backend paused itself for a mode bump.</div>
+            <div class="maestro-card__meta">
+              <span>updated 6m ago</span><span class="maestro-card__meta-sep">·</span>
+              <span>0L · 0 runs</span><span class="maestro-card__meta-sep">·</span>
+              <span>auto</span><span class="maestro-card__meta-sep">·</span><span>opus</span>
+            </div>
+            <div class="maestro-card__actions">
+              <button class="btn-sm btn-sm--primary" data-chat="otter">Chat</button>
+              <button class="btn-sm" data-toast="otter · org tree">Agents</button>
+              <button class="btn-sm" data-toast="otter · status">Info</button>
+            </div>
+          </div>
+
+          <!-- Vault card -->
+          <div class="vault-card">
+            <span class="vault-card__badge">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><rect x="4" y="11" width="16" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+              VAULT · ISOLATED
+            </span>
+            <div class="vault-card__head">
+              <div class="vault-card__icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1f6a5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="1.5"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <div>
+                <div class="vault-card__title">vault</div>
+                <div class="vault-card__sub">handles money-adjacent actions</div>
+              </div>
+            </div>
+            <div class="vault-card__metrics">
+              <div class="vault-metric">
+                <div class="vault-metric__label">Pending approvals</div>
+                <div class="vault-metric__value-row"><span class="vault-metric__count">1</span><span class="vault-metric__caption">awaiting you</span></div>
+              </div>
+              <div class="vault-metric">
+                <div class="vault-metric__label">Highest priority</div>
+                <div class="vault-metric__pri-row"><span class="pri-pill pri-pill--P1">P1</span><span class="vault-metric__desc">$20 · Railway Postgres addon</span></div>
+              </div>
+            </div>
+            <div class="vault-card__recent">
+              <div class="vault-recent-row"><span class="pri-pill pri-pill--P1">P1</span><span class="vault-recent-row__desc">Railway Postgres addon</span><span class="vault-recent-row__amount">$20.00</span></div>
+              <div class="vault-recent-row"><span class="pri-pill pri-pill--P3">P3</span><span class="vault-recent-row__desc">OpenAI API top-up</span><span class="vault-recent-row__amount">$15.00</span></div>
+              <div class="vault-recent-row"><span class="pri-pill pri-pill--P2">P2</span><span class="vault-recent-row__desc">domain renewal (finance-app)</span><span class="vault-recent-row__amount">$12.00</span></div>
+            </div>
+            <div class="vault-card__actions">
+              <button class="btn-sm btn-sm--vault" data-toast="vault · review queue">Review queue →</button>
+              <button class="btn-sm" data-toast="vault · log">Log</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active maestros -->
+        <div class="section-head">
+          <h3 class="section-head__title">Active maestros</h3>
+          <span class="section-head__count section-head__count--active">2</span>
+          <span class="section-head__rule"></span>
+          <span class="section-head__right">
+            <button type="button" id="awaitingFilter" class="chip-awaiting" aria-pressed="false">
+              <span class="chip-awaiting__dot"></span>Waiting on me
+            </button>
+          </span>
+        </div>
+        <div class="cards-grid cards-grid--active">
+          <!-- dev (running) -->
+          <div class="maestro-card" data-entity="dev">
+            <div class="maestro-card__head">
+              <div class="maestro-card__icon">de</div>
+              <div class="maestro-card__name">
+                <span class="maestro-card__addr"><span class="state-dot state-dot--active" style="width:8px;height:8px"><span class="state-dot__ring"></span><span class="state-dot__core"></span></span>/m:dev</span>
+                <span class="maestro-card__role">project maestro · finance-app</span>
+              </div>
+              <span class="maestro-card__chip"><span class="tasks-chip tasks-chip--P1">
+                <svg viewBox="0 0 20 20" width="10" height="10"><path d="M10 1.5 L17.5 5.75 L17.5 14.25 L10 18.5 L2.5 14.25 L2.5 5.75 Z" fill="#b7741a" stroke="#1f1812" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                3 <span class="tasks-chip__sep">·</span> P1</span></span>
+            </div>
+            <div class="maestro-card__summary">Building the transactions ledger. Split it into a 4-agent workflow — needs a storage-engine decision before phase 3.</div>
+            <div class="maestro-card__runs">
+              <div class="run-card">
+                <div class="run-card__head"><span>ledger-build</span><span class="run-card__phase">phase 2/3</span></div>
+                <div class="run-card__bar"><span class="run-card__bar-fill" style="width:66%"></span></div>
+                <div class="run-card__count">2/4 agents done · running</div>
+              </div>
+            </div>
+            <div class="maestro-card__meta">
+              <span>updated 4m ago</span><span class="maestro-card__meta-sep">·</span>
+              <span>1L · 1 run</span><span class="maestro-card__meta-sep">·</span>
+              <span>auto</span><span class="maestro-card__meta-sep">·</span><span>opus</span>
+            </div>
+            <div class="maestro-card__actions">
+              <button class="btn-sm btn-sm--primary" data-chat="dev">Chat</button>
+              <button class="btn-sm" data-toast="dev · org tree">Agents</button>
+              <button class="btn-sm" data-toast="dev · status">Info</button>
+            </div>
+          </div>
+
+          <!-- backend (blocked · needs you) -->
+          <div class="maestro-card maestro-card--needsyou is-awaiting" data-entity="backend">
+            <div class="maestro-card__head">
+              <div class="maestro-card__icon">ba</div>
+              <div class="maestro-card__name">
+                <span class="maestro-card__addr"><span class="state-dot state-dot--error" style="width:8px;height:8px"><span class="state-dot__core"></span></span>/m:backend</span>
+                <span class="maestro-card__role">project maestro · auth-svc</span>
+              </div>
+              <span class="maestro-card__chip"><span class="tasks-chip tasks-chip--P0">
+                <svg viewBox="0 0 20 20" width="10" height="10"><path d="M10 1.5 L17.5 5.75 L17.5 14.25 L10 18.5 L2.5 14.25 L2.5 5.75 Z" fill="#c8382a" stroke="#1f1812" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                2 <span class="tasks-chip__sep">·</span> P0</span></span>
+              <span class="awaits" title="Blocked — awaiting your reply">● you</span>
+            </div>
+            <div class="maestro-card__summary">Paused itself on the auth refactor. Running read-only — wants an <code>acceptEdits</code> mode bump to apply the session-store rewrite.</div>
+            <div class="maestro-card__meta">
+              <span>updated 12m ago</span><span class="maestro-card__meta-sep">·</span>
+              <span>1L · 0 runs</span><span class="maestro-card__meta-sep">·</span>
+              <span>plan</span><span class="maestro-card__meta-sep">·</span><span>opus</span>
+            </div>
+            <div class="maestro-card__actions">
+              <button class="btn-sm btn-sm--primary" data-chat="backend">Chat</button>
+              <button class="btn-sm" data-toast="backend · org tree">Agents</button>
+              <button class="btn-sm" data-toast="backend · status">Info</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Idle -->
+        <div class="section-head">
+          <h3 class="section-head__title">Idle</h3>
+          <span class="section-head__count">1</span>
+          <span class="section-head__rule"></span>
+        </div>
+        <div class="idle-list">
+          <div class="idle-strip" data-chat="ops">
+            <span class="state-dot state-dot--idle" style="width:8px;height:8px"><span class="state-dot__core"></span></span>
+            <span class="idle-strip__addr">/m:ops</span>
+            <span class="idle-strip__role">project maestro · infra</span>
+            <span class="idle-strip__last">last active 3h ago</span>
+          </div>
+        </div>
+
+        <!-- The reclaimed space — where the old left chat rail used to sit. -->
+        <div class="reclaim-note">
+          <b>reclaimed:</b> the ~360px the chat rail used to occupy now belongs to the cards. Chat moved into the dock →
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ── Terminal bar ── -->
+    <footer class="terminal-bar">
+      <span class="terminal-bar__label">▲ terminal</span>
+      <span class="terminal-bar__chip">unlocked</span>
+      <span class="terminal-bar__hint">SSH on Tailscale · port 7777</span>
+      <span class="terminal-bar__prompt">~/hive $</span>
+    </footer>
+  </div><!-- /.shell -->
+
+  <!-- ══ Scrim (drawer mode only) ══ -->
+  <div class="dock-scrim" id="dockScrim" aria-hidden="true"></div>
+
+  <!-- ══ State 1: collapsed pill ══ -->
+  <button class="dock-pill" id="dockPill" aria-label="Open chat dock">
+    <span class="dock-pill__unread"></span>
+    <span aria-hidden="true">💬</span> Chat
+    <span class="dock-pill__count" id="pillCount">2</span>
+  </button>
+
+  <!-- ══ States 2 + 3: the dock (corner panel OR full drawer) ══ -->
+  <aside class="dock" id="dock" role="dialog" aria-label="Maestro chat dock" aria-modal="false">
+    <span class="dk-grab" aria-hidden="true"></span>
+    <div class="dock__head">
+      <div class="dk-tabbar">
+        <div class="dk-tabs" id="dkTabs"><!-- tabs injected --></div>
+        <div class="dk-add-wrap">
+          <button class="dk-add" id="dkAdd" aria-label="Open another maestro" title="Open another maestro">+</button>
+          <div class="pop pop-add" id="popAdd"></div>
+        </div>
+        <button class="dk-collapse" id="dkCollapse" aria-label="Close chat">
+          <span class="ci ci-min" aria-hidden="true">⌄</span>
+          <span class="ci ci-x" aria-hidden="true">×</span>
+        </button>
+      </div>
+      <div class="dk-loopbar" id="dkLoopbar"><!-- status + actions injected --></div>
+    </div>
+
+    <div class="dk-thread" id="dkThread">
+      <div class="dk-thread-inner" id="dkThreadInner"></div>
+    </div>
+
+    <div class="dk-composer">
+      <div class="dk-composer-inner">
+        <textarea class="dk-field" id="dkField" rows="1" placeholder="Message dev" autocomplete="off" enterkeyhint="send"></textarea>
+        <button class="dk-send" id="dkSend" aria-label="Send" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+</div><!-- /.app -->
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════════
+   Hive · dashboard + chat dock (ticket 053 idea) — vanilla JS, no libs.
+
+   The single idea: keep the Paper-Ops dashboard, move chat into a tabbed
+   dock anchored bottom-right. The dock's PRESENTATION (corner panel vs full
+   drawer) is a pure function of `app.dataset.effective`, which is either
+   FORCED by the top toggle or DERIVED from the viewport (genuinely
+   responsive). Its OPEN/CLOSED state is the `.dock-open` class on `.app`.
+   ════════════════════════════════════════════════════════════════════ */
+
+const $ = (id) => document.getElementById(id);
+const app = $("app");
+
+/* ── Seed fleet ─────────────────────────────────────────────────────── */
+const MAESTROS = {
+  otter:   { name:"otter",   role:"PA maestro",      project:"no project",  loop:"idle" },
+  dev:     { name:"dev",     role:"project maestro", project:"finance-app", loop:"running" },
+  backend: { name:"backend", role:"project maestro", project:"auth-svc",    loop:"blocked" },
+};
+/* loop-status header line per maestro */
+const LOOP = {
+  otter:   { live:false, cls:"idle",    state:"idle",    detail:"no active workflow · quota 42%" },
+  dev:     { live:true,  cls:"running", state:"running", detail:"4 agents · phase 2/3 · quota 42%" },
+  backend: { live:true,  cls:"blocked", state:"blocked", detail:"paused · needs your input · quota 42%" },
+};
+function tabDot(name){
+  const l = MAESTROS[name].loop;
+  return l === "running" ? "var(--sage)" : l === "blocked" ? "var(--accent)" : "var(--ink-4)";
+}
+
+/* ── Seed threads (believable content; dev carries the markdown table) ── */
+function seedThreads(){
+  return {
+    otter: [
+      { who:"user", text:"morning otter — anything I should know before I start?" },
+      { who:"otter", text:
+"**Overnight — quiet.** Nothing waited on me.\n\n"+
+"- `dev` finished the ledger schema and is mid-workflow (**phase 2/3**).\n"+
+"- `backend` paused itself on the auth refactor — it wants a mode bump.\n"+
+"- Plan quota is healthy: **5h 42% · 7d 68%**.\n\n"+
+"Want me to nudge `backend`, or leave it for you?" },
+    ],
+    dev: [
+      { who:"user", text:"build the finance app — start with the transactions ledger" },
+      { who:"dev", text:
+"On it. I split the ledger into a **4-agent workflow** and I'm in *phase 2 of 3*.\n\n"+
+"| agent | slice | phase | status |\n"+
+"|---|---|---|---|\n"+
+"| L1 | schema + migrations | 1 | done |\n"+
+"| L2 | ingest + parser | 2 | running |\n"+
+"| L3 | balance engine | 2 | running |\n"+
+"| L4 | api + tests | 3 | queued |\n\n"+
+"One thing I need from you before phase 3." },
+      { who:"dev", text:
+"**Decision — storage engine.** The ledger holds ~5 years of transactions with monthly rollups.\n\n"+
+"- **Postgres** — real concurrency, `SUM` over indexed ranges, needs a hosted addon (~$20/mo).\n"+
+"- **SQLite** — zero infra, file-backed, fine until multi-writer.\n\n"+
+"Which do you want me to build against?" },
+    ],
+    backend: [
+      { who:"backend", text:
+"Started, then **paused myself**. The refactor rewrites `auth/session.py` and I'm running read-only — approve the `acceptEdits` mode bump and I'll continue." },
+    ],
+  };
+}
+
+/* ── App state ──────────────────────────────────────────────────────── */
+const state = {
+  forced: null,               // null = follow viewport; "dock" | "drawer" = forced
+  openTabs: ["dev","backend"],// matches the pill's "· 2"
+  activeTab: "dev",           // active tab IS the composer target (placeholder "Message dev")
+  drafts: {},                 // per-tab composer drafts — survive tab switches
+  threads: seedThreads(),
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   Tiny markdown renderer (bold, italic, inline code, lists, TABLES).
+   Content is canned/trusted but we escape first — defensive habit.
+   ════════════════════════════════════════════════════════════════════ */
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function inlineMd(s){
+  s = escapeHtml(s);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  return s;
+}
+function splitRow(line){ return line.trim().replace(/^\|/,"").replace(/\|$/,"").split("|").map(c=>c.trim()); }
+function mdToHtml(src){
+  const lines = src.replace(/\r/g,"").split("\n");
+  const out = []; let i = 0;
+  while(i < lines.length){
+    const line = lines[i];
+    // fenced code block ``` … ``` (graft: survive real agent output, not just canned shapes)
+    if(/^\s*```/.test(line)){
+      const code = []; i++;
+      while(i < lines.length && !/^\s*```/.test(lines[i])){ code.push(lines[i]); i++; }
+      if(i < lines.length) i++;  // consume the closing fence
+      out.push('<pre class="md-pre"><code>'+escapeHtml(code.join("\n"))+"</code></pre>");
+      continue;
+    }
+    // pipe table: header row + a |---| separator on the next line
+    if(/\|/.test(line) && i+1 < lines.length &&
+       /^\s*\|?[ :\-|]+\|?\s*$/.test(lines[i+1]) && lines[i+1].includes("-")){
+      const header = splitRow(line); i += 2;
+      const rows = [];
+      while(i < lines.length && /\|/.test(lines[i]) && lines[i].trim() !== ""){ rows.push(splitRow(lines[i])); i++; }
+      let t = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      t += header.map(h=>"<th>"+inlineMd(h)+"</th>").join("");
+      t += "</tr></thead><tbody>";
+      t += rows.map(r=>"<tr>"+r.map(c=>"<td>"+inlineMd(c)+"</td>").join("")+"</tr>").join("");
+      t += "</tbody></table></div>";
+      out.push(t); continue;
+    }
+    // heading
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if(h){ out.push('<div class="md-h">'+inlineMd(h[2])+"</div>"); i++; continue; }
+    // unordered list
+    if(/^\s*[-*]\s+/.test(line)){
+      const items = [];
+      while(i < lines.length && /^\s*[-*]\s+/.test(lines[i])){ items.push(lines[i].replace(/^\s*[-*]\s+/,"")); i++; }
+      out.push('<ul class="md-ul">'+items.map(it=>"<li>"+inlineMd(it)+"</li>").join("")+"</ul>");
+      continue;
+    }
+    // ordered list (graft)
+    if(/^\s*\d+\.\s+/.test(line)){
+      const items = [];
+      while(i < lines.length && /^\s*\d+\.\s+/.test(lines[i])){ items.push(lines[i].replace(/^\s*\d+\.\s+/,"")); i++; }
+      out.push('<ol class="md-ol">'+items.map(it=>"<li>"+inlineMd(it)+"</li>").join("")+"</ol>");
+      continue;
+    }
+    // blank
+    if(line.trim() === ""){ i++; continue; }
+    // paragraph — gather until a blank / block starter
+    const para = [];
+    while(i < lines.length && lines[i].trim() !== "" &&
+          !/^#{1,6}\s/.test(lines[i]) && !/^\s*[-*]\s+/.test(lines[i]) &&
+          !/^\s*\d+\.\s+/.test(lines[i]) && !/^\s*```/.test(lines[i]) &&
+          !(/\|/.test(lines[i]) && i+1 < lines.length && /^\s*\|?[ :\-|]+\|?\s*$/.test(lines[i+1]))){
+      para.push(lines[i]); i++;
+    }
+    out.push('<p class="md-p">'+para.map(inlineMd).join("<br>")+"</p>");
+  }
+  return out.join("");
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Toast
+   ════════════════════════════════════════════════════════════════════ */
+function toast(html){
+  const el = document.createElement("div");
+  el.className = "toast"; el.innerHTML = html;
+  $("toastWrap").appendChild(el);
+  requestAnimationFrame(()=> el.classList.add("show"));
+  setTimeout(()=>{ el.classList.remove("show"); setTimeout(()=> el.remove(), 240); }, 2200);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   RENDER — tabs, loop header, thread, composer
+   ════════════════════════════════════════════════════════════════════ */
+const dkTabs = $("dkTabs");
+const dkLoopbar = $("dkLoopbar");
+const dkThread = $("dkThread");
+const dkThreadInner = $("dkThreadInner");
+const dkField = $("dkField");
+const dkSend = $("dkSend");
+
+function renderTabs(){
+  dkTabs.innerHTML = state.openTabs.map(name=>{
+    const active = name === state.activeTab ? " active" : "";
+    return '<button class="dk-tab'+active+'" data-tab="'+name+'">'+
+             '<span class="tdot" style="background:'+tabDot(name)+'"></span>'+name+
+           '</button>';
+  }).join("");
+  // Keep the pill count in sync with open-tab count, and flag the unread dot
+  // when any OPEN tab is a maestro that needs you (backend, blocked).
+  $("pillCount").textContent = state.openTabs.length;
+  const needsYou = state.openTabs.some(n => MAESTROS[n].loop === "blocked");
+  $("dockPill").classList.toggle("has-unread", needsYou);
+}
+
+function renderLoopbar(){
+  const l = LOOP[state.activeTab];
+  dkLoopbar.innerHTML =
+    '<span class="dk-live '+(l.live?"on":"off")+'"><span class="dot"></span> '+(l.live?"live":"idle")+'</span>'+
+    '<span class="dk-sep">·</span>'+
+    '<span class="dk-state '+l.cls+'">'+l.state+'</span>'+
+    '<span class="dk-sep">·</span>'+
+    '<span>'+l.detail+'</span>'+
+    '<div class="dk-loop-actions">'+
+      '<button class="dk-btn" id="histBtn">History</button>'+
+      '<div class="dk-clear-wrap">'+
+        '<button class="dk-btn" id="clearBtn">Clear ▾</button>'+
+        '<div class="pop pop-clear" id="popClear">'+
+          '<div class="pop-title">Clear conversation</div>'+
+          '<button class="pop-opt" data-clear="view">Clear view<small>Empty this tab · keep the agent\'s memory</small></button>'+
+          '<button class="pop-opt danger" data-clear="reset">Clear + reset memory<small>Wipe the agent\'s session too</small></button>'+
+          '<div class="pop-divider"></div>'+
+          '<button class="pop-opt" data-clear="cancel" style="color:var(--ink-3)">Cancel</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  wireLoopActions();
+}
+
+function bubbleHtml(m){
+  if(m.typing){
+    return '<div class="msg agent"><div class="avatar">'+hexAvatar()+'</div>'+
+           '<div class="bubble-wrap"><span class="msg-from">'+escapeHtml(m.who)+'</span>'+
+           '<div class="bubble typing"><span></span><span></span><span></span></div></div></div>';
+  }
+  if(m.who === "user"){
+    return '<div class="msg user"><div class="avatar">me</div>'+
+           '<div class="bubble-wrap"><div class="bubble">'+escapeHtml(m.text).replace(/\n/g,"<br>")+'</div></div></div>';
+  }
+  return '<div class="msg agent"><div class="avatar">'+hexAvatar()+'</div>'+
+         '<div class="bubble-wrap"><span class="msg-from">'+escapeHtml(m.who)+'</span>'+
+         '<div class="bubble">'+mdToHtml(m.text)+'</div></div></div>';
+}
+function hexAvatar(){
+  return '<svg viewBox="0 0 20 20" width="14" height="14"><path d="M10 1.5 L17.5 5.75 L17.5 14.25 L10 18.5 L2.5 14.25 L2.5 5.75 Z" fill="#e0a726" stroke="#1f1812" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+}
+
+function renderThread(){
+  const msgs = state.threads[state.activeTab] || [];
+  dkThreadInner.innerHTML = msgs.map(bubbleHtml).join("");
+}
+function scrollThreadBottom(){ dkThread.scrollTop = dkThread.scrollHeight; }
+
+function renderComposer(){
+  // Active tab IS the target — placeholder names it, NO "/m:" prefix.
+  dkField.placeholder = "Message " + state.activeTab;
+  dkField.value = state.drafts[state.activeTab] || "";
+  dkField.style.height = "auto";
+  refreshSend();
+}
+function refreshSend(){ dkSend.disabled = !dkField.value.trim(); }
+
+function renderDock(){
+  renderTabs(); renderLoopbar(); renderThread(); renderComposer();
+  requestAnimationFrame(scrollThreadBottom);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Open / collapse  (state 1 <-> state 2/3)
+   ════════════════════════════════════════════════════════════════════ */
+function openDock(){ app.classList.add("dock-open"); requestAnimationFrame(scrollThreadBottom); }
+function collapseDock(){ app.classList.remove("dock-open"); closePops(); }
+
+/* Open the dock focused on a maestro (from a card's "Chat" button). Adds a
+   tab if needed, switches to it, opens the dock. */
+function openDockFor(name){
+  if(!MAESTROS[name]) return;
+  if(!state.openTabs.includes(name)) state.openTabs.push(name);
+  switchTab(name);
+  openDock();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Tabs
+   ════════════════════════════════════════════════════════════════════ */
+function switchTab(name){
+  if(!MAESTROS[name]) return;
+  if(name !== state.activeTab){
+    state.drafts[state.activeTab] = dkField.value;  // stash the current draft
+    state.activeTab = name;
+  }
+  renderDock();
+}
+
+/* + popover — the not-yet-open maestros */
+function openAddPop(){
+  const pop = $("popAdd");
+  const avail = Object.keys(MAESTROS).filter(n => !state.openTabs.includes(n));
+  if(avail.length === 0){
+    pop.innerHTML = '<div class="pop-title">open another maestro</div>'+
+      '<div class="pop-opt" style="color:var(--ink-3)">All maestros already open</div>';
+  } else {
+    pop.innerHTML = '<div class="pop-title">open another maestro</div>' +
+      avail.map(n => '<button class="pop-opt" data-open="'+n+'">'+n+
+        '<small>'+MAESTROS[n].role+' · '+MAESTROS[n].project+'</small></button>').join("");
+  }
+  pop.classList.add("open");
+  const clear = $("popClear"); if(clear) clear.classList.remove("open");
+  pop.querySelectorAll("[data-open]").forEach(b=>{
+    b.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const n = b.getAttribute("data-open");
+      if(!state.openTabs.includes(n)) state.openTabs.push(n);
+      switchTab(n); closePops();
+    });
+  });
+}
+
+function closePops(){
+  const a = $("popAdd"); if(a) a.classList.remove("open");
+  const c = $("popClear"); if(c) c.classList.remove("open");
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Loop-bar actions (History / Clear) — re-wired each render
+   ════════════════════════════════════════════════════════════════════ */
+function wireLoopActions(){
+  $("histBtn").addEventListener("click", (e)=>{ e.stopPropagation(); toast("recalling earlier messages…"); });
+  const clearBtn = $("clearBtn");
+  const popClear = $("popClear");
+  clearBtn.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    popClear.classList.toggle("open");
+    $("popAdd").classList.remove("open");
+  });
+  popClear.querySelectorAll("[data-clear]").forEach(b=>{
+    b.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const kind = b.getAttribute("data-clear");
+      if(kind === "cancel"){ closePops(); return; }
+      const name = state.activeTab;
+      state.threads[name] = [];
+      renderThread();
+      toast(kind === "view"
+        ? name + " · view cleared (memory kept)"
+        : '<span class="ok">✓</span> ' + name + " · session reset");
+      closePops();
+    });
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Composer send — appends user msg + a canned reply into the SAME tab
+   ════════════════════════════════════════════════════════════════════ */
+function cannedReply(name, userText){
+  const t = userText.toLowerCase();
+  if(name === "dev"){
+    if(t.includes("postgres")) return "Locking in **Postgres**. I'll provision the `railway` addon and wire the ledger migrations. Resuming the workflow → **phase 3/3**.";
+    if(t.includes("sqlite"))   return "Going **SQLite** for now — zero infra, file-backed. I'll note the Postgres migration path in the ADR. Resuming → **phase 3/3**.";
+    return "Got it — folding that into the current run. I'll ping you if it changes the phase plan.";
+  }
+  if(name === "backend") return "Noted. I'm still blocked on the `acceptEdits` approval — once that clears I'll continue the auth refactor.";
+  if(name === "otter")   return "On it. Want me to hand this to a project maestro, or keep it on my desk?";
+  return "Acknowledged.";
+}
+function sendComposer(){
+  const name = state.activeTab;
+  const text = dkField.value.trim();
+  if(!text) return;
+  state.threads[name].push({ who:"user", text });
+  dkField.value = ""; state.drafts[name] = ""; dkField.style.height = "auto"; refreshSend();
+  renderThread(); scrollThreadBottom();
+
+  // typing indicator, then the canned reply into the SAME tab
+  state.threads[name].push({ who:name, typing:true });
+  renderThread(); scrollThreadBottom();
+  setTimeout(()=>{
+    const arr = state.threads[name];
+    if(arr.length && arr[arr.length-1].typing) arr.pop();
+    arr.push({ who:name, text:cannedReply(name, text) });
+    if(state.activeTab === name){ renderThread(); scrollThreadBottom(); }
+  }, 700);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Effective-mode engine — the responsive story.
+     effective = forced  ||  (viewport >= 900 ? "dock" : "drawer")
+   CSS keys purely off app.dataset.effective, so forcing and responding are
+   the same code path. A matchMedia listener follows the viewport until the
+   user forces a mode with the toggle.
+   ════════════════════════════════════════════════════════════════════ */
+const wideMq = window.matchMedia("(min-width: 900px)");
+function applyMode(){
+  const viewportMode = wideMq.matches ? "dock" : "drawer";
+  const eff = state.forced || viewportMode;
+  app.dataset.effective = eff;
+
+  // Toggle highlight reflects the EFFECTIVE mode.
+  document.querySelectorAll(".seg-btn").forEach(b=>{
+    b.classList.toggle("active", b.dataset.force === eff);
+  });
+  // Device-silhouette hint (lives in the chrome, a sibling of .app) — JS-driven.
+  const hd = document.querySelector(".hint-dock");
+  const hw = document.querySelector(".hint-drawer");
+  if(hd) hd.style.display = eff === "dock" ? "block" : "none";
+  if(hw) hw.style.display = eff === "drawer" ? "block" : "none";
+  // Caption note: forced vs following the viewport.
+  $("modeNote").textContent = state.forced
+    ? "Forced: " + (eff === "dock" ? "corner panel (desktop)" : "full drawer (portrait iPad)") + " · tap the other to compare"
+    : "Following your viewport (" + window.innerWidth + "px → " + (eff === "dock" ? "corner panel" : "full drawer") + ")";
+}
+if(wideMq.addEventListener) wideMq.addEventListener("change", ()=>{ if(!state.forced) applyMode(); });
+else if(wideMq.addListener) wideMq.addListener(()=>{ if(!state.forced) applyMode(); });  // Safari <14
+window.addEventListener("resize", ()=>{ if(!state.forced) applyMode(); });
+window.addEventListener("orientationchange", ()=>{ if(!state.forced) applyMode(); });
+
+/* ════════════════════════════════════════════════════════════════════
+   Wire everything up
+   ════════════════════════════════════════════════════════════════════ */
+function init(){
+  renderDock();
+
+  // Force-toggle: tap forces a presentation regardless of viewport.
+  document.querySelectorAll(".seg-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{ state.forced = b.dataset.force; applyMode(); });
+  });
+
+  // Collapsed pill → open the dock.
+  $("dockPill").addEventListener("click", openDock);
+  // Collapse / close-× (glyph is mode-aware via CSS) → back to the pill.
+  $("dkCollapse").addEventListener("click", collapseDock);
+  // Scrim tap (drawer only) → collapse.
+  $("dockScrim").addEventListener("click", collapseDock);
+  // Escape closes popovers first, then the dock.
+  document.addEventListener("keydown", (e)=>{
+    if(e.key !== "Escape") return;
+    if($("popAdd").classList.contains("open") || ($("popClear") && $("popClear").classList.contains("open"))){ closePops(); return; }
+    if(app.classList.contains("dock-open")) collapseDock();
+  });
+
+  // Tabs (delegated — the strip re-renders).
+  dkTabs.addEventListener("click", (e)=>{
+    const t = e.target.closest("[data-tab]");
+    if(t) switchTab(t.getAttribute("data-tab"));
+  });
+  // + add-tab popover.
+  $("dkAdd").addEventListener("click", (e)=>{ e.stopPropagation(); openAddPop(); });
+
+  // Composer.
+  dkSend.addEventListener("click", sendComposer);
+  dkField.addEventListener("input", ()=>{
+    state.drafts[state.activeTab] = dkField.value;
+    dkField.style.height = "auto";
+    dkField.style.height = Math.min(dkField.scrollHeight, 120) + "px";
+    refreshSend();
+  });
+  dkField.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendComposer(); }
+  });
+
+  // Dashboard → dock: any "Chat" button (cards + idle strip) opens the dock
+  // focused on that maestro. Agents/Info/vault/bell/nav → toasts.
+  document.addEventListener("click", (e)=>{
+    const chat = e.target.closest("[data-chat]");
+    if(chat){ openDockFor(chat.getAttribute("data-chat")); return; }
+    const tt = e.target.closest("[data-toast]");
+    if(tt){ toast(tt.getAttribute("data-toast")); return; }
+  });
+  $("bellBtn").addEventListener("click", ()=> toast("1 pending vault approval — open the dock's vault review"));
+  document.querySelectorAll("[data-nav]").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      if(b.classList.contains("is-active")) return;
+      toast(b.getAttribute("data-nav") + " · coming soon");
+    });
+  });
+
+  // "Waiting on me" filter — hide non-awaiting active cards + idle strips.
+  $("awaitingFilter").addEventListener("click", (e)=>{
+    const chip = e.currentTarget;
+    const on = $("shell").classList.toggle("show-awaiting");
+    chip.classList.toggle("is-pressed", on);
+    chip.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+
+  // Outside tap closes any open popover.
+  document.addEventListener("click", (e)=>{
+    if(e.target.closest(".pop") || e.target.closest("#dkAdd") || e.target.closest("#clearBtn")) return;
+    closePops();
+  });
+
+  // First paint: start from the viewport (genuinely responsive), un-forced.
+  applyMode();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Needs-you lane · mockup (051)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Nunito+Sans:wght@400;600;700;800&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#faf7ed; --paper-2:#f2ecd8; --paper-soft:#f6f1de; --paper-shadow:rgba(60,45,25,.08);
+  --ink:#1f1812; --ink-2:#3d332a; --ink-3:#6f6356; --ink-4:#a79a89;
+  --rule:#1f1812; --rule-soft:#d9cfb6; --rule-faint:#e8dfc8;
+  --accent:#c8382a; --accent-soft:#f6dcd6; --amber:#b7741a; --amber-soft:#f4e4c8;
+  --honey:#e0a726; --honey-soft:#f9ecc6; --ochre:#8a6a1a;
+  --sage:#4d8a3a; --sage-soft:#d7e6c5; --vault:#1f6a5c; --vault-soft:#cfe3de; --vault-softer:#e5f0ec;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
+  --font-display:"Nunito","Inter",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper-2);color:var(--ink);font-family:var(--font-sans);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased;padding:26px 16px 60px}
+
+/* toolbar */
+.toolbar{max-width:520px;margin:0 auto 20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.toolbar h1{font-family:var(--font-display);font-size:15px;margin:0 auto 0 0;letter-spacing:-.2px}
+.toolbar h1 small{font-family:var(--font-mono);font-weight:500;color:var(--ink-3);font-size:10px;letter-spacing:1px;text-transform:uppercase;display:block;margin-top:2px}
+.tgl{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;padding:6px 11px;border:1.5px solid var(--rule);border-radius:999px;background:var(--paper);color:var(--ink);cursor:pointer}
+.tgl[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+
+/* the panel */
+.panel{max-width:520px;margin:0 auto;background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
+.panel__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
+.panel__glyph{color:var(--accent);font-size:14px}
+.panel__title{font-family:var(--font-display);font-weight:800;font-size:14px}
+.panel__count{margin-left:auto;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:1px;background:var(--accent);color:#fff;padding:2px 9px;border-radius:999px}
+.panel__body{padding:12px}
+
+/* one item */
+.nyi{position:relative;background:var(--paper);border:1px solid var(--rule-soft);border-left-width:4px;border-radius:12px;padding:11px 12px 12px;margin-bottom:10px;transition:opacity .4s,transform .4s}
+.nyi:last-child{margin-bottom:0}
+.nyi--errored{border-left-color:var(--accent)}
+.nyi--decision{border-left-color:var(--honey)}
+.nyi--mode{border-left-color:var(--amber)}
+.nyi--vault{border-left-color:var(--vault)}
+.nyi.resolving{opacity:0;transform:translateX(14px)}
+
+.nyi__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer;border-radius:7px;padding:2px 4px;margin:-2px -4px 8px}
+.state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.state-dot--active{background:var(--sage)} .state-dot--idle{background:var(--ink-4)}
+.state-dot--error{background:var(--accent)} .state-dot--gated{background:var(--honey)}
+.nyi__entity{font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--ink)}
+.nyi__kind{font-family:var(--font-mono);font-size:8.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft)}
+.nyi--errored .nyi__kind{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft)}
+.nyi--vault .nyi__kind{color:var(--vault);border-color:var(--vault-soft);background:var(--vault-softer)}
+.nyi__open{margin-left:auto;font-family:var(--font-mono);font-size:9px;color:var(--ink-4);opacity:0;transition:opacity .15s}
+.nyi__head:hover .nyi__open{opacity:1}
+.nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
+.nyi__summary b{color:var(--ink);font-weight:700}
+
+.nyi__actions{display:flex;align-items:center;gap:7px}
+.nyi__reply{flex:1;min-width:0;font-family:var(--font-mono);font-size:11px;padding:6px 9px;border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
+.nyi__reply::placeholder{color:var(--ink-4)}
+.btn{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.4px;padding:6px 12px;border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;white-space:nowrap}
+.btn:active{transform:translateY(1px)}
+.btn--go{background:var(--ink);color:var(--paper)}
+.btn--allow{border-color:var(--sage);color:var(--sage)}
+.btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
+.btn--vault{border-color:var(--vault);color:var(--vault)}
+.btn--reset{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.nyi__hint{font-family:var(--font-mono);font-size:9px;color:var(--ink-4);margin:7px 0 0;display:flex;align-items:center;gap:5px}
+
+/* calm empty state */
+.calm{display:none;text-align:center;padding:34px 16px}
+.calm__check{font-size:26px;color:var(--sage)}
+.calm__line{font-family:var(--font-display);font-weight:800;font-size:15px;margin:8px 0 2px}
+.calm__sub{font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.5px}
+
+/* annotation mode */
+body.annot .nyi__head{outline:2px dashed var(--sage);outline-offset:1px}
+body.annot .nyi__actions{outline:2px dashed var(--amber);outline-offset:3px;border-radius:8px}
+body.annot .nyi__open{opacity:1}
+.annot-key{display:none;max-width:520px;margin:14px auto 0;font-family:var(--font-mono);font-size:10px;color:var(--ink-3);gap:16px}
+body.annot .annot-key{display:flex;justify-content:center}
+.annot-key b{color:var(--ink)}
+.swatch{display:inline-block;width:22px;border-top:2px dashed;vertical-align:middle;margin-right:5px}
+.sw-head{border-color:var(--sage)} .sw-act{border-color:var(--amber)}
+
+.note{max-width:520px;margin:22px auto 0;font-size:11.5px;color:var(--ink-3);line-height:1.55}
+.note code{font-family:var(--font-mono);font-size:10.5px;background:var(--paper);border:1px solid var(--rule-faint);border-radius:4px;padding:1px 4px}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Needs-you lane<small>ticket 051 · mockup</small></h1>
+  <button class="tgl" id="t-empty" aria-pressed="false" onclick="toggleEmpty()">Empty state</button>
+  <button class="tgl" id="t-annot" aria-pressed="false" onclick="toggleAnnot()">Show zones</button>
+</div>
+
+<section class="panel" id="panel">
+  <div class="panel__head">
+    <span class="panel__glyph">◆</span>
+    <span class="panel__title">Needs you</span>
+    <span class="panel__count" id="count">4</span>
+  </div>
+
+  <div class="panel__body" id="loud">
+
+    <!-- errored (P0) -->
+    <article class="nyi nyi--errored">
+      <header class="nyi__head" title="open otter.frontend's Work tab">
+        <span class="state-dot state-dot--error"></span>
+        <span class="nyi__entity">otter.frontend</span>
+        <span class="nyi__kind">errored</span>
+        <span class="nyi__open">open tab ↗</span>
+        <p class="nyi__summary">Loop <b>errored</b> — reset to recover.</p>
+      </header>
+      <div class="nyi__actions">
+        <button class="btn btn--reset" onclick="resolve(this)">↻ Reset session</button>
+        <span class="nyi__hint">destructive · confirms first</span>
+      </div>
+    </article>
+
+    <!-- decision (P0) -->
+    <article class="nyi nyi--decision">
+      <header class="nyi__head" title="open otter.backend's Work tab">
+        <span class="state-dot state-dot--idle"></span>
+        <span class="nyi__entity">otter.backend</span>
+        <span class="nyi__kind">decision</span>
+        <span class="nyi__open">open tab ↗</span>
+        <p class="nyi__summary">Which auth library should the API use — <b>Auth.js</b> or <b>Lucia</b>?</p>
+      </header>
+      <div class="nyi__actions">
+        <input class="nyi__reply" placeholder="Reply to otter.backend…">
+        <button class="btn btn--go" onclick="resolve(this)">Send</button>
+      </div>
+    </article>
+
+    <!-- mode (P1) -->
+    <article class="nyi nyi--mode">
+      <header class="nyi__head" title="open otter.backend's Work tab">
+        <span class="state-dot state-dot--gated"></span>
+        <span class="nyi__entity">otter.backend</span>
+        <span class="nyi__kind">mode</span>
+        <span class="nyi__open">open tab ↗</span>
+        <p class="nyi__summary">Requests <b>bypassPermissions</b> — “need to run DB migrations outside the worktree”.</p>
+      </header>
+      <div class="nyi__actions">
+        <button class="btn btn--allow" onclick="resolve(this)">Allow</button>
+        <button class="btn btn--deny" onclick="resolve(this)">Deny</button>
+      </div>
+    </article>
+
+    <!-- vault (P2) -->
+    <article class="nyi nyi--vault">
+      <header class="nyi__head" title="open otter.payments' Work tab">
+        <span class="state-dot state-dot--active"></span>
+        <span class="nyi__entity">otter.payments</span>
+        <span class="nyi__kind">vault</span>
+        <span class="nyi__open">open tab ↗</span>
+        <p class="nyi__summary"><b>$40.00</b> → Vercel · “Pro plan, monthly”.</p>
+      </header>
+      <div class="nyi__actions">
+        <button class="btn btn--vault" onclick="resolve(this)">Approve $40.00</button>
+        <button class="btn btn--deny" onclick="resolve(this)">Deny</button>
+      </div>
+    </article>
+
+  </div>
+
+  <div class="calm" id="calm">
+    <div class="calm__check">✓</div>
+    <div class="calm__line">all clear</div>
+    <div class="calm__sub">3 loops running · nothing needs you</div>
+  </div>
+</section>
+
+<div class="annot-key">
+  <span><span class="swatch sw-head"></span><b>header</b> = open the Work-view tab (052/053)</span>
+  <span><span class="swatch sw-act"></span><b>actions</b> = answer in place</span>
+</div>
+
+<p class="note">
+Matched to Hive's live paper theme (<code>landing.css</code> tokens). One row per kind, priority-ordered
+(<b>errored</b> · <b>decision</b> · mode · vault). Each row is <b>two tap-targets</b>: the header opens the
+entity's Work tab; the action controls resolve it in place. Actions POST to the existing per-kind endpoints
+(<code>/api/decision/…/reply</code>, <code>/api/mode-request/…</code>, <code>/api/vault-action/…</code>,
+<code>/api/command "/reset …"</code>). Tap <b>Show zones</b> to see the two targets; tap an action to watch a
+row self-heal away; tap <b>Empty state</b> for the calm case.
+</p>
+
+<script>
+let empty=false, annot=false;
+function refreshCount(){
+  const n=document.querySelectorAll('#loud .nyi:not(.resolving)').length;
+  document.getElementById('count').textContent=n;
+  if(n===0){ showCalm(true); }
+}
+function resolve(btn){
+  const item=btn.closest('.nyi');
+  item.classList.add('resolving');
+  setTimeout(()=>{ item.style.display='none'; refreshCount(); }, 420);
+}
+function showCalm(on){
+  document.getElementById('loud').style.display=on?'none':'';
+  document.getElementById('calm').style.display=on?'block':'none';
+  document.getElementById('count').style.visibility=on?'hidden':'';
+}
+function toggleEmpty(){ empty=!empty; document.getElementById('t-empty').setAttribute('aria-pressed',empty); showCalm(empty); }
+function toggleAnnot(){ annot=!annot; document.getElementById('t-annot').setAttribute('aria-pressed',annot); document.body.classList.toggle('annot',annot); }
+</script>
+</body>
+</html>

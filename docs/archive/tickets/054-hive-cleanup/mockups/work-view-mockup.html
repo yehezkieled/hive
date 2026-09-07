@@ -1,0 +1,1324 @@
+<!--
+  Hive · Work-view mockup (ticket 053) — "Delegator's Desk"
+  ---------------------------------------------------------
+  Single self-contained file. All CSS + JS inline. Vanilla JS only.
+  The one external resource is the Google Fonts <link>; everything
+  degrades to system fonts if it fails.
+
+  What this prototype is FOR: deciding how the Work view relates to the
+  Stack home. Two options, switchable live via the A/B toggle up top:
+
+    A — one page, two client-side views. Home <-> Work is an instant
+        client-side toggle. The live stream + open tabs + drafts survive.
+    B — two routes (/ and /work). Every transition is a full page load:
+        white flash, stream reconnects, in-memory state (extra tabs,
+        unsent drafts) is dropped.
+
+  Flip the toggle, open a couple of tabs, type a draft, bounce Home and
+  back — feel what B costs.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Nunito+Sans:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   Tokens — lifted verbatim from Hive's real landing.css (Paper Ops)
+   ═══════════════════════════════════════════════════════════════════ */
+:root{
+  --paper:#faf7ed; --paper-2:#f2ecd8; --paper-soft:#f6f1de; --paper-deep:#ece4cc;
+  --paper-shadow:rgba(60,45,25,.08);
+  --ink:#1f1812; --ink-2:#3d332a; --ink-3:#6f6356; --ink-4:#a79a89;
+  --rule:#1f1812; --rule-soft:#d9cfb6; --rule-faint:#e8dfc8;
+  --accent:#c8382a; --accent-soft:#f6dcd6;
+  --amber:#b7741a; --amber-soft:#f4e4c8;
+  --honey:#e0a726; --honey-soft:#f9ecc6; --ochre:#8a6a1a;
+  --sage:#4d8a3a; --sage-soft:#d7e6c5;
+  --vault:#1f6a5c; --vault-soft:#cfe3de; --vault-softer:#e5f0ec;
+
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
+  --font-display:"Nunito","Inter",system-ui,sans-serif;
+
+  --radius:14px;
+  --shadow-card:0 1px 0 var(--rule-faint),0 6px 18px -12px var(--paper-shadow);
+}
+
+*{ box-sizing:border-box; }
+button,a,.card,.tab,.seg-btn,.hero-item,.chip{
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+html,body{ margin:0; padding:0; height:100%; }
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:var(--font-sans); font-size:13px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  /* faint honeycomb wash so it never reads as flat white */
+  background-image:radial-gradient(var(--rule-faint) .5px,transparent .5px);
+  background-size:22px 22px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   App shell — mirrors Hive's .shell (100dvh, overflow hidden, column)
+   ═══════════════════════════════════════════════════════════════════ */
+.shell{
+  display:flex; flex-direction:column;
+  height:100vh; height:100dvh;
+  position:relative; overflow:hidden;
+}
+
+/* ─── Header chrome (always visible) ─────────────────────────────── */
+.chrome{
+  flex:0 0 auto; background:var(--paper-soft);
+  border-bottom:1.5px solid var(--rule);
+  /* reserve the iPad notch/status-bar inset in the installed standalone PWA
+     (ticket 043); harmless 9px in a normal Safari tab where the inset is 0 */
+  padding:max(env(safe-area-inset-top),9px) 14px 8px;
+  z-index:40;
+}
+.chrome-top{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+.brand{ display:flex; align-items:center; gap:9px; margin-right:auto; }
+.brand svg{ display:block; width:26px; height:26px; }
+.brand-title{ font-family:var(--font-display); font-weight:900; font-size:15px; letter-spacing:-.2px; color:var(--ink); line-height:1; }
+.brand-sub{ font-family:var(--font-mono); font-size:9.5px; color:var(--ink-3); letter-spacing:.3px; margin-top:3px; text-transform:uppercase; }
+
+.chrome-controls{ display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+
+/* Segmented A/B control */
+.seg{
+  display:inline-flex; border:1.5px solid var(--rule); border-radius:999px;
+  overflow:hidden; background:var(--paper);
+}
+.seg-btn{
+  appearance:none; border:0; background:transparent; cursor:pointer;
+  font-family:var(--font-mono); font-size:11px; font-weight:600;
+  color:var(--ink-3); padding:7px 12px; min-height:34px; line-height:1;
+  transition:background .16s ease,color .16s ease;
+}
+.seg-btn+.seg-btn{ border-left:1.5px solid var(--rule); }
+.seg-btn.active{ background:var(--ink); color:var(--paper); }
+.seg-btn:active{ transform:translateY(1px); }
+
+.quota-chip{
+  display:inline-flex; align-items:center; gap:6px;
+  font-family:var(--font-mono); font-size:10.5px; color:var(--ink-2);
+  background:var(--paper); border:1.5px solid var(--rule-soft);
+  border-radius:999px; padding:6px 10px; min-height:34px; white-space:nowrap;
+}
+.quota-chip .g{ color:var(--sage); }
+
+.push-btn{
+  appearance:none; cursor:pointer; min-height:34px;
+  font-family:var(--font-sans); font-weight:700; font-size:11.5px;
+  color:var(--ink); background:var(--honey-soft);
+  border:1.5px solid var(--amber); border-radius:999px;
+  padding:6px 12px; line-height:1.1; transition:transform .12s ease,box-shadow .12s ease;
+}
+.push-btn:hover{ transform:translateY(-1px); box-shadow:0 3px 8px -4px var(--paper-shadow); }
+.push-btn:active{ transform:translateY(1px); }
+
+.chrome-caption{
+  margin-top:8px; font-size:12px; color:var(--ink-2);
+  display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+}
+.chrome-caption .mode-tag{
+  font-family:var(--font-mono); font-weight:600; font-size:10.5px;
+  padding:2px 7px; border-radius:6px; letter-spacing:.3px;
+}
+.mode-tag.A{ background:var(--sage-soft); color:#2c5a20; }
+.mode-tag.B{ background:var(--accent-soft); color:#8f221a; }
+.chrome-legend{
+  margin-top:5px; font-family:var(--font-mono); font-size:9.5px; color:var(--ink-4);
+  letter-spacing:.2px; display:flex; gap:12px; flex-wrap:wrap;
+}
+.chrome-legend b{ font-weight:600; }
+.lg-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Stage — holds BOTH panels stacked; data-view drives which shows.
+   In mode A the panels slide/fade. In mode B .no-anim kills the
+   transition and the reconnect overlay covers an instant swap.
+   ═══════════════════════════════════════════════════════════════════ */
+.stage{ position:relative; flex:1 1 auto; overflow:hidden; min-height:0; }
+.panel{
+  position:absolute; inset:0; display:flex; flex-direction:column; min-height:0;
+  transition:transform .42s cubic-bezier(.22,.61,.36,1),opacity .30s ease;
+  will-change:transform,opacity;
+}
+.stage.no-anim .panel{ transition:none !important; }
+
+/* home visible by default; work parked to the right */
+.panel-work{ transform:translateX(5%); opacity:0; pointer-events:none; }
+.stage[data-view="work"] .panel-home{ transform:translateX(-5%); opacity:0; pointer-events:none; }
+.stage[data-view="work"] .panel-work{ transform:translateX(0); opacity:1; pointer-events:auto; }
+
+.scroll{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; min-height:0; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   STACK HOME
+   ═══════════════════════════════════════════════════════════════════ */
+.home-inner{ padding:16px 16px 24px; max-width:900px; margin:0 auto; }
+
+.section-label{
+  font-family:var(--font-mono); font-size:10px; letter-spacing:1.2px;
+  text-transform:uppercase; color:var(--ink-4); margin:2px 2px 9px;
+  display:flex; align-items:center; gap:8px;
+}
+.section-label::after{ content:""; flex:1; height:1px; background:var(--rule-faint); }
+
+/* ── Needs-you hero lane ─────────────────────────────────────────── */
+.hero{
+  border:1.5px solid var(--rule); border-radius:var(--radius);
+  background:var(--paper-soft); overflow:hidden; margin-bottom:22px;
+  box-shadow:var(--shadow-card);
+}
+.hero.loud{ box-shadow:0 0 0 1.5px var(--accent),var(--shadow-card); }
+.hero-head{
+  display:flex; align-items:center; gap:10px;
+  padding:11px 14px; border-bottom:1.5px dashed var(--rule-soft);
+  background:var(--paper-deep);
+}
+.hero-title{ font-family:var(--font-display); font-weight:800; font-size:15px; letter-spacing:-.2px; }
+.hero-count{
+  font-family:var(--font-mono); font-size:11px; font-weight:600;
+  color:var(--paper); background:var(--accent); border-radius:999px;
+  padding:2px 8px; min-width:22px; text-align:center;
+}
+.hero-count.zero{ background:var(--sage); }
+.hero-demo{
+  margin-left:auto; appearance:none; cursor:pointer; background:transparent;
+  border:1.2px solid var(--rule-soft); border-radius:8px; color:var(--ink-3);
+  font-family:var(--font-mono); font-size:10px; padding:5px 9px; min-height:30px;
+}
+.hero-demo:active{ transform:translateY(1px); }
+
+.hero-body{ padding:10px; display:flex; flex-direction:column; gap:9px; }
+
+.hero-item{
+  display:flex; gap:11px; align-items:flex-start;
+  border:1.5px solid var(--rule-soft); border-left-width:4px;
+  border-radius:11px; background:var(--paper); padding:11px 12px;
+  transition:opacity .3s ease,transform .3s ease,height .3s ease;
+}
+.hero-item.decision{ border-left-color:var(--accent); }
+.hero-item.mode{ border-left-color:var(--amber); }
+.hero-item.vault{ border-left-color:var(--vault); }
+.hero-item.leaving{ opacity:0; transform:translateX(-14px); }
+
+.hi-kind{
+  font-family:var(--font-mono); font-size:9px; font-weight:600; letter-spacing:.8px;
+  text-transform:uppercase; padding:3px 6px; border-radius:6px; white-space:nowrap;
+  flex:0 0 auto; margin-top:1px;
+}
+.decision .hi-kind{ background:var(--accent-soft); color:#8f221a; }
+.mode .hi-kind{ background:var(--amber-soft); color:#7c4d10; }
+.vault .hi-kind{ background:var(--vault-softer); color:var(--vault); }
+
+.hi-main{ flex:1 1 auto; min-width:0; }
+.hi-from{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-3); margin-bottom:2px; }
+.hi-from b{ color:var(--ink); font-weight:600; }
+.hi-text{ font-size:13px; color:var(--ink); line-height:1.4; }
+.hi-text code{ font-family:var(--font-mono); font-size:11.5px; background:var(--paper-deep); padding:1px 4px; border-radius:4px; }
+.hi-actions{ display:flex; gap:7px; margin-top:9px; flex-wrap:wrap; }
+
+.btn{
+  appearance:none; cursor:pointer; font-family:var(--font-sans);
+  font-weight:700; font-size:12px; border-radius:9px; padding:8px 13px;
+  min-height:40px; line-height:1; border:1.5px solid var(--rule);
+  transition:transform .12s ease,box-shadow .12s ease,background .14s ease;
+  display:inline-flex; align-items:center; gap:6px;
+}
+.btn:hover{ transform:translateY(-1px); box-shadow:0 3px 8px -5px var(--paper-shadow); }
+.btn:active{ transform:translateY(1px); box-shadow:none; }
+.btn-primary{ background:var(--honey); color:var(--ink); border-color:var(--ochre); }
+.btn-ghost{ background:var(--paper); color:var(--ink-2); }
+.btn-vault{ background:var(--vault); color:#eafff9; border-color:#12463c; }
+.btn-danger{ background:var(--paper); color:var(--accent); border-color:var(--accent); }
+.btn-sm{ font-size:11px; padding:6px 10px; min-height:34px; border-radius:8px; }
+
+/* Calm empty state */
+.hero-calm{
+  display:flex; align-items:center; gap:12px; padding:20px 16px;
+  color:var(--ink-2);
+}
+.hero-calm .check{
+  width:34px; height:34px; border-radius:50%; flex:0 0 auto;
+  background:var(--sage-soft); color:#2c5a20; border:1.5px solid var(--sage);
+  display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800;
+}
+.hero-calm-main b{ font-family:var(--font-display); font-size:15px; }
+.hero-calm-sub{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); margin-top:2px; }
+
+/* ── Project-glance cards ────────────────────────────────────────── */
+.cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-bottom:22px; }
+.card{
+  text-align:left; appearance:none; cursor:pointer; width:100%;
+  border:1.5px solid var(--rule); border-radius:var(--radius);
+  background:var(--paper-soft); padding:13px 14px 12px;
+  transition:transform .14s ease,box-shadow .14s ease;
+  box-shadow:var(--shadow-card); display:flex; flex-direction:column; gap:9px;
+}
+.card:hover{ transform:translateY(-2px); box-shadow:0 8px 20px -14px var(--paper-shadow),var(--shadow-card); }
+.card:active{ transform:translateY(0); }
+.card.needsyou{ box-shadow:0 0 0 1.5px var(--accent),var(--shadow-card); }
+.card-top{ display:flex; align-items:flex-start; gap:9px; }
+.card-name{ font-family:var(--font-display); font-weight:800; font-size:16px; letter-spacing:-.3px; }
+.card-role{ font-family:var(--font-mono); font-size:9.5px; color:var(--ink-3); text-transform:uppercase; letter-spacing:.4px; margin-top:2px; }
+.status-dot{ width:10px; height:10px; border-radius:50%; flex:0 0 auto; margin-top:5px; margin-left:auto; }
+.dot-running{ background:var(--sage); box-shadow:0 0 0 3px var(--sage-soft); }
+.dot-idle{ background:var(--ink-4); box-shadow:0 0 0 3px var(--paper-deep); }
+.dot-blocked{ background:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); animation:pulse 1.8s ease-in-out infinite; }
+@keyframes pulse{ 0%,100%{ box-shadow:0 0 0 3px var(--accent-soft);} 50%{ box-shadow:0 0 0 6px transparent;} }
+
+.card-status{
+  display:inline-flex; align-items:center; gap:6px; align-self:flex-start;
+  font-family:var(--font-mono); font-size:10.5px; padding:3px 8px; border-radius:7px;
+}
+.st-running{ background:var(--sage-soft); color:#2c5a20; }
+.st-idle{ background:var(--paper-deep); color:var(--ink-3); }
+.st-blocked{ background:var(--accent-soft); color:#8f221a; font-weight:600; }
+.card-meta{ font-size:12px; color:var(--ink-2); }
+.card-meta code{ font-family:var(--font-mono); font-size:11px; color:var(--ink-3); }
+
+/* mini phase progress */
+.phasebar{ height:6px; border-radius:999px; background:var(--paper-deep); overflow:hidden; border:1px solid var(--rule-faint); }
+.phasebar > span{ display:block; height:100%; background:var(--sage); border-radius:999px; }
+.card-open{ font-family:var(--font-mono); font-size:10px; color:var(--ink-4); align-self:flex-end; margin-top:-4px; }
+
+/* ── Delegate bar (pinned bottom of home) ────────────────────────── */
+.delegate{
+  flex:0 0 auto; border-top:1.5px solid var(--rule); background:var(--paper-soft);
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+}
+.delegate-inner{ max-width:900px; margin:0 auto; display:flex; align-items:center; gap:9px; }
+.deleg-target{
+  appearance:none; cursor:pointer; flex:0 0 auto;
+  display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  font-family:var(--font-mono); font-size:11.5px; font-weight:600; color:var(--ink);
+  background:var(--honey-soft); border:1.5px solid var(--amber); border-radius:999px;
+  padding:8px 12px; min-height:44px;
+}
+.deleg-target .caret{ color:var(--amber); font-size:9px; }
+.deleg-target:active{ transform:translateY(1px); }
+.deleg-field{
+  flex:1 1 auto; min-width:0; font-family:var(--font-sans); font-size:13.5px; color:var(--ink);
+  background:var(--paper); border:1.5px solid var(--rule-soft); border-radius:11px;
+  padding:11px 13px; min-height:44px;
+}
+.deleg-field:focus{ outline:none; border-color:var(--amber); box-shadow:0 0 0 2px var(--honey-soft); }
+.deleg-send{
+  flex:0 0 auto; appearance:none; cursor:pointer; width:44px; height:44px; border-radius:11px;
+  background:var(--honey); color:var(--ink); border:1.5px solid var(--ochre);
+  font-size:17px; display:flex; align-items:center; justify-content:center;
+  transition:transform .12s ease;
+}
+.deleg-send:active{ transform:translateY(1px); }
+
+/* about note */
+.about{ margin-top:6px; border:1.5px dashed var(--rule-soft); border-radius:12px; background:var(--paper-soft); }
+.about summary{
+  cursor:pointer; list-style:none; padding:11px 14px; font-family:var(--font-mono);
+  font-size:11px; color:var(--ink-3); letter-spacing:.3px; display:flex; align-items:center; gap:8px;
+}
+.about summary::-webkit-details-marker{ display:none; }
+.about summary::before{ content:"▸"; color:var(--ink-4); transition:transform .18s ease; }
+.about[open] summary::before{ transform:rotate(90deg); }
+.about-body{ padding:0 15px 14px; font-size:12.5px; color:var(--ink-2); line-height:1.55; }
+.about-body b{ color:var(--ink); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   WORK VIEW
+   ═══════════════════════════════════════════════════════════════════ */
+.work-top{ flex:0 0 auto; background:var(--paper-soft); border-bottom:1.5px solid var(--rule); }
+.tabbar{ display:flex; align-items:stretch; gap:0; padding:6px 8px 0; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.tabbar::-webkit-scrollbar{ display:none; }
+
+.back-btn{
+  appearance:none; cursor:pointer; flex:0 0 auto; align-self:center;
+  width:38px; height:38px; margin-right:4px; border-radius:9px;
+  background:var(--paper); border:1.5px solid var(--rule-soft); color:var(--ink-2);
+  font-size:17px; display:flex; align-items:center; justify-content:center;
+}
+.back-btn:active{ transform:translateY(1px); }
+
+.tab{
+  appearance:none; cursor:pointer; flex:0 0 auto; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:7px;
+  font-family:var(--font-display); font-weight:700; font-size:13.5px; color:var(--ink-3);
+  background:var(--paper-deep); border:1.5px solid var(--rule-soft); border-bottom:none;
+  border-radius:11px 11px 0 0; padding:9px 14px 10px; min-height:42px;
+  margin-right:3px; transition:background .14s ease,color .14s ease;
+  position:relative; top:1.5px;
+}
+.tab .tdot{ width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+.tab.active{
+  background:var(--paper); color:var(--ink); border-color:var(--rule);
+  border-bottom:1.5px solid var(--paper); z-index:2;
+}
+.tab.active::after{ /* bridge over the header border */
+  content:""; position:absolute; left:0; right:0; bottom:-1.5px; height:2px; background:var(--paper);
+}
+.tab-add{
+  appearance:none; cursor:pointer; flex:0 0 auto; align-self:center;
+  width:34px; height:34px; border-radius:9px; margin-left:2px;
+  background:transparent; border:1.5px dashed var(--rule-soft); color:var(--ink-3);
+  font-size:18px; display:flex; align-items:center; justify-content:center;
+}
+.tab-add:active{ transform:translateY(1px); }
+
+/* loop-status header under the tabs */
+.loopbar{
+  display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+  padding:9px 14px; border-top:1.5px solid var(--rule); background:var(--paper);
+  font-family:var(--font-mono); font-size:11px; color:var(--ink-2);
+}
+.live{ display:inline-flex; align-items:center; gap:5px; color:var(--sage); font-weight:600; }
+.live .dot{ width:7px; height:7px; border-radius:50%; background:var(--sage); animation:blink 2s ease-in-out infinite; }
+.live.reconn{ color:var(--amber); }
+.live.reconn .dot{ background:var(--amber); animation:blink .6s ease-in-out infinite; }
+.live.just .dot{ animation:reping .7s ease; }
+@keyframes blink{ 0%,100%{ opacity:1;} 50%{ opacity:.35;} }
+@keyframes reping{ 0%{ box-shadow:0 0 0 0 var(--sage);} 100%{ box-shadow:0 0 0 7px transparent;} }
+.loop-sep{ color:var(--ink-4); }
+/* "state you'd lose" tell (grafted from mockup B): a live count of the
+   in-memory messages added this session. A Mode-B page reload drops it to 0. */
+.mem-chip{ color:var(--vault); font-weight:600; }
+.mem-chip .diamond{ color:var(--honey); }
+.mem-chip.flash{ animation:memflash .5s ease; }
+@keyframes memflash{ 0%{ color:var(--accent);} 100%{ color:var(--vault);} }
+.loop-state{ font-weight:600; }
+.loop-state.running{ color:#2c5a20; }
+.loop-state.idle{ color:var(--ink-3); }
+.loop-state.blocked{ color:var(--accent); }
+
+.loop-actions{ margin-left:auto; display:flex; gap:7px; position:relative; }
+
+/* thread */
+.thread{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch; min-height:0; padding:16px 14px 8px; }
+.thread-inner{ max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+
+.msg{ display:flex; gap:9px; align-items:flex-end; }
+.msg.user{ flex-direction:row-reverse; }
+.avatar{
+  width:28px; height:28px; border-radius:9px; flex:0 0 auto;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-display); font-weight:800; font-size:12px;
+  background:var(--honey); color:var(--ink); border:1.5px solid var(--ochre);
+}
+.bubble{
+  max-width:82%; border-radius:13px; padding:10px 13px; font-size:13px; line-height:1.5;
+  border:1.5px solid var(--rule-soft); background:var(--paper-soft); color:var(--ink);
+}
+.msg.user .bubble{ background:var(--honey-soft); border-color:var(--amber); }
+.bubble.typing{ display:inline-flex; gap:4px; padding:12px 14px; }
+.bubble.typing span{ width:6px; height:6px; border-radius:50%; background:var(--ink-4); animation:td 1.1s ease-in-out infinite; }
+.bubble.typing span:nth-child(2){ animation-delay:.18s; } .bubble.typing span:nth-child(3){ animation-delay:.36s; }
+@keyframes td{ 0%,100%{ transform:translateY(0); opacity:.4;} 50%{ transform:translateY(-3px); opacity:1;} }
+
+/* markdown inside bubbles */
+.bubble .md-p{ margin:0 0 8px; } .bubble .md-p:last-child{ margin-bottom:0; }
+.bubble .md-h{ font-family:var(--font-display); margin:2px 0 7px; line-height:1.25; }
+.bubble h1.md-h{ font-size:16px; } .bubble h2.md-h{ font-size:15px; } .bubble h3.md-h{ font-size:13.5px; }
+.bubble strong{ font-weight:800; } .bubble em{ font-style:italic; color:var(--ink-2); }
+.bubble code{ font-family:var(--font-mono); font-size:11.5px; background:var(--paper-deep); padding:1px 4px; border-radius:4px; }
+.bubble .code{ font-family:var(--font-mono); font-size:11.5px; background:var(--ink); color:var(--paper); padding:9px 11px; border-radius:9px; overflow-x:auto; margin:6px 0; }
+.bubble .code code{ background:transparent; padding:0; color:inherit; }
+.bubble .md-ul,.bubble .md-ol{ margin:4px 0 8px; padding-left:19px; } .bubble li{ margin:2px 0; }
+.md-table-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; margin:6px 0; border:1.5px solid var(--rule-soft); border-radius:9px; }
+.md-table{ border-collapse:collapse; width:100%; font-size:12px; min-width:340px; }
+.md-table th,.md-table td{ text-align:left; padding:6px 10px; border-bottom:1px solid var(--rule-faint); white-space:nowrap; }
+.md-table th{ font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-3); background:var(--paper-deep); }
+.md-table tr:last-child td{ border-bottom:none; }
+
+/* composer */
+.composer{
+  flex:0 0 auto; border-top:1.5px solid var(--rule); background:var(--paper-soft);
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+}
+.composer-inner{ max-width:760px; margin:0 auto; display:flex; align-items:flex-end; gap:9px; }
+.comp-field{
+  flex:1 1 auto; min-width:0; resize:none; font-family:var(--font-sans); font-size:13.5px; color:var(--ink);
+  background:var(--paper); border:1.5px solid var(--rule-soft); border-radius:12px;
+  padding:11px 13px; min-height:44px; max-height:120px; line-height:1.4;
+}
+.comp-field:focus{ outline:none; border-color:var(--honey); box-shadow:0 0 0 2px var(--honey-soft); }
+.comp-send{
+  flex:0 0 auto; appearance:none; cursor:pointer; height:44px; padding:0 16px; border-radius:12px;
+  background:var(--honey); color:var(--ink); border:1.5px solid var(--ochre);
+  font-family:var(--font-display); font-weight:800; font-size:13px;
+  display:flex; align-items:center; gap:6px; transition:transform .12s ease;
+}
+.comp-send:active{ transform:translateY(1px); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Anchored popovers (Clear / add-tab) — NOT full menus
+   ═══════════════════════════════════════════════════════════════════ */
+.pop{
+  position:absolute; z-index:60; min-width:214px;
+  background:var(--paper); border:1.5px solid var(--rule); border-radius:12px;
+  box-shadow:0 12px 30px -14px rgba(40,30,15,.4); padding:6px; display:none;
+}
+.pop.open{ display:block; animation:popin .14s ease; }
+@keyframes popin{ from{ opacity:0; transform:translateY(-4px);} to{ opacity:1; transform:translateY(0);} }
+.pop-clear{ right:0; top:calc(100% + 7px); }
+.pop-add{ left:0; top:calc(100% + 7px); }
+.pop-title{ font-family:var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--ink-4); padding:6px 8px 4px; }
+.pop-opt{
+  display:block; width:100%; text-align:left; appearance:none; cursor:pointer;
+  background:transparent; border:0; border-radius:8px; padding:9px 9px; min-height:42px;
+  font-family:var(--font-sans); font-size:12.5px; color:var(--ink);
+}
+.pop-opt:hover{ background:var(--paper-soft); }
+.pop-opt:active{ background:var(--paper-deep); }
+.pop-opt small{ display:block; font-family:var(--font-mono); font-size:9.5px; color:var(--ink-3); margin-top:2px; }
+.pop-opt.danger{ color:var(--accent); }
+.pop-opt.danger small{ color:var(--accent); opacity:.75; }
+.pop-divider{ height:1px; background:var(--rule-faint); margin:3px 6px; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Reconnect overlay (mode B) + toasts
+   ═══════════════════════════════════════════════════════════════════ */
+.reconnect{
+  position:fixed; inset:0; z-index:120; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:16px;
+  background:var(--paper); opacity:0; pointer-events:none; transition:opacity .1s ease;
+}
+.reconnect.show{ opacity:1; pointer-events:auto; animation:flash .34s ease; }
+@keyframes flash{ 0%{ background:#ffffff; } 100%{ background:var(--paper); } }
+.spinner{
+  width:34px; height:34px; border-radius:50%;
+  border:3px solid var(--rule-faint); border-top-color:var(--amber);
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{ to{ transform:rotate(360deg); } }
+.reconnect-txt{ font-family:var(--font-mono); font-size:12px; color:var(--ink-3); letter-spacing:.4px; }
+.reconnect-sub{ font-family:var(--font-mono); font-size:10px; color:var(--ink-4); }
+
+.toast-wrap{
+  position:fixed; left:50%; bottom:calc(78px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+  z-index:130; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none;
+}
+.toast{
+  background:var(--ink); color:var(--paper); font-family:var(--font-mono); font-size:11.5px;
+  padding:9px 14px; border-radius:999px; box-shadow:0 8px 22px -10px rgba(30,20,10,.6);
+  opacity:0; transform:translateY(8px); transition:opacity .2s ease,transform .2s ease; max-width:90vw;
+}
+.toast.show{ opacity:1; transform:translateY(0); }
+.toast .ok{ color:var(--honey); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Narrow-screen (iPhone ~390) tweaks
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width:460px){
+  .home-inner{ padding:14px 12px 20px; }
+  .cards{ grid-template-columns:1fr; }
+  .brand-sub{ display:none; }
+  .push-btn{ font-size:11px; }
+  .bubble{ max-width:88%; }
+}
+@media (min-width:1000px){
+  .home-inner,.delegate-inner{ max-width:960px; }
+}
+</style>
+
+<div class="shell">
+
+  <!-- ══ Header chrome — always visible ══ -->
+  <header class="chrome">
+    <div class="chrome-top">
+      <div class="brand">
+        <!-- inline bee-hexagon brand mark (no external asset) -->
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2 L20.5 7 V17 L12 22 L3.5 17 V7 Z" fill="var(--honey)" stroke="var(--ink)" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M12 8.4 v7.2 M9 10 h6 M9 14 h6" stroke="var(--ink)" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <div class="brand-title">Hive · Work view mockup</div>
+          <div class="brand-sub">ticket 053 · delegator's desk</div>
+        </div>
+      </div>
+
+      <div class="chrome-controls">
+        <div class="seg" role="tablist" aria-label="Home↔Work transition mode">
+          <button class="seg-btn active" data-mode="A">A · one page</button>
+          <button class="seg-btn" data-mode="B">B · two routes</button>
+        </div>
+        <span class="quota-chip" title="Plan quota — ambient">◔ 5h <span class="g">42%</span> · 7d <span class="g">68%</span></span>
+        <button class="push-btn" id="pushBtn">🔔 Simulate push: dev needs a decision</button>
+      </div>
+    </div>
+
+    <div class="chrome-caption">
+      <span class="mode-tag A" id="modeTag">A · one page</span>
+      <span id="modeCaption">One page, two client-side views — Home↔Work is instant; the live stream, open tabs and drafts survive.</span>
+    </div>
+    <div class="chrome-legend">
+      <span><span class="lg-dot" style="background:var(--accent)"></span><b>red</b> = needs you</span>
+      <span><span class="lg-dot" style="background:var(--honey)"></span><b>honey</b> = primary action</span>
+      <span><span class="lg-dot" style="background:var(--sage)"></span><b>green</b> = running / ok</span>
+      <span><span class="lg-dot" style="background:var(--vault)"></span><b>teal</b> = money</span>
+      <span style="color:var(--ink-3)">default calm · exceptions loud</span>
+    </div>
+  </header>
+
+  <!-- ══ Stage: both panels live here; data-view drives which shows ══ -->
+  <div class="stage" id="stage" data-view="home">
+
+    <!-- ─────────────── STACK HOME ─────────────── -->
+    <section class="panel panel-home" aria-label="Stack home">
+      <div class="scroll">
+        <div class="home-inner">
+
+          <!-- Needs-you hero lane -->
+          <div class="section-label">the desk</div>
+          <div class="hero" id="hero"><!-- rendered by JS --></div>
+
+          <!-- Project-glance cards -->
+          <div class="section-label">your loops · 3 running</div>
+          <div class="cards" id="cards"><!-- rendered by JS --></div>
+
+          <!-- About note (collapsed) -->
+          <details class="about">
+            <summary>about this mockup</summary>
+            <div class="about-body">
+              A design prototype for <b>ticket 053 (tabbed maestro Work view)</b>, part of the
+              Delegator's Desk redesign. The <b>A/B toggle</b> up top decides one thing:
+              <b>A</b> keeps Home and the Work view on <b>one page</b> — switching is an instant
+              client-side toggle, so the live stream, your open tabs and unsent drafts survive.
+              <b>B</b> makes the Work view a <b>separate route</b> — every tap is a full page load
+              (white flash, stream reconnects, extra tabs + drafts dropped). Flip it, open a couple
+              of tabs, type a draft, bounce Home and back — that's the cost you're weighing.
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <!-- Delegate bar — always present, pinned bottom of home -->
+      <div class="delegate">
+        <div class="delegate-inner">
+          <button class="deleg-target" id="delegTarget" title="Tap to change who you're delegating to">
+            ▸ delegating to <b id="delegName">dev</b> <span class="caret">▼</span>
+          </button>
+          <input class="deleg-field" id="delegField" type="text" placeholder="Give dev a goal…" autocomplete="off">
+          <button class="deleg-send" id="delegSend" aria-label="Delegate">➤</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────── WORK VIEW ─────────────── -->
+    <section class="panel panel-work" aria-label="Work view">
+      <div class="work-top">
+        <div class="tabbar" id="tabbar">
+          <button class="back-btn" id="backBtn" aria-label="Back to Stack home" title="Back to home">‹</button>
+          <!-- tabs + add button injected by JS -->
+          <div id="tabsHost" style="display:flex; align-items:stretch;"></div>
+          <button class="tab-add" id="tabAdd" aria-label="Open another maestro" title="Open another maestro">+</button>
+          <div class="pop pop-add" id="popAdd"></div>
+        </div>
+
+        <div class="loopbar" id="loopbar">
+          <!-- loop status injected by JS -->
+          <div class="loop-actions">
+            <button class="btn btn-ghost btn-sm" id="histBtn">History</button>
+            <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" id="clearBtn">Clear ▾</button>
+              <div class="pop pop-clear" id="popClear">
+                <div class="pop-title">Clear conversation</div>
+                <button class="pop-opt" data-clear="view">Clear view<small>Empty this tab · keep the agent's memory</small></button>
+                <button class="pop-opt danger" data-clear="reset">Clear + reset memory<small>Wipe the agent's session too</small></button>
+                <div class="pop-divider"></div>
+                <button class="pop-opt" data-clear="cancel" style="color:var(--ink-3)">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="thread" id="thread">
+        <div class="thread-inner" id="threadInner"></div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-inner">
+          <textarea class="comp-field" id="compField" rows="1" placeholder="Message dev" autocomplete="off"></textarea>
+          <button class="comp-send" id="compSend">Send</button>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /.stage -->
+</div><!-- /.shell -->
+
+<!-- reconnect overlay (mode B) -->
+<div class="reconnect" id="reconnect">
+  <div class="spinner"></div>
+  <div class="reconnect-txt">reconnecting live stream…</div>
+  <div class="reconnect-sub">GET /work · reattaching SSE · rehydrating tabs</div>
+</div>
+
+<!-- toasts -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════════
+   Hive Work-view mockup — vanilla JS, no libraries.
+   State-first: mutate `state`, then call the render fns. The A/B mode
+   only changes HOW a navigation is applied (animate vs flash+reset).
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ---- The maestros (real-feeling Hive fleet) ---- */
+const MAESTROS = {
+  otter:   { name:"otter",   role:"PA maestro",      project:"no project",  loop:"idle",    dotClass:"dot-idle" },
+  dev:     { name:"dev",     role:"project maestro", project:"finance-app", loop:"running", dotClass:"dot-running" },
+  backend: { name:"backend", role:"project maestro", project:"auth-svc",    loop:"blocked", dotClass:"dot-blocked" },
+};
+
+/* loop-status header text per maestro */
+const LOOP = {
+  otter:   { state:"idle",    cls:"idle",    detail:"no active workflow · quota 42%" },
+  dev:     { state:"running", cls:"running", detail:"workflow · 4 agents · phase 2/3 · quota 42%" },
+  backend: { state:"blocked", cls:"blocked", detail:"paused · needs your input · quota 42%" },
+};
+
+/* ---- Seed conversation threads (believable content) ---- */
+function seedThreads(){
+  return {
+    otter: [
+      { who:"user", text:"morning otter — anything I should know before I start?" },
+      { who:"otter", text:
+"**Overnight — quiet.** Nothing waited on me.\n\n"+
+"- `dev` finished the ledger schema and is mid-workflow (**phase 2/3**).\n"+
+"- `backend` paused itself on the auth refactor — it wants a mode bump.\n"+
+"- Plan quota is healthy: **5h 42% · 7d 68%**.\n\n"+
+"Want me to nudge `backend`, or leave it for you?" },
+    ],
+    dev: [
+      { who:"user", text:"build the finance app — start with the transactions ledger" },
+      { who:"dev", text:
+"On it. I split the ledger into a **4-agent workflow** and I'm in *phase 2 of 3*.\n\n"+
+"| agent | slice | phase | status |\n"+
+"|---|---|---|---|\n"+
+"| L1 | schema + migrations | 1 | ✅ done |\n"+
+"| L2 | ingest + parser | 2 | ⏳ running |\n"+
+"| L3 | balance engine | 2 | ⏳ running |\n"+
+"| L4 | api + tests | 3 | ⏸ queued |\n\n"+
+"One thing I need from you before phase 3." },
+      { who:"dev", text:
+"**Decision — storage engine.** The ledger holds ~5 years of transactions with monthly rollups.\n\n"+
+"- **Postgres** — real concurrency, `SUM` over indexed ranges, needs a hosted addon (~$20/mo).\n"+
+"- **SQLite** — zero infra, file-backed, fine until multi-writer.\n\n"+
+"Which do you want me to build against?" },
+    ],
+    backend: [
+      { who:"user", text:"wire up the auth service" },
+      { who:"backend", text:
+"Started, then **paused myself**. The refactor rewrites `auth/session.py` and I'm running read-only — "+
+"I can't apply edits without your go-ahead.\n\n"+
+"I've queued it as a **mode request** (`acceptEdits`). Approve it in the *Needs you* lane and I'll continue." },
+    ],
+  };
+}
+
+/* ---- Needs-you hero items (the actionable feed) ---- */
+function seedHero(){
+  return [
+    { id:"d1", type:"decision", maestro:"dev",
+      text:"Use <b>Postgres</b> or <b>SQLite</b> for the finance-app ledger?",
+      answerInChat:true },
+    { id:"m1", type:"mode", maestro:"backend",
+      text:"Wants <code>acceptEdits</code> to apply the auth refactor (rewrites <code>auth/session.py</code>)." },
+    { id:"v1", type:"vault", maestro:"dev",
+      text:"Requests <b>$20</b> — Railway Postgres addon (monthly)." },
+  ];
+}
+
+/* ---- App state ---- */
+const state = {
+  mode:"A",              // "A" | "B"
+  view:"home",           // "home" | "work"
+  activeTab:"dev",       // maestro name focused in work view
+  openTabs:["dev"],      // tabs open in work view
+  delegTarget:"dev",     // who the delegate bar aims at
+  threads:seedThreads(),
+  hero:seedHero(),
+  heroCleared:false,     // demo: forced-empty peek
+  drafts:{},             // per-maestro composer drafts (survive in A, drop in B)
+  sessionAdded:0,        // in-memory msgs added this session; survives in A, resets to 0 on a B reload
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   Tiny markdown renderer (headings, bold/italic, code, lists, TABLES).
+   Content is trusted (canned), but we still escape before formatting.
+   ════════════════════════════════════════════════════════════════════ */
+function escapeHtml(s){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function inlineMd(s){
+  s = escapeHtml(s);
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return s;
+}
+function splitRow(line){
+  return line.trim().replace(/^\|/,"").replace(/\|$/,"").split("|").map(c=>c.trim());
+}
+function mdToHtml(src){
+  const lines = src.replace(/\r/g,"").split("\n");
+  const out = []; let i = 0;
+  while(i < lines.length){
+    const line = lines[i];
+
+    // fenced code block
+    if(/^\s*```/.test(line)){
+      i++; const code = [];
+      while(i < lines.length && !/^\s*```/.test(lines[i])){ code.push(lines[i]); i++; }
+      i++; // skip closing fence
+      out.push('<pre class="code"><code>'+escapeHtml(code.join("\n"))+'</code></pre>');
+      continue;
+    }
+    // table: header row + a |---|---| separator on the next line
+    if(/\|/.test(line) && i+1 < lines.length &&
+       /^\s*\|?[ :\-|]+\|?\s*$/.test(lines[i+1]) && lines[i+1].includes("-")){
+      const header = splitRow(line);
+      i += 2;
+      const rows = [];
+      while(i < lines.length && /\|/.test(lines[i]) && lines[i].trim() !== ""){ rows.push(splitRow(lines[i])); i++; }
+      let t = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      t += header.map(h=>'<th>'+inlineMd(h)+'</th>').join("");
+      t += '</tr></thead><tbody>';
+      t += rows.map(r=>'<tr>'+r.map(c=>'<td>'+inlineMd(c)+'</td>').join("")+'</tr>').join("");
+      t += '</tbody></table></div>';
+      out.push(t); continue;
+    }
+    // heading
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if(h){ const lvl = h[1].length; out.push('<h'+lvl+' class="md-h">'+inlineMd(h[2])+'</h'+lvl+'>'); i++; continue; }
+    // unordered list
+    if(/^\s*[-*]\s+/.test(line)){
+      const items = [];
+      while(i < lines.length && /^\s*[-*]\s+/.test(lines[i])){ items.push(lines[i].replace(/^\s*[-*]\s+/,"")); i++; }
+      out.push('<ul class="md-ul">'+items.map(it=>'<li>'+inlineMd(it)+'</li>').join("")+'</ul>');
+      continue;
+    }
+    // ordered list
+    if(/^\s*\d+\.\s+/.test(line)){
+      const items = [];
+      while(i < lines.length && /^\s*\d+\.\s+/.test(lines[i])){ items.push(lines[i].replace(/^\s*\d+\.\s+/,"")); i++; }
+      out.push('<ol class="md-ol">'+items.map(it=>'<li>'+inlineMd(it)+'</li>').join("")+'</ol>');
+      continue;
+    }
+    // blank
+    if(line.trim() === ""){ i++; continue; }
+    // paragraph — gather until a blank / block starter
+    const para = [];
+    while(i < lines.length && lines[i].trim() !== "" &&
+          !/^\s*```/.test(lines[i]) && !/^#{1,6}\s/.test(lines[i]) &&
+          !/^\s*[-*]\s+/.test(lines[i]) && !/^\s*\d+\.\s+/.test(lines[i]) &&
+          !(/\|/.test(lines[i]) && i+1 < lines.length && /^\s*\|?[ :\-|]+\|?\s*$/.test(lines[i+1]))){
+      para.push(lines[i]); i++;
+    }
+    out.push('<p class="md-p">'+para.map(inlineMd).join("<br>")+'</p>');
+  }
+  return out.join("");
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   DOM refs
+   ════════════════════════════════════════════════════════════════════ */
+const $ = (id)=>document.getElementById(id);
+const stage = $("stage");
+const hero = $("hero");
+const cards = $("cards");
+const tabsHost = $("tabsHost");
+const loopbar = $("loopbar");
+const threadInner = $("threadInner");
+const thread = $("thread");
+const compField = $("compField");
+const modeTag = $("modeTag");
+const modeCaption = $("modeCaption");
+const reconnect = $("reconnect");
+
+/* ════════════════════════════════════════════════════════════════════
+   Toast helper
+   ════════════════════════════════════════════════════════════════════ */
+function toast(html){
+  const wrap = $("toastWrap");
+  const el = document.createElement("div");
+  el.className = "toast"; el.innerHTML = html;
+  wrap.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add("show"));
+  setTimeout(()=>{ el.classList.remove("show"); setTimeout(()=> el.remove(), 240); }, 2200);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   RENDER — Stack home
+   ════════════════════════════════════════════════════════════════════ */
+const KIND_LABEL = { decision:"decision", mode:"mode", vault:"vault" };
+
+function renderHero(){
+  const items = state.heroCleared ? [] : state.hero;
+  hero.classList.toggle("loud", items.length > 0);
+
+  const head =
+    '<div class="hero-head">'+
+      '<span class="hero-title">Needs you</span>'+
+      '<span class="hero-count '+(items.length? '':'zero')+'">'+(items.length? items.length : '✓')+'</span>'+
+      '<button class="hero-demo" id="heroDemo">'+(items.length? 'peek calm state' : 'restore items')+'</button>'+
+    '</div>';
+
+  let body;
+  if(items.length === 0){
+    body =
+      '<div class="hero-calm">'+
+        '<div class="check">✓</div>'+
+        '<div class="hero-calm-main"><b>All clear</b>'+
+          '<div class="hero-calm-sub">3 loops running · nothing needs you right now</div>'+
+        '</div>'+
+      '</div>';
+  } else {
+    body = '<div class="hero-body">' + items.map(renderHeroItem).join("") + '</div>';
+  }
+  hero.innerHTML = head + body;
+
+  // wire the demo toggle
+  $("heroDemo").addEventListener("click", ()=>{
+    if(state.heroCleared || state.hero.length === 0){
+      state.heroCleared = false; state.hero = seedHero();
+    } else {
+      state.heroCleared = true;
+    }
+    renderHero();
+  });
+  // wire per-item actions
+  items.forEach(it=>{
+    const node = document.querySelector('[data-hero="'+it.id+'"]');
+    if(!node) return;
+    node.querySelectorAll("[data-act]").forEach(btn=>{
+      btn.addEventListener("click", ()=> heroAction(it, btn.getAttribute("data-act")));
+    });
+  });
+}
+
+function renderHeroItem(it){
+  let actions = "";
+  if(it.type === "decision"){
+    actions =
+      '<button class="btn btn-primary btn-sm" data-act="answer">Answer in chat →</button>';
+  } else if(it.type === "mode"){
+    actions =
+      '<button class="btn btn-primary btn-sm" data-act="approve">Approve</button>'+
+      '<button class="btn btn-danger btn-sm" data-act="deny">Deny</button>';
+  } else if(it.type === "vault"){
+    actions =
+      '<button class="btn btn-vault btn-sm" data-act="approve">Approve $20</button>'+
+      '<button class="btn btn-danger btn-sm" data-act="deny">Deny</button>';
+  }
+  return (
+    '<div class="hero-item '+it.type+'" data-hero="'+it.id+'">'+
+      '<span class="hi-kind">'+KIND_LABEL[it.type]+'</span>'+
+      '<div class="hi-main">'+
+        '<div class="hi-from">from <b>'+it.maestro+'</b></div>'+
+        '<div class="hi-text">'+it.text+'</div>'+
+        '<div class="hi-actions">'+actions+'</div>'+
+      '</div>'+
+    '</div>'
+  );
+}
+
+function removeHeroItem(id){
+  const node = document.querySelector('[data-hero="'+id+'"]');
+  if(node){ node.classList.add("leaving"); }
+  state.hero = state.hero.filter(x=> x.id !== id);
+  setTimeout(renderHero, 260);
+}
+
+function heroAction(it, act){
+  if(it.type === "decision" && act === "answer"){
+    // 049 behaviour: jump into the tab, empty focused composer, tab carries the target
+    removeHeroItem(it.id);
+    navigate({ view:"work", maestro:it.maestro, focusComposer:true, clearDraft:true });
+    return;
+  }
+  if(it.type === "mode"){
+    removeHeroItem(it.id);
+    toast(act === "approve"
+      ? '<span class="ok">✓</span> backend · acceptEdits granted'
+      : 'backend · staying read-only');
+    return;
+  }
+  if(it.type === "vault"){
+    removeHeroItem(it.id);
+    toast(act === "approve"
+      ? '<span class="ok">✓</span> $20 approved for dev'
+      : 'vault request denied');
+  }
+}
+
+function renderCards(){
+  const order = ["otter","dev","backend"];
+  cards.innerHTML = order.map(name=>{
+    const m = MAESTROS[name];
+    const needs = m.loop === "blocked";
+    let statusChip, dotCls, extra;
+    if(m.loop === "running"){
+      dotCls = "dot-running";
+      statusChip = '<span class="card-status st-running">● running</span>';
+      extra = '<div class="card-meta"><code>workflow · 4 agents · phase 2/3</code></div>'+
+              '<div class="phasebar"><span style="width:66%"></span></div>';
+    } else if(m.loop === "idle"){
+      dotCls = "dot-idle";
+      statusChip = '<span class="card-status st-idle">○ idle</span>';
+      extra = '<div class="card-meta">on your desk · no active workflow</div>';
+    } else {
+      dotCls = "dot-blocked";
+      statusChip = '<span class="card-status st-blocked">▲ needs you</span>';
+      extra = '<div class="card-meta">paused · mode request waiting</div>';
+    }
+    return (
+      '<button class="card '+(needs?'needsyou':'')+'" data-card="'+name+'">'+
+        '<div class="card-top">'+
+          '<div>'+
+            '<div class="card-name">'+m.name+'</div>'+
+            '<div class="card-role">'+m.role+' · '+m.project+'</div>'+
+          '</div>'+
+          '<span class="status-dot '+dotCls+'"></span>'+
+        '</div>'+
+        statusChip + extra +
+        '<div class="card-open">tap to open →</div>'+
+      '</button>'
+    );
+  }).join("");
+
+  cards.querySelectorAll("[data-card]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const name = btn.getAttribute("data-card");
+      navigate({ view:"work", maestro:name });
+    });
+  });
+}
+
+function renderHome(){ renderHero(); renderCards(); }
+
+/* ════════════════════════════════════════════════════════════════════
+   RENDER — Work view (tabs, loop bar, thread, composer)
+   ════════════════════════════════════════════════════════════════════ */
+function tabDotColor(name){
+  const l = MAESTROS[name].loop;
+  return l === "running" ? "var(--sage)" : l === "blocked" ? "var(--accent)" : "var(--ink-4)";
+}
+function renderTabs(){
+  tabsHost.innerHTML = state.openTabs.map(name=>{
+    const active = name === state.activeTab;
+    return (
+      '<button class="tab '+(active?'active':'')+'" data-tab="'+name+'">'+
+        '<span class="tdot" style="background:'+tabDotColor(name)+'"></span>'+name+
+      '</button>'
+    );
+  }).join("");
+  tabsHost.querySelectorAll("[data-tab]").forEach(btn=>{
+    btn.addEventListener("click", ()=> switchTab(btn.getAttribute("data-tab")));
+  });
+}
+
+function renderLoopbar(){
+  const l = LOOP[state.activeTab];
+  // preserve the actions cluster (History / Clear) — rebuild only the status text
+  const statusHtml =
+    '<span class="live'+(justConnected?' just':'')+'"><span class="dot"></span> live</span>'+
+    '<span class="loop-sep">·</span>'+
+    '<span class="loop-state '+l.cls+'">'+l.state+'</span>'+
+    '<span class="loop-sep">·</span>'+
+    '<span>'+l.detail+'</span>'+
+    '<span class="loop-sep">·</span>'+
+    '<span class="mem-chip'+(memFlash?' flash':'')+'" title="In-memory state added this session. In Mode B a page reload drops it to 0.">'+
+      '<span class="diamond">◆</span> '+state.sessionAdded+' added this session</span>';
+  memFlash = false;
+  // inject before the .loop-actions node
+  const actions = loopbar.querySelector(".loop-actions");
+  loopbar.innerHTML = statusHtml;
+  loopbar.appendChild(actions);
+  justConnected = false;
+}
+let justConnected = false;
+let memFlash = false;   // pulse the "added this session" chip when it changes
+
+function bubbleHtml(m){
+  if(m.typing){
+    return (
+      '<div class="msg '+m.who+'">'+
+        '<div class="avatar">'+m.who.charAt(0).toUpperCase()+'</div>'+
+        '<div class="bubble typing"><span></span><span></span><span></span></div>'+
+      '</div>'
+    );
+  }
+  const isUser = m.who === "user";
+  const body = isUser ? escapeHtml(m.text).replace(/\n/g,"<br>") : mdToHtml(m.text);
+  const avatar = isUser ? "" : '<div class="avatar">'+m.who.charAt(0).toUpperCase()+'</div>';
+  return (
+    '<div class="msg '+(isUser?'user':m.who)+'">'+ avatar +
+      '<div class="bubble">'+body+'</div>'+
+    '</div>'
+  );
+}
+
+function renderThread(){
+  const msgs = state.threads[state.activeTab] || [];
+  threadInner.innerHTML = msgs.map(bubbleHtml).join("");
+}
+function scrollThreadBottom(){ thread.scrollTop = thread.scrollHeight; }
+
+function renderComposer(){
+  const name = state.activeTab;
+  compField.placeholder = "Message " + name;      // active tab IS the target — no /m: prefix
+  compField.value = state.drafts[name] || "";
+}
+
+function renderWork(){
+  renderTabs(); renderLoopbar(); renderThread(); renderComposer();
+  requestAnimationFrame(scrollThreadBottom);
+}
+
+function switchTab(name){
+  if(name === state.activeTab) return;
+  state.drafts[state.activeTab] = compField.value;  // stash current draft
+  state.activeTab = name;
+  renderWork();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   NAVIGATION — the heart of the A/B decision.
+     target = { view:"home" } | { view:"work", maestro, focusComposer?, clearDraft? }
+   Mode A: instant client-side, CSS-animated. State survives.
+   Mode B: full-navigation SIM — white flash + spinner + reconnect, and
+           in-memory state (extra tabs + drafts) is DROPPED.
+   ════════════════════════════════════════════════════════════════════ */
+function commitNavigation(target){
+  if(target.view === "work"){
+    if(state.mode === "B"){
+      // full reload drops in-memory state: only the entered tab survives, drafts gone
+      state.openTabs = [target.maestro];
+      state.drafts = {};
+      state.sessionAdded = 0;             // a full page load wipes the session's in-memory tally
+      justConnected = true;               // re-pulse the live dot to imply reconnect
+    } else {
+      if(!state.openTabs.includes(target.maestro)) state.openTabs.push(target.maestro);
+    }
+    state.activeTab = target.maestro;
+    if(target.clearDraft) state.drafts[target.maestro] = "";
+    renderWork();
+    setView("work");
+    if(target.focusComposer){
+      // focus after the panel is interactive (works because triggered by a tap gesture)
+      setTimeout(()=>{ compField.value = ""; compField.focus(); }, state.mode==="B"?60:180);
+    }
+  } else {
+    if(state.mode === "B"){ state.drafts = {}; state.sessionAdded = 0; }  // going home is also a reload in B
+    renderHome();
+    setView("home");
+  }
+}
+
+function setView(v){ state.view = v; stage.setAttribute("data-view", v); }
+
+function navigate(target){
+  if(state.mode === "B"){
+    flashReconnect(()=> commitNavigation(target));
+  } else {
+    commitNavigation(target); // CSS transition handles the slide
+  }
+}
+
+/* Mode-B: cover an instant swap with a reconnect overlay to make the
+   full-page-load cost visceral. */
+function flashReconnect(commit){
+  reconnect.classList.add("show");
+  stage.classList.add("no-anim");     // no slide — it's a "reload", not a transition
+  setTimeout(commit, 360);            // swap under the overlay
+  setTimeout(()=> reconnect.classList.remove("show"), 760);
+  setTimeout(()=> stage.classList.remove("no-anim"), 820);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Mode toggle
+   ════════════════════════════════════════════════════════════════════ */
+const CAPTIONS = {
+  A:"One page, two client-side views — Home↔Work is instant; the live stream, open tabs and drafts survive.",
+  B:"Two routes (/ and /work) — every tap is a full page load: white flash, stream reconnects, extra tabs + drafts dropped.",
+};
+function setMode(mode){
+  state.mode = mode;
+  document.querySelectorAll(".seg-btn").forEach(b=> b.classList.toggle("active", b.dataset.mode === mode));
+  modeTag.className = "mode-tag " + mode;
+  modeTag.textContent = mode === "A" ? "A · one page" : "B · two routes";
+  modeCaption.textContent = CAPTIONS[mode];
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Composer send (work view)
+   ════════════════════════════════════════════════════════════════════ */
+function maestroReply(maestro, userText){
+  const t = userText.toLowerCase();
+  if(maestro === "dev"){
+    if(t.includes("postgres"))
+      return "Locking in **Postgres**. I'll provision the `railway` addon and wire the ledger migrations. Resuming the workflow → **phase 3/3**.";
+    if(t.includes("sqlite"))
+      return "Going **SQLite** for now — zero infra, file-backed. I'll note the Postgres migration path in the ADR. Resuming → **phase 3/3**.";
+    return "Got it — folding that into the current run. I'll ping you if it changes the phase plan.";
+  }
+  if(maestro === "backend")
+    return "Noted. I'm still blocked on the mode approval in the *Needs you* lane — once that clears I'll continue the auth refactor.";
+  if(maestro === "otter")
+    return "On it. Want me to hand this to a project maestro, or keep it on my desk?";
+  return "Acknowledged.";
+}
+
+function sendComposer(){
+  const target = state.activeTab;
+  const text = compField.value.trim();
+  if(!text) return;
+  state.threads[target].push({ who:"user", text });
+  compField.value = ""; state.drafts[target] = "";
+  state.sessionAdded++; memFlash = true; renderLoopbar();  // this message is now in-memory state (survives A, drops on B)
+  renderThread(); scrollThreadBottom();
+
+  // typing indicator, then canned reply into the SAME tab
+  state.threads[target].push({ who:target, typing:true });
+  renderThread(); scrollThreadBottom();
+  setTimeout(()=>{
+    // only replace if we're still on this tab's data
+    const arr = state.threads[target];
+    if(arr.length && arr[arr.length-1].typing) arr.pop();
+    arr.push({ who:target, text:maestroReply(target, text) });
+    if(state.activeTab === target){ renderThread(); scrollThreadBottom(); }
+  }, 700);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Popovers (Clear + add-tab) — anchored, close on outside tap
+   ════════════════════════════════════════════════════════════════════ */
+const popClear = $("popClear");
+const popAdd = $("popAdd");
+function closePops(){ popClear.classList.remove("open"); popAdd.classList.remove("open"); }
+
+function openAddPop(){
+  const avail = Object.keys(MAESTROS).filter(n=> !state.openTabs.includes(n));
+  if(avail.length === 0){
+    popAdd.innerHTML = '<div class="pop-title">open another maestro</div>'+
+      '<div class="pop-opt" style="color:var(--ink-3)">All maestros already open</div>';
+  } else {
+    popAdd.innerHTML = '<div class="pop-title">open another maestro</div>' +
+      avail.map(n=>'<button class="pop-opt" data-open="'+n+'">'+n+'<small>'+MAESTROS[n].role+' · '+MAESTROS[n].project+'</small></button>').join("");
+  }
+  popAdd.classList.add("open"); popClear.classList.remove("open");
+  popAdd.querySelectorAll("[data-open]").forEach(b=>{
+    b.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const n = b.getAttribute("data-open");
+      if(!state.openTabs.includes(n)) state.openTabs.push(n);
+      switchTab(n); closePops();
+    });
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Wire everything up
+   ════════════════════════════════════════════════════════════════════ */
+function init(){
+  // mode toggle
+  document.querySelectorAll(".seg-btn").forEach(b=>{
+    b.addEventListener("click", ()=> setMode(b.dataset.mode));
+  });
+
+  // delegate bar — cycle target + send
+  const cycle = ["dev","backend","otter"];
+  $("delegTarget").addEventListener("click", ()=>{
+    const i = cycle.indexOf(state.delegTarget);
+    state.delegTarget = cycle[(i+1) % cycle.length];
+    $("delegName").textContent = state.delegTarget;
+    $("delegField").placeholder = "Give " + state.delegTarget + " a goal…";
+    $("delegField").focus();
+  });
+  function delegateSend(){
+    const target = state.delegTarget;
+    const text = $("delegField").value.trim();
+    if(!text) return;
+    state.threads[target].push({ who:"user", text });
+    state.threads[target].push({ who:target, text:maestroReply(target, text) });
+    state.sessionAdded++; memFlash = true;   // delegated goal is in-memory state too
+    $("delegField").value = "";
+    navigate({ view:"work", maestro:target });
+  }
+  $("delegSend").addEventListener("click", delegateSend);
+  $("delegField").addEventListener("keydown", (e)=>{ if(e.key === "Enter"){ e.preventDefault(); delegateSend(); } });
+
+  // push deep-link — straight into dev's tab, empty focused composer
+  $("pushBtn").addEventListener("click", ()=>{
+    // also drop the decision hero item if it's still there
+    state.hero = state.hero.filter(x=> x.id !== "d1");
+    navigate({ view:"work", maestro:"dev", focusComposer:true, clearDraft:true });
+  });
+
+  // back to home
+  $("backBtn").addEventListener("click", ()=> navigate({ view:"home" }));
+
+  // composer
+  $("compSend").addEventListener("click", sendComposer);
+  compField.addEventListener("input", ()=>{
+    state.drafts[state.activeTab] = compField.value;
+    // auto-grow
+    compField.style.height = "auto";
+    compField.style.height = Math.min(compField.scrollHeight, 120) + "px";
+  });
+  compField.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); sendComposer(); }
+  });
+
+  // tabs: add button
+  $("tabAdd").addEventListener("click", (e)=>{ e.stopPropagation(); openAddPop(); });
+
+  // Clear popover
+  $("clearBtn").addEventListener("click", (e)=>{
+    e.stopPropagation();
+    popClear.classList.toggle("open"); popAdd.classList.remove("open");
+  });
+  popClear.querySelectorAll("[data-clear]").forEach(b=>{
+    b.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const kind = b.getAttribute("data-clear");
+      if(kind === "cancel"){ closePops(); return; }
+      const name = state.activeTab;
+      if(kind === "view"){
+        state.threads[name] = [];
+        renderThread();
+        toast(name + " · view cleared (memory kept)");
+      } else if(kind === "reset"){
+        state.threads[name] = [];
+        renderThread();
+        toast('<span class="ok">✓</span> ' + name + ' session reset');
+      }
+      closePops();
+    });
+  });
+
+  // History
+  $("histBtn").addEventListener("click", (e)=>{
+    e.stopPropagation();
+    toast("recalling earlier messages…");
+  });
+
+  // outside-tap closes popovers
+  document.addEventListener("click", closePops);
+
+  // first paint
+  setMode("A");
+  renderHome();
+  renderWork();
+}
+
+init();
+</script>
