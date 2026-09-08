@@ -264,6 +264,40 @@ class TestRepoLevelRoleFiles:
         # the debate recipe survives the edit (regression guard)
         assert "blind to each other" in flat
 
+    def test_lead_jd_drives_pattern_skill_invocation(self) -> None:
+        """Ticket T006: awareness (044) was not enough — a live Lead borrowed
+        a shape's *name* and hand-authored the Workflow with 0 Skill calls.
+        The JD must separate the one EMBEDDED recipe (`debate`, authored from
+        the inline skeleton) from the INVOKED patterns (global skills run with
+        the Skill tool), name the example skills so the menu is concrete, and
+        keep the free-form fallback for when no skill fits.
+        """
+        repo_root = Path(__file__).parent.parent
+        text = (repo_root / "personalities" / "role-lead.md").read_text()
+        # Scope every assertion to the ## Interaction patterns intro (up to the
+        # `### debate` recipe), so the wording cannot be satisfied by words
+        # scattered elsewhere in the JD.
+        intro = text.split("## Interaction patterns", 1)[1].split("### debate", 1)[0]
+        flat = " ".join(intro.split())
+        # the two halves are named, each bound to how the Lead uses it
+        assert "**Embedded — you author it.**" in flat
+        assert "**Invoked — you run the skill.**" in flat
+        # `debate` is the embedded one; the rest are skills
+        embedded, invoked = flat.split("**Invoked", 1)
+        assert "`debate`" in embedded
+        # invocation is explicit: the Skill tool, not the shape's name
+        assert "invoke the skill with the Skill tool" in invoked
+        assert "not just its name" in invoked
+        # the Authoring rules still hold inside a skill's generic template
+        assert "tag-hygiene" in invoked
+        # the menu is concrete, so a Lead knows what to look for
+        for skill in ("`split`", "`sweep`", "`compete`", "`double-check`"):
+            assert skill in flat
+        # the fallback survives: no matching skill means author free-form
+        assert "no skill fits" in flat
+        # the debate recipe itself is undisturbed (regression guard)
+        assert "blind to each other" in text
+
     def test_vault_jd_documents_request_payment(self) -> None:
         repo_root = Path(__file__).parent.parent
         text = (repo_root / "personalities" / "role-vault.md").read_text()
