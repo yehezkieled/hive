@@ -13,6 +13,11 @@ Context: T001–T003 were written for the external Claude design app, with the t
 Decision: T001–T003 are authored as HTML and reviewed in Lavish Editor instead of the Claude design app. Drafts sit in the gitignored `.lavish/` scratch; the approved file is exported to `docs/design/Txxx-slug.html`. Reviews are served over the Tailscale/MagicDNS link only; `lavish-axi share` (third-party host) is never used. The Claude design app stays available if a ticket needs it.
 Consequences: Design tickets run through /pm:work like code tickets; their tdd gate is the browser review loop. `docs/design/` is the mockups' home, so T005 only has to decide what to do with the archived brainstorm files. Alternatives: the Claude design app (external, closed by hand, export by hand) and `docs/archive/.../mockups/` as the home (approved designs under archive/ mislead).
 
+## 2026-09-08: `debate` stays embedded; other patterns are invoked as skills
+Context: T006 grilling. The lead JD carries one inline `debate` recipe (Ticket 034, ADR 0020) while further coordination shapes ship as global skills (ADR 0021/0025). The mixed model set a "patterns = author them yourself" precedent, and a live Lead borrowed a shape name with 0 Skill calls.
+Decision: Option (a) — keep `debate` embedded and say so explicitly in the JD; every other shape is a global skill the Lead invokes via the Skill tool. Rejected (b), converging `debate` into a skill, which would undo shipped ADR 0020 work and move a tested recipe outside the repo.
+Consequences: Doc + test change only. ADRs 0020, 0021, 0025 all still stand. The Lead's free-form fallback is unchanged, so a missing skill degrades gracefully.
+
 ## 2026-09-06: Mirror the board to GitHub issues
 Context: Hive already files GitHub issues per ticket by hand (#254, #264). The pm plugin can mirror milestones, epics, and tickets one way.
 Decision: `mirror: on`. `docs/pm` markdown is the source of truth; `pm.py sync` creates and updates the issues.

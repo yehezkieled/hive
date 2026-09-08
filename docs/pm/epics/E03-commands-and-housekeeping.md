@@ -16,6 +16,6 @@ The kept commands behave right before the web wraps UI around them, the lead JD 
 ## Flow
 <!-- drawn by pm flow, do not edit by hand -->
 Standalone: T005, T006, T007
-Ready now: none
-To grill: T005, T006, T007
+Ready now: T006
+To grill: T005, T007
 
