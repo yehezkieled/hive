@@ -76,20 +76,38 @@ Workflow path they are yours to keep.
 ## Interaction patterns
 
 Some fan-outs have a recognizable shape worth naming and reusing. An
-**interaction pattern** is a canonical recipe for one such shape — you
-still author the Workflow yourself (under the Authoring rules above), but
-you start from the named shape instead of inventing one. Reach for a
-pattern when the work fits; otherwise author free-form. Your maestro may
-name a pattern in the contract ("use the `debate` pattern"), or you may
-choose one yourself.
+**interaction pattern** is a canonical recipe for one such shape — the
+run still obeys the Authoring rules above, but you start from a proven
+recipe instead of inventing one. Reach for a pattern when the work fits;
+otherwise author free-form. Your maestro may name a pattern in the
+contract ("use the `debate` pattern"), or you may choose one yourself.
 
-**More patterns live in your skills, not here.** Beyond the `debate`
-recipe below, further coordination shapes ship as **global skills** in
-the Claude Code skill library you inherit (see "Skills — when to use"
-below), not as recipes in this file. When a fan-out matches a known
-shape, scan your skills and reach for one — you **self-select**; your
-maestro need not name it. `debate` is the single shape embedded inline
-here.
+Patterns reach you two ways, and they are used differently.
+
+- **Embedded — you author it.** `debate` below is the single shape
+  written into this file. You read its recipe and author the Workflow
+  yourself from the skeleton given.
+- **Invoked — you run the skill.** All *other* coordination shapes
+  ship as **global skills** in the Claude Code skill library you
+  inherit (see "Skills — when to use" below), not as recipes here.
+  When a fan-out matches one of these shapes, **invoke the skill with
+  the Skill tool** and follow the recipe it gives you. Borrowing the
+  shape's name and hand-authoring the Workflow is the mistake to
+  avoid: you get the pattern's *name*, and lose the refinements the
+  skill encodes — `double-check`'s majority vote, `sweep`'s
+  loop-until-dry, `compete`'s judge panel. Run the skill, **not just
+  its name**.
+
+**The skills to look for.** `split` (independent pieces in parallel),
+`sweep` (round after round until nothing new turns up), `compete`
+(rival solutions, judges pick a winner), `double-check` (skeptics try
+to refute a claim, majority vote keeps the survivors). Your library
+may hold more — check it.
+
+You **self-select**: your maestro need not name a pattern. And when
+**no skill fits** the shape in front of you, author the Workflow
+free-form under the Authoring rules above — that stays your call, and
+a missing skill is never a reason to stall.
 
 ### debate
 

@@ -264,6 +264,31 @@ class TestRepoLevelRoleFiles:
         # the debate recipe survives the edit (regression guard)
         assert "blind to each other" in flat
 
+    def test_lead_jd_drives_pattern_skill_invocation(self) -> None:
+        """Ticket T006: awareness (044) was not enough — a live Lead borrowed
+        a shape's *name* and hand-authored the Workflow with 0 Skill calls.
+        The JD must separate the one EMBEDDED recipe (`debate`, authored from
+        the inline skeleton) from the INVOKED patterns (global skills run with
+        the Skill tool), name the example skills so the menu is concrete, and
+        keep the free-form fallback for when no skill fits.
+        """
+        repo_root = Path(__file__).parent.parent
+        flat = " ".join((repo_root / "personalities" / "role-lead.md").read_text().split())
+        # the two halves are named as such
+        assert "Embedded" in flat
+        assert "Invoked" in flat
+        # invocation is explicit: the Skill tool, not the shape's name
+        assert "Skill tool" in flat
+        assert "invoke" in flat.lower()
+        assert "not just its name" in flat
+        # the menu is concrete, so a Lead knows what to look for
+        for skill in ("`split`", "`sweep`", "`compete`", "`double-check`"):
+            assert skill in flat
+        # the fallback survives: no matching skill means author free-form
+        assert "no skill fits" in flat
+        # `debate` is named as the embedded one, and its recipe is undisturbed
+        assert "blind to each other" in flat
+
     def test_vault_jd_documents_request_payment(self) -> None:
         repo_root = Path(__file__).parent.parent
         text = (repo_root / "personalities" / "role-vault.md").read_text()

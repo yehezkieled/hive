@@ -26,18 +26,18 @@ The 2026-06-29 behavioural test showed 044's pointer makes a Lead shape-aware an
 - [ ] After merge + deploy, with the four pattern skills installed in `~/.claude/skills`, a live Lead given a double-check-shaped task (verify N claims) shows a `Skill` tool call to a pattern skill in its transcript, not a hand-authored Workflow. Evidence (transcript path + the call) is recorded under Notes before the ticket is marked done.
 
 ## Subtasks
-- [ ] Failing test in `tests/test_role_jd.py` for the invoke wording (red)
-- [ ] Reword the `## Interaction patterns` intro in `personalities/role-lead.md` (green); keep `### debate` and the 044 assertions intact
-- [ ] Run the check command
-- [ ] Install the four pattern skills into `~/.claude/skills` on this host (precondition for the live check)
+- [x] Failing test in `tests/test_role_jd.py` for the invoke wording (red)
+- [x] Reword the `## Interaction patterns` intro in `personalities/role-lead.md` (green); keep `### debate` and the 044 assertions intact
+- [x] Run the check command
+- [x] Install the four pattern skills into `~/.claude/skills` on this host (precondition for the live check)
 - [ ] After merge + deploy: live Lead re-test on a double-check-shaped task; record the evidence under Notes
 
 ## Plan
-Approach:
-Touches:
-Tests first:
-Decisions to record:
-approved: no
+Approach: Rewrite the "More patterns live in your skills" paragraph of `## Interaction patterns` in the lead JD into two labelled halves — `debate` as the one **embedded** recipe the Lead authors from the inline skeleton, and every other shape as a **global skill the Lead invokes with the Skill tool**, naming `split` / `sweep` / `compete` / `double-check` as examples and keeping "no skill fits, author free-form" as the explicit fallback. Test first in `tests/test_role_jd.py`; the 034 and 044 tests stay untouched as regression guards.
+Touches: `personalities/role-lead.md`, `tests/test_role_jd.py`.
+Tests first: `test_lead_jd_drives_pattern_skill_invocation` — asserts the invoke wording on the flattened JD text: the Skill tool named, the example skills, the embedded-vs-invoked split, the free-form fallback.
+Decisions to record: the (a)-over-(b) design call, already written into `docs/pm/decisions.md` (2026-09-08 entry).
+approved: yes
 
 ## Notes
 Migrated from `docs/archive/tickets/047-lead-pattern-skill-invocation/`. Evidence: 2026-06-29 live test, Lead `otter.envscan`, `meta.name: env-var-survey`, 0 Skill calls. Adjacent observation (not in scope): the maestro↔lead confirm handshake stalled ~3 min on a long scheduler interval; worth its own ticket if it recurs. Non-goals: editing the skill files themselves, forcing invocation, any `role-maestro.md` change, converging `debate` into a skill (option (b), rejected at grilling).
