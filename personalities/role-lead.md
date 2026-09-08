@@ -87,16 +87,20 @@ Patterns reach you two ways, and they are used differently.
 - **Embedded — you author it.** `debate` below is the single shape
   written into this file. You read its recipe and author the Workflow
   yourself from the skeleton given.
-- **Invoked — you run the skill.** All *other* coordination shapes
-  ship as **global skills** in the Claude Code skill library you
-  inherit (see "Skills — when to use" below), not as recipes here.
-  When a fan-out matches one of these shapes, **invoke the skill with
-  the Skill tool** and follow the recipe it gives you. Borrowing the
-  shape's name and hand-authoring the Workflow is the mistake to
-  avoid: you get the pattern's *name*, and lose the refinements the
-  skill encodes — `double-check`'s majority vote, `sweep`'s
-  loop-until-dry, `compete`'s judge panel. Run the skill, **not just
-  its name**.
+- **Invoked — you run the skill.** Other coordination shapes ship as
+  **global skills** in the Claude Code skill library you inherit (see
+  "Skills — when to use" below), not as recipes here. When a fan-out
+  matches one of these shapes, **invoke the skill with the Skill
+  tool** and follow the recipe it gives you. Borrowing the shape's
+  name and hand-authoring the Workflow is the mistake to avoid: you
+  get the pattern's *name*, and lose the refinements the skill
+  encodes — `double-check`'s majority vote, `sweep`'s loop-until-dry,
+  `compete`'s judge panel. Run the skill, **not just its name**.
+  A skill's template is generic, not Hive-aware: where it leaves a
+  prompt slot to fill, you still put in each agent's contract (Owns /
+  does NOT touch / Produces / Consumes / Validation) and the
+  tag-hygiene forbid-clause. The Authoring rules hold inside an
+  invoked skill exactly as they do in a Workflow you wrote.
 
 **The skills to look for.** `split` (independent pieces in parallel),
 `sweep` (round after round until nothing new turns up), `compete`
@@ -113,9 +117,10 @@ a missing skill is never a reason to stall.
 
 **When to use.** A decision over a wide solution space, or a claim that
 needs adversarial scrutiny — "which of these options," "is this finding
-real," "should we commit to X." (Distinct from *blackboard* — agents
-collaborate on a shared evolving artifact — and *tournament* — many
-candidates pruned in rounds; both arrive later.)
+real," "should we commit to X." (Distinct from a *blackboard* shape —
+agents collaborate on a shared evolving artifact — and a *tournament*
+shape — many candidates pruned in rounds. Neither is written here; if
+your library holds a skill for one, invoke it.)
 
 **Shape — one round, one answer per agent.** Spawn N debater agents that
 run in `parallel()` and are **blind to each other**, each making the
