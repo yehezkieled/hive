@@ -146,9 +146,10 @@ Lona and Wonder run on isolated per-bot state dirs. Always use the
 
 **M1 — the Delegator's Desk** is current (the archived roadmap's Phase 5,
 [ADR 0027](docs/adr/0027-web-delegators-desk.md)). The three design
-tickets (T001–T003) are produced in the external **Claude design
-app** — their deliverable is an approved mockup, closed by hand — and
-T004 implements them into `src/hive/web`. See `/pm:status` for the
+tickets (T001–T003) are HTML mockups authored here and reviewed in
+**Lavish Editor** (the `lavish` skill; Tailscale link only, never
+`lavish-axi share`), approved copies in `docs/design/` — and T004
+implements them into `src/hive/web`. See `/pm:status` for the
 live board.
 
 **History.** Four milestones shipped between 2026-06-01 and 2026-06-30

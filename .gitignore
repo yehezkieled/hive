@@ -41,3 +41,6 @@ htmlcov/
 
 # superpowers brainstorm scratch (visual-companion mockups)
 .superpowers/
+
+# lavish-axi review drafts (design tickets T001-T003; approved copies go to docs/design/)
+.lavish/
