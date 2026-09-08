@@ -3,7 +3,7 @@ id: T006
 title: Lead JD drives pattern-skill invocation
 epic: E03
 milestone: M1
-status: review
+status: done
 priority: P2
 depends_on: []
 owner: work-t006
@@ -23,14 +23,14 @@ The 2026-06-29 behavioural test showed 044's pointer makes a Lead shape-aware an
 - [x] `personalities/role-lead.md` says `debate` is the one embedded recipe the Lead authors itself, and every other shape is a global skill the Lead INVOKES via the Skill tool (naming split / sweep / compete / double-check as examples) when a fan-out fits, authoring free-form only when no skill fits.
 - [x] `tests/test_role_jd.py` has a new test asserting the invoke wording; the existing 034 (debate) and 044 (awareness) tests pass unchanged.
 - [x] `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, and `uv run pytest -m "not integration"` are green.
-- [ ] After merge + deploy, with the four pattern skills installed in `~/.claude/skills`, a live Lead given a double-check-shaped task (verify N claims) shows a `Skill` tool call to a pattern skill in its transcript, not a hand-authored Workflow. Evidence (transcript path + the call) is recorded under Notes before the ticket is marked done.
+- [x] After merge + deploy, with the four pattern skills installed in `~/.claude/skills`, a live Lead given a double-check-shaped task (verify N claims) shows a `Skill` tool call to a pattern skill in its transcript, not a hand-authored Workflow. Evidence (transcript path + the call) is recorded under Notes before the ticket is marked done.
 
 ## Subtasks
 - [x] Failing test in `tests/test_role_jd.py` for the invoke wording (red)
 - [x] Reword the `## Interaction patterns` intro in `personalities/role-lead.md` (green); keep `### debate` and the 044 assertions intact
 - [x] Run the check command
 - [x] Install the four pattern skills into `~/.claude/skills` on this host (precondition for the live check)
-- [ ] After merge + deploy: live Lead re-test on a double-check-shaped task; record the evidence under Notes
+- [x] After merge + deploy: live Lead re-test on a double-check-shaped task; record the evidence under Notes
 
 ## Plan
 Approach: Rewrite the "More patterns live in your skills" paragraph of `## Interaction patterns` in the lead JD into two labelled halves — `debate` as the one **embedded** recipe the Lead authors from the inline skeleton, and every other shape as a **global skill the Lead invokes with the Skill tool**, naming `split` / `sweep` / `compete` / `double-check` as examples and keeping "no skill fits, author free-form" as the explicit fallback. Test first in `tests/test_role_jd.py`; the 034 and 044 tests stay untouched as regression guards.
@@ -48,5 +48,11 @@ Review gate (2026-09-08). Verifier: acceptance 1–3 met, 4 not verifiable befor
 1. "All *other* coordination shapes ship as global skills" overclaimed against the `### debate` aside, which said `blackboard` and `tournament` "both arrive later" (false since ADR 0021 retired the named-library track). Dropped "All", and reworded the aside to say neither is written here and to invoke a skill if the library holds one.
 2. The Invoked bullet did not say the Authoring rules still bind inside an invoked skill. The four skill templates are generic, not Hive-aware, so the bullet now tells the Lead to put each agent's contract and the tag-hygiene forbid-clause into the template's prompt slot.
 3. The new test asserted bare substrings against the whole file. It now scopes to the `## Interaction patterns` intro and binds `debate` to the Embedded half and the Skill tool to the Invoked half, so scattered words no longer pass.
+
+Live check (2026-09-08, post-deploy). Deployed to `hive.service` (main at `fec6c0d`, service restarted, 4 entities restored, web 200 on the Tailscale IP). Spawned Lead `otter.dubcheck` and handed it a double-check-shaped task — verify three repo claims independently, keep the survivors — with **no skill named** in the prompt. The Lead self-selected and invoked the skill:
+- `Skill(double-check)` tool call, args "Verify 3 claims about personalities/role-lead.md and personalities/role-maestro.md ... independently per claim, majority vote."
+- The Workflow it then ran was authored from the skill's own template (`meta.name: double-check-role-files`), not a hand-rolled improvisation — the exact refinement 044 left on the table (that run logged 0 Skill calls and a hand-authored `env-var-survey`).
+- The run finished end to end: skill fan-out via Workflow + TaskOutput, synthesis ("Nothing refuted", per-claim verdicts), reported up to `otter`. Read-only contract held (working tree clean).
+- Transcript: `~/.claude/projects/-home-hezki-projects-hive-worktrees-otter-dubcheck/a3c993ff-8da7-4784-8be0-d006a9062cc7.jsonl`. Test team killed afterward; org clean.
 
 ## Proposed changes
