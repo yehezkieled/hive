@@ -11,7 +11,7 @@ auto: no
 plan: none
 ready: yes
 issue: 273
-pr:
+pr: 291
 ---
 ## What
 Reword the `## Interaction patterns` intro of `personalities/role-lead.md` (the 044 awareness pointer) so a Lead **invokes the matching global skill with the Skill tool** when a fan-out fits a known shape, instead of borrowing the shape's name and hand-authoring the Workflow. Design settled at grilling as option (a): the JD distinguishes the one **embedded** recipe (`debate`, which the Lead authors itself from the inline skeleton) from the **invoke-the-skill** patterns (`split`, `sweep`, `compete`, `double-check`, named as examples), and keeps the free-form fallback for when no skill fits. The `### debate` recipe, 044's self-select framing, and `role-maestro.md` are untouched. Precondition for the live check: the four pattern skills are copied from `~/projects/claude-code-setup/home/.claude/skills` into `~/.claude/skills` on this host (they are not installed today; a host chore, not repo work).
