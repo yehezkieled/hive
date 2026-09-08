@@ -10,12 +10,13 @@ The kept commands behave right before the web wraps UI around them, the lead JD 
 
 ## Tickets
 - T005 todo P2 Hive cleanup and redesign mockups home
-- T006 todo P2 Lead JD drives pattern-skill invocation
+- T006 review P2 Lead JD drives pattern-skill invocation (work-t006)
 - T007 todo P2 Command surface v2
 
 ## Flow
 <!-- drawn by pm flow, do not edit by hand -->
 Standalone: T005, T006, T007
-Ready now: T006
+Ready now: none
 To grill: T005, T007
+In review: T006
 

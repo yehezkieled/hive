@@ -3,7 +3,7 @@ id: T006
 title: Lead JD drives pattern-skill invocation
 epic: E03
 milestone: M1
-status: in progress
+status: review
 priority: P2
 depends_on: []
 owner: work-t006
