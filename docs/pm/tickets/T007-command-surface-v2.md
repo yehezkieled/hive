@@ -3,10 +3,10 @@ id: T007
 title: Command surface v2
 epic: E03
 milestone: M1
-status: todo
+status: in progress
 priority: P2
 depends_on: []
-owner:
+owner: work-t007
 auto: no
 plan: required
 ready: yes
