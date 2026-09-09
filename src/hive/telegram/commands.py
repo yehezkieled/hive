@@ -71,7 +71,6 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "compact",
         "reset",
         "mode",
-        "loop",
         "priority",
         "task",
         "team",
@@ -84,9 +83,7 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "help",
         "approve",
         "deny",
-        "commit",
-        "pr",
-        "merge",
+        "ship",
         "heartbeat",
         "eval",
     }

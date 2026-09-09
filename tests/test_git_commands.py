@@ -225,3 +225,78 @@ async def test_merge_when_enabled(
     actual_cmd = fake.call_args.args[0]
     assert actual_cmd[:3] == ["gh", "pr", "merge"]
     assert "--squash" in actual_cmd
+
+
+# ---------------------------------------------------------------------------
+# /ship (T007 — folds /commit /pr /merge)
+# ---------------------------------------------------------------------------
+
+
+async def test_ship_without_entity_returns_usage(bridge: TelegramBridge) -> None:
+    result = await bridge.dispatcher.git._execute_ship(None, "")
+    assert "Usage" in result and "/ship" in result
+
+
+async def test_ship_unknown_entity(bridge: TelegramBridge) -> None:
+    result = await bridge.dispatcher.git._execute_ship("ghost", "")
+    assert "not found" in result.lower()
+
+
+async def test_ship_commits_and_opens_pr(
+    bridge: TelegramBridge,
+    lead_with_worktree: TeamLead,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare /ship commits (default message) + pushes + opens a PR; no merge."""
+    fake = AsyncMock(return_value=(0, "ok", ""))
+    monkeypatch.setattr("hive.process.git_ops.run", fake)
+    monkeypatch.setattr("hive.commands.git_commands.ALLOW_AUTO_MERGE", True)
+    result = await bridge.dispatcher.git._execute_ship(lead_with_worktree.name, "")
+    assert "Committed" in result
+    assert "PR opened" in result
+    # No merge requested → gh pr merge must not have been called.
+    calls = [c.args[0] for c in fake.call_args_list]
+    assert not any(c[:3] == ["gh", "pr", "merge"] for c in calls)
+
+
+async def test_ship_custom_message(
+    bridge: TelegramBridge,
+    lead_with_worktree: TeamLead,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = AsyncMock(return_value=(0, "ok", ""))
+    monkeypatch.setattr("hive.process.git_ops.run", fake)
+    await bridge.dispatcher.git._execute_ship(lead_with_worktree.name, '"add retry logic"')
+    # The commit call carries the custom message.
+    commit_calls = [c.args[0] for c in fake.call_args_list if c.args[0][:2] == ["git", "commit"]]
+    assert commit_calls, "expected a git commit call"
+    assert any("add retry logic" in " ".join(c) for c in commit_calls)
+
+
+async def test_ship_merge_squash_merges_when_enabled(
+    bridge: TelegramBridge,
+    lead_with_worktree: TeamLead,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = AsyncMock(return_value=(0, "ok", ""))
+    monkeypatch.setattr("hive.process.git_ops.run", fake)
+    monkeypatch.setattr("hive.commands.git_commands.ALLOW_AUTO_MERGE", True)
+    result = await bridge.dispatcher.git._execute_ship(lead_with_worktree.name, "merge")
+    assert "Merged PR" in result
+    calls = [c.args[0] for c in fake.call_args_list]
+    assert any(c[:3] == ["gh", "pr", "merge"] for c in calls)
+
+
+async def test_is_git_repo_true_and_false(tmp_path: Path) -> None:
+    from hive.process import git_ops
+
+    non_git = tmp_path / "plain"
+    non_git.mkdir()
+    assert await git_ops.is_git_repo(non_git) is False
+    assert await git_ops.is_git_repo(None) is False
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    code, _, _ = await git_ops.run(["git", "init"], cwd=repo)
+    assert code == 0
+    assert await git_ops.is_git_repo(repo) is True

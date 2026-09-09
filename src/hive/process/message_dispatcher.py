@@ -212,6 +212,15 @@ class MessageDispatcher:
             context_block = "\n\n---\n\n".join(prepended_blocks)
             prompt = f"{context_block}\n\n---\n\n{prompt}"
 
+        # T007: seed Claude Code's native /goal on the entity's first turn,
+        # replacing the retired LOOP_PROMPTS framework. The slash command must
+        # lead the message, so this wraps the fully-assembled prompt; it runs
+        # only once per activation (session_id is still None here).
+        if is_first_turn and prompt.strip():
+            from hive.process.loops import seed_goal
+
+            prompt = seed_goal(prompt)
+
         if _mgr_mod.mcp_servers_enabled():
             _mgr_mod.generate_mcp_config(entity.name, entity.mcp_config_path)
 
