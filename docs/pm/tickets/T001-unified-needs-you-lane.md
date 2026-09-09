@@ -11,7 +11,7 @@ auto: no
 plan: none
 ready: yes
 issue: 268
-pr:
+pr: 292
 ---
 ## What
 Design, as an HTML mockup reviewed in Lavish Editor, the one actionable feed + lane component that folds the four scattered "needs-you" interrupts into one: decision requests (029/038), mode-elevation approvals, vault payment approvals, interactive gates (003), plus blocked/errored loops. Today these live in 2 header bells + 3 separate SSE bubble types in `src/hive/web/templates/landing.html` with copy-pasted approve/deny logic. The deliverable is the approved file `docs/design/T001-needs-you-lane.html`: one `needs_you` feed rendered by one lane component, each item showing entity, kind, prompt/summary, and its inline action (reply field or approve/deny), rendered at both sizes it must serve — the full-width Stack home hero (T002) and the compact Work-view strip (T003) — plus the calm empty state. It starts from the brainstorm draft `docs/archive/tickets/054-hive-cleanup/mockups/needs-you-lane.html`. Drafts live in the gitignored `.lavish/` scratch; the review runs over the Tailscale/MagicDNS link (never `lavish-axi share`). Implementation is T004.
