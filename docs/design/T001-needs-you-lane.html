@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>T001 · Unified needs-you lane</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Nunito+Sans:wght@400;600;700;800&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Design source: Hive's own design system.
+   Tokens copied verbatim from src/hive/web/static/landing.css
+   ("A.2 Paper Ops") so the mockup shows the real product.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --paper:#faf7ed; --paper-2:#f2ecd8; --paper-soft:#f6f1de; --paper-shadow:rgba(60,45,25,.08);
+  --ink:#1f1812; --ink-2:#3d332a; --ink-3:#6f6356; --ink-4:#a79a89;
+  --rule:#1f1812; --rule-soft:#d9cfb6; --rule-faint:#e8dfc8;
+  --accent:#c8382a; --accent-soft:#f6dcd6;
+  --amber:#b7741a; --amber-soft:#f4e4c8;
+  --honey:#e0a726; --honey-soft:#f9ecc6; --ochre:#8a6a1a;
+  --sage:#4d8a3a; --sage-soft:#d7e6c5;
+  --vault:#1f6a5c; --vault-soft:#cfe3de; --vault-softer:#e5f0ec;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
+  --font-display:"Nunito","Inter",system-ui,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+:where(.grid,.flex)>*{min-width:0}
+/* real flex rows in this file — keep long content wrapping, not overflowing */
+.nyi__head>*,.nyi__actions>*,.nyl__head>*,.work-head>*,.legend>*,.frames>*{min-width:0}
+:where(p,h1,h2,h3,li,td,th,dd,span,code){overflow-wrap:anywhere}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper-2);color:var(--ink);
+  font-family:var(--font-sans);font-size:13px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  padding:22px 16px 72px;
+}
+button,input,label,summary{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+
+.wrap{max-width:1080px;margin:0 auto}
+
+/* ── page chrome ─────────────────────────────────────────── */
+.page-head{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.page-head h1{font-family:var(--font-display);font-weight:900;font-size:22px;letter-spacing:-.4px;margin:0}
+.page-head .kicker{font-family:var(--font-mono);font-size:9.5px;font-weight:600;letter-spacing:1.4px;
+  text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:4px}
+.page-sub{color:var(--ink-3);font-size:12.5px;max-width:70ch;margin:6px 0 20px;line-height:1.6}
+.page-sub code{font-family:var(--font-mono);font-size:11px;background:var(--paper);
+  border:1px solid var(--rule-faint);border-radius:4px;padding:1px 4px}
+
+.sect{margin:0 0 30px}
+.sect__head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  border-bottom:1.5px solid var(--rule);padding-bottom:7px;margin-bottom:14px}
+.sect__n{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:1.4px;
+  color:var(--paper);background:var(--ink);border-radius:999px;padding:3px 9px}
+.sect__title{font-family:var(--font-display);font-weight:800;font-size:15.5px;margin:0}
+.sect__note{font-size:11.5px;color:var(--ink-3);margin-left:auto}
+
+/* ── the lane (one component, two sizes) ─────────────────── */
+.nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
+  box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
+.nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
+.nyl__glyph{color:var(--accent);font-size:14px;line-height:1}
+.nyl__title{font-family:var(--font-display);font-weight:800;font-size:14px}
+.nyl__count{margin-left:auto;font-family:var(--font-mono);font-size:10px;font-weight:700;
+  letter-spacing:1px;background:var(--accent);color:#fff;padding:2px 9px;border-radius:999px}
+.nyl__body{padding:12px;display:flex;flex-direction:column;gap:10px}
+
+/* one item */
+.nyi{background:var(--paper);border:1px solid var(--rule-soft);border-left-width:4px;
+  border-radius:12px;padding:11px 12px 12px}
+.nyi--errored{border-left-color:var(--accent)}
+.nyi--decision{border-left-color:var(--honey)}
+.nyi--gate{border-left-color:var(--ochre)}
+.nyi--mode{border-left-color:var(--amber)}
+.nyi--vault{border-left-color:var(--vault)}
+
+.nyi__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  border-radius:7px;padding:2px 4px;margin:-2px -4px 8px;cursor:pointer}
+.nyi__head:hover{background:var(--paper-soft)}
+.state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.state-dot--active{background:var(--sage)}
+.state-dot--idle{background:var(--ink-4)}
+.state-dot--error{background:var(--accent)}
+.state-dot--gated{background:var(--honey)}
+.nyi__entity{font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--ink)}
+.nyi__kind{font-family:var(--font-mono);font-size:8.5px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule-faint);
+  border-radius:999px;padding:1px 7px;background:var(--paper-soft);white-space:nowrap}
+.nyi--errored .nyi__kind{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft)}
+.nyi--gate .nyi__kind{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
+.nyi--vault .nyi__kind{color:var(--vault);border-color:var(--vault-soft);background:var(--vault-softer)}
+.nyi__sub{font-family:var(--font-mono);font-size:8.5px;font-weight:600;letter-spacing:.8px;
+  text-transform:uppercase;color:var(--ink-4)}
+.nyi__open{margin-left:auto;font-family:var(--font-mono);font-size:9px;color:var(--ink-4);white-space:nowrap}
+.nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
+.nyi__summary b{color:var(--ink);font-weight:700}
+.nyi__summary code{font-family:var(--font-mono);font-size:11px;background:var(--paper-soft);
+  border:1px solid var(--rule-faint);border-radius:4px;padding:0 4px}
+
+/* the collapsed plan body a plan-mode gate carries */
+.nyi__plan{margin:0 0 9px;border:1px solid var(--rule-faint);border-radius:8px;background:var(--paper-soft)}
+.nyi__plan>summary{list-style:none;cursor:pointer;padding:6px 10px;font-family:var(--font-mono);
+  font-size:10px;font-weight:600;letter-spacing:.4px;color:var(--ink-3);display:flex;gap:6px;align-items:center}
+.nyi__plan>summary::-webkit-details-marker{display:none}
+.nyi__plan>summary::before{content:"▸";font-size:9px}
+.nyi__plan[open]>summary::before{content:"▾"}
+.nyi__plan-body{padding:0 12px 10px;font-size:11.5px;color:var(--ink-2);line-height:1.55}
+.nyi__plan-body ol{margin:0;padding-left:17px}
+.nyi__plan-body li{margin-bottom:3px}
+
+.nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.nyi__reply{flex:1 1 140px;min-width:0;font-family:var(--font-mono);font-size:11px;
+  padding:6px 9px;border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
+.nyi__reply::placeholder{color:var(--ink-4)}
+.btn{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.4px;
+  padding:6px 12px;border:1.5px solid var(--rule);border-radius:7px;
+  background:var(--paper);color:var(--ink);cursor:pointer;white-space:nowrap}
+.btn:active{transform:translateY(1px)}
+.btn--go{background:var(--ink);color:var(--paper)}
+.btn--allow{border-color:var(--sage);color:var(--sage)}
+.btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
+.btn--vault{border-color:var(--vault);color:var(--vault)}
+.btn--reset{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.btn--opt{border-color:var(--ochre);color:var(--ochre);background:var(--honey-soft)}
+.nyi__hint{font-family:var(--font-mono);font-size:9px;color:var(--ink-4);
+  margin:7px 0 0;display:flex;align-items:center;gap:5px}
+
+/* ── compact size: the Work-view strip ───────────────────── */
+.nyl--compact{border-radius:12px;box-shadow:none}
+.nyl--compact .nyl__head{padding:9px 12px}
+.nyl--compact .nyl__title{font-size:12.5px}
+.nyl--compact .nyl__body{padding:8px;gap:7px}
+.nyl--compact .nyi{padding:8px 9px 9px;border-radius:9px;border-left-width:3px}
+.nyl--compact .nyi__head{margin-bottom:6px}
+.nyl--compact .nyi__summary{font-size:11.5px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nyl--compact .nyi__plan,.nyl--compact .nyi__hint{display:none}
+.nyl--compact .btn{font-size:9px;padding:5px 9px}
+.nyl--compact .nyi__open{display:none}
+
+/* ── calm empty state ────────────────────────────────────── */
+.calm{text-align:center;padding:34px 16px}
+.calm__check{font-size:26px;color:var(--sage);line-height:1}
+.calm__line{font-family:var(--font-display);font-weight:800;font-size:15px;margin:8px 0 2px}
+.calm__sub{font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.5px}
+.nyl--calm .nyl__head{border-bottom-color:var(--rule-faint)}
+.nyl--calm .nyl__glyph{color:var(--sage)}
+.nyl--calm .nyl__count{background:var(--sage-soft);color:var(--ochre)}
+
+/* ── side-by-side frames ─────────────────────────────────── */
+.frames{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+@media (min-width:900px){.frames--two{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}}
+.frame__cap{font-family:var(--font-mono);font-size:9.5px;font-weight:600;letter-spacing:1.1px;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.device{border:1.5px solid var(--rule-soft);border-radius:14px;background:var(--paper-2);padding:12px}
+.device--work{background:var(--paper);}
+.work-head{display:flex;align-items:center;gap:8px;padding:0 2px 10px;
+  border-bottom:1px solid var(--rule-faint);margin-bottom:10px}
+.work-tab{font-family:var(--font-mono);font-size:10px;font-weight:600;padding:5px 10px;border-radius:7px;
+  background:transparent;color:var(--ink-3);border:1px solid transparent}
+.work-tab.is-active{background:var(--ink);color:var(--paper)}
+.work-body{font-size:11.5px;color:var(--ink-4);font-family:var(--font-mono);
+  padding:16px 8px;text-align:center;border:1px dashed var(--rule-faint);border-radius:9px;margin-top:10px}
+
+/* ── notes + questions ───────────────────────────────────── */
+.card{background:var(--paper);border:1.5px solid var(--rule-soft);border-radius:12px;padding:14px 16px}
+.card h3{font-family:var(--font-display);font-weight:800;font-size:13.5px;margin:0 0 8px}
+.card p{margin:0 0 8px;color:var(--ink-2);font-size:12px;line-height:1.6}
+.card code{font-family:var(--font-mono);font-size:11px;background:var(--paper-soft);
+  border:1px solid var(--rule-faint);border-radius:4px;padding:0 4px}
+.kv{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:5px 12px;
+  font-size:11.5px;color:var(--ink-2);margin:0}
+.kv dt{font-family:var(--font-mono);font-size:10px;font-weight:600;color:var(--ink-3);
+  letter-spacing:.5px;text-transform:uppercase;white-space:nowrap}
+.kv dd{margin:0}
+.kv code{font-family:var(--font-mono);font-size:10.5px}
+
+.q{background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.q__title{font-family:var(--font-display);font-weight:800;font-size:13px;margin:0 0 4px}
+.q__why{font-size:11.5px;color:var(--ink-3);margin:0 0 10px;line-height:1.55}
+.q__opts{display:flex;flex-direction:column;gap:7px;margin-bottom:11px}
+.q__opt{display:flex;gap:9px;align-items:flex-start;font-size:12px;color:var(--ink-2);
+  border:1px solid var(--rule-faint);border-radius:9px;padding:8px 10px;cursor:pointer;background:var(--paper-soft)}
+.q__opt:hover{border-color:var(--rule-soft)}
+.q__opt input{margin:2px 0 0;flex-shrink:0;accent-color:var(--accent)}
+.q__opt b{color:var(--ink);font-weight:700}
+.q__opt span{display:block}
+.q__opt em{font-style:normal;color:var(--ink-3);font-size:11px;display:block;margin-top:2px}
+.q__send{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.5px;
+  padding:7px 14px;border:1.5px solid var(--rule);border-radius:8px;background:var(--ink);
+  color:var(--paper);cursor:pointer}
+.q__done{font-family:var(--font-mono);font-size:10px;color:var(--sage);margin-left:9px}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:10px;
+  color:var(--ink-3);margin-top:12px}
+.legend b{color:var(--ink)}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page-head">
+    <div>
+      <span class="kicker">Ticket T001 · epic E01 · milestone M1</span>
+      <h1>The unified needs-you lane</h1>
+    </div>
+  </header>
+  <p class="page-sub">
+    One feed replaces four surfaces. Today an interrupt reaches you through two header bells
+    (<code>#bell-btn</code> approvals, <code>#gate-btn</code> gates) and three separately-written chat
+    bubbles (mode, vault, decision), each with its own copy of the approve/deny code. This lane folds all
+    of them, plus errored loops, into one list of rows. Same markup and CSS at both sizes: the
+    full-width hero on the Stack home (T002) and the compact strip in the Work view (T003).
+  </p>
+
+  <!-- ══ 1 · the hero, loud ══════════════════════════════ -->
+  <section class="sect">
+    <div class="sect__head">
+      <span class="sect__n">1</span>
+      <h2 class="sect__title">Home hero — five kinds, loud</h2>
+      <span class="sect__note">Ordered by how much a stuck loop costs you: errored → decision → gate → mode → vault</span>
+    </div>
+
+    <div class="frames">
+      <div>
+        <p class="frame__cap">Stack home · full width · portrait iPad</p>
+        <div class="device">
+          <section class="nyl">
+            <div class="nyl__head">
+              <span class="nyl__glyph" aria-hidden="true">◆</span>
+              <span class="nyl__title">Needs you</span>
+              <span class="nyl__count">7</span>
+            </div>
+            <div class="nyl__body">
+
+              <!-- errored loop -->
+              <article class="nyi nyi--errored">
+                <header class="nyi__head" title="open otter.frontend's Work tab">
+                  <span class="state-dot state-dot--error"></span>
+                  <span class="nyi__entity">otter.frontend</span>
+                  <span class="nyi__kind">errored</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary">Loop <b>errored</b> after 3 bounces in 10 min — session wedged, not waiting on you.</p>
+                </header>
+                <div class="nyi__actions">
+                  <button class="btn btn--reset">↻ Reset session</button>
+                  <button class="btn btn--deny">Dismiss</button>
+                  <span class="nyi__hint">destructive · confirms first</span>
+                </div>
+              </article>
+
+              <!-- decision request (029 / 038) -->
+              <article class="nyi nyi--decision">
+                <header class="nyi__head" title="open otter.backend's Work tab">
+                  <span class="state-dot state-dot--idle"></span>
+                  <span class="nyi__entity">otter.backend</span>
+                  <span class="nyi__kind">decision</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary">Which auth library should the API use — <b>Auth.js</b> or <b>Lucia</b>? Auth.js has the bigger ecosystem, Lucia is smaller and owns its session table.</p>
+                </header>
+                <div class="nyi__actions">
+                  <input class="nyi__reply" placeholder="Reply to otter.backend…" aria-label="Reply to otter.backend">
+                  <button class="btn btn--go">Send</button>
+                </div>
+                <p class="nyi__hint">free text · the maestro reads it · one decision open per maestro</p>
+              </article>
+
+              <!-- gate · plan approval -->
+              <article class="nyi nyi--gate">
+                <header class="nyi__head" title="open otter.backend's Work tab">
+                  <span class="state-dot state-dot--gated"></span>
+                  <span class="nyi__entity">otter.backend</span>
+                  <span class="nyi__kind">gate</span>
+                  <span class="nyi__sub">plan</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary">Waiting at <b>plan approval</b> — “Migrate the session store to Postgres”.</p>
+                </header>
+                <details class="nyi__plan">
+                  <summary>read the plan · 4 steps</summary>
+                  <div class="nyi__plan-body">
+                    <ol>
+                      <li>Add a <code>sessions</code> table + Alembic migration.</li>
+                      <li>Write the store behind the existing interface, tests first.</li>
+                      <li>Dual-write for one release, then read from Postgres.</li>
+                      <li>Drop the file-backed store and its config flag.</li>
+                    </ol>
+                  </div>
+                </details>
+                <div class="nyi__actions">
+                  <button class="btn btn--allow">Approve plan</button>
+                  <button class="btn btn--deny">Reject</button>
+                  <input class="nyi__reply" placeholder="…or send a note back" aria-label="Send a note back to otter.backend">
+                </div>
+              </article>
+
+              <!-- gate · AskUserQuestion -->
+              <article class="nyi nyi--gate">
+                <header class="nyi__head" title="open otter.payments' Work tab">
+                  <span class="state-dot state-dot--gated"></span>
+                  <span class="nyi__entity">otter.payments</span>
+                  <span class="nyi__kind">gate</span>
+                  <span class="nyi__sub">ask</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary">Asks: <b>where should the webhook retry queue live?</b></p>
+                </header>
+                <div class="nyi__actions">
+                  <button class="btn btn--opt">Redis</button>
+                  <button class="btn btn--opt">Postgres</button>
+                  <button class="btn btn--opt">In-process</button>
+                  <button class="btn btn--deny">Other…</button>
+                </div>
+                <p class="nyi__hint">the harness's own options · picking one answers the gate in place</p>
+              </article>
+
+              <!-- gate · raw permission prompt -->
+              <article class="nyi nyi--gate">
+                <header class="nyi__head" title="open otter.frontend's Work tab">
+                  <span class="state-dot state-dot--gated"></span>
+                  <span class="nyi__entity">otter.frontend</span>
+                  <span class="nyi__kind">gate</span>
+                  <span class="nyi__sub">permission</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary">Wants to run <code>Bash(rm -rf node_modules)</code> — one-time permission.</p>
+                </header>
+                <div class="nyi__actions">
+                  <button class="btn btn--allow">Allow once</button>
+                  <button class="btn btn--allow">Allow always</button>
+                  <button class="btn btn--deny">Deny</button>
+                </div>
+                <p class="nyi__hint">a bare tool-permission prompt · the un-bridgeable case that also drives auto-bounce (ADR 0005)</p>
+              </article>
+
+              <!-- mode elevation -->
+              <article class="nyi nyi--mode">
+                <header class="nyi__head" title="open otter.backend's Work tab">
+                  <span class="state-dot state-dot--gated"></span>
+                  <span class="nyi__entity">otter.backend</span>
+                  <span class="nyi__kind">mode</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary">Requests <code>bypassPermissions</code> — “need to run DB migrations outside the worktree”.</p>
+                </header>
+                <div class="nyi__actions">
+                  <button class="btn btn--allow">Allow</button>
+                  <button class="btn btn--deny">Deny</button>
+                </div>
+              </article>
+
+              <!-- vault payment -->
+              <article class="nyi nyi--vault">
+                <header class="nyi__head" title="open otter.payments' Work tab">
+                  <span class="state-dot state-dot--active"></span>
+                  <span class="nyi__entity">otter.payments</span>
+                  <span class="nyi__kind">vault</span>
+                  <span class="nyi__open">open tab ↗</span>
+                  <p class="nyi__summary"><b>$40.00 USD</b> → Vercel · “Pro plan, monthly”.</p>
+                </header>
+                <div class="nyi__actions">
+                  <button class="btn btn--vault">Approve $40.00</button>
+                  <button class="btn btn--deny">Deny</button>
+                </div>
+                <p class="nyi__hint">real money · row id 118 · hard approval rail</p>
+              </article>
+
+            </div>
+          </section>
+
+          <div class="legend">
+            <span><span class="swatch" style="background:var(--accent)"></span><b>errored</b> loop</span>
+            <span><span class="swatch" style="background:var(--honey)"></span><b>decision</b> (029)</span>
+            <span><span class="swatch" style="background:var(--ochre)"></span><b>gate</b> (003)</span>
+            <span><span class="swatch" style="background:var(--amber)"></span><b>mode</b></span>
+            <span><span class="swatch" style="background:var(--vault)"></span><b>vault</b></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 2 · anatomy ═════════════════════════════════════ -->
+  <section class="sect">
+    <div class="sect__head">
+      <span class="sect__n">2</span>
+      <h2 class="sect__title">One row, two tap targets</h2>
+      <span class="sect__note">Header opens the tab · actions answer in place</span>
+    </div>
+    <div class="frames frames--two">
+      <div class="card">
+        <h3>The row</h3>
+        <p>
+          Every row carries the same four things, whatever the kind: <b>entity</b> (mono, the address),
+          <b>kind badge</b> (colour-coded, with a sub-label for gates), <b>summary</b> (what it wants,
+          in the maestro's own words), and its <b>inline action</b>. The header is one tap target — it
+          opens that entity's Work-view tab. The action row is the other — it resolves the row where
+          it stands, and the row animates out.
+        </p>
+        <p>
+          A gate row is three shapes behind one badge, because the human is deciding three different
+          things: <b>plan</b> shows the plan collapsed with Approve / Reject, <b>ask</b> shows the
+          harness's own options as buttons, <b>permission</b> shows plain Allow / Deny.
+        </p>
+      </div>
+      <div class="card">
+        <h3>Where each action already goes</h3>
+        <dl class="kv">
+          <dt>errored</dt><dd><code>/api/command</code> → <code>/reset &lt;entity&gt;</code></dd>
+          <dt>decision</dt><dd><code>/api/decision/&lt;entity&gt;/reply</code> · entity-keyed, not row-id'd</dd>
+          <dt>gate</dt><dd><code>/api/gate/&lt;id&gt;/{approve,deny}</code></dd>
+          <dt>mode</dt><dd><code>/api/mode-request/&lt;id&gt;/{approve,deny}</code></dd>
+          <dt>vault</dt><dd><code>/api/vault-action/&lt;id&gt;/{approve,deny}</code></dd>
+        </dl>
+        <p style="margin-top:10px">
+          No new mechanics. T004 adds one <code>needs_you</code> rollup over the stores that already
+          back these, and deletes the two bells and three bubble renderers.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 3 · compact + calm ══════════════════════════════ -->
+  <section class="sect">
+    <div class="sect__head">
+      <span class="sect__n">3</span>
+      <h2 class="sect__title">The same component, small and quiet</h2>
+      <span class="sect__note">One rule set — <code>.nyl--compact</code> only changes size, never structure</span>
+    </div>
+    <div class="frames frames--two">
+
+      <div>
+        <p class="frame__cap">Work view · compact strip above the thread</p>
+        <div class="device device--work">
+          <div class="work-head">
+            <span class="work-tab is-active">otter.backend</span>
+            <span class="work-tab">otter.frontend</span>
+            <span class="work-tab">otter.payments</span>
+            <span class="work-tab">+</span>
+          </div>
+          <section class="nyl nyl--compact">
+            <div class="nyl__head">
+              <span class="nyl__glyph" aria-hidden="true">◆</span>
+              <span class="nyl__title">Needs you · this tab</span>
+              <span class="nyl__count">2</span>
+            </div>
+            <div class="nyl__body">
+              <article class="nyi nyi--decision">
+                <header class="nyi__head">
+                  <span class="state-dot state-dot--idle"></span>
+                  <span class="nyi__entity">otter.backend</span>
+                  <span class="nyi__kind">decision</span>
+                  <p class="nyi__summary">Which auth library should the API use — <b>Auth.js</b> or <b>Lucia</b>?</p>
+                </header>
+                <div class="nyi__actions">
+                  <input class="nyi__reply" placeholder="Reply…" aria-label="Reply to otter.backend">
+                  <button class="btn btn--go">Send</button>
+                </div>
+              </article>
+              <article class="nyi nyi--mode">
+                <header class="nyi__head">
+                  <span class="state-dot state-dot--gated"></span>
+                  <span class="nyi__entity">otter.backend</span>
+                  <span class="nyi__kind">mode</span>
+                  <p class="nyi__summary">Requests <code>bypassPermissions</code> — “DB migrations outside the worktree”.</p>
+                </header>
+                <div class="nyi__actions">
+                  <button class="btn btn--allow">Allow</button>
+                  <button class="btn btn--deny">Deny</button>
+                </div>
+              </article>
+            </div>
+          </section>
+          <div class="work-body">the conversation thread continues here</div>
+        </div>
+      </div>
+
+      <div>
+        <p class="frame__cap">Empty state · the calm case</p>
+        <div class="device">
+          <section class="nyl nyl--calm">
+            <div class="nyl__head">
+              <span class="nyl__glyph" aria-hidden="true">✓</span>
+              <span class="nyl__title">Needs you</span>
+              <span class="nyl__count">0</span>
+            </div>
+            <div class="calm">
+              <div class="calm__check" aria-hidden="true">✓</div>
+              <div class="calm__line">all clear</div>
+              <div class="calm__sub">3 loops running · nothing needs you</div>
+            </div>
+          </section>
+          <div class="card" style="margin-top:12px">
+            <h3>Default calm, exceptions loud</h3>
+            <p style="margin:0">
+              Empty is not an empty box: the lane keeps its frame, drops the red count for a quiet one,
+              and says what <em>is</em> happening. This is the state the home sits in most of the day
+              (ADR 0027).
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ 4 · decisions settled at review ═════════════════ -->
+  <section class="sect">
+    <div class="sect__head">
+      <span class="sect__n">4</span>
+      <h2 class="sect__title">Two things settled at review — for T004</h2>
+      <span class="sect__note">Approved 2026-09-09 · these are the rules T004 implements</span>
+    </div>
+    <div class="frames frames--two">
+      <div class="card">
+        <h3>Lane ordering: by kind, fixed</h3>
+        <p>
+          Rows sort by kind in a fixed order — <b>errored → decision → gate → mode → vault</b> — as
+          shown in the hero above. The same kind always sits in the same place, so your thumb learns
+          where to reach. Rejected: oldest-waiting-first (reshuffles under you) and by-kind-then-age
+          (more logic in T004 for little gain).
+        </p>
+      </div>
+      <div class="card">
+        <h3>Compact strip: this tab's items only</h3>
+        <p>
+          In the Work view the strip shows only rows for that tab's own maestro, with full inline
+          actions — answerable in place, as shown in section 3. Rejected: every item in every tab
+          (noisier) and a collapse-on-tap count bar (costs a tap on every interrupt).
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <p class="page-sub" style="margin-bottom:0">
+    This is a mockup: the buttons do nothing and the data is invented. It is the approved design spec
+    for T001 — the lane component, its five kinds (with three gate sub-shapes), both sizes, and the
+    calm empty state — that <code>T004</code> implements into <code>src/hive/web</code>.
+  </p>
+
+</div>
+</body>
+</html>
