@@ -12,11 +12,12 @@ The kept commands behave right before the web wraps UI around them, the lead JD 
 - T005 todo P2 Hive cleanup and redesign mockups home
 - T006 done P2 Lead JD drives pattern-skill invocation (work-t006, PR #291)
 - T007 todo P2 Command surface v2
+- T017 todo P2 Remove typed /approve /deny /vault once needs-you buttons exist
 
 ## Flow
 <!-- drawn by pm flow, do not edit by hand -->
-Standalone: T005, T006, T007
-Ready now: none
-To grill: T005, T007
+Standalone: T005, T006, T007, T017
+Ready now: T007
+To grill: T005, T017
 Done: T006
 

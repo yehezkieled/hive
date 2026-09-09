@@ -8,6 +8,15 @@ so the old entry stays as history.
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
 This file holds the smaller process and tooling decisions the pm workflow makes.
 
+## 2026-09-09: Command surface v2 (T007) design calls
+Context: T007 (from 064) bundles four command changes plus a fifth — removing typed `/approve` `/deny` `/vault` — that is hard-gated on T004's needs-you buttons. Grilling settled the open forks.
+Decision:
+- Split the typed-approve/deny/vault removal into **T017** (`depends_on: T004`); T007 keeps the four independent changes.
+- **`/goal` seeding:** Hive injects `/goal <completion condition>` into an entity at spawn, the deterministic path the role JD and loop prompt already use. The `loop_mode`/`LOOP_PROMPTS` injection is retired in its favour (not kept alongside native `/goal`).
+- **`/model` billing warning:** driven by a named set of API-billed model names kept in one place; selecting a member warns, others are silent. `fable` is added as a valid `/model` name but is not assumed API-billed — Fable 5.1 runs under the user's Max plan today. The real API-billed names are verified in plan mode; if none qualify the set ships empty and the warning path is covered by a unit test.
+- **`/mode` default:** a lead spawns `yotree` only when its project root is a git repo, else `yolo`, because yotree needs a git worktree. Maestros spawn `yolo`. One source of truth, no `lifecycle_manager` force-set.
+Consequences: T007 stays one PR of four changes; T017 waits on T004. The billing-warning set is empty until a genuinely API-billed model exists, but the mechanism and its test ship now, so adding a name later is a one-line change.
+
 ## 2026-09-08: Design tickets use the lavish-axi skill, mockups live in docs/design/
 Context: T001–T003 were written for the external Claude design app, with the ticket closed by hand on approval. The lavish-axi skill (`~/.claude/skills/lavish`) opens an agent-authored HTML file in a browser where the reviewer annotates it and the feedback comes back to the session. Eight hand-coded brainstorm mockups already exist as HTML under `docs/archive/tickets/054-hive-cleanup/mockups/`.
 Decision: T001–T003 are authored as HTML and reviewed in Lavish Editor instead of the Claude design app. Drafts sit in the gitignored `.lavish/` scratch; the approved file is exported to `docs/design/Txxx-slug.html`. Reviews are served over the Tailscale/MagicDNS link only; `lavish-axi share` (third-party host) is never used. The Claude design app stays available if a ticket needs it.
