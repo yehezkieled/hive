@@ -23,7 +23,7 @@ from hive.commands.datastore_commands import DataStoreCommands
 from hive.commands.formatter import Formatter
 from hive.commands.git_commands import GitCommands
 from hive.commands.result import CommandResult
-from hive.models.entity import EntityState
+from hive.models.entity import OFFERED_MODES, EntityState
 from hive.models.project import Project, ProjectOwnershipError
 from hive.models.task import TaskStatus
 from hive.telegram.commands import Command, parse_command
@@ -102,7 +102,6 @@ class CommandDispatcher:
         "teams": ("formatter", "teams"),
         "project": (None, "_h_project"),
         "mode": (None, "_h_mode"),
-        "loop": (None, "_h_loop"),
         "priority": (None, "_h_priority"),
         "compact": (None, "_h_compact"),
         "reset": (None, "_h_reset"),
@@ -115,9 +114,7 @@ class CommandDispatcher:
         "help": ("formatter", "help"),
         "approve": (None, "_h_approve"),
         "deny": (None, "_h_deny"),
-        "commit": ("git", "commit"),
-        "pr": ("git", "pr"),
-        "merge": ("git", "merge"),
+        "ship": ("git", "ship"),
         "files": ("formatter", "files"),
         "eval": (None, "_h_eval"),
     }
@@ -253,9 +250,6 @@ class CommandDispatcher:
 
     async def _h_mode(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_mode(cmd.target, cmd.args))
-
-    async def _h_loop(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_loop(cmd.target, cmd.args))
 
     async def _h_priority(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_priority(cmd.target, cmd.args, actor=actor))
@@ -457,7 +451,12 @@ class CommandDispatcher:
             # waiting on a decision from the user, this reply unparks it (cleared
             # before the turn runs, so a re-ask within the turn can re-arm it).
             await self.process_manager.clear_awaiting_decision(entity_name)
-            response = await self.process_manager.send_to_entity(entity_name, message)
+            # T007: this is the genuine user/command task path (Telegram and the
+            # web decision/message channel both funnel here), so mark it for
+            # /goal seeding — the entity's first task becomes its loop goal.
+            response = await self.process_manager.send_to_entity(
+                entity_name, message, seed_goal=True
+            )
             await self.process_manager.router.route("user", entity_name, message)
             await self.process_manager.router.route(entity_name, "user", response)
 
@@ -548,16 +547,18 @@ class CommandDispatcher:
         return f"Unknown project subcommand: {subcommand}"
 
     async def _execute_mode(self, mode_name: str | None, entity_name: str) -> str:
-        """Handle /mode <plan|edit|auto|yolo|yotree> [entity].
+        """Handle /mode <yolo|yotree> [entity] (T007).
 
-        The user has root authority, so /mode from the user surface is
-        applied directly — no approval round-trip. Agents wanting to
-        elevate themselves emit a <hive_actions> request_mode_change
-        which routes through ProcessManager.request_mode_change and
-        surfaces as an approval row.
+        The offered set is `yolo` / `yotree` only — `edit`/`auto`/`plan` were
+        dropped; plan mode is reached via the grill-me skill. The user has root
+        authority, so /mode is applied directly — no approval round-trip. Agents
+        elevating themselves emit a <hive_actions> request_mode_change instead.
         """
+        usage = "Usage: /mode <yolo|yotree> [entity]"
         if not mode_name:
-            return "Usage: /mode <plan|edit|auto|yolo|yotree> [entity]"
+            return usage
+        if mode_name not in OFFERED_MODES:
+            return f"Unknown mode {mode_name!r}. {usage}"
 
         target = entity_name.strip() if entity_name else self.default_maestro
         entity = self.process_manager.entities.get(target)
@@ -570,30 +571,7 @@ class CommandDispatcher:
             return str(e)
 
         await self.process_manager._persist(entity)
-        if entity.permission_mode in {"yolo", "yotree"}:
-            return f"Mode for {target} set to {mode_name!r} (CLI: --dangerously-skip-permissions)"
-        return (
-            f"Mode for {target} set to {mode_name!r} "
-            f"(CLI: --permission-mode {entity.permission_mode})"
-        )
-
-    async def _execute_loop(self, loop_name: str | None, entity_name: str) -> str:
-        """Handle /loop <ralph|ship-it|plan-act-observe|build-test-refine> [entity]."""
-        if not loop_name:
-            return "Usage: /loop <ralph|ship-it|plan-act-observe|build-test-refine> [entity]"
-
-        target = entity_name.strip() if entity_name else self.default_maestro
-        entity = self.process_manager.entities.get(target)
-        if entity is None:
-            return f"Entity {target!r} not found."
-
-        try:
-            entity.set_loop_mode(loop_name)
-        except ValueError as e:
-            return str(e)
-
-        await self.process_manager._persist(entity)
-        return f"Loop for {target} set to {loop_name!r}."
+        return f"Mode for {target} set to {mode_name!r} (CLI: --dangerously-skip-permissions)"
 
     async def _execute_priority(
         self, priority_str: str | None, args: str, actor: str = "system"
@@ -705,10 +683,17 @@ class CommandDispatcher:
         return f"Reloaded personality for {entity_name}."
 
     async def _execute_model(self, model_name: str | None, entity_name: str) -> str:
-        """Handle /model <opus|sonnet|haiku|opusplan> [entity]."""
-        valid_models = {"opus", "sonnet", "haiku", "opusplan"}
-        if not model_name or model_name not in valid_models:
-            return f"Usage: /model <{'|'.join(sorted(valid_models))}> [entity]"
+        """Handle /model <opus|sonnet|haiku|opusplan|fable> [entity] (T007).
+
+        `fable` is accepted; selecting an API-billed model appends a one-line
+        billing warning (the set is empty today — everything runs plan-billed).
+        """
+        # billing_warning reads entity_mod.API_BILLED_MODELS at call time, so a
+        # test's monkeypatch of that module-level set is honoured either way.
+        from hive.models.entity import VALID_MODELS, billing_warning
+
+        if not model_name or model_name not in VALID_MODELS:
+            return f"Usage: /model <{'|'.join(sorted(VALID_MODELS))}> [entity]"
 
         target = entity_name.strip() if entity_name else self.default_maestro
         entity = self.process_manager.entities.get(target)
@@ -717,7 +702,9 @@ class CommandDispatcher:
 
         entity.model = model_name
         await self.process_manager._persist(entity)
-        return f"Model for {target} set to {model_name!r}."
+        msg = f"Model for {target} set to {model_name!r}."
+        warning = billing_warning(model_name)
+        return f"{msg}\n{warning}" if warning else msg
 
     async def _execute_compact(self, entity_name: str | None) -> str:
         """Handle /compact <entity> — delegate to ProcessManager.compact_entity()."""

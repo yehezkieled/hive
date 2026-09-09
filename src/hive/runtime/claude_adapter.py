@@ -60,7 +60,6 @@ class ClaudeAdapterConfig:
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
     permission_mode: str = "default"
-    loop_mode: str = "ralph"
     role: str = "lead"
     name: str = ""
     mcp_config_path: Path | None = None
@@ -108,11 +107,10 @@ class ClaudeAdapter(Runtime):
             "Do not narrate fictional success.",
         ]
         prompts.append("\n".join(identity_lines))
-        from hive.process.loops import LOOP_PROMPTS, MAESTRO_IDENTITY, load_role_jd
+        from hive.process.loops import MAESTRO_IDENTITY, load_role_jd
 
-        loop_text = LOOP_PROMPTS.get(cfg.loop_mode)
-        if loop_text:
-            prompts.append(loop_text)
+        # T007: the loop framework is retired in favour of native /goal, seeded
+        # on the first turn by message_dispatcher — no loop prompt appended here.
         if cfg.role in ("maestro", "lead"):
             prompts.append(load_role_jd(cfg.role))
         # State the maestro's structural role (PA vs. project) after the shared,

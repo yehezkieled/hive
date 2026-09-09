@@ -82,7 +82,9 @@ class MessageDispatcher:
     def __init__(self, mgr: ProcessManager) -> None:
         self._mgr = mgr
 
-    async def send_to_entity(self, entity_name: str, prompt: str) -> str:
+    async def send_to_entity(
+        self, entity_name: str, prompt: str, *, seed_goal: bool = False
+    ) -> str:
         """Send a prompt to an entity and get the response.
 
         Each call spawns a fresh subprocess. If the entity has a stored
@@ -92,6 +94,14 @@ class MessageDispatcher:
         Pending inter-agent messages are prepended to the prompt.
         After the response, any ``<hive_actions>`` block is parsed and
         routed to the appropriate recipients.
+
+        ``seed_goal`` (T007): when this is the entity's first turn *and* the
+        caller marks it a genuine task delivery, the fully-assembled prompt is
+        wrapped as Claude Code's native ``/goal <completion condition>``. Only
+        the user/command task entrypoint sets this; internal machine sends —
+        scheduler pokes, peer mail, compact reseeds — leave it ``False`` so
+        they never redefine the entity's loop goal (this is a shared
+        chokepoint, so "first turn" alone does not mean "spawn task").
         """
         # Read config flags + generate_mcp_config through the manager module
         # so tests patching ``hive.process.manager.X`` affect this code.
@@ -211,6 +221,18 @@ class MessageDispatcher:
         if prepended_blocks:
             context_block = "\n\n---\n\n".join(prepended_blocks)
             prompt = f"{context_block}\n\n---\n\n{prompt}"
+
+        # T007: seed Claude Code's native /goal on the entity's first *task*
+        # turn, replacing the retired LOOP_PROMPTS framework. The slash command
+        # must lead the message, so this wraps the fully-assembled prompt. It
+        # fires only when the caller marked this a genuine task delivery
+        # (seed_goal) AND it is the first turn of the activation (session_id
+        # still None) — never on a poke, peer poke, or compact reseed that
+        # merely happens to be the first send.
+        if seed_goal and is_first_turn and prompt.strip():
+            from hive.process.loops import seed_goal as _seed_goal
+
+            prompt = _seed_goal(prompt)
 
         if _mgr_mod.mcp_servers_enabled():
             _mgr_mod.generate_mcp_config(entity.name, entity.mcp_config_path)
