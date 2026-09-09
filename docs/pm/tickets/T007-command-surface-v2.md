@@ -3,7 +3,7 @@ id: T007
 title: Command surface v2
 epic: E03
 milestone: M1
-status: in progress
+status: review
 priority: P2
 depends_on: []
 owner: work-t007
