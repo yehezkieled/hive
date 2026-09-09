@@ -11,7 +11,7 @@ auto: no
 plan: required
 ready: yes
 issue: 274
-pr:
+pr: 294
 ---
 ## What
 Four behaviour changes to commands the 050 audit kept (item 4 of the original five — removing typed `/approve` `/deny` `/vault` — is split into **T017**, hard-gated on T004's buttons):
