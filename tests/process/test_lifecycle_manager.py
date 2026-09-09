@@ -104,6 +104,7 @@ class StubManager:
         self.notify_calls: list[str] = []
         self.persisted: list[object] = []
         self.sent: list[tuple[str, str]] = []
+        self.sent_seed_goal: list[bool] = []
         self.killed: list[str] = []
 
     @property
@@ -125,8 +126,9 @@ class StubManager:
     async def _notify(self, message: str, kind: str = "info", data: dict | None = None) -> None:
         self.notify_calls.append(message)
 
-    async def send_to_entity(self, name: str, prompt: str) -> str:
+    async def send_to_entity(self, name: str, prompt: str, *, seed_goal: bool = False) -> str:
         self.sent.append((name, prompt))
+        self.sent_seed_goal.append(seed_goal)
         return "summary text"
 
     async def kill_entity(self, name: str) -> None:
@@ -456,6 +458,60 @@ async def test_create_team_valid_name_still_succeeds(
     assert mgr.worktree_mgr.created == [("dev.back-end_2", "hive/dev.back-end_2")]
 
 
+class _FixedWorktreeManager:
+    """Worktree manager whose ``create`` hands back one fixed on-disk path.
+
+    Lets a test point ``create_team`` at a real git worktree (or a real
+    non-git dir) so the ``is_git_repo`` branch of the lead-mode default is
+    exercised end to end.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.created: list[tuple[str, str | None]] = []
+        self.removed: list[str] = []
+
+    async def create(self, name: str, branch: str | None = None) -> Path:
+        self.created.append((name, branch))
+        return self.path
+
+    async def remove(self, name: str) -> None:
+        self.removed.append(name)
+
+
+async def test_create_team_lead_mode_yotree_in_git_repo(
+    lifecycle: LifecycleManager, mgr: StubManager, git_repo: Path
+) -> None:
+    """T007: a lead whose worktree is inside a git repo spawns ``yotree``.
+
+    Drives the whole create_team path — worktree_path -> git_ops.is_git_repo
+    -> default_permission_mode — not just its unit pieces.
+    """
+    mgr.worktree_mgr = _FixedWorktreeManager(git_repo)
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
+
+    assert lead.permission_mode == "yotree"
+
+
+async def test_create_team_lead_mode_yolo_without_git_repo(
+    lifecycle: LifecycleManager, mgr: StubManager, tmp_path: Path
+) -> None:
+    """T007: a lead whose worktree is a real, non-git dir falls back to ``yolo``.
+
+    yotree needs a git worktree; a plain directory does not qualify.
+    """
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    mgr.worktree_mgr = _FixedWorktreeManager(plain)
+    mgr._entities["dev"] = Maestro(name="dev", model="sonnet")
+
+    lead = await lifecycle.create_team("dev", "backend", model="sonnet")
+
+    assert lead.permission_mode == "yolo"
+
+
 # ---------------------------------------------------------------------------
 # kill_entity / kill_all / kill_team / stop_all
 # ---------------------------------------------------------------------------
@@ -561,6 +617,10 @@ async def test_compact_entity_summarizes_kills_reseeds(
     assert mgr._entities["dev"] is maestro
     assert maestro.state == EntityState.IDLE
     assert len(mgr.sent) == 2  # summarize prompt + reseed prompt
+    # T007: neither the summarize prompt nor the reseed is a genuine task, so
+    # compact must NEVER request /goal seeding — otherwise the reseed (sent on
+    # a freshly-cleared session_id) would be wrapped as the entity's loop goal.
+    assert mgr.sent_seed_goal == [False, False]
     actions = [a for (a, _t, _d) in mgr.audit_calls]
     assert "entity.compact" in actions
 

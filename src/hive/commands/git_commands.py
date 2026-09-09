@@ -163,14 +163,24 @@ class GitCommands:
 
         steps: list[str] = []
         ok, summary = await git_ops.commit(worktree, commit_msg)
-        steps.append(f"Committed: {summary}" if ok else f"Commit skipped: {summary}")
-        if ok and self.audit_log is not None:
-            await self.audit_log.record(
-                actor="user",
-                action="git.commit",
-                target=entity_name,
-                details={"message": commit_msg[:200], "via": "ship"},
-            )
+        if ok:
+            steps.append(f"Committed: {summary}")
+            if self.audit_log is not None:
+                await self.audit_log.record(
+                    actor="user",
+                    action="git.commit",
+                    target=entity_name,
+                    details={"message": commit_msg[:200], "via": "ship"},
+                )
+        elif "nothing to commit" in summary.lower():
+            # Benign: the worktree is already clean (e.g. changes were committed
+            # earlier). Keep going — push whatever commits exist and open the PR.
+            steps.append(f"Commit skipped: {summary}")
+        else:
+            # A genuine commit failure (git add error, hook rejection, bad
+            # index). Abort BEFORE push/PR so a failed ship never reads as a
+            # success with the intended changes silently left uncommitted.
+            return f"Ship aborted for {entity_name}: {summary}"
 
         steps.append(await self._execute_pr(entity_name, ""))
 

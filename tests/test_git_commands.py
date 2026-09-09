@@ -287,6 +287,52 @@ async def test_ship_merge_squash_merges_when_enabled(
     assert any(c[:3] == ["gh", "pr", "merge"] for c in calls)
 
 
+async def test_ship_aborts_on_genuine_commit_failure(
+    bridge: TelegramBridge,
+    lead_with_worktree: TeamLead,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real commit failure (git add error) aborts BEFORE push/PR — a failed
+    ship must never read as a success with changes left uncommitted."""
+
+    async def fake_run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
+        if cmd[:2] == ["git", "add"]:
+            return 1, "", "fatal: unable to write new index file"
+        return 0, "ok", ""
+
+    monkeypatch.setattr("hive.process.git_ops.run", fake_run)
+    result = await bridge.dispatcher.git._execute_ship(lead_with_worktree.name, "")
+
+    assert "Ship aborted" in result
+    assert "PR opened" not in result
+
+
+async def test_ship_proceeds_when_nothing_to_commit(
+    bridge: TelegramBridge,
+    lead_with_worktree: TeamLead,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A clean worktree ("nothing to commit") is benign — /ship still pushes
+    existing commits and opens the PR."""
+    calls: list[list[str]] = []
+
+    async def fake_run(cmd: list[str], cwd: Path) -> tuple[int, str, str]:
+        calls.append(cmd)
+        if cmd[:2] == ["git", "commit"]:
+            return 1, "nothing to commit, working tree clean", ""
+        if cmd[:2] == ["git", "rev-parse"]:
+            return 0, "feature-branch", ""
+        return 0, "ok", ""
+
+    monkeypatch.setattr("hive.process.git_ops.run", fake_run)
+    result = await bridge.dispatcher.git._execute_ship(lead_with_worktree.name, "")
+
+    assert "Commit skipped" in result
+    assert "PR opened" in result
+    assert any(c[:2] == ["git", "push"] for c in calls)
+    assert any(c[:3] == ["gh", "pr", "create"] for c in calls)
+
+
 async def test_is_git_repo_true_and_false(tmp_path: Path) -> None:
     from hive.process import git_ops
 

@@ -655,11 +655,12 @@ class TestGoalSeedingAtSpawn:
     def test_loop_removed_from_surface(self) -> None:
         assert "loop" not in KNOWN_COMMANDS
 
-    async def test_first_turn_is_seeded_with_goal(self, manager: ProcessManager) -> None:
+    async def test_first_task_turn_is_seeded_with_goal(self, manager: ProcessManager) -> None:
         await manager.register_maestro("dev")
         adapter = FakeAdapter(responses="ok")
         with using_adapter(manager, adapter):
-            await manager.send_to_entity("dev", "build the widget")
+            # A genuine task delivery marks seed_goal.
+            await manager.send_to_entity("dev", "build the widget", seed_goal=True)
         assert adapter.prompts[-1].startswith("/goal ")
         assert "build the widget" in adapter.prompts[-1]
 
@@ -667,9 +668,32 @@ class TestGoalSeedingAtSpawn:
         await manager.register_maestro("dev")
         first = FakeAdapter(responses="ok")
         with using_adapter(manager, first):
-            await manager.send_to_entity("dev", "build the widget")
+            await manager.send_to_entity("dev", "build the widget", seed_goal=True)
         # session_id is now set; the next turn must not be re-seeded.
         second = FakeAdapter(responses="ok")
         with using_adapter(manager, second):
-            await manager.send_to_entity("dev", "keep going")
+            await manager.send_to_entity("dev", "keep going", seed_goal=True)
         assert not second.prompts[-1].startswith("/goal ")
+
+    async def test_internal_first_turn_send_is_not_seeded(self, manager: ProcessManager) -> None:
+        """A poke / peer mail / compact reseed that lands as the first send must
+        NOT be wrapped in /goal — only a genuine task (seed_goal) is."""
+        await manager.register_maestro("dev")
+        adapter = FakeAdapter(responses="working")
+        with using_adapter(manager, adapter):
+            # Default seed_goal=False: the shared-chokepoint machine path.
+            await manager.send_to_entity("dev", "[peer poke]")
+        assert not adapter.prompts[-1].startswith("/goal ")
+        assert "[peer poke]" in adapter.prompts[-1]
+
+    async def test_user_command_path_seeds_goal(
+        self, manager: ProcessManager, dispatcher: CommandDispatcher
+    ) -> None:
+        """The user/command entrypoint (dispatch._send_to_entity) marks the
+        first task for /goal seeding end to end."""
+        await manager.register_maestro("dev")
+        adapter = FakeAdapter(responses="ok")
+        with using_adapter(manager, adapter):
+            await dispatcher._send_to_entity("dev", "build the widget")
+        assert adapter.prompts[-1].startswith("/goal ")
+        assert "build the widget" in adapter.prompts[-1]

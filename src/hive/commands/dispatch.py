@@ -451,7 +451,12 @@ class CommandDispatcher:
             # waiting on a decision from the user, this reply unparks it (cleared
             # before the turn runs, so a re-ask within the turn can re-arm it).
             await self.process_manager.clear_awaiting_decision(entity_name)
-            response = await self.process_manager.send_to_entity(entity_name, message)
+            # T007: this is the genuine user/command task path (Telegram and the
+            # web decision/message channel both funnel here), so mark it for
+            # /goal seeding — the entity's first task becomes its loop goal.
+            response = await self.process_manager.send_to_entity(
+                entity_name, message, seed_goal=True
+            )
             await self.process_manager.router.route("user", entity_name, message)
             await self.process_manager.router.route(entity_name, "user", response)
 
@@ -683,8 +688,8 @@ class CommandDispatcher:
         `fable` is accepted; selecting an API-billed model appends a one-line
         billing warning (the set is empty today — everything runs plan-billed).
         """
-        # Import at call site so a test's monkeypatch of the module-level set is
-        # honoured (billing_warning reads API_BILLED_MODELS at call time).
+        # billing_warning reads entity_mod.API_BILLED_MODELS at call time, so a
+        # test's monkeypatch of that module-level set is honoured either way.
         from hive.models.entity import VALID_MODELS, billing_warning
 
         if not model_name or model_name not in VALID_MODELS:
