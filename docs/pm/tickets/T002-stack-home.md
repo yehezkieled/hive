@@ -3,10 +3,10 @@ id: T002
 title: Stack home
 epic: E01
 milestone: M1
-status: todo
+status: in progress
 priority: P1
 depends_on: [T001]
-owner:
+owner: work-t002
 auto: no
 plan: none
 ready: yes
