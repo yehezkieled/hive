@@ -16,8 +16,7 @@ Approved HTML mockups, reviewed in Lavish Editor (decisions.md 2026-09-08) and s
 ## Flow
 <!-- drawn by pm flow, do not edit by hand -->
 T001 -> T002 -> T003
-Ready now: none
-To grill: T002
+Ready now: T002
 Blocked: T003 (waits on T002)
 Done: T001
 
