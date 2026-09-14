@@ -29,11 +29,13 @@ from hive.mcp.config import mcp_servers_enabled
 from hive.models.entity import (
     Entity,
     EntityState,
+    default_permission_mode,
     is_auto_generated_personality,
     resolve_advisor,
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
+from hive.process import git_ops
 from hive.process.names import validate_name
 from hive.process.ownership_policy import WritablePolicy, settings_payload, writable_policy
 from hive.process.skill_curation import skill_denylist_for
@@ -117,7 +119,6 @@ def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
         allowed_tools=list(entity.allowed_tools),
         disallowed_tools=disallowed_tools,
         permission_mode=entity.permission_mode,
-        loop_mode=entity.loop_mode,
         role=entity.role,
         name=entity.name,
         mcp_config_path=Path(entity.mcp_config_path) if mcp_servers_enabled() else None,
@@ -290,14 +291,11 @@ class LifecycleManager:
             model=model,
             personality_path=personality_path,
         )
-        # INTENTIONAL SHADOW (Ticket 023, design D6): this overrides the
-        # Entity-level default (`Entity.permission_mode = "default"`,
-        # models/entity.py) for newly registered maestros only. First-spawn
-        # safety: a brand-new maestro's first turn must not stall on
-        # permission prompts before any gate bridge exists for it. Existing
-        # maestros restored from postgres keep their persisted mode. Do not
-        # "fix" this back to the Entity default without revisiting D6.
-        maestro.permission_mode = "yolo"
+        # T007: spawn mode from the one source of truth. A maestro is `yolo`
+        # (first-spawn safety, Ticket 023 D6: its first turn must not stall on
+        # permission prompts before a gate bridge exists). Restored maestros
+        # keep their persisted mode — this only sets the default for a fresh one.
+        maestro.permission_mode = default_permission_mode("maestro", is_git_repo=False)
         if personality_path and personality_path.exists():
             maestro.load_personality()
 
@@ -443,12 +441,19 @@ class LifecycleManager:
                 lead_name, branch=f"hive/{lead_name}"
             )
 
+        # T007: a lead spawns `yotree` inside its own git worktree; if the
+        # worktree root is not a git repo (future non-git project roots),
+        # yotree can't attach and it falls back to `yolo`. One source of truth.
+        lead_mode = default_permission_mode(
+            "lead",
+            is_git_repo=await git_ops.is_git_repo(Path(worktree_path)) if worktree_path else False,
+        )
         lead = TeamLead(
             name=lead_name,
             team_name=team_name,
             maestro_name=maestro_name,
             model=model,
-            permission_mode=entity.permission_mode,
+            permission_mode=lead_mode,
             worktree_path=worktree_path,
         )
         team.lead = lead_name

@@ -1,4 +1,4 @@
-"""Git / gh CLI helpers for Telegram /commit, /pr, /merge commands.
+"""Git / gh CLI helpers for the /ship command (commit, push, PR, merge).
 
 Thin async wrappers around subprocess that return (ok, stdout, stderr).
 Shared by the bridge handlers; extracted so the tests can substitute a
@@ -52,6 +52,21 @@ async def commit(cwd: Path, message: str) -> tuple[bool, str]:
     if stat.strip():
         summary += f"\n{stat.strip()}"
     return True, summary
+
+
+async def is_git_repo(cwd: Path | None) -> bool:
+    """True if ``cwd`` is inside a git work tree (T007 lead-mode default).
+
+    A lead's ``yotree`` mode needs a git worktree; when its project root is not
+    a git repo the caller falls back to ``yolo``. ``None`` (no path) is False.
+    """
+    if cwd is None or not Path(cwd).is_dir():
+        return False
+    try:
+        code, out, _ = await run(["git", "rev-parse", "--is-inside-work-tree"], cwd=cwd)
+    except OSError:
+        return False
+    return code == 0 and out.strip() == "true"
 
 
 async def current_branch(cwd: Path) -> str:

@@ -30,27 +30,23 @@ def _read_role_file(role: str, base_dir: Path) -> str:
     return (base_dir / f"role-{role}.md").read_text()
 
 
-LOOP_PROMPTS: dict[str, str] = {
-    "ralph": (
-        "Follow the RALPH loop: Read requirements, Ask clarifying questions, "
-        "List approach options, Plan steps, Halt for review before executing."
-    ),
-    "ship-it": "Execute immediately without stopping for confirmation. Ship it.",
-    "plan-act-observe": (
-        "Follow the Plan-Act-Observe cycle: Plan your next step, "
-        "Act on it, Observe the result, repeat."
-    ),
-    "build-test-refine": (
-        "Follow Build-Test-Refine: Build the feature, Test it, Refine based on results."
-    ),
-}
+def seed_goal(prompt: str) -> str:
+    """Wrap an entity's first-turn prompt as Claude Code's native ``/goal`` (T007).
+
+    Replaces the retired ``LOOP_PROMPTS`` framework. Prefixing ``/goal `` puts
+    the slash command at the very start of the message so Claude Code enters its
+    completion-condition loop (Haiku evaluator) with the turn's content as the
+    goal. Applied once, on the first turn of an activation — see
+    ``message_dispatcher.send_to_entity``.
+    """
+    return f"/goal {prompt}"
 
 
 # Maestro structural-identity blocks (Ticket 033), appended after the shared
 # maestro role JD. The role JD is ownership-neutral; this block tells a maestro
-# *which* kind it is, keyed on ``is_pa``. Kept here beside LOOP_PROMPTS — short
-# prompt text as Python constants is already the idiom — so any harness adapter
-# can append it without re-deriving the PA/project distinction.
+# *which* kind it is, keyed on ``is_pa``. Kept here as short prompt text in
+# Python constants — the module idiom — so any harness adapter can append it
+# without re-deriving the PA/project distinction.
 MAESTRO_IDENTITY: dict[str, str] = {
     "pa": (
         "You are the PA Maestro — Hive's default route: every user message that "

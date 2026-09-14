@@ -21,7 +21,6 @@ def _config(**kwargs) -> ClaudeAdapterConfig:
         allowed_tools=[],
         disallowed_tools=[],
         permission_mode="default",
-        loop_mode="ralph",
         role="worker",
         name="alice",
         mcp_config_path=None,

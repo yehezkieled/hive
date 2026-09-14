@@ -199,6 +199,46 @@ PERMISSION_MODES: dict[str, str] = {
 # Modes that emit --dangerously-skip-permissions instead of --permission-mode
 DANGEROUS_MODES: frozenset[str] = frozenset({"yolo", "yotree"})
 
+# The two modes /mode offers (T007). `edit`/`auto`/`plan` are dropped from the
+# command surface — plan mode is reached via the grill-me skill, not a toggle.
+# The wider PERMISSION_MODES map above still carries the CLI translations for
+# any persisted legacy value.
+OFFERED_MODES: frozenset[str] = frozenset({"yolo", "yotree"})
+
+
+def default_permission_mode(role: str, is_git_repo: bool) -> str:
+    """The one source of truth for an entity's spawn permission mode (T007).
+
+    Maestros run ``yolo``. Leads run ``yotree`` (dangerous-skip inside their own
+    git worktree) — but ``yotree`` needs a git worktree, so a lead whose project
+    root is not a git repo falls back to ``yolo``. Any other role defaults to
+    ``yolo``. This replaces the old scattered policy (the Entity base default of
+    ``default`` plus a ``lifecycle_manager`` force-set of maestros to ``yolo``).
+    """
+    if role == "lead":
+        return "yotree" if is_git_repo else "yolo"
+    return "yolo"
+
+
+# Valid model names for /model (T007 adds `fable`). opusplan plans with Opus and
+# executes with Sonnet; the others map straight to Claude Code's --model alias.
+VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "opusplan", "fable"})
+
+# Models billed per-token against an API key — real money — rather than covered
+# by a flat-rate plan (Plan-billed). Kept in ONE place so /model can warn on
+# them (T007). Empty today: every model Hive runs, `fable` included, is covered
+# by the developer's Claude Max plan through the PTY harness. Add a name here
+# the moment a genuinely API-billed model is offered; the warning path is
+# already wired and tested.
+API_BILLED_MODELS: frozenset[str] = frozenset()
+
+
+def billing_warning(model: str) -> str | None:
+    """One-line billing warning when ``model`` is API-billed, else None (T007)."""
+    if model in API_BILLED_MODELS:
+        return f"⚠️  {model!r} is API-billed — this costs real money per token, not plan quota."
+    return None
+
 
 @dataclass
 class Entity:
@@ -220,6 +260,9 @@ class Entity:
     system_prompt: str = ""
     session_id: str | None = None
     permission_mode: str = "default"
+    # Dormant since T007: the loop framework was retired for native /goal, but
+    # the field + its DB column are kept so persisted rows round-trip without a
+    # migration. No longer injected into any prompt.
     loop_mode: str = "ralph"
     current_priority: int = 3
     last_activity_at: datetime | None = None
@@ -269,14 +312,6 @@ class Entity:
             )
         self.permission_mode = cli_value
 
-    def set_loop_mode(self, mode: str) -> None:
-        """Set loop_mode, validating against known loop prompts."""
-        from hive.process.loops import LOOP_PROMPTS
-
-        if mode not in LOOP_PROMPTS:
-            raise ValueError(f"Unknown loop mode {mode!r}. Valid: {', '.join(LOOP_PROMPTS)}")
-        self.loop_mode = mode
-
     def load_personality(self) -> PersonalityConfig | None:
         """Load and apply personality config from the markdown file."""
         if self.personality_path is None or not self.personality_path.exists():
@@ -319,7 +354,7 @@ class Entity:
         elif self.permission_mode != "default":
             args.extend(["--permission-mode", self.permission_mode])
 
-        from hive.process.loops import LOOP_PROMPTS, load_role_jd
+        from hive.process.loops import load_role_jd
 
         # Identity preamble must be the first appended block so the model
         # reads its own name before any guidance that references it. The
@@ -332,9 +367,9 @@ class Entity:
         ]
         args.extend(["--append-system-prompt", "\n".join(identity_lines)])
 
-        loop_text = LOOP_PROMPTS.get(self.loop_mode)
-        if loop_text:
-            args.extend(["--append-system-prompt", loop_text])
+        # T007: the loop framework (LOOP_PROMPTS) is retired in favour of
+        # Claude Code's native /goal, which Hive seeds on the entity's first
+        # turn (see message_dispatcher.send_to_entity). No loop prompt here.
 
         # Role JD encodes the messaging protocol and any role-specific
         # autonomy actions. Loaded from personalities/role-<role>.md so it

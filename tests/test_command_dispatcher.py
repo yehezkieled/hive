@@ -69,7 +69,7 @@ async def dispatcher(
 def test_known_commands_is_frozenset() -> None:
     assert isinstance(KNOWN_COMMANDS, frozenset)
     # Spot-check a few commands across categories
-    assert {"status", "help", "task", "commit", "eval"} <= KNOWN_COMMANDS
+    assert {"status", "help", "task", "ship", "eval"} <= KNOWN_COMMANDS
     # Heartbeat is bridge-only — must NOT be in the dispatcher's surface
     assert "heartbeat" not in KNOWN_COMMANDS
 
@@ -582,3 +582,118 @@ async def test_peer_triggered_send_does_not_clear_awaiting_decision(
         await manager.send_to_entity("dev", "[peer poke]")
 
     assert manager._entities["dev"].awaiting_decision is True
+
+
+# ---------------------------------------------------------------------------
+# T007 — Command surface v2
+# ---------------------------------------------------------------------------
+
+
+class TestModelCommandV2:
+    """/model gains `fable` and a billing warning driven by one API-billed set."""
+
+    async def test_model_fable_is_accepted(self, dispatcher: CommandDispatcher) -> None:
+        await dispatcher.process_manager.register_maestro("dev")
+        result = await dispatcher.dispatch("/model fable dev")
+        assert "set to 'fable'" in result.text
+        assert dispatcher.process_manager._entities["dev"].model == "fable"
+
+    async def test_plan_billed_model_has_no_billing_warning(
+        self, dispatcher: CommandDispatcher
+    ) -> None:
+        await dispatcher.process_manager.register_maestro("dev")
+        result = await dispatcher.dispatch("/model fable dev")
+        # fable is plan-billed under the Max plan today — no warning.
+        assert "API-billed" not in result.text
+
+    async def test_api_billed_model_emits_billing_warning(
+        self, dispatcher: CommandDispatcher, monkeypatch
+    ) -> None:
+        """The warning path is covered even though the set ships empty:
+        inject a member into the one-place set and confirm the warning fires."""
+        import hive.models.entity as entity_mod
+
+        monkeypatch.setattr(entity_mod, "API_BILLED_MODELS", frozenset({"sonnet"}))
+        await dispatcher.process_manager.register_maestro("dev")
+        result = await dispatcher.dispatch("/model sonnet dev")
+        assert "API-billed" in result.text
+        assert "real money" in result.text.lower()
+
+
+class TestModeCommandV2:
+    """/mode offers only yolo / yotree."""
+
+    async def test_mode_rejects_edit_auto_plan(self, dispatcher: CommandDispatcher) -> None:
+        await dispatcher.process_manager.register_maestro("dev")
+        for dropped in ("edit", "auto", "plan"):
+            result = await dispatcher.dispatch(f"/mode {dropped} dev")
+            assert "yolo" in result.text and "yotree" in result.text
+            assert "set to" not in result.text  # rejected, not applied
+
+    async def test_mode_accepts_yolo_and_yotree(self, dispatcher: CommandDispatcher) -> None:
+        await dispatcher.process_manager.register_maestro("dev")
+        result = await dispatcher.dispatch("/mode yolo dev")
+        assert "set to 'yolo'" in result.text
+
+
+class TestShipCommand:
+    """/ship folds /commit /pr /merge."""
+
+    def test_commit_pr_merge_removed_from_surface(self) -> None:
+        assert "ship" in KNOWN_COMMANDS
+        for gone in ("commit", "pr", "merge"):
+            assert gone not in KNOWN_COMMANDS
+
+    async def test_ship_unknown_entity(self, dispatcher: CommandDispatcher) -> None:
+        result = await dispatcher.dispatch("/ship nobody")
+        assert "not found" in result.text.lower()
+
+
+class TestGoalSeedingAtSpawn:
+    """Hive seeds native /goal on an entity's first turn; /loop is gone."""
+
+    def test_loop_removed_from_surface(self) -> None:
+        assert "loop" not in KNOWN_COMMANDS
+
+    async def test_first_task_turn_is_seeded_with_goal(self, manager: ProcessManager) -> None:
+        await manager.register_maestro("dev")
+        adapter = FakeAdapter(responses="ok")
+        with using_adapter(manager, adapter):
+            # A genuine task delivery marks seed_goal.
+            await manager.send_to_entity("dev", "build the widget", seed_goal=True)
+        assert adapter.prompts[-1].startswith("/goal ")
+        assert "build the widget" in adapter.prompts[-1]
+
+    async def test_second_turn_is_not_seeded(self, manager: ProcessManager) -> None:
+        await manager.register_maestro("dev")
+        first = FakeAdapter(responses="ok")
+        with using_adapter(manager, first):
+            await manager.send_to_entity("dev", "build the widget", seed_goal=True)
+        # session_id is now set; the next turn must not be re-seeded.
+        second = FakeAdapter(responses="ok")
+        with using_adapter(manager, second):
+            await manager.send_to_entity("dev", "keep going", seed_goal=True)
+        assert not second.prompts[-1].startswith("/goal ")
+
+    async def test_internal_first_turn_send_is_not_seeded(self, manager: ProcessManager) -> None:
+        """A poke / peer mail / compact reseed that lands as the first send must
+        NOT be wrapped in /goal — only a genuine task (seed_goal) is."""
+        await manager.register_maestro("dev")
+        adapter = FakeAdapter(responses="working")
+        with using_adapter(manager, adapter):
+            # Default seed_goal=False: the shared-chokepoint machine path.
+            await manager.send_to_entity("dev", "[peer poke]")
+        assert not adapter.prompts[-1].startswith("/goal ")
+        assert "[peer poke]" in adapter.prompts[-1]
+
+    async def test_user_command_path_seeds_goal(
+        self, manager: ProcessManager, dispatcher: CommandDispatcher
+    ) -> None:
+        """The user/command entrypoint (dispatch._send_to_entity) marks the
+        first task for /goal seeding end to end."""
+        await manager.register_maestro("dev")
+        adapter = FakeAdapter(responses="ok")
+        with using_adapter(manager, adapter):
+            await dispatcher._send_to_entity("dev", "build the widget")
+        assert adapter.prompts[-1].startswith("/goal ")
+        assert "build the widget" in adapter.prompts[-1]

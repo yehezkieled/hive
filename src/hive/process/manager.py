@@ -554,8 +554,10 @@ class ProcessManager:
             pass
         return "no output past the no-progress timeout — cause unknown"
 
-    async def send_to_entity(self, entity_name: str, prompt: str) -> str:
-        return await self.dispatcher.send_to_entity(entity_name, prompt)
+    async def send_to_entity(
+        self, entity_name: str, prompt: str, *, seed_goal: bool = False
+    ) -> str:
+        return await self.dispatcher.send_to_entity(entity_name, prompt, seed_goal=seed_goal)
 
     async def _handle_actions(
         self,

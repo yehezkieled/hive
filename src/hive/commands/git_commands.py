@@ -1,9 +1,11 @@
-"""GitCommands — the git command group (Ticket 045).
+"""GitCommands — the git command group (Ticket 045; folded into /ship by T007).
 
-/commit, /pr, /merge — operate on an entity's worktree (the worktree floor).
-Constructed with a ``ProcessManager`` (to resolve an entity's worktree) + the
-audit log (to record git actions). Follows ADR 0006 composition with
-dependency injection (touches no facade-private state).
+The public surface is ``/ship`` — commit + push + open PR, optionally
+squash-merge — operating on an entity's worktree (the worktree floor). The
+per-step bodies (``_execute_commit`` / ``_execute_pr`` / ``_execute_merge``)
+stay as the reusable pieces ``/ship`` composes. Constructed with a
+``ProcessManager`` (to resolve an entity's worktree) + the audit log (to record
+git actions). Follows ADR 0006 composition with dependency injection.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 
 
 class GitCommands:
-    """/commit, /pr, /merge against an entity's worktree."""
+    """/ship (commit + push + PR, optional merge) against an entity's worktree."""
 
     def __init__(self, process_manager: ProcessManager, audit_log: AuditLog | None = None) -> None:
         self.process_manager = process_manager
@@ -32,14 +34,8 @@ class GitCommands:
     # Registry handlers — uniform ``async (cmd, actor) -> CommandResult``.
     # ------------------------------------------------------------------
 
-    async def commit(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_commit(cmd.target, cmd.args))
-
-    async def pr(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_pr(cmd.target, cmd.args))
-
-    async def merge(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_merge(cmd.target))
+    async def ship(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_ship(cmd.target, cmd.args))
 
     # ------------------------------------------------------------------
     # Bodies (moved verbatim from CommandDispatcher; Ticket 045)
@@ -143,3 +139,52 @@ class GitCommands:
                 details={},
             )
         return f"Merged PR for {entity_name}:\n{output}"
+
+    async def _execute_ship(self, entity_name: str | None, args: str) -> str:
+        """Handle /ship <entity> [merge|"msg"] — fold /commit /pr /merge (T007).
+
+        - ``/ship <e>``        commit (default message) + push + open PR
+        - ``/ship <e> "msg"``  same, with a custom commit message
+        - ``/ship <e> merge``  the above, then squash-merge (still gated by
+          ``HIVE_ALLOW_AUTO_MERGE``)
+        """
+        if not entity_name:
+            return 'Usage: /ship <entity> [merge|"msg"]'
+        entity, worktree = self._worktree_for(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+        if worktree is None:
+            return f"Entity {entity_name!r} has no worktree attached."
+
+        arg = (args or "").strip()
+        do_merge = arg.lower() == "merge"
+        message = None if (not arg or do_merge) else _strip_quotes(arg).strip()
+        commit_msg = message or f"ship {entity_name}"
+
+        steps: list[str] = []
+        ok, summary = await git_ops.commit(worktree, commit_msg)
+        if ok:
+            steps.append(f"Committed: {summary}")
+            if self.audit_log is not None:
+                await self.audit_log.record(
+                    actor="user",
+                    action="git.commit",
+                    target=entity_name,
+                    details={"message": commit_msg[:200], "via": "ship"},
+                )
+        elif "nothing to commit" in summary.lower():
+            # Benign: the worktree is already clean (e.g. changes were committed
+            # earlier). Keep going — push whatever commits exist and open the PR.
+            steps.append(f"Commit skipped: {summary}")
+        else:
+            # A genuine commit failure (git add error, hook rejection, bad
+            # index). Abort BEFORE push/PR so a failed ship never reads as a
+            # success with the intended changes silently left uncommitted.
+            return f"Ship aborted for {entity_name}: {summary}"
+
+        steps.append(await self._execute_pr(entity_name, ""))
+
+        if do_merge:
+            steps.append(await self._execute_merge(entity_name))
+
+        return "\n".join(steps)

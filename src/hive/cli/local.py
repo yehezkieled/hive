@@ -97,7 +97,10 @@ class LocalCLI:
                 return "Usage: /m:<name> <message> or just type text"
             try:
                 print(f"Sending to {cmd.target}...")
-                response = await self.process_manager.send_to_entity(cmd.target, cmd.args)
+                # T007: local user task path — seed /goal on the first turn.
+                response = await self.process_manager.send_to_entity(
+                    cmd.target, cmd.args, seed_goal=True
+                )
                 await self.router.route("user", cmd.target, cmd.args)
                 await self.router.route(cmd.target, "user", response)
                 return response or "(no response)"

@@ -844,15 +844,25 @@ short-circuits when `otter` is already restored).
 `/priority <P0-P4> "<title>"`
 
 **Configuration:**
-`/mode <plan|edit|auto|yolo|yotree> [entity]`, `/loop <ralph|ship-it|plan-act-observe|build-test-refine> [entity]`,
-`/model <opus|sonnet|haiku|opusplan> [entity]`, `/personality reload <entity>`
+`/mode <yolo|yotree> [entity]`, `/model <opus|sonnet|haiku|opusplan|fable> [entity]`,
+`/personality reload <entity>`
 
 > `opusplan` is a Claude Code alias: the planning phase uses Opus and execution
 > uses Sonnet. Pass it exactly as `opusplan` to `/model`.
 >
-> The loop mode formerly named `yolo` has been renamed `ship-it` to avoid
-> collision with `/mode yolo` (which means dangerous permissions). Using
-> `/loop yolo` now returns an "unknown loop" error — use `/loop ship-it`.
+> `/mode` offers only `yolo` / `yotree` (T007). Plan mode is no longer a
+> per-entity toggle — it is reachable through the grill-me skill. Spawn
+> defaults come from one source of truth: a maestro spawns `yolo`; a lead
+> spawns `yotree` when its project root is a git repo, else `yolo` (yotree
+> needs a git worktree).
+>
+> Hive's `/loop` was removed (T007) in favour of Claude Code's native
+> `/goal`: Hive seeds `/goal <completion condition>` into an entity's first
+> turn at spawn. There is no `LOOP_PROMPTS` machinery any more.
+>
+> `/model fable` is accepted. Selecting an API-billed model prints a one-line
+> billing warning; the API-billed set lives in one place and is empty today
+> (every model, `fable` included, runs plan-billed on the Max plan).
 
 **Heartbeat:**
 `/heartbeat on` — enable periodic status pings.
@@ -884,11 +894,12 @@ short-circuits when `otter` is already restored).
 > `vault_action_pending` Allow/Deny bubble for every `vault.requested`
 > event, mirroring the Sprint 22 mode-request UX.
 
-**Git workflow (Sprint 12):**
-`/commit <entity> "<message>"` — stage + commit in the entity's worktree.
-`/pr <entity> ["<title>"]` — push branch + `gh pr create`.
-`/merge <entity>` — `gh pr merge --squash --delete-branch`. Disabled
-unless `HIVE_ALLOW_AUTO_MERGE=1` is set in the environment.
+**Git workflow (T007 — one verb):**
+`/ship <entity>` — commit + push + `gh pr create` in the entity's worktree.
+`/ship <entity> "<message>"` — same, with a custom commit message.
+`/ship <entity> merge` — additionally `gh pr merge --squash --delete-branch`,
+disabled unless `HIVE_ALLOW_AUTO_MERGE=1` is set in the environment.
+(`/ship` folds the former `/commit` `/pr` `/merge` into one verb.)
 
 **Blueprints:** `/blueprint save|search|list` — save a new blueprint, semantic search over past blueprints, list all
 

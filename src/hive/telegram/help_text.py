@@ -168,18 +168,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Stop an entity's subprocess, which can be respawned by sending a message.",
         examples=("/kill dev", "/kill dev.backend.w1"),
     ),
-    "loop": HelpEntry(
-        category="Session",
-        usage="/loop ralph|ship-it|plan-act-observe|build-test-refine <entity>",
-        description="Set the workflow loop framework for an entity.",
-        examples=("/loop ralph dev", "/loop ship-it dev"),
-    ),
     "mode": HelpEntry(
         category="Session",
-        usage="/mode plan|edit|auto|yolo|yotree <entity>",
-        description="Set an entity's permission mode.",
+        usage="/mode yolo|yotree <entity>",
+        description="Set an entity's permission mode (plan mode is via the grill-me skill).",
         examples=(
-            "/mode plan dev",
+            "/mode yolo dev",
             "/mode yotree dev.backend",
         ),
     ),
@@ -204,12 +198,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
     ),
     "model": HelpEntry(
         category="Resources",
-        usage="/model opus|sonnet|haiku|opusplan [entity]",
-        description=("Change entity model. opusplan plans with Opus and executes with Sonnet."),
+        usage="/model opus|sonnet|haiku|opusplan|fable [entity]",
+        description="Change entity model; an API-billed model prints a billing warning.",
         examples=(
             "/model opus dev",
             "/model sonnet dev.backend",
-            "/model haiku dev.backend.w1",
+            "/model fable dev.backend",
             "/model opusplan dev.backend",
         ),
     ),
@@ -253,24 +247,16 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/blueprint list",
         ),
     ),
-    # Git — alphabetical: commit, merge, pr
-    "commit": HelpEntry(
+    # Git — single verb
+    "ship": HelpEntry(
         category="Git",
-        usage='/commit <entity> "<message>"',
-        description="Stage all changes in an entity's worktree and commit with the given message.",
-        examples=('/commit dev.backend.w1 "add retry logic"',),
-    ),
-    "merge": HelpEntry(
-        category="Git",
-        usage="/merge <entity>",
-        description="Squash-merge an entity's PR. Requires HIVE_ALLOW_AUTO_MERGE=1.",
-        examples=("/merge dev.backend.w1",),
-    ),
-    "pr": HelpEntry(
-        category="Git",
-        usage='/pr <entity> ["<title>"]',
-        description="Push the entity's branch and open a pull request with gh pr create.",
-        examples=("/pr dev.backend.w1", '/pr dev.backend.w1 "retry on transient errors"'),
+        usage='/ship <entity> [merge|"msg"]',
+        description="Commit, push and open a PR in one step; add merge to squash-merge too.",
+        examples=(
+            "/ship dev.backend.w1",
+            '/ship dev.backend.w1 "add retry logic"',
+            "/ship dev.backend.w1 merge",
+        ),
     ),
     # Admin — alphabetical: cancel, eval, help, personality
     "cancel": HelpEntry(

@@ -8,10 +8,29 @@ from hive.models.entity import (
     Entity,
     EntityState,
     InvalidStateTransitionError,
+    default_permission_mode,
     parse_personality,
 )
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
+
+
+class TestDefaultPermissionMode:
+    """T007 one source of truth for the spawn permission mode."""
+
+    def test_maestro_is_yolo(self) -> None:
+        assert default_permission_mode("maestro", is_git_repo=True) == "yolo"
+        assert default_permission_mode("maestro", is_git_repo=False) == "yolo"
+
+    def test_lead_in_git_repo_is_yotree(self) -> None:
+        assert default_permission_mode("lead", is_git_repo=True) == "yotree"
+
+    def test_lead_without_git_repo_falls_back_to_yolo(self) -> None:
+        # yotree needs a git worktree; without one the lead falls back to yolo.
+        assert default_permission_mode("lead", is_git_repo=False) == "yolo"
+
+    def test_other_roles_default_to_yolo(self) -> None:
+        assert default_permission_mode("vault", is_git_repo=False) == "yolo"
 
 
 class TestEntityState:
@@ -298,33 +317,26 @@ class TestPermissionMode:
 
 
 class TestLoopMode:
-    """Test loop_mode field and --append-system-prompt CLI arg."""
+    """T007 retired the LOOP_PROMPTS injection (native /goal replaces it).
 
-    def test_loop_mode_defaults_to_ralph(self) -> None:
+    The ``loop_mode`` field stays as a dormant persisted column for backward
+    compatibility, but no loop framework is appended to the CLI args anymore.
+    """
+
+    def test_loop_mode_field_persists_but_is_dormant(self) -> None:
         e = Entity(name="test", role="lead")
-        assert e.loop_mode == "ralph"
+        assert e.loop_mode == "ralph"  # persisted default, no longer injected
 
-    def test_set_loop_mode_valid(self) -> None:
+    def test_set_loop_mode_is_removed(self) -> None:
         e = Entity(name="test", role="lead")
-        e.set_loop_mode("ship-it")
-        assert e.loop_mode == "ship-it"
+        assert not hasattr(e, "set_loop_mode")
 
-    def test_set_loop_mode_invalid_raises(self) -> None:
-        e = Entity(name="test", role="lead")
-        with pytest.raises(ValueError, match="Unknown loop mode"):
-            e.set_loop_mode("chaos")
-
-    def test_build_cli_args_includes_append_system_prompt(self) -> None:
+    def test_build_cli_args_injects_no_loop_prompt(self) -> None:
         e = Entity(name="test", role="lead", loop_mode="ship-it")
         args = e.build_cli_args()
         appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert any("Execute immediately" in a for a in appended)
-
-    def test_build_cli_args_includes_ralph_by_default(self) -> None:
-        e = Entity(name="test", role="lead")
-        args = e.build_cli_args()
-        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert any("RALPH" in a for a in appended)
+        assert not any("Execute immediately" in a for a in appended)
+        assert not any("RALPH" in a for a in appended)
 
 
 class TestCurrentPriority:
@@ -336,30 +348,30 @@ class TestCurrentPriority:
 
 
 class TestMessagingPromptInjection:
-    """Every entity gets identity + loop + role JD as appended prompts.
-    The role JD encodes the messaging protocol and any role-specific
-    autonomy actions (e.g. spawn_team for maestros, the Workflow leaf
+    """Every entity gets identity + role JD as appended prompts (T007 retired
+    the loop block). The role JD encodes the messaging protocol and any
+    role-specific autonomy actions (spawn_team for maestros, the Workflow leaf
     path for leads).
     """
 
     def test_maestro_includes_role_jd_with_spawn_team(self) -> None:
         m = Maestro(name="dev")
         args = m.build_cli_args()
-        # identity + loop + role JD = 3 --append-system-prompt entries
+        # identity + role JD = 2 --append-system-prompt entries (no loop block)
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 3
+        assert len(indices) == 2
         appended = [args[i + 1] for i in indices]
         assert any("hive_actions" in a for a in appended)
         assert any("spawn_team" in a for a in appended)
 
     def test_lead_includes_role_jd_with_workflow_leaf_path(self) -> None:
         """The lead JD (ADR 0010: Workflow leaf engine) rides in as the
-        3rd appended block — the JD reframe must not add a 4th.
+        2nd appended block — identity first, then the JD, no loop block.
         """
         lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
         args = lead.build_cli_args()
         indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 3
+        assert len(indices) == 2
         appended = [args[i + 1] for i in indices]
         assert any("hive_actions" in a for a in appended)
         assert any("Workflow" in a and "TaskOutput" in a for a in appended)
