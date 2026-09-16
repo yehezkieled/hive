@@ -3,7 +3,7 @@ id: T007
 title: Command surface v2
 epic: E03
 milestone: M1
-status: review
+status: done
 priority: P2
 depends_on: []
 owner: work-t007
@@ -56,6 +56,8 @@ Grill (2026-09-09). Original item (4) — removing typed `/approve` `/deny` `/va
 - **`/goal` seeding:** Hive injects `/goal <completion condition>` at spawn (deterministic, mirrors the JD/loop-prompt path); the `loop_mode`/`LOOP_PROMPTS` machinery is retired, not kept alongside.
 - **Billing warning:** a named API-billed model set kept in one place drives the warning. `fable` is added as a valid `/model` name but is **not** assumed API-billed — Fable 5.1 runs under the user's Max plan today. Verify genuine API-billed names in plan mode; if none, ship the set empty and cover the warning path with a unit test.
 - **`/mode` default:** lead default is `yotree` only when the project root is a git repo, else `yolo` (yotree requires a git worktree). Both branches are tested.
+
+Deploy (2026-09-16): merged to `origin/main` (#294) and marked done. The check command and `tests/test_help.py` are green (acceptance line 6, first two clauses). The **deployed smoke** (third clause) is still pending: `hive.service` runs from the shared checkout `/home/hezki/projects/hive`, which a worktree-isolated session cannot fast-forward — it must be advanced with `git -C /home/hezki/projects/hive merge --ff-only origin/main` from the main checkout, then the service restarted, before the live command smoke can run. Box 6 stays unticked until that smoke passes.
 
 Review (2026-09-09, verifier + reviewer on Sonnet). Findings fixed in-scope:
 - **`/goal` over-seeding (must-fix).** `send_to_entity` is a shared chokepoint; keying seeding on "first turn" (`session_id is None`) wrapped a peer poke or a compact reseed as the entity's `/goal`. Fixed with an explicit `seed_goal` flag set only by the genuine user/command task entrypoint (see Plan step 2 + decisions.md). New tests: `test_internal_first_turn_send_is_not_seeded`, `test_user_command_path_seeds_goal`, and a compact-reseed assertion (`sent_seed_goal == [False, False]`).
