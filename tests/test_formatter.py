@@ -86,3 +86,32 @@ def test_formatter_takes_no_mutation_or_approval_stores() -> None:
     assert "mode_request_store" not in params
     assert "blueprint_store" not in params
     assert {"token_store", "audit_log", "task_store", "attachment_store"} <= params
+
+
+def test_status_shows_which_harness_and_mode_ran_the_last_turn() -> None:
+    from types import SimpleNamespace
+
+    statuses = [
+        {"name": "otter", "role": "maestro", "state": "idle", "model": "opus", "pid": None,
+         "alive": True, "uptime": None, "harness": "pi", "mode": "headless"},
+        {"name": "dev", "role": "lead", "state": "idle", "model": "opus", "pid": None,
+         "alive": True, "uptime": None},
+    ]  # fmt: skip
+    pm = SimpleNamespace(get_status=lambda: statuses)
+    text = Formatter(pm)._format_status()  # type: ignore[arg-type]
+    assert "(model=opus, via pi/headless)" in text
+    assert "dev [lead] idle (model=opus)" in text
+    assert "NOT enforced" not in text
+
+
+def test_status_flags_an_unfenced_maestro() -> None:
+    from types import SimpleNamespace
+
+    statuses = [
+        {"name": "otter", "role": "maestro", "state": "idle", "model": "opus", "pid": None,
+         "alive": True, "uptime": None, "harness": "pi", "mode": "headless",
+         "unfenced": "ownership fence"},
+    ]  # fmt: skip
+    pm = SimpleNamespace(get_status=lambda: statuses)
+    text = Formatter(pm)._format_status()  # type: ignore[arg-type]
+    assert "via pi/headless) ⚠️ ownership fence NOT enforced" in text

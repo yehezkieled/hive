@@ -8,6 +8,11 @@ so the old entry stays as history.
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
 This file holds the smaller process and tooling decisions.
 
+## 2026-10-01: Harness pivot — Pi first, headless default, PTY fallback
+Context: Claude Code drops its login about monthly, which stops the whole fleet; headless runs currently share the subscription limits and a separate headless credit was announced then paused.
+Decision: Detect installed+signed-in harnesses (Pi, Claude Code; Codex detect-only) and prefer Pi (`HIVE_HARNESS_ORDER=pi,claude`). Run each turn headless by default (`HIVE_RUN_MODE_ORDER=headless,pty`), falling back to the PTY session only on a refusal read from the harness's own error (auth, quota, refused, unavailable). Surface harness/mode in `/status` and Telegram, with a clear alert when none is usable. Direct model-API support is deliberately not built — it is one more `HarnessSpec` later. Recorded as ADR 0029; Codex/OpenCode adapters (T015/T016) stay parked behind the same extension point.
+Consequences: Pi entities lose MCP, `/goal` and the Ownership guard (see ADR 0029 consequences); the fleet survives a Claude logout when Pi is signed in. Replaces nothing in this file; narrows ADR 0007.
+
 ## 2026-10-01: Work tracking leaves the repo
 Context: the in-repo pm board (`docs/pm/tickets`, `epics`) was written by an older pm-plugin version that newer versions no longer read.
 Decision: Open tickets moved to the maintainer's external backlog; each still links its GitHub issue. The repo carries no tickets or epics. `docs/pm/roadmap.md` and `decisions.md` moved to `docs/roadmap.md` and `docs/decisions.md`. Replaces entries of 2026-09-06 and the `mirror: on` entry.

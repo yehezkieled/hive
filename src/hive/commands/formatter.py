@@ -260,8 +260,11 @@ class Formatter:
         for s in statuses:
             uptime = f", uptime={int(s['uptime'])}s" if s["uptime"] else ""
             pid = f", pid={s['pid']}" if s["pid"] else ""
+            run = f", via {s['harness']}/{s['mode']}" if s.get("harness") else ""
+            fence = f" ⚠️ {s['unfenced']} NOT enforced" if s.get("unfenced") else ""
             lines.append(
-                f"- {s['name']} [{s['role']}] {s['state']} (model={s['model']}{pid}{uptime})"
+                f"- {s['name']} [{s['role']}] {s['state']} "
+                f"(model={s['model']}{run}{pid}{uptime}){fence}"
             )
         return "Entities:\n" + "\n".join(lines)
 

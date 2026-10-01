@@ -79,14 +79,26 @@ _Avoid_: permission rule, sandbox, deny rule.
 
 **Harness**:
 A standalone agentic CLI that runs a full agent loop — reasoning, tool use,
-file editing — on its own. Hive drives one Harness per Entity. The three Hive
-targets are Claude Code, Codex, and OpenCode. A Harness is not a bare model;
+file editing — on its own. Hive drives one Harness per Entity. Supported today:
+Pi and Claude Code; Codex and OpenCode are planned. A Harness is not a bare model;
 it is the whole agent tool wrapped around one.
 _Avoid_: runtime, model, LLM, backend
 
 **Adapter**:
-The Hive code that drives one Harness and presents the rest of Hive a
-uniform, turn-level interface. One Adapter per Harness.
+The Hive code that drives one Harness in one **Run mode** and presents the rest
+of Hive a uniform, turn-level interface. Registered per Harness as a
+`HarnessSpec` (`runtime/registry.py`) — the extension point for new Harnesses.
+
+**Run mode**:
+How a Harness is driven for a Turn — **headless** (one non-interactive
+subprocess per Turn: `claude -p`, `pi -p`; the default) or **PTY** (a
+persistent interactive session; the fallback, entered only when headless is
+refused or out of quota, read from the Harness's own error). Chosen per Turn by
+`HarnessRuntime`, which also picks the Harness (a per-role order: Pi first by
+default, Claude Code first for Maestros and the Vault) from whichever are
+installed and signed in. Surfaced as "harness (mode)" on `/status`
+and in Telegram. ADR 0029.
+_Avoid_: runtime (a Runtime is which Harness an Entity is on), transport.
 
 **Runtime**:
 The Harness a given Entity is currently assigned to run on. "Switch a Lead's

@@ -94,6 +94,59 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # preserves the legacy PATH-lookup behavior when the knob is unset.
 CLAUDE_BINARY = os.path.expanduser(os.environ.get("HIVE_CLAUDE_BINARY", "claude"))
 
+
+def _csv(raw: str) -> list[str]:
+    return [v.strip().lower() for v in raw.split(",") if v.strip()]
+
+
+# Harness selection (ADR 0029). Hive drives whichever agent harness is installed
+# AND signed in, preferring them in HARNESS_ORDER (Pi first — it needs no Claude
+# login, which Claude Code drops every ~30 days). Within a harness, RUN_MODE_ORDER
+# is the order of run modes: headless (`-p`, one subprocess per turn) is the
+# default; PTY (a persistent interactive session) is the fallback, entered only
+# when headless is refused or out of quota — detected from the harness's own
+# error, never guessed. Both are comma-separated, e.g. HIVE_HARNESS_ORDER=pi,claude.
+HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "pi,claude"))
+RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty"))
+# Roles whose lockdown is a Claude-only control Pi would silently drop, mapped to
+# that guardrail: a maestro's ownership-guard PreToolUse hook (ADR 0017), and the
+# vault's Bash/Write/Edit denial (its whole lockdown). These roles default to
+# Claude first and use Pi only when Claude cannot run the turn, with a loud
+# "<guardrail> NOT enforced" alert. A lead is not here: its denylist only blocks
+# Claude Code tools Pi does not have, so it loses nothing on Pi.
+FENCED_ROLES: dict[str, str] = {"maestro": "ownership fence", "vault": "tool denylist"}
+# Every role Hive spawns (models/maestro.py, team_lead.py, vault.py).
+ROLES: tuple[str, ...] = ("lead", "maestro", "vault")
+
+
+def harness_order_for(role: str) -> list[str]:
+    """Harness order for one role: ``HIVE_HARNESS_ORDER_<ROLE>`` when set, else
+    Claude first for a fenced role, else ``HARNESS_ORDER``."""
+    override = os.environ.get(f"HIVE_HARNESS_ORDER_{role.upper()}")
+    if override is not None:
+        return _csv(override)
+    if role in FENCED_ROLES:
+        return ["claude", *(h for h in HARNESS_ORDER if h != "claude")]
+    return list(HARNESS_ORDER)
+
+
+# Pi (https://pi.dev). PI_MODEL/PI_PROVIDER are optional: unset, Pi uses its own
+# configured default model (Hive's Claude aliases like "opus" mean nothing to Pi).
+PI_BINARY = os.path.expanduser(os.environ.get("HIVE_PI_BINARY", "pi"))
+PI_MODEL = os.environ.get("HIVE_PI_MODEL", "")
+PI_PROVIDER = os.environ.get("HIVE_PI_PROVIDER", "")
+CODEX_BINARY = os.path.expanduser(os.environ.get("HIVE_CODEX_BINARY", "codex"))
+# Hard cap on one headless turn (seconds). Headless has no streaming no-progress
+# reader like the PTY, so a wedged subprocess is bounded by wall clock instead.
+HEADLESS_TIMEOUT_S = float(os.environ.get("HIVE_HEADLESS_TIMEOUT_S", "3600"))
+# After headless reports quota exhaustion, how long before the harness's headless
+# mode is tried again (the PTY serves turns meanwhile). Auth/unavailable failures
+# use the shorter HARNESS_RETRY_S, since the user may re-login at any moment.
+HEADLESS_QUOTA_RETRY_S = float(os.environ.get("HIVE_HEADLESS_QUOTA_RETRY_S", "900"))
+HARNESS_RETRY_S = float(os.environ.get("HIVE_HARNESS_RETRY_S", "60"))
+# How long a harness installed/signed-in probe stays cached (seconds).
+HARNESS_DETECT_TTL_S = float(os.environ.get("HIVE_HARNESS_DETECT_TTL_S", "60"))
+
 # Default maestro
 DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "otter")
 

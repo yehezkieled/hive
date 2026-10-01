@@ -1,9 +1,11 @@
 """Claude Code adapter — drives one persistent PTY session per entity.
 
-Ticket 007 removed the headless ``claude -p`` subprocess path; the PTY session
-is now the only runtime. The adapter builds the append-system-prompts and extra
-CLI args for the PTY, forwards the interactive-gate bridge, and turns each
-``PtySession.send`` into a uniform ``(text, usage)`` turn result.
+This is the PTY *mode* of the Claude harness: since the harness pivot (ADR 0029)
+it is the fallback behind headless ``claude -p`` (``claude_headless.py``), reached
+through ``HarnessRuntime`` when headless is refused or out of quota. The adapter
+builds the append-system-prompts and extra CLI args for the PTY, forwards the
+interactive-gate bridge, and turns each ``PtySession.send`` into a uniform
+``(text, usage)`` turn result.
 """
 
 from __future__ import annotations
@@ -12,11 +14,11 @@ import asyncio
 import logging
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
 from hive.config import CLAUDE_BINARY
+from hive.runtime.adapter_config import AdapterConfig, build_system_prompts
 from hive.runtime.base import Runtime
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
@@ -51,26 +53,40 @@ def _claude_supports_advisor() -> bool:
         return False
 
 
-@dataclass
-class ClaudeAdapterConfig:
-    """All Claude-specific settings needed to build a claude PTY invocation."""
+def build_claude_extra_args(cfg: AdapterConfig) -> list[str]:
+    """Claude CLI flags beyond model/permissions — shared by the PTY and headless runs."""
+    args: list[str] = []
+    if cfg.allowed_tools:
+        args.extend(["--allowedTools", *cfg.allowed_tools])
+    if cfg.disallowed_tools:
+        args.extend(["--disallowedTools", *cfg.disallowed_tools])
+    if cfg.advisor and _claude_supports_advisor():
+        # Native /advisor (Ticket 013): a stronger model the executor
+        # consults at decision points. Off when None (no flag). Guarded
+        # by a capability probe — no shipped CC build has --advisor, and
+        # passing an unknown option crashes the spawn.
+        args.extend(["--advisor", cfg.advisor])
+    elif cfg.advisor:
+        logger.warning(
+            "advisor %r requested but %s has no --advisor flag; skipping (Ticket 013 follow-up)",
+            cfg.advisor,
+            CLAUDE_BINARY,
+        )
+    if cfg.mcp_config_path is not None:
+        # --strict-mcp-config: load only this file, not the user's global
+        # MCP servers (those add minutes of cold-start latency per spawn).
+        args.extend(["--mcp-config", str(cfg.mcp_config_path)])
+        args.append("--strict-mcp-config")
+    if cfg.settings_path is not None:
+        # Ownership-guard PreToolUse hook (Ticket 024, ADR 0017). A hook
+        # fires even under bypass mode, where permission deny rules do not.
+        args.extend(["--settings", str(cfg.settings_path)])
+    return args
 
-    model: str = "sonnet"
-    system_prompt: str = ""
-    allowed_tools: list[str] = field(default_factory=list)
-    disallowed_tools: list[str] = field(default_factory=list)
-    permission_mode: str = "default"
-    role: str = "lead"
-    name: str = ""
-    mcp_config_path: Path | None = None
-    advisor: str | None = None
-    # Per-spawn settings file carrying the ownership-guard PreToolUse hook
-    # (Ticket 024, ADR 0017). Injected via --settings; None = no fence.
-    settings_path: Path | None = None
-    # Whether this maestro is the PA — Hive's default route (Ticket 033).
-    # Selects the PA vs. project-maestro identity block in the system prompt.
-    # Always False for non-maestro roles.
-    is_pa: bool = False
+
+# The config is harness-neutral (Pi and the headless adapters consume it too);
+# the Claude-era name stays as an alias so existing call sites keep working.
+ClaudeAdapterConfig = AdapterConfig
 
 
 class ClaudeAdapter(Runtime):
@@ -97,59 +113,10 @@ class ClaudeAdapter(Runtime):
         self._on_gate_state = on_gate_state
 
     def _build_pty_system_prompts(self) -> list[str]:
-        cfg = self._config
-        prompts: list[str] = []
-        if cfg.system_prompt:
-            prompts.append(cfg.system_prompt)
-        identity_lines = [
-            f"You are {cfg.name}. Your role is {cfg.role}.",
-            "If a hive_action is denied or fails, report the failure honestly. "
-            "Do not narrate fictional success.",
-        ]
-        prompts.append("\n".join(identity_lines))
-        from hive.process.loops import MAESTRO_IDENTITY, load_role_jd
-
-        # T007: the loop framework is retired in favour of native /goal, seeded
-        # on the first turn by message_dispatcher — no loop prompt appended here.
-        if cfg.role in ("maestro", "lead"):
-            prompts.append(load_role_jd(cfg.role))
-        # State the maestro's structural role (PA vs. project) after the shared,
-        # ownership-neutral role JD (Ticket 033). Maestro-only — leads never own
-        # a project, so the distinction is meaningless for them.
-        if cfg.role == "maestro":
-            prompts.append(MAESTRO_IDENTITY["pa" if cfg.is_pa else "project"])
-        return prompts
+        return build_system_prompts(self._config)
 
     def _build_pty_extra_args(self) -> list[str]:
-        cfg = self._config
-        args: list[str] = []
-        if cfg.allowed_tools:
-            args.extend(["--allowedTools", *cfg.allowed_tools])
-        if cfg.disallowed_tools:
-            args.extend(["--disallowedTools", *cfg.disallowed_tools])
-        if cfg.advisor and _claude_supports_advisor():
-            # Native /advisor (Ticket 013): a stronger model the executor
-            # consults at decision points. Off when None (no flag). Guarded
-            # by a capability probe — no shipped CC build has --advisor, and
-            # passing an unknown option crashes the spawn.
-            args.extend(["--advisor", cfg.advisor])
-        elif cfg.advisor:
-            logger.warning(
-                "advisor %r requested but %s has no --advisor flag; skipping "
-                "(Ticket 013 follow-up)",
-                cfg.advisor,
-                CLAUDE_BINARY,
-            )
-        if cfg.mcp_config_path is not None:
-            # --strict-mcp-config: load only this file, not the user's global
-            # MCP servers (those add minutes of cold-start latency per spawn).
-            args.extend(["--mcp-config", str(cfg.mcp_config_path)])
-            args.append("--strict-mcp-config")
-        if cfg.settings_path is not None:
-            # Ownership-guard PreToolUse hook (Ticket 024, ADR 0017). A hook
-            # fires even under bypass mode, where permission deny rules do not.
-            args.extend(["--settings", str(cfg.settings_path)])
-        return args
+        return build_claude_extra_args(self._config)
 
     async def start(self) -> None:
         cfg = self._config

@@ -61,6 +61,7 @@ from hive.process.scheduler import PriorityScheduler
 from hive.process.workflow_watcher import ProgressStore, WorkflowWatcher
 from hive.runtime import QuotaMonitor
 from hive.runtime.gate_coordinator import GateCoordinator
+from hive.runtime.registry import availability_report
 from hive.vault.config import VaultConfig
 from hive.vault.provider import build_provider
 
@@ -463,6 +464,15 @@ async def main() -> None:
         if WEB_PORT > 0:
             background_tasks.append(asyncio.create_task(health_monitor.run(stop_event)))
             logger.info("Health monitor started (tick=%ds)", health_monitor.tick_seconds)
+
+        # Which harnesses can run turns right now (ADR 0029). Logged; and when none
+        # can (Claude Code logged out, Pi unconfigured) say so in Telegram at boot
+        # rather than waiting for the first failed turn.
+        harness_lines, no_harness = await availability_report(process_manager.harness_detector)
+        for line in harness_lines:
+            logger.info("Harness: %s", line)
+        if no_harness is not None:
+            await process_manager._notify(str(no_harness), kind="harness_unavailable")
 
         await stop_event.wait()
 
