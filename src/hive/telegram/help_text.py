@@ -198,13 +198,14 @@ HELP_TEXT: dict[str, HelpEntry] = {
     ),
     "model": HelpEntry(
         category="Resources",
-        usage="/model opus|sonnet|haiku|opusplan|fable [entity]",
-        description="Change entity model; an API-billed model prints a billing warning.",
+        usage="/model <model> [entity]",
+        description="Change entity model (set depends on its harness); warns if API-billed.",
         examples=(
             "/model opus dev",
             "/model sonnet dev.backend",
             "/model fable dev.backend",
             "/model opusplan dev.backend",
+            "/model gpt-5.5 dev.codexlead",
         ),
     ),
     "quota": HelpEntry(
@@ -212,6 +213,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
         usage="/quota",
         description="Show plan-quota utilization for the 5h and 7d windows, with reset times.",
         examples=("/quota",),
+    ),
+    "runtime": HelpEntry(
+        category="Resources",
+        usage="/runtime <entity> claude-code|codex [model]",
+        description="Move an entity to another harness; its session is cleared.",
+        examples=("/runtime dev codex", "/runtime dev.backend codex gpt-5.6-luna"),
     ),
     # Security — alphabetical: approve, deny, vault
     "approve": HelpEntry(

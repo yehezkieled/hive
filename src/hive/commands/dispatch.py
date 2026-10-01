@@ -109,6 +109,7 @@ class CommandDispatcher:
         "new": (None, "_h_new"),
         "personality": (None, "_h_personality"),
         "model": (None, "_h_model"),
+        "runtime": (None, "_h_runtime"),
         "vault": ("datastore", "vault"),
         "blueprint": ("datastore", "blueprint"),
         "help": ("formatter", "help"),
@@ -271,6 +272,9 @@ class CommandDispatcher:
 
     async def _h_model(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_model(cmd.target, cmd.args))
+
+    async def _h_runtime(self, cmd: Command, actor: str) -> CommandResult:
+        return CommandResult(text=await self._execute_runtime(cmd.target, cmd.args))
 
     async def _h_approve(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_approve(cmd.target, cmd.args))
@@ -683,27 +687,90 @@ class CommandDispatcher:
         return f"Reloaded personality for {entity_name}."
 
     async def _execute_model(self, model_name: str | None, entity_name: str) -> str:
-        """Handle /model <opus|sonnet|haiku|opusplan|fable> [entity] (T007).
+        """Handle /model <model> [entity] (T007, harness-aware in T015).
 
-        `fable` is accepted; selecting an API-billed model appends a one-line
-        billing warning (the set is empty today — everything runs plan-billed).
+        The valid set is the entity's Harness's: a Claude model is rejected on
+        a Codex entity and vice versa. Selecting an API-billed model appends a
+        one-line billing warning (both sets are empty today — everything runs
+        plan-billed).
         """
-        # billing_warning reads entity_mod.API_BILLED_MODELS at call time, so a
-        # test's monkeypatch of that module-level set is honoured either way.
-        from hive.models.entity import VALID_MODELS, billing_warning
+        from hive.models.harness import (
+            DEFAULT_HARNESS,
+            HARNESSES,
+            billing_warning,
+            valid_models,
+        )
 
-        if not model_name or model_name not in VALID_MODELS:
-            return f"Usage: /model <{'|'.join(sorted(VALID_MODELS))}> [entity]"
+        def usage(harness: str) -> str:
+            return f"Usage: /model <{'|'.join(sorted(valid_models(harness)))}> [entity]"
+
+        if not model_name:
+            return usage(DEFAULT_HARNESS)
 
         target = entity_name.strip() if entity_name else self.default_maestro
         entity = self.process_manager.entities.get(target)
         if entity is None:
             return f"Entity {target!r} not found."
 
+        if model_name not in valid_models(entity.harness):
+            owners = [h for h in HARNESSES if model_name in valid_models(h)]
+            if owners:
+                return (
+                    f"{model_name!r} is a {owners[0]} model but {target} runs on "
+                    f"{entity.harness}. Move it with /runtime {target} {owners[0]} "
+                    f"{model_name}.\n{usage(entity.harness)}"
+                )
+            return usage(entity.harness)
+
         entity.model = model_name
         await self.process_manager._persist(entity)
         msg = f"Model for {target} set to {model_name!r}."
-        warning = billing_warning(model_name)
+        warning = billing_warning(entity.harness, model_name)
+        return f"{msg}\n{warning}" if warning else msg
+
+    async def _execute_runtime(self, entity_name: str | None, args: str) -> str:
+        """Handle /runtime <entity> <harness> [model] (ADR 0001, T015).
+
+        Moves an entity to another Harness. Its live adapter is stopped and its
+        session cleared — a Harness's session id means nothing to another — so
+        the next turn starts a fresh session on the new Harness. (ADR 0001's
+        summary handoff is not implemented yet; use /compact first if needed.)
+        """
+        from hive.models.harness import (
+            HARNESSES,
+            billing_warning,
+            default_model,
+            valid_models,
+        )
+
+        parts = args.split()
+        usage = f"Usage: /runtime <entity> <{'|'.join(HARNESSES)}> [model]"
+        if not entity_name or not parts or len(parts) > 2:
+            return usage
+        harness = parts[0]
+        if harness not in HARNESSES:
+            return usage
+        entity = self.process_manager.entities.get(entity_name)
+        if entity is None:
+            return f"Entity {entity_name!r} not found."
+        model = parts[1] if len(parts) > 1 else default_model(harness)
+        if model not in valid_models(harness):
+            valid = ", ".join(sorted(valid_models(harness)))
+            return f"{model!r} is not a {harness} model. Valid: {valid}"
+
+        adapter = self.process_manager._adapters.get(entity_name)
+        if adapter is not None and adapter.is_busy():
+            return f"{entity_name} is mid-turn; try again when it is idle."
+        async with self.process_manager._state_lock:
+            adapter = self.process_manager._adapters.pop(entity_name, None)
+        if adapter is not None:
+            await adapter.stop()
+        entity.harness = harness
+        entity.model = model
+        entity.session_id = None
+        await self.process_manager._persist(entity)
+        msg = f"{entity_name} now runs on {harness} (model {model!r}). Session cleared."
+        warning = billing_warning(harness, model)
         return f"{msg}\n{warning}" if warning else msg
 
     async def _execute_compact(self, entity_name: str | None) -> str:

@@ -2,6 +2,7 @@
 
 from hive.runtime.base import Runtime
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+from hive.runtime.codex_adapter import CodexAdapter, CodexAdapterConfig
 from hive.runtime.pty_session import PtySession
 from hive.runtime.quota_monitor import (
     QuotaMonitor,
@@ -14,6 +15,8 @@ from hive.runtime.usage_reader import read_last_usage
 __all__ = [
     "ClaudeAdapter",
     "ClaudeAdapterConfig",
+    "CodexAdapter",
+    "CodexAdapterConfig",
     "PtySession",
     "QuotaMonitor",
     "QuotaReading",

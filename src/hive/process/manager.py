@@ -76,6 +76,7 @@ from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import (
     ClaudeAdapter,  # noqa: F401  re-exported; LifecycleManager reads it via this module
 )
+from hive.runtime.codex_adapter import CodexAdapter
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
@@ -132,7 +133,7 @@ class ProcessManager:
         self.notification_dispatcher = notification_dispatcher
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
-        self._adapters: dict[str, ClaudeAdapter] = {}
+        self._adapters: dict[str, ClaudeAdapter | CodexAdapter] = {}
         # Single asyncio.Lock guards mutations to _entities / _adapters when
         # those mutations need to be consistent. Single-key reads do not
         # acquire this lock — CPython dict get/set on a single key is atomic
@@ -350,7 +351,7 @@ class ProcessManager:
     async def register_entity(self, entity: Entity) -> None:
         return await self.lifecycle.register_entity(entity)
 
-    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
+    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter | CodexAdapter:
         return await self.lifecycle._get_or_create_adapter(entity)
 
     # -----------------------------------------------------------------
@@ -391,7 +392,9 @@ class ProcessManager:
         if entry is not None:
             entry["stalls"] = 0
 
-    async def _maybe_bounce_on_timeout(self, entity: Entity, adapter: ClaudeAdapter) -> bool:
+    async def _maybe_bounce_on_timeout(
+        self, entity: Entity, adapter: ClaudeAdapter | CodexAdapter
+    ) -> bool:
         """Decide what to do when a turn raised ``TimeoutError`` (Ticket 020 §D1).
 
         Returns ``True`` when the jammed session was bounced and the caller
@@ -527,7 +530,7 @@ class ProcessManager:
             details={"reason": reason, "bounces": bounce_count},
         )
 
-    def _bounce_reason(self, entity: Entity, adapter: ClaudeAdapter) -> str:
+    def _bounce_reason(self, entity: Entity, adapter: ClaudeAdapter | CodexAdapter) -> str:
         """Best-effort human reason for a bounce — ADVISORY only (Ticket 020 §D5).
 
         First hit wins: the session-state ``waitingFor``/``status`` (the

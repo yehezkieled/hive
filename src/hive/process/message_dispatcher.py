@@ -32,6 +32,7 @@ from hive.bus.permissions import (
 )
 from hive.config import DEFAULT_MAESTRO
 from hive.models.entity import Entity
+from hive.models.harness import CLAUDE_CODE
 
 if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
@@ -228,8 +229,9 @@ class MessageDispatcher:
         # fires only when the caller marked this a genuine task delivery
         # (seed_goal) AND it is the first turn of the activation (session_id
         # still None) — never on a poke, peer poke, or compact reseed that
-        # merely happens to be the first send.
-        if seed_goal and is_first_turn and prompt.strip():
+        # merely happens to be the first send. `/goal` is a Claude Code slash
+        # command, so other harnesses (Codex) never get it.
+        if seed_goal and is_first_turn and prompt.strip() and entity.harness == CLAUDE_CODE:
             from hive.process.loops import seed_goal as _seed_goal
 
             prompt = _seed_goal(prompt)

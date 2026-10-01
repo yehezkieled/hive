@@ -78,6 +78,7 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "new",
         "personality",
         "model",
+        "runtime",
         "vault",
         "blueprint",
         "help",

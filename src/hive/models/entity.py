@@ -8,6 +8,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hive.models.harness import DEFAULT_HARNESS
+from hive.models.personality_loader import (  # noqa: F401  re-exported
+    PersonalityConfig,
+    PersonalityLoader,
+    parse_personality,
+)
+
 
 class EntityState(enum.Enum):
     """Lifecycle states for a Hive entity."""
@@ -51,84 +58,6 @@ class InvalidStateTransitionError(Exception):
         super().__init__(f"Cannot transition from {from_state.value} to {to_state.value}")
         self.from_state = from_state
         self.to_state = to_state
-
-
-@dataclass
-class PersonalityConfig:
-    """Parsed personality configuration from a markdown file."""
-
-    name: str
-    role: str
-    model: str
-    system_prompt: str
-    allowed_tools: list[str] = field(default_factory=list)
-    disallowed_tools: list[str] = field(default_factory=list)
-    constraints: str = ""
-    advisor: str = ""
-    # Ticket 019 (ADR 0019): per-maestro opt-out for the phase-confirmation gate.
-    # Default on; ``**Phase Confirm**: off`` in the personality disables it.
-    phase_confirm: bool = True
-
-
-def parse_personality(path: Path) -> PersonalityConfig:
-    """Parse a personality markdown file into a PersonalityConfig.
-
-    Expected format:
-        # Entity: Name
-        ## Identity
-        - **Name**: Dev
-        - **Role**: maestro
-        - **Model**: sonnet
-        ## System Prompt
-        <prompt text>
-        ## Tools
-        - allowedTools: Bash Read Write
-    """
-    text = path.read_text()
-
-    def extract_field(pattern: str, default: str = "") -> str:
-        match = re.search(pattern, text, re.IGNORECASE)
-        return match.group(1).strip() if match else default
-
-    name = extract_field(r"\*\*Name\*\*:\s*(.+)")
-    role = extract_field(r"\*\*Role\*\*:\s*(.+)")
-    model = extract_field(r"\*\*Model\*\*:\s*(.+)")
-    advisor = extract_field(r"\*\*Advisor\*\*:\s*(.+)")
-    # Ticket 019 (ADR 0019): phase-confirmation gate opt-out. Absent → on.
-    phase_confirm_field = extract_field(r"\*\*Phase Confirm\*\*:\s*(.+)")
-    phase_confirm = phase_confirm_field.strip().lower() not in ("off", "false", "no")
-
-    # Extract system prompt: everything between ## System Prompt and the next ##
-    prompt_match = re.search(
-        r"## System Prompt\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL | re.IGNORECASE
-    )
-    system_prompt = prompt_match.group(1).strip() if prompt_match else ""
-
-    # Extract tools
-    allowed_str = extract_field(r"allowedTools:\s*(.+)")
-    disallowed_str = extract_field(r"disallowedTools:\s*(.+)")
-    allowed_tools = [t.strip() for t in allowed_str.split() if t.strip()] if allowed_str else []
-    disallowed_tools = (
-        [t.strip() for t in disallowed_str.split() if t.strip()] if disallowed_str else []
-    )
-
-    # Extract constraints
-    constraints_match = re.search(
-        r"## Constraints\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL | re.IGNORECASE
-    )
-    constraints = constraints_match.group(1).strip() if constraints_match else ""
-
-    return PersonalityConfig(
-        name=name,
-        role=role,
-        model=model,
-        system_prompt=system_prompt,
-        allowed_tools=allowed_tools,
-        disallowed_tools=disallowed_tools,
-        constraints=constraints,
-        advisor=advisor,
-        phase_confirm=phase_confirm,
-    )
 
 
 def resolve_advisor(model: str, advisor_field: str | None, role: str | None = None) -> str | None:
@@ -220,24 +149,18 @@ def default_permission_mode(role: str, is_git_repo: bool) -> str:
     return "yolo"
 
 
-# Valid model names for /model (T007 adds `fable`). opusplan plans with Opus and
+# Claude Code's valid model names for /model (T007 adds `fable`). opusplan plans with Opus and
 # executes with Sonnet; the others map straight to Claude Code's --model alias.
 VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "opusplan", "fable"})
 
 # Models billed per-token against an API key — real money — rather than covered
-# by a flat-rate plan (Plan-billed). Kept in ONE place so /model can warn on
-# them (T007). Empty today: every model Hive runs, `fable` included, is covered
-# by the developer's Claude Max plan through the PTY harness. Add a name here
-# the moment a genuinely API-billed model is offered; the warning path is
-# already wired and tested.
+# by a flat-rate plan (Plan-billed). Kept in ONE place per Harness so /model can
+# warn on them (T007; the Codex set lives in ``hive.models.harness``). Empty
+# today: every model Hive runs, `fable` included, is covered by the developer's
+# Claude Max plan through the PTY harness. Add a name here the moment a
+# genuinely API-billed model is offered; the warning path is already wired and
+# tested.
 API_BILLED_MODELS: frozenset[str] = frozenset()
-
-
-def billing_warning(model: str) -> str | None:
-    """One-line billing warning when ``model`` is API-billed, else None (T007)."""
-    if model in API_BILLED_MODELS:
-        return f"⚠️  {model!r} is API-billed — this costs real money per token, not plan quota."
-    return None
 
 
 @dataclass
@@ -251,6 +174,9 @@ class Entity:
     # (an Opus second-opinion for Sonnet executors) is unavailable on the
     # fleet's CC, so entities run on Opus directly rather than via an advisor.
     model: str = "opus"
+    # Which Harness runs this entity (ADR 0001). Chooses the Adapter and the
+    # valid /model set; defaults to Claude Code so persisted rows round-trip.
+    harness: str = DEFAULT_HARNESS
     advisor: str | None = None
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
@@ -314,79 +240,13 @@ class Entity:
 
     def load_personality(self) -> PersonalityConfig | None:
         """Load and apply personality config from the markdown file."""
-        if self.personality_path is None or not self.personality_path.exists():
-            return None
-
-        config = parse_personality(self.personality_path)
-        self.model = config.model or self.model
-        self.advisor = config.advisor or self.advisor
-        self.allowed_tools = config.allowed_tools or self.allowed_tools
-        self.disallowed_tools = config.disallowed_tools or self.disallowed_tools
-        self.system_prompt = config.system_prompt
-        # Ticket 019 (ADR 0019): apply the phase-confirmation opt-out (bool — a
-        # plain assign, not `or`, so an explicit ``off`` overrides the default).
-        self.phase_confirm = config.phase_confirm
-        return config
+        return PersonalityLoader(self).load()
 
     def build_cli_args(self) -> list[str]:
         """Build claude -p command line arguments for this entity."""
-        args = [
-            "claude",
-            "-p",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--model",
-            self.model,
-        ]
+        from hive.models.cli_args import CliArgsBuilder
 
-        if self.system_prompt:
-            args.extend(["--system-prompt", self.system_prompt])
-
-        if self.allowed_tools:
-            args.extend(["--allowedTools", *self.allowed_tools])
-
-        if self.disallowed_tools:
-            args.extend(["--disallowedTools", *self.disallowed_tools])
-
-        if self.permission_mode in DANGEROUS_MODES:
-            args.append("--dangerously-skip-permissions")
-        elif self.permission_mode != "default":
-            args.extend(["--permission-mode", self.permission_mode])
-
-        from hive.process.loops import load_role_jd
-
-        # Identity preamble must be the first appended block so the model
-        # reads its own name before any guidance that references it. The
-        # role JD avoids placeholders the entity must substitute with its
-        # own name (the orchestrator infers `lead` from the actor instead).
-        identity_lines = [
-            f"You are {self.name}. Your role is {self.role}.",
-            "If a hive_action is denied or fails, report the failure honestly. "
-            "Do not narrate fictional success.",
-        ]
-        args.extend(["--append-system-prompt", "\n".join(identity_lines)])
-
-        # T007: the loop framework (LOOP_PROMPTS) is retired in favour of
-        # Claude Code's native /goal, which Hive seeds on the entity's first
-        # turn (see message_dispatcher.send_to_entity). No loop prompt here.
-
-        # Role JD encodes the messaging protocol and any role-specific
-        # autonomy actions. Loaded from personalities/role-<role>.md so it
-        # can be edited without code changes.
-        if self.role in ("maestro", "lead"):
-            args.extend(["--append-system-prompt", load_role_jd(self.role)])
-
-        from hive.mcp.config import mcp_servers_enabled
-
-        if mcp_servers_enabled():
-            args.extend(["--mcp-config", self.mcp_config_path])
-
-        advisor = resolve_advisor(self.model, self.advisor, self.role)
-        if advisor:
-            args.extend(["--advisor", advisor])
-
-        return args
+        return CliArgsBuilder(self).build()
 
     @property
     def uptime_seconds(self) -> float | None:

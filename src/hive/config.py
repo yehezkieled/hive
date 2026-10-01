@@ -94,6 +94,11 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # preserves the legacy PATH-lookup behavior when the knob is unset.
 CLAUDE_BINARY = os.path.expanduser(os.environ.get("HIVE_CLAUDE_BINARY", "claude"))
 
+# The `codex` binary the Codex adapter spawns per turn (T015), and the wall-clock
+# cap on one `codex exec` turn.
+CODEX_BINARY = os.path.expanduser(os.environ.get("HIVE_CODEX_BINARY", "codex"))
+CODEX_TURN_TIMEOUT_S = float(os.environ.get("HIVE_CODEX_TURN_TIMEOUT_S", "1800"))
+
 # Default maestro
 DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "otter")
 

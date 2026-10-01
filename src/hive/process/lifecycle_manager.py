@@ -33,6 +33,7 @@ from hive.models.entity import (
     is_auto_generated_personality,
     resolve_advisor,
 )
+from hive.models.harness import CODEX
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.process import git_ops
@@ -41,6 +42,7 @@ from hive.process.ownership_policy import WritablePolicy, settings_payload, writ
 from hive.process.skill_curation import skill_denylist_for
 from hive.process.tool_policy import role_tool_denylist
 from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+from hive.runtime.codex_adapter import CodexAdapter, CodexAdapterConfig
 
 if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
@@ -350,7 +352,7 @@ class LifecycleManager:
         cwd = Path(own_root) if own_root else None
         return (payload, cwd)
 
-    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
+    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter | CodexAdapter:
         """Return a live PTY adapter for entity, creating one if needed.
 
         Adapters are cached per entity so the same persistent PTY process
@@ -370,12 +372,14 @@ class LifecycleManager:
                 entity.name, branch=f"hive/{entity.name}"
             )
 
-        config = _adapter_config_from_entity(entity)
         lead_cwd = (
             Path(entity.worktree_path)
             if isinstance(entity, TeamLead) and entity.worktree_path
             else None
         )
+        if entity.harness == CODEX:
+            return await self._start_codex_adapter(entity, lead_cwd)
+        config = _adapter_config_from_entity(entity)
         # Every spawn gets a --settings file (Ticket 067: Remote Control
         # opt-out). Project ownership (Ticket 024, ADR 0017) adds a PreToolUse
         # guard hook to it for a fenced maestro and homes a project maestro in
@@ -392,6 +396,30 @@ class LifecycleManager:
             gate_coordinator=self._mgr.gate_coordinator,
             entity_name=entity.name,
             on_gate_state=self._mgr._on_gate_state,
+        )
+        await adapter.start()
+        async with self._mgr._state_lock:
+            self._mgr._adapters[entity.name] = adapter
+        return adapter
+
+    async def _start_codex_adapter(self, entity: Entity, lead_cwd: Path | None) -> CodexAdapter:
+        """Start and cache a Codex adapter (T015).
+
+        Codex gets neither the Claude-only ``--settings`` ownership-guard hook
+        nor the Hive MCP config — both are Claude Code mechanisms — so a Codex
+        maestro is not write-fenced (see ADR 0017: the guard is a Claude hook).
+        """
+        adapter = CodexAdapter(
+            CodexAdapterConfig(
+                model=entity.model,
+                system_prompt=entity.system_prompt,
+                permission_mode=entity.permission_mode,
+                role=entity.role,
+                name=entity.name,
+                is_pa=getattr(entity, "is_pa", False),
+                session_id=entity.session_id,
+            ),
+            cwd=lead_cwd,
         )
         await adapter.start()
         async with self._mgr._state_lock:

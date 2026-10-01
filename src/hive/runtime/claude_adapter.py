@@ -20,6 +20,7 @@ from hive.config import CLAUDE_BINARY
 from hive.runtime.base import Runtime
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
+from hive.runtime.system_prompt import build_system_prompts
 from hive.runtime.workflow_progress import WorkflowProgress, parse_run_dir, run_active
 
 logger = logging.getLogger(__name__)
@@ -98,27 +99,12 @@ class ClaudeAdapter(Runtime):
 
     def _build_pty_system_prompts(self) -> list[str]:
         cfg = self._config
-        prompts: list[str] = []
-        if cfg.system_prompt:
-            prompts.append(cfg.system_prompt)
-        identity_lines = [
-            f"You are {cfg.name}. Your role is {cfg.role}.",
-            "If a hive_action is denied or fails, report the failure honestly. "
-            "Do not narrate fictional success.",
-        ]
-        prompts.append("\n".join(identity_lines))
-        from hive.process.loops import MAESTRO_IDENTITY, load_role_jd
-
-        # T007: the loop framework is retired in favour of native /goal, seeded
-        # on the first turn by message_dispatcher — no loop prompt appended here.
-        if cfg.role in ("maestro", "lead"):
-            prompts.append(load_role_jd(cfg.role))
-        # State the maestro's structural role (PA vs. project) after the shared,
-        # ownership-neutral role JD (Ticket 033). Maestro-only — leads never own
-        # a project, so the distinction is meaningless for them.
-        if cfg.role == "maestro":
-            prompts.append(MAESTRO_IDENTITY["pa" if cfg.is_pa else "project"])
-        return prompts
+        return build_system_prompts(
+            name=cfg.name,
+            role=cfg.role,
+            system_prompt=cfg.system_prompt,
+            is_pa=cfg.is_pa,
+        )
 
     def _build_pty_extra_args(self) -> list[str]:
         cfg = self._config

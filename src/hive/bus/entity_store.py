@@ -13,6 +13,7 @@ from pathlib import Path
 import asyncpg
 
 from hive.models.entity import Entity, EntityState
+from hive.models.harness import DEFAULT_HARNESS
 from hive.models.maestro import Maestro
 from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
@@ -38,10 +39,10 @@ class EntityStore:
                  permission_mode, loop_mode, current_priority,
                  worktree_path, task_id, last_activity_at, awaiting_decision,
                  confirmed_with_user, phase_confirm, last_decision_question,
-                 updated_at)
+                 harness, updated_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -62,6 +63,7 @@ class EntityStore:
                 confirmed_with_user = EXCLUDED.confirmed_with_user,
                 phase_confirm = EXCLUDED.phase_confirm,
                 last_decision_question = EXCLUDED.last_decision_question,
+                harness = EXCLUDED.harness,
                 updated_at = NOW()
             """,
             entity.name,
@@ -84,6 +86,7 @@ class EntityStore:
             entity.confirmed_with_user,  # Ticket 019 (ADR 0019)
             entity.phase_confirm,  # Ticket 019 (ADR 0019)
             entity.last_decision_question,  # Ticket 038
+            entity.harness,  # T015 (ADR 0001)
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -143,6 +146,7 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         name=row["name"],
         personality_path=personality_path,
         model=row["model"],
+        harness=row["harness"] or DEFAULT_HARNESS,
         state=EntityState.IDLE,
         pid=None,
         started_at=None,
