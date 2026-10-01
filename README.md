@@ -3,7 +3,7 @@
 Hive is a multi-agent orchestration platform: it runs and coordinates
 a fleet of AI coding agents that you control from Telegram. Each
 Entity (Maestro / Team Lead) runs on a Harness Hive picks per turn —
-Pi first, then Claude Code, each in headless mode by default with
+Pi first (Claude Code first for Maestros and the Vault), each in headless mode by default with
 Claude's interactive PTY session as the fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
 Codex and OpenCode adapters are planned.
 

@@ -94,8 +94,9 @@ How a Harness is driven for a Turn — **headless** (one non-interactive
 subprocess per Turn: `claude -p`, `pi -p`; the default) or **PTY** (a
 persistent interactive session; the fallback, entered only when headless is
 refused or out of quota, read from the Harness's own error). Chosen per Turn by
-`HarnessRuntime`, which also picks the Harness (Pi first, then Claude Code) from
-whichever are installed and signed in. Surfaced as "harness (mode)" on `/status`
+`HarnessRuntime`, which also picks the Harness (a per-role order: Pi first by
+default, Claude Code first for Maestros and the Vault) from whichever are
+installed and signed in. Surfaced as "harness (mode)" on `/status`
 and in Telegram. ADR 0029.
 _Avoid_: runtime (a Runtime is which Harness an Entity is on), transport.
 
