@@ -1,9 +1,9 @@
 # Roadmap
 
 Milestones are ordered versions, not calendar targets. Work moves top to bottom.
-Each milestone lists its epics. Ideas with no home yet go in Backlog.
+Ideas with no home yet go in Backlog.
 
-Four milestones shipped before this layout existed — runtime migration,
+Four milestones shipped earlier — runtime migration,
 restructure, Workflow-native orchestration, and the web dashboard to PWA. The
 archived roadmap calls them "Phases 1–4"; their history is in
 `docs/archive/roadmap-phases.md`, `docs/archive/sprints/`, and
@@ -11,15 +11,12 @@ archived roadmap calls them "Phases 1–4"; their history is in
 
 ## M1: Delegator's Desk
 Goal: The web is genuinely usable for delegating to and supervising autonomous loops — a Stack home (needs-you lane as hero + project glance + delegate bar + quota chip) that opens into a tabbed Work view, on a trimmed command set. "Default calm, exceptions loud." (ADR 0027)
-Epics: E01, E02, E03
 
 ## M2: Dogfood on Hive
 Goal: The finance app builds fully on Hive as a real product, with the project isolated from Hive's own files, DB, env, and ports, and long unattended runs surviving quota walls and idle guards.
-Epics: E04, E05, E06
 
 ## M3: Harness adapters
 Goal: Entities run on Codex and OpenCode as well as Claude Code, through the Adapter interface, with automatic quota failover between harnesses.
-Epics: E07
 
 ## Backlog
 - Plan-quota widget on the dashboard.
