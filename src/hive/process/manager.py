@@ -390,6 +390,7 @@ class ProcessManager:
         entry = self._liveness.get(entity_name)
         if entry is not None:
             entry["stalls"] = 0
+            entry["recoveries"] = 0
 
     async def _maybe_bounce_on_timeout(self, entity: Entity, adapter: ClaudeAdapter) -> bool:
         """Decide what to do when a turn raised ``TimeoutError`` (Ticket 020 §D1).
@@ -423,6 +424,10 @@ class ProcessManager:
             logger.exception("liveness: workflow_active probe failed for %s", name)
         if getattr(entity, "awaiting_decision", False):
             logger.info("liveness: %s timed out awaiting a user decision — holding off", name)
+            return False
+        peer = getattr(entity, "awaiting_peer", None)
+        if peer:
+            logger.info("liveness: %s timed out awaiting a reply from %s — holding off", name, peer)
             return False
 
         entry = self._liveness_entry(name)

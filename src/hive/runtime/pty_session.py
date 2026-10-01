@@ -15,7 +15,7 @@ from threading import Thread
 
 from ptyprocess import PtyProcess
 
-from hive.config import CLAUDE_BINARY
+from hive.config import BOUNCE_WORKFLOW_WINDOW_S, CLAUDE_BINARY
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.gates import GateDetector
 from hive.runtime.transcript_reader import Gated, TranscriptReader
@@ -237,7 +237,9 @@ class PtySession:
         self._transcript_reader = TranscriptReader(
             self._project_dir,
             gate_detector=gate_detector,
-            workflow_active=lambda window: run_active(self.session_dir, window),
+            workflow_active=lambda window: run_active(
+                self.session_dir, max(window, BOUNCE_WORKFLOW_WINDOW_S)
+            ),
         )
         # The pin is per-PROCESS (ADR 0011): clear it on every (re)spawn so
         # the next send() re-resolves against the NEW pid's state file.

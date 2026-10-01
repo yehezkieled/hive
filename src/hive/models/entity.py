@@ -270,6 +270,11 @@ class Entity:
     # is parked waiting for the human's reply. Durable (survives restart) so the
     # scheduler keeps skipping it and it can't be poked into acting unconfirmed.
     awaiting_decision: bool = False
+    # T014: set on a lead when it escalates a request_decision to its maestro,
+    # holding that maestro's name until the maestro's reply is drained. In-memory
+    # only (like ``last_nudged_at``) and deliberately NOT ``awaiting_decision`` —
+    # that flag is the user-facing needs-you signal. Makes the lead bounce-exempt.
+    awaiting_peer: str | None = None
     # Ticket 038: the free-text question a maestro asked the user via
     # request_decision, stored alongside ``awaiting_decision`` so the web can
     # render the decision bubble and ``/api/decisions/pending`` can re-show it

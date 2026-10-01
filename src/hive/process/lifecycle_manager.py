@@ -651,6 +651,10 @@ class LifecycleManager:
             # never be reaped, regardless of exempt_names.
             if entity.state == EntityState.GATED:
                 continue
+            # Likewise an entity parked on a user decision (request_decision)
+            # waits on the human, not on itself — reaping it is unrecoverable.
+            if entity.awaiting_decision:
+                continue
             # An adapter with a turn in flight is working, not idle —
             # last_activity_at only updates at turn start, so a long turn
             # (a lead's Workflow sync-wait, ADR 0010) looks stale while

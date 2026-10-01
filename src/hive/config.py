@@ -136,7 +136,16 @@ AUTO_COMPACT_THRESHOLD = int(os.environ.get("HIVE_AUTO_COMPACT_THRESHOLD", "5000
 BOUNCE_STALL_THRESHOLD = int(os.environ.get("HIVE_BOUNCE_STALL_THRESHOLD", "2"))
 BOUNCE_FLAP_MAX = int(os.environ.get("HIVE_BOUNCE_FLAP_MAX", "3"))
 BOUNCE_FLAP_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_FLAP_WINDOW_S", "1800"))
-BOUNCE_WORKFLOW_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_WORKFLOW_WINDOW_S", "180"))
+# The window is also the transcript reader's Workflow-liveness floor (the reader's
+# own no-progress timeout is 180s, so reusing it as the window let a slow-but-live
+# run read inactive right at the timeout). A stale orphan still reads inactive once
+# its files go quiet past this window, so the no-hang guarantee holds.
+BOUNCE_WORKFLOW_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_WORKFLOW_WINDOW_S", "600"))
+# Bounded autonomous recovery of an ERROR'd entity (after a bounce give-up or a
+# health-check death): at most MAX attempts, COOLDOWN_S apart, counter reset by
+# any completed turn. Past MAX the entity stays in ERROR and escalates once.
+ERROR_RECOVERY_MAX = int(os.environ.get("HIVE_ERROR_RECOVERY_MAX", "3"))
+ERROR_RECOVERY_COOLDOWN_S = float(os.environ.get("HIVE_ERROR_RECOVERY_COOLDOWN_S", "600"))
 
 AUTO_KILL_IDLE_ENABLED = os.environ.get("HIVE_AUTO_KILL_IDLE_ENABLED", "true").lower() == "true"
 IDLE_TIMEOUT_MINUTES = int(os.environ.get("HIVE_IDLE_TIMEOUT_MINUTES", "30"))

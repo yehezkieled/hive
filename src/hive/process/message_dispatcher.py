@@ -138,6 +138,8 @@ class MessageDispatcher:
             msg = await self._mgr.router.get_next(entity_name, timeout=0.1)
             if msg:
                 pending.append(f"[Message from {msg.sender}]: {msg.content}")
+                if msg.sender == entity.awaiting_peer:
+                    entity.awaiting_peer = None
         if pending:
             inbox = "\n".join(pending)
             prompt = f"You have pending messages from other entities:\n{inbox}\n\n---\n\n{prompt}"
@@ -522,6 +524,7 @@ class MessageDispatcher:
                     continue
                 body = f"[DECISION REQUEST] {action.text or ''}"
                 await self._mgr.router.route(entity_name, action.to, body)
+                entity.awaiting_peer = action.to
                 self._mgr._last_routed_actions.append(action.to)
                 await self._mgr._audit(
                     "request_decision_sent",
