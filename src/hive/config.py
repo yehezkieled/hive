@@ -115,6 +115,8 @@ RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless
 # "<guardrail> NOT enforced" alert. A lead is not here: its denylist only blocks
 # Claude Code tools Pi does not have, so it loses nothing on Pi.
 FENCED_ROLES: dict[str, str] = {"maestro": "ownership fence", "vault": "tool denylist"}
+# Every role Hive spawns (models/maestro.py, team_lead.py, vault.py).
+ROLES: tuple[str, ...] = ("lead", "maestro", "vault")
 
 
 def harness_order_for(role: str) -> list[str]:

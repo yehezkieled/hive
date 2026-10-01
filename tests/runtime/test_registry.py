@@ -49,7 +49,7 @@ def _detector(pi: bool | None, claude: bool | None) -> HarnessDetector:
 def _default_orders(monkeypatch) -> None:
     monkeypatch.setattr(config, "HARNESS_ORDER", ["pi", "claude"])
     monkeypatch.setattr(config, "RUN_MODE_ORDER", ["headless", "pty"])
-    for role in config.FENCED_ROLES:
+    for role in config.ROLES:
         monkeypatch.delenv(f"HIVE_HARNESS_ORDER_{role.upper()}", raising=False)
 
 
@@ -58,7 +58,7 @@ async def test_report_lists_run_order_when_something_is_usable(monkeypatch) -> N
     lines, problem = await availability_report(_detector(pi=True, claude=False))
     assert problem is None
     assert lines[-2:] == [
-        "run order (default): pi (headless)",
+        "run order (default, lead): pi (headless)",
         "run order (maestro, vault): pi (headless)",
     ]
     assert any("claude: installed, not signed in" in ln for ln in lines)
@@ -70,8 +70,19 @@ async def test_report_shows_each_distinct_role_order(monkeypatch) -> None:
     lines, problem = await availability_report(_detector(pi=True, claude=True))
     assert problem is None
     assert lines[-2:] == [
-        "run order (default, vault): pi (headless) → claude (headless) → claude (pty)",
+        "run order (default, lead, vault): pi (headless) → claude (headless) → claude (pty)",
         "run order (maestro): claude (headless) → claude (pty) → pi (headless)",
+    ]
+
+
+async def test_report_shows_a_lead_override(monkeypatch) -> None:
+    _default_orders(monkeypatch)
+    monkeypatch.setenv("HIVE_HARNESS_ORDER_LEAD", "claude,pi")
+    lines, problem = await availability_report(_detector(pi=True, claude=True))
+    assert problem is None
+    assert lines[-2:] == [
+        "run order (default): pi (headless) → claude (headless) → claude (pty)",
+        "run order (lead, maestro, vault): claude (headless) → claude (pty) → pi (headless)",
     ]
 
 

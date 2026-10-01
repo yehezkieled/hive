@@ -95,7 +95,7 @@ async def availability_report(
     statuses = await detector.detect(force=True)
     lines = [s.describe() for s in statuses.values()]
     groups: dict[tuple[str, ...], list[str]] = {tuple(config.HARNESS_ORDER): ["default"]}
-    for role in sorted(config.FENCED_ROLES):
+    for role in config.ROLES:
         groups.setdefault(tuple(config.harness_order_for(role)), []).append(role)
     for order, roles in groups.items():
         plan = plan_candidates(detector.specs, statuses, order, config.RUN_MODE_ORDER)
