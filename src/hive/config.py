@@ -94,6 +94,11 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # preserves the legacy PATH-lookup behavior when the knob is unset.
 CLAUDE_BINARY = os.path.expanduser(os.environ.get("HIVE_CLAUDE_BINARY", "claude"))
 
+
+def _csv(raw: str) -> list[str]:
+    return [v.strip().lower() for v in raw.split(",") if v.strip()]
+
+
 # Harness selection (ADR 0029). Hive drives whichever agent harness is installed
 # AND signed in, preferring them in HARNESS_ORDER (Pi first — it needs no Claude
 # login, which Claude Code drops every ~30 days). Within a harness, RUN_MODE_ORDER
@@ -101,16 +106,26 @@ CLAUDE_BINARY = os.path.expanduser(os.environ.get("HIVE_CLAUDE_BINARY", "claude"
 # default; PTY (a persistent interactive session) is the fallback, entered only
 # when headless is refused or out of quota — detected from the harness's own
 # error, never guessed. Both are comma-separated, e.g. HIVE_HARNESS_ORDER=pi,claude.
-HARNESS_ORDER: list[str] = [
-    h.strip().lower()
-    for h in os.environ.get("HIVE_HARNESS_ORDER", "pi,claude").split(",")
-    if h.strip()
-]
-RUN_MODE_ORDER: list[str] = [
-    m.strip().lower()
-    for m in os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty").split(",")
-    if m.strip()
-]
+HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "pi,claude"))
+RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty"))
+# Roles fenced by Claude-only controls — the ownership-guard PreToolUse hook
+# (ADR 0017) a maestro is spawned with. Pi enforces none of them, so these roles
+# default to Claude first and use Pi only when Claude cannot run the turn (with
+# a loud "fence NOT enforced" alert).
+FENCED_ROLES: frozenset[str] = frozenset({"maestro"})
+
+
+def harness_order_for(role: str) -> list[str]:
+    """Harness order for one role: ``HIVE_HARNESS_ORDER_<ROLE>`` when set, else
+    Claude first for a fenced role, else ``HARNESS_ORDER``."""
+    override = os.environ.get(f"HIVE_HARNESS_ORDER_{role.upper()}")
+    if override is not None:
+        return _csv(override)
+    if role in FENCED_ROLES:
+        return ["claude", *(h for h in HARNESS_ORDER if h != "claude")]
+    return list(HARNESS_ORDER)
+
+
 # Pi (https://pi.dev). PI_MODEL/PI_PROVIDER are optional: unset, Pi uses its own
 # configured default model (Hive's Claude aliases like "opus" mean nothing to Pi).
 PI_BINARY = os.path.expanduser(os.environ.get("HIVE_PI_BINARY", "pi"))

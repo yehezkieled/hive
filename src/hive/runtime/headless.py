@@ -119,6 +119,15 @@ def classify_failure_text(text: str) -> HarnessErrorKind:
     return HarnessErrorKind.OTHER
 
 
+def unless_work_done(kind: HarnessErrorKind, did_work: bool) -> HarnessErrorKind:
+    """A refusal is only a refusal if the turn had not started acting yet.
+
+    Once a tool ran, replaying the turn on another harness/mode would repeat its
+    side effects, so a mid-turn quota/auth error surfaces as ``OTHER`` instead.
+    """
+    return HarnessErrorKind.OTHER if did_work else kind
+
+
 def tail(text: str, n: int = 400) -> str:
     text = text.strip()
     return text if len(text) <= n else "…" + text[-n:]

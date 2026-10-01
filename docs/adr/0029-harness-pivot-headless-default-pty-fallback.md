@@ -29,7 +29,14 @@ Two billing facts changed since ADR 0007:
 1. **Harness registry** (`runtime/harness.py`, `runtime/registry.py`). Hive
    detects which harnesses are installed *and signed in* — Pi, Claude Code, and
    (detect-only) Codex — via cheap, spend-free probes cached for 60 s. Preference
-   order is `HIVE_HARNESS_ORDER` (default `pi,claude`). A harness joins the run
+   order is `HIVE_HARNESS_ORDER` (default `pi,claude`), overridable per role with
+   `HIVE_HARNESS_ORDER_<ROLE>` (e.g. `HIVE_HARNESS_ORDER_LEAD=claude,pi`).
+   **Fenced roles default to Claude first**: a Maestro (project or PA) is spawned
+   with the Ownership guard ([ADR 0017](0017-ownership-guard-pretooluse-hook.md)),
+   which only Claude Code enforces, so its default order is `claude,pi` — Pi only
+   when Claude cannot run the turn (logged out, out of quota). Every other role
+   keeps `pi,claude`. When a fenced role does run on Pi, `/status` marks it
+   "⚠️ ownership fence NOT enforced" and Telegram is alerted. A harness joins the run
    by adding one `HarnessSpec`; Codex (T015), OpenCode (T016) and a direct
    model-API harness each need exactly that and nothing in the router.
 2. **Headless is the default mode; PTY is the fallback**
@@ -53,14 +60,20 @@ Two billing facts changed since ADR 0007:
    `tests/runtime/test_headless_errors.py`). Every other failure (`other`:
    crash, timeout, model error) surfaces untouched — it may have failed
    mid-turn, and replaying it on another harness could repeat tool side effects.
+   For the same reason an `auth`/`quota` error that arrives *after* the turn
+   issued a tool call is reported as `other`, and a run with no final result is
+   classified from the harness's stderr only, never from its stdout transcript.
    `auth` blocks the whole harness (its PTY needs the same login); `quota` and
    `refused` block only that mode, for `HIVE_HEADLESS_QUOTA_RETRY_S` (900 s),
-   after which headless is tried again. Auth blocks last `HIVE_HARNESS_RETRY_S`
+   after which headless is tried again; once headless serves a turn again, the
+   idle PTY is stopped so the next fallback respawns it on the current
+   conversation (`--continue`). Auth blocks last `HIVE_HARNESS_RETRY_S`
    (60 s) and re-probe, so a fresh login is picked up without a restart.
 5. **Surfacing.** Each turn's usage dict carries `harness`, `mode` and
    `fell_back`; `/status` shows `via pi/headless`; Telegram gets one line when an
-   Entity's harness/mode *changes* (`harness_run` notification; steady state is
-   silent). When no (harness, mode) can run — e.g. Claude Code logged out and Pi
+   Entity's harness/mode *changes* (`harness_run` notification; steady state —
+   including each Entity's first turn after a restart — is silent unless it fell
+   back or runs unfenced). When no (harness, mode) can run — e.g. Claude Code logged out and Pi
    unconfigured — the turn fails with a Telegram-ready message listing every
    harness, its state and the one-line fix, sent as a `harness_unavailable`
    notification (deduplicated to one per 10 min fleet-wide) and also at startup.
@@ -94,7 +107,8 @@ further `HarnessSpec`).
   guard ([ADR 0017](0017-ownership-guard-pretooluse-hook.md)) does not fence a Pi
   entity.** Its only fence is its working directory (project root / lead
   worktree). A guard for Pi (an extension hook) is follow-up work; until then
-  prefer `HIVE_HARNESS_ORDER=claude,pi` for a Maestro that must be fenced.
+  Maestros default to `claude,pi` (decision 1) and a Maestro that lands on Pi is
+  flagged on `/status` and in Telegram as unfenced.
 - **Interactive gates do not occur headless** (`--dangerously-skip-permissions`
   under yolo/yotree), so the gate bridge only matters in the PTY fallback.
 - **Workflow progress, jam description and the Ticket 020 auto-bounce are PTY

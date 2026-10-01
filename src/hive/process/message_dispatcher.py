@@ -101,16 +101,30 @@ class MessageDispatcher:
         label = f"{harness} ({mode})"
         previous = self._last_run.get(entity_name)
         self._last_run[entity_name] = label
+        fell_back = usage.get("fell_back") or []
+        unfenced = bool(usage.get("unfenced"))
         if previous == label:
             return
+        if previous is None and not fell_back and not unfenced:
+            return
         text = f"{entity_name} is now running on {label}"
-        fell_back = usage.get("fell_back") or []
         if fell_back:
             text += f" — fell back from: {'; '.join(fell_back)}"
+        if unfenced:
+            text += (
+                f"\n⚠️ Ownership fence NOT enforced on {harness}: "
+                f"{entity_name} can write outside its Project."
+            )
         await self._mgr._notify(
             text,
             kind="harness_run",
-            data={"entity": entity_name, "harness": harness, "mode": mode, "fell_back": fell_back},
+            data={
+                "entity": entity_name,
+                "harness": harness,
+                "mode": mode,
+                "fell_back": fell_back,
+                "unfenced": unfenced,
+            },
         )
 
     async def _notify_no_harness(self, entity_name: str, err: NoUsableHarnessError) -> None:

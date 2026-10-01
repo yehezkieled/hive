@@ -45,6 +45,9 @@ class RunInfo:
     mode: RunMode
     # Failures of earlier candidates this turn, e.g. ["pi (headless): auth — …"].
     fell_back_from: tuple[str, ...] = ()
+    # A fenced role (config.FENCED_ROLES) ran on a harness that does not enforce
+    # the ownership guard — the user must be told the fence is off.
+    unfenced: bool = False
 
     def label(self) -> str:
         return f"{self.harness} ({self.mode.value})"
@@ -62,7 +65,8 @@ class HarnessRuntime(Runtime):
     ) -> None:
         self._ctx = ctx
         self._detector = detector
-        self._harness_order = list(harness_order or config.HARNESS_ORDER)
+        self._harness_order = list(harness_order or config.harness_order_for(ctx.config.role))
+        self._fenced = ctx.config.role in config.FENCED_ROLES
         self._mode_order = list(mode_order or config.RUN_MODE_ORDER)
         self._clock = clock
         self._runtimes: dict[Candidate, Runtime] = {}
@@ -174,14 +178,16 @@ class HarnessRuntime(Runtime):
                         self._detector.invalidate()  # re-probe soon: the user may re-login
                     continue
                 self._last = rt
-                self._sync_sessions(cand, usage.get("session_id"))
-                info = RunInfo(cand.harness, cand.mode, tuple(str(a) for a in attempts))
+                await self._sync_sessions(cand, usage.get("session_id"))
+                unfenced = self._fenced and not self._detector.specs[cand.harness].enforces_fence
+                info = RunInfo(cand.harness, cand.mode, tuple(str(a) for a in attempts), unfenced)
                 self.last_run = info
                 usage = {
                     **usage,
                     "harness": cand.harness,
                     "mode": cand.mode.value,
                     "fell_back": [str(a) for a in attempts],
+                    "unfenced": unfenced,
                 }
                 return text, usage
             # Nothing ran. Re-probe next time: this may be a stale "signed in".
@@ -195,11 +201,22 @@ class HarnessRuntime(Runtime):
             return prompt
         return unseed_goal(prompt)
 
-    def _sync_sessions(self, ran: Candidate, session_id: str | None) -> None:
+    async def _sync_sessions(self, ran: Candidate, session_id: str | None) -> None:
         """Keep sibling modes of one harness on the same conversation, so a PTY
-        fallback turn is not forgotten when headless resumes later."""
-        if not session_id:
-            return
-        for cand, rt in self._runtimes.items():
-            if cand.harness == ran.harness and cand != ran and hasattr(rt, "adopt_session"):
+        fallback turn is not forgotten when headless resumes later.
+
+        A sibling that cannot adopt a session (the PTY holds its conversation
+        in-process) is stopped instead, so a later fallback respawns it with
+        ``--continue`` on the current conversation rather than a stale one.
+        """
+        for cand, rt in list(self._runtimes.items()):
+            if cand.harness != ran.harness or cand == ran:
+                continue
+            if hasattr(rt, "adopt_session"):
                 rt.adopt_session(session_id)
+                continue
+            del self._runtimes[cand]
+            try:
+                await rt.stop()
+            except Exception:
+                logger.exception("failed to stop a %s runtime", type(rt).__name__)

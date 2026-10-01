@@ -48,7 +48,7 @@ def _harness_notifications(mgr: StubManager) -> list[tuple]:
     return [c for c in mgr.notify_calls if c[1] == "harness_run"]
 
 
-async def test_first_turn_announces_harness_and_mode_then_stays_quiet(dispatcher, mgr) -> None:
+async def test_steady_state_after_a_restart_is_silent(dispatcher, mgr) -> None:
     ran = {"harness": "pi", "mode": "headless", "fell_back": []}
     mgr.adapter = _Turn([ran, ran, ran])
 
@@ -56,9 +56,52 @@ async def test_first_turn_announces_harness_and_mode_then_stays_quiet(dispatcher
         for _ in range(3):
             await dispatcher.send_to_entity("dev", "go")
 
+    assert _harness_notifications(mgr) == []  # default calm: no ping per entity per restart
+
+
+async def test_a_change_of_harness_is_announced(dispatcher, mgr) -> None:
+    mgr.adapter = _Turn(
+        [
+            {"harness": "pi", "mode": "headless", "fell_back": []},
+            {"harness": "claude", "mode": "headless", "fell_back": []},
+        ]
+    )
+    with _hermetic_send_flags():
+        await dispatcher.send_to_entity("dev", "1")
+        await dispatcher.send_to_entity("dev", "2")
+
     notes = _harness_notifications(mgr)
-    assert len(notes) == 1  # default calm: steady state is silent
-    assert "dev is now running on pi (headless)" in notes[0][0]
+    assert len(notes) == 1
+    assert "dev is now running on claude (headless)" in notes[0][0]
+
+
+async def test_fenced_entity_on_pi_alerts_that_the_fence_is_off(dispatcher, mgr) -> None:
+    mgr.adapter = _Turn(
+        [
+            {
+                "harness": "pi",
+                "mode": "headless",
+                "fell_back": ["claude: auth — Not logged in"],
+                "unfenced": True,
+            }
+        ]
+    )
+    with _hermetic_send_flags():
+        await dispatcher.send_to_entity("dev", "go")
+
+    notes = _harness_notifications(mgr)
+    assert len(notes) == 1
+    assert "Ownership fence NOT enforced on pi" in notes[0][0]
+    assert notes[0][2]["unfenced"] is True
+
+
+async def test_unfenced_first_turn_alerts_even_without_a_fallback(dispatcher, mgr) -> None:
+    # Claude probed signed-out, so Pi was the first candidate: still an exception.
+    mgr.adapter = _Turn([{"harness": "pi", "mode": "headless", "fell_back": [], "unfenced": True}])
+    with _hermetic_send_flags():
+        await dispatcher.send_to_entity("dev", "go")
+    notes = _harness_notifications(mgr)
+    assert len(notes) == 1 and "NOT enforced" in notes[0][0]
 
 
 async def test_fallback_is_announced_with_the_reason(dispatcher, mgr) -> None:
@@ -77,9 +120,9 @@ async def test_fallback_is_announced_with_the_reason(dispatcher, mgr) -> None:
         await dispatcher.send_to_entity("dev", "2")
 
     notes = _harness_notifications(mgr)
-    assert len(notes) == 2
-    assert "claude (pty)" in notes[1][0] and "hit your limit" in notes[1][0]
-    assert notes[1][2]["mode"] == "pty"
+    assert len(notes) == 1
+    assert "claude (pty)" in notes[0][0] and "hit your limit" in notes[0][0]
+    assert notes[0][2]["mode"] == "pty"
 
 
 async def test_usage_without_harness_info_is_silent(dispatcher, mgr) -> None:

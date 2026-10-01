@@ -29,7 +29,6 @@ class FakeRuntime(Runtime):
     def __init__(self, harness: str, mode: RunMode, script: list, log: list) -> None:
         self.harness, self.mode, self.script, self.log = harness, mode, script, log
         self.alive = False
-        self.adopted: list[str] = []
 
     async def start(self) -> None:
         self.alive = True
@@ -42,9 +41,6 @@ class FakeRuntime(Runtime):
     def is_alive(self) -> bool:
         return self.alive
 
-    def adopt_session(self, sid) -> None:
-        self.adopted.append(sid)
-
     async def send_turn(self, prompt: str):
         self.log.append(("turn", self.harness, self.mode, prompt))
         step = self.script.pop(0) if len(self.script) > 1 else self.script[0]
@@ -53,10 +49,28 @@ class FakeRuntime(Runtime):
         return step, {"input_tokens": 1, "output_tokens": 1, "session_id": f"{self.harness}-s"}
 
 
+class FakeHeadlessRuntime(FakeRuntime):
+    """Headless modes can follow a session; the PTY (plain FakeRuntime) cannot."""
+
+    def __init__(self, *args) -> None:
+        super().__init__(*args)
+        self.adopted: list[str] = []
+
+    def adopt_session(self, sid) -> None:
+        self.adopted.append(sid)
+
+
 class Env:
     """Wires fake specs + a detector + a HarnessRuntime."""
 
-    def __init__(self, scripts: dict, statuses: dict, native_goal=("claude",)) -> None:
+    def __init__(
+        self,
+        scripts: dict,
+        statuses: dict,
+        native_goal=("claude",),
+        role: str = "lead",
+        harness_order: tuple[str, ...] | None = ("pi", "claude"),
+    ) -> None:
         self.log: list = []
         self.runtimes: dict[tuple, FakeRuntime] = {}
         modes = {"pi": (H,), "claude": (H, P)}
@@ -68,22 +82,24 @@ class Env:
                 modes=modes[name],
                 build=self._builder(name, scripts),
                 native_goal=name in native_goal,
+                enforces_fence=name == "claude",
                 login_hint=f"login to {name}",
             )
         self.statuses = statuses
         self.detector = HarnessDetector(specs, ttl=0)  # re-probe each turn
         self.now = 0.0
         self.rt = HarnessRuntime(
-            RuntimeContext(AdapterConfig(name="otter")),
+            RuntimeContext(AdapterConfig(name="otter", role=role)),
             self.detector,
-            harness_order=["pi", "claude"],
+            harness_order=harness_order,
             mode_order=["headless", "pty"],
             clock=lambda: self.now,
         )
 
     def _builder(self, name, scripts):
         def build(mode, ctx):
-            rt = FakeRuntime(name, mode, scripts[(name, mode)], self.log)
+            cls = FakeRuntime if mode is P else FakeHeadlessRuntime
+            rt = cls(name, mode, scripts[(name, mode)], self.log)
             self.runtimes[(name, mode)] = rt
             return rt
 
@@ -280,3 +296,68 @@ async def test_pty_only_probes_default_safely_without_a_pty() -> None:
     assert env.rt.workflow_active(60) is False
     assert env.rt.describe_jam() is None
     assert env.rt.is_busy() is False
+
+
+async def test_headless_success_retires_the_stale_pty_so_it_respawns_on_the_live_session() -> None:
+    # quota -> PTY; cooldown passes -> headless serves; quota again -> PTY must be a
+    # fresh spawn (`--continue`), not the old process that never saw the headless turns.
+    scripts = {
+        ("claude", H): [_quota("claude"), "headless", _quota("claude")],
+        ("claude", P): ["pty"],
+    }
+    env = Env(scripts, _status(pi=False))
+    await env.rt.start()
+    await env.rt.send_turn("1")
+    first_pty = env.runtimes[("claude", P)]
+    env.now = 1000.0
+    await env.rt.send_turn("2")
+    assert ("stop", "claude", P) in env.log and not first_pty.alive
+    await env.rt.send_turn("3")
+    assert env.runtimes[("claude", P)] is not first_pty
+    assert [e[1:] for e in env.log if e[0] == "start" and e[2] is P] == [("claude", P)] * 2
+
+
+async def test_fenced_role_defaults_to_claude_first(monkeypatch) -> None:
+    monkeypatch.setattr(config, "HARNESS_ORDER", ["pi", "claude"])
+    monkeypatch.delenv("HIVE_HARNESS_ORDER_MAESTRO", raising=False)
+    monkeypatch.delenv("HIVE_HARNESS_ORDER_LEAD", raising=False)
+    scripts = {("pi", H): ["pi"], ("claude", H): ["claude"]}
+
+    maestro = Env(scripts, _status(), role="maestro", harness_order=None)
+    await maestro.rt.start()
+    _, usage = await maestro.rt.send_turn("x")
+    assert (usage["harness"], usage["unfenced"]) == ("claude", False)
+
+    lead = Env(scripts, _status(), role="lead", harness_order=None)
+    await lead.rt.start()
+    _, usage = await lead.rt.send_turn("x")
+    assert (usage["harness"], usage["unfenced"]) == ("pi", False)
+
+
+async def test_per_role_env_overrides_the_harness_order(monkeypatch) -> None:
+    monkeypatch.setenv("HIVE_HARNESS_ORDER_LEAD", "claude,pi")
+    monkeypatch.setenv("HIVE_HARNESS_ORDER_MAESTRO", "pi,claude")
+    scripts = {("pi", H): ["pi"], ("claude", H): ["claude"]}
+
+    lead = Env(scripts, _status(), role="lead", harness_order=None)
+    await lead.rt.start()
+    assert (await lead.rt.send_turn("x"))[1]["harness"] == "claude"
+
+    maestro = Env(scripts, _status(), role="maestro", harness_order=None)
+    await maestro.rt.start()
+    _, usage = await maestro.rt.send_turn("x")
+    assert (usage["harness"], usage["unfenced"]) == ("pi", True)
+
+
+async def test_fenced_role_on_pi_is_flagged_unfenced(monkeypatch) -> None:
+    monkeypatch.delenv("HIVE_HARNESS_ORDER_MAESTRO", raising=False)
+    env = Env(
+        {("pi", H): ["pi"], ("claude", H): [_auth("claude")]},
+        _status(),
+        role="maestro",
+        harness_order=None,
+    )
+    await env.rt.start()
+    _, usage = await env.rt.send_turn("x")
+    assert env.ran() == [("claude", "headless"), ("pi", "headless")]
+    assert usage["unfenced"] is True and env.rt.last_run.unfenced

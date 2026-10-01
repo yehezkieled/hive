@@ -33,7 +33,13 @@ from hive.runtime.harness import (
     HarnessStatus,
     RunMode,
 )
-from hive.runtime.headless import classify_failure_text, parse_jsonl, run_process, tail
+from hive.runtime.headless import (
+    classify_failure_text,
+    parse_jsonl,
+    run_process,
+    tail,
+    unless_work_done,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +153,8 @@ class PiAdapter(Runtime):
             detail = str(retry_end.get("finalError") or "retries exhausted")
         else:
             detail = tail(proc.stderr) or f"exit {proc.returncode}, no assistant reply"
-        raise HarnessError(classify_failure_text(detail), HARNESS, RunMode.HEADLESS, detail)
+        kind = unless_work_done(classify_failure_text(detail), _did_work(events, assistants))
+        raise HarnessError(kind, HARNESS, RunMode.HEADLESS, detail)
 
     def _success(self, events: list[dict], assistants: list[dict]) -> tuple[str, dict]:
         last = assistants[-1]
@@ -182,3 +189,15 @@ class PiAdapter(Runtime):
             "cost_usd": cost or None,
         }
         return text, usage
+
+
+def _did_work(events: list[dict], assistants: list[dict]) -> bool:
+    """True once the turn issued a tool call (a ``toolCall`` block or a tool run)."""
+    if any(e.get("type") == "tool_execution_start" for e in events):
+        return True
+    return any(
+        isinstance(b, dict) and b.get("type") == "toolCall"
+        for m in assistants
+        if isinstance(m.get("content"), list)
+        for b in m["content"]
+    )

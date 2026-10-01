@@ -123,6 +123,27 @@ async def test_model_error_inside_the_run(tmp_path, monkeypatch, error, kind) ->
     assert ei.value.kind is kind
 
 
+async def test_quota_after_a_tool_call_is_not_replayed_elsewhere(tmp_path, monkeypatch) -> None:
+    acted = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "toolCall", "id": "t1", "name": "bash", "arguments": {}}],
+            "stopReason": "toolUse",
+        },
+    }
+    failed = {
+        "type": "message_end",
+        "message": {"role": "assistant", "content": [], "stopReason": "error",
+                    "errorMessage": "429 rate limit exceeded"},
+    }  # fmt: skip
+    out = jsonl(_HEADER, acted, {"type": "tool_execution_start", "toolCallId": "t1"}, failed)
+    a = _adapter(tmp_path, monkeypatch, stdout=out, rc=0)
+    with pytest.raises(HarnessError) as ei:
+        await a.send_turn("x")
+    assert ei.value.kind is K.OTHER and not ei.value.falls_back
+
+
 async def test_retries_exhausted(tmp_path, monkeypatch) -> None:
     out = jsonl(
         _HEADER, {"type": "auto_retry_end", "success": False, "finalError": "429 quota exceeded"}

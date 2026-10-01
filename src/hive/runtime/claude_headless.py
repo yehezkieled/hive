@@ -29,7 +29,13 @@ from hive.runtime.harness import (
     HarnessStatus,
     RunMode,
 )
-from hive.runtime.headless import classify_failure_text, parse_jsonl, run_process, tail
+from hive.runtime.headless import (
+    classify_failure_text,
+    parse_jsonl,
+    run_process,
+    tail,
+    unless_work_done,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,10 +164,11 @@ class ClaudeHeadlessAdapter(Runtime):
         events = parse_jsonl(proc.stdout)
         result = next((e for e in reversed(events) if e.get("type") == "result"), None)
         if result is None:
-            detail = tail(proc.stderr or proc.stdout) or f"exit {proc.returncode}, no result"
-            raise HarnessError(
-                classify_failure_text(proc.stderr + proc.stdout), HARNESS, RunMode.HEADLESS, detail
-            )
+            # stdout is the turn transcript (model prose, tool I/O): classify only
+            # the harness's own stderr.
+            detail = tail(proc.stderr) or f"exit {proc.returncode}, no result"
+            kind = unless_work_done(classify_failure_text(proc.stderr), _did_work(events))
+            raise HarnessError(kind, HARNESS, RunMode.HEADLESS, detail)
         if result.get("is_error") or result.get("subtype", "success") != "success":
             raise self._failure(events, result, proc.stderr)
         raw = result.get("usage") or {}
@@ -194,8 +201,22 @@ class ClaudeHeadlessAdapter(Runtime):
             None,
         )
         kind = _ERROR_CODE_KIND.get(code or "") or classify_failure_text(f"{text}\n{stderr}")
+        kind = unless_work_done(kind, _did_work(events))
         detail = tail(text or stderr) or (code or "unknown error")
         return HarnessError(kind, HARNESS, RunMode.HEADLESS, detail)
+
+
+def _did_work(events: list[dict]) -> bool:
+    """True once the turn issued a tool call (``tool_use`` in an assistant message)."""
+    for e in events:
+        if e.get("type") != "assistant":
+            continue
+        content = (e.get("message") or {}).get("content")
+        if isinstance(content, list) and any(
+            isinstance(b, dict) and b.get("type") == "tool_use" for b in content
+        ):
+            return True
+    return False
 
 
 class ResumeLostError(Exception):

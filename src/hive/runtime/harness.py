@@ -147,6 +147,8 @@ class HarnessSpec:
     native_goal: bool = False
     # One-line, user-facing fix for "installed but signed out".
     login_hint: str = ""
+    # Does the harness enforce the ownership-guard hook (ADR 0017)?
+    enforces_fence: bool = False
 
     @property
     def has_adapter(self) -> bool:

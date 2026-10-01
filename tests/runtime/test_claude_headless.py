@@ -150,6 +150,40 @@ async def test_no_result_event_falls_to_stderr_classification(tmp_path, monkeypa
     assert ei.value.kind is K.AUTH
 
 
+async def test_crash_without_result_ignores_transcript_text(tmp_path, monkeypatch) -> None:
+    # The model read a file about quotas, then the CLI died: stdout prose must not
+    # read as a quota refusal.
+    out = jsonl(
+        {"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "The usage limit and quota docs say 401 means /login"}]}},
+    )  # fmt: skip
+    a = _adapter(tmp_path, monkeypatch, stdout=out, stderr="Segmentation fault", rc=139)
+    with pytest.raises(HarnessError) as ei:
+        await a.send_turn("x")
+    assert ei.value.kind is K.OTHER and not ei.value.falls_back
+
+
+@pytest.mark.parametrize("has_result", [True, False])
+async def test_quota_after_a_tool_call_is_not_replayed_elsewhere(
+    tmp_path, monkeypatch, has_result
+) -> None:
+    events = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git commit"}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
+        {"type": "assistant", "error": "rate_limit", "message": {"content": []}},
+    ]  # fmt: skip
+    if has_result:
+        events.append(
+            {"type": "result", "subtype": "success", "is_error": True,
+             "result": "You've hit your limit"}
+        )  # fmt: skip
+    a = _adapter(tmp_path, monkeypatch, stdout=jsonl(*events), stderr="rate limit exceeded", rc=1)
+    with pytest.raises(HarnessError) as ei:
+        await a.send_turn("x")
+    assert ei.value.kind is K.OTHER and not ei.value.falls_back
+
+
 async def test_missing_binary_is_unavailable(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(config, "CLAUDE_BINARY", str(tmp_path / "nope"))
     a = ClaudeHeadlessAdapter(AdapterConfig(name="n"))

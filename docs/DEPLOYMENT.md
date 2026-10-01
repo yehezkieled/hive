@@ -60,6 +60,7 @@ any one and the next turn works, no restart.
 | Variable | Default | Meaning |
 |---|---|---|
 | `HIVE_HARNESS_ORDER` | `pi,claude` | Preference order. A harness not listed is tried after the listed ones. |
+| `HIVE_HARNESS_ORDER_<ROLE>` | maestro: `claude,pi`; others: `HIVE_HARNESS_ORDER` | Per-role override, e.g. `HIVE_HARNESS_ORDER_LEAD=claude,pi`. Maestros (fenced by the Ownership guard) default to Claude first. |
 | `HIVE_RUN_MODE_ORDER` | `headless,pty` | Mode order within a harness; omit a mode to disable it (`headless` alone = never spawn a PTY). |
 | `HIVE_PI_BINARY` / `HIVE_PI_PROVIDER` / `HIVE_PI_MODEL` | `pi` / *(unset)* / *(unset)* | Pi launcher; optional provider/model (`--provider`/`--model`). Unset = Pi's own default model. With a provider set, sign-in is probed with `pi auth check --provider`. |
 | `HIVE_HEADLESS_TIMEOUT_S` | `3600` | Wall-clock cap on one headless turn. |
@@ -67,8 +68,10 @@ any one and the next turn works, no restart.
 | `HIVE_HARNESS_RETRY_S` / `HIVE_HARNESS_DETECT_TTL_S` | `60` / `60` | Retry delay after an auth/unavailable failure; probe cache lifetime. |
 
 Pi caveats: no MCP (`search_knowledge` unavailable), no `/goal`, and the
-Ownership guard does not fence a Pi entity (cwd only). For a Maestro that must be
-fenced, use `HIVE_HARNESS_ORDER=claude,pi`. Headless Claude strips
+Ownership guard does not fence a Pi entity (cwd only). Maestros therefore default
+to `claude,pi` and use Pi only when Claude cannot run the turn; when one does run on
+Pi, `/status` shows "⚠️ ownership fence NOT enforced" next to it and Telegram gets an
+alert. Headless Claude strips
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the subprocess so it can only use
 the subscription login, never per-token API billing.
 

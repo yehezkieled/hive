@@ -74,6 +74,7 @@ def default_specs() -> dict[str, HarnessSpec]:
             modes=(RunMode.HEADLESS, RunMode.PTY),
             build=_build_claude,
             native_goal=True,
+            enforces_fence=True,
             login_hint="run `claude auth login` on the host",
         ),
         # T015: give this a build() + modes and it joins the fallback chain.
