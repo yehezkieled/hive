@@ -1,6 +1,6 @@
 # 0018 — Maestros ask the user via a conversational decision channel, not the native-gate bridge
 
-**Status:** Accepted (2026-06-14)
+**Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted (2026-06-14)
 **Ticket:** [029](../tickets/029-maestro-gate-bridge-regression/)
 **Relates to:** [ADR 0004](0004-interactive-gate-hold-and-inject.md) (the bridge
 this retires for maestros), [ADR 0008](0008-per-role-skill-curation-denylist.md)

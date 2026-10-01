@@ -75,6 +75,53 @@ not), but fences only the file tools — a guardrail against accidental
 cross-project writes, **not** a `Bash`/subprocess-proof wall.
 _Avoid_: permission rule, sandbox, deny rule.
 
+### Firstmate in Hive
+
+Direction per [ADR 0030](adr/0030-firstmate-implemented-in-hive.md): Hive becomes
+the front door of firstmate. At the cut-over, **Entity**, **Maestro**, **Team
+Lead**, **Team**, **Leaf agent** and **Workflow run** (and the Execution terms
+that serve them: **Adapter**, **Turn**, **Auto-bounce**, …) retire with the
+Entity runtime; until then they describe the code as it runs.
+
+**First mate**:
+The single supervisor across all projects: the owner's one point of contact for
+software work, and the owner of the backlog. Hive's website talks to it through
+the gateway; it replaces the PA Maestro.
+_Avoid_: PA Maestro, orchestrator, boss.
+
+**Second mate**:
+A persistent firstmate with its own home, its own backlog and clones of one
+project, created for a project only when that project earns one (its own context
+or harness). Replaces the project Maestro. Hive is promoted to one after the
+ticket-sync pieces exist.
+_Avoid_: project Maestro, sub-agent.
+
+**Lens**:
+A project page on the website: the first mate's backlog, crews, parked work,
+landed PRs and reports filtered to one project. A lens is a view, not a
+supervisor; which agent answers is a routing detail, shown by the chat-target chip.
+_Avoid_: workspace, tenant.
+
+**Ticket home**:
+The one backlog that owns a ticket (the first mate's, or a second mate's). There
+is no two-way mirror: the home edits directly, everyone else reads by rollup and
+changes it by a routed request. Tickets must be editable from the terminal
+first mate, the website and a second mate, or they do not get finished.
+_Avoid_: sync, mirror, source of truth (one home per ticket, not one global copy).
+
+**Handoff**:
+Moving a ticket, with its dependency-closed set, from one home to another,
+atomically and idempotently. Today only main to second mate and only queued
+items; reverse and lateral handoff are to be built.
+_Avoid_: reassignment, copy.
+
+**Gateway**:
+The loopback-only service behind the website, published with `tailscale serve`
+(tailnet only), trusting the owner's Tailscale login. Three verbs — read, say,
+decide — each calling firstmate's scripts; it holds no work logic and never
+writes project files.
+_Avoid_: backend, API server.
+
 ### Execution
 
 **Harness**:

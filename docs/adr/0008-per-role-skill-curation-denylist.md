@@ -1,6 +1,6 @@
 # ADR 0008 — Per-role skill curation via a stall-based denylist
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
 - **Date:** 2026-06-09
 - **Ticket:** [012](../tickets/012-entity-skill-inheritance/)
 

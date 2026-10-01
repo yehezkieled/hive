@@ -1,6 +1,6 @@
 # 0012 — Turn acceptance: deterministic turn-end sentinel over quiescence heuristic
 
-**Status:** Accepted (2026-06-12)
+**Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted (2026-06-12)
 **Ticket:** [026](../tickets/026-turn-boundary-acceptance/)
 
 ## Context

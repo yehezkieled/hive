@@ -1,6 +1,6 @@
 # ADR 0024 — The web decision channel stays entity-keyed and one-deep: question on the entity row, not a DecisionStore
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
 - **Date:** 2026-06-21
 - **Ticket:** [038](../tickets/038-web-decision-ui-parity/) (web decision-UI parity)
 - **Relates to:** [ADR 0018](0018-conversational-decision-channel.md) (the 029

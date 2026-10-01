@@ -1,6 +1,6 @@
 # ADR 0016 — Worktree reconciliation: WORKTREES_DIR-only scope, never delete dirty
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
 - **Date:** 2026-06-14
 - **Ticket:** [025](../tickets/025-worktree-crash-recovery/)
 

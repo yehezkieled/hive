@@ -1,6 +1,6 @@
 # ADR 0020 — Interaction patterns ship as role-file (JD) recipes, lead-executes / maestro-names
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
 - **Date:** 2026-06-18
 - **Ticket:** [034](../tickets/034-interaction-pattern-library/) — opens Phase 3 **Track 2**
 

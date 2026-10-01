@@ -1,6 +1,6 @@
 # ADR 0009 — Adopt Claude Code's native `/advisor`; retire the custom advisor
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
 - **Date:** 2026-06-10
 - **Ticket:** [013](../tickets/013-retire-custom-advisor/)
 
