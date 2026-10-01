@@ -2,9 +2,10 @@
 
 Hive is a multi-agent orchestration platform: it runs and coordinates
 a fleet of AI coding agents that you control from Telegram. Each
-Entity (Maestro / Team Lead) runs on its own Harness —
-Claude Code via an interactive PTY session today, with Codex and
-OpenCode adapters planned.
+Entity (Maestro / Team Lead) runs on a Harness Hive picks per turn —
+Pi first, then Claude Code, each in headless mode by default with
+Claude's interactive PTY session as the fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
+Codex and OpenCode adapters are planned.
 
 See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
 Maestro, Harness, Plan-billed, …) and
@@ -140,7 +141,7 @@ OPENAI_API_KEY=<optional>       # blueprint embeddings
 src/hive/
 ├── __main__.py        # entry point
 ├── config.py
-├── runtime/           # harness-agnostic adapter (Claude, …)
+├── runtime/           # harness registry + adapters (Pi, Claude headless/PTY)
 ├── process/           # Entity / session lifecycle
 ├── models/            # Entity, Team, Task, Vault, …
 ├── bus/               # message routing + persistence

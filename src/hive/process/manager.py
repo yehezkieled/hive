@@ -74,10 +74,12 @@ from hive.process.wake_scheduler import (
 from hive.process.workflow_watcher import ProgressStore
 from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import (
-    ClaudeAdapter,  # noqa: F401  re-exported; LifecycleManager reads it via this module
+    ClaudeAdapter,  # noqa: F401  re-exported (the Claude PTY mode); tests patch it here
 )
 from hive.runtime.gate_coordinator import GateCoordinator
+from hive.runtime.harness_runtime import HarnessRuntime
 from hive.runtime.quota_monitor import QuotaMonitor
+from hive.runtime.registry import default_detector
 from hive.vault.provider import PaymentProvider
 
 logger = logging.getLogger(__name__)
@@ -132,7 +134,9 @@ class ProcessManager:
         self.notification_dispatcher = notification_dispatcher
         self.personalities_dir = personalities_dir or Path("personalities")
         self._entities: dict[str, Entity] = {}
-        self._adapters: dict[str, ClaudeAdapter] = {}
+        self._adapters: dict[str, HarnessRuntime] = {}
+        # Which agent harnesses are installed + signed in (cached probe, ADR 0029).
+        self.harness_detector = default_detector()
         # Single asyncio.Lock guards mutations to _entities / _adapters when
         # those mutations need to be consistent. Single-key reads do not
         # acquire this lock — CPython dict get/set on a single key is atomic
@@ -350,7 +354,7 @@ class ProcessManager:
     async def register_entity(self, entity: Entity) -> None:
         return await self.lifecycle.register_entity(entity)
 
-    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
+    async def _get_or_create_adapter(self, entity: Entity) -> HarnessRuntime:
         return await self.lifecycle._get_or_create_adapter(entity)
 
     # -----------------------------------------------------------------
@@ -391,7 +395,7 @@ class ProcessManager:
         if entry is not None:
             entry["stalls"] = 0
 
-    async def _maybe_bounce_on_timeout(self, entity: Entity, adapter: ClaudeAdapter) -> bool:
+    async def _maybe_bounce_on_timeout(self, entity: Entity, adapter: HarnessRuntime) -> bool:
         """Decide what to do when a turn raised ``TimeoutError`` (Ticket 020 §D1).
 
         Returns ``True`` when the jammed session was bounced and the caller
@@ -527,7 +531,7 @@ class ProcessManager:
             details={"reason": reason, "bounces": bounce_count},
         )
 
-    def _bounce_reason(self, entity: Entity, adapter: ClaudeAdapter) -> str:
+    def _bounce_reason(self, entity: Entity, adapter: HarnessRuntime) -> str:
         """Best-effort human reason for a bounce — ADVISORY only (Ticket 020 §D5).
 
         First hit wins: the session-state ``waitingFor``/``status`` (the
@@ -549,7 +553,7 @@ class ProcessManager:
                 return f"session status: {status}"
         try:
             if not adapter.is_alive():
-                return "the Claude process is no longer alive"
+                return "the harness process is no longer alive"
         except Exception:
             pass
         return "no output past the no-progress timeout — cause unknown"
@@ -703,6 +707,7 @@ class ProcessManager:
         # if another coroutine mutates _entities while we iterate.
         for name, entity in list(self._entities.items()):
             adapter = self._adapters.get(name)
+            last_run = getattr(adapter, "last_run", None)
             statuses.append(
                 {
                     "name": name,
@@ -711,6 +716,9 @@ class ProcessManager:
                     "model": entity.model,
                     "pid": entity.pid,
                     "alive": adapter.is_alive() if adapter else False,
+                    # Which harness/mode served this entity's last turn (ADR 0029).
+                    "harness": last_run.harness if last_run else None,
+                    "mode": last_run.mode.value if last_run else None,
                     "uptime": entity.uptime_seconds,
                 }
             )

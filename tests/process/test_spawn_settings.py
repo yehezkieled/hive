@@ -55,20 +55,6 @@ def test_write_goes_under_the_isolated_spawn_settings_dir(tmp_path: Path) -> Non
 # --- _get_or_create_adapter wiring ------------------------------------------
 
 
-class _FakeAdapter:
-    """Stands in for ClaudeAdapter: records its config, never spawns claude."""
-
-    def __init__(self, config, *, cwd=None, **_kwargs) -> None:  # noqa: ANN001
-        self.config = config
-        self.cwd = cwd
-
-    async def start(self) -> None:
-        return None
-
-    def is_alive(self) -> bool:
-        return True
-
-
 def _lifecycle() -> LifecycleManager:
     mgr = SimpleNamespace(
         _adapters={},
@@ -77,6 +63,7 @@ def _lifecycle() -> LifecycleManager:
         project_store=None,
         gate_coordinator=None,
         _on_gate_state=None,
+        harness_detector=object(),
     )
     return LifecycleManager(mgr)  # type: ignore[arg-type]
 
@@ -90,12 +77,10 @@ def _lifecycle() -> LifecycleManager:
     ids=["maestro", "lead"],
 )
 async def test_every_spawn_passes_a_settings_file_that_disables_remote_control(
-    monkeypatch: pytest.MonkeyPatch, entity: Maestro | TeamLead
+    entity: Maestro | TeamLead,
 ) -> None:
-    monkeypatch.setattr(lifecycle_manager, "ClaudeAdapter", _FakeAdapter)
-
     adapter = await _lifecycle()._get_or_create_adapter(entity)
 
-    settings_path = adapter.config.settings_path
+    settings_path = adapter._ctx.config.settings_path
     assert settings_path is not None and settings_path.exists()
     assert json.loads(settings_path.read_text())["remoteControlAtStartup"] is False

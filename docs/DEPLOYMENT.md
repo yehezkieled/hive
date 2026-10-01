@@ -29,8 +29,12 @@ commands below use a venv at `.venv/`.
 
 ### Authentication
 
-- **Claude Code CLI** — the `claude` CLI must work on this host. Each entity
-  runs as a persistent interactive PTY session (`claude --continue`). A
+- **An agent harness, signed in** — Hive needs at least one of **Pi**
+  (`pi`, then `/login` or a provider API key) or **Claude Code**
+  (`claude auth login`). It probes both (see "Harness selection" below), prefers
+  Pi, and runs turns headless; Claude's interactive PTY session
+  (`claude --continue`) is the fallback mode. Claude Code logging out every
+  ~30 days no longer stops the fleet while Pi is signed in. A
   stronger second opinion comes from Claude Code's native `/advisor`
   (Ticket 013): Hive enables it per-entity by passing `--advisor <model>` at
   spawn, with a model-aware default (off for Opus mains, `opus`
@@ -41,6 +45,32 @@ commands below use a venv at `.venv/`.
   `.env` (see Section 2).
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
+
+### Harness selection (ADR 0029)
+
+Every turn, Hive probes (cached 60 s, no quota spent) which harnesses are
+installed and signed in, then runs the turn on the first working
+(harness, mode): `pi (headless)` → `claude (headless)` → `claude (pty)`.
+`/status` shows `via <harness>/<mode>` per entity; Telegram gets one line when an
+entity's harness/mode changes. If nothing can run — e.g. Claude Code is logged out
+and Pi is unconfigured — Hive says so in Telegram (at startup and on the first
+failed turn, at most once per 10 min) with the one-line fix per harness; sign in to
+any one and the next turn works, no restart.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HIVE_HARNESS_ORDER` | `pi,claude` | Preference order. A harness not listed is tried after the listed ones. |
+| `HIVE_RUN_MODE_ORDER` | `headless,pty` | Mode order within a harness; omit a mode to disable it (`headless` alone = never spawn a PTY). |
+| `HIVE_PI_BINARY` / `HIVE_PI_PROVIDER` / `HIVE_PI_MODEL` | `pi` / *(unset)* / *(unset)* | Pi launcher; optional provider/model (`--provider`/`--model`). Unset = Pi's own default model. With a provider set, sign-in is probed with `pi auth check --provider`. |
+| `HIVE_HEADLESS_TIMEOUT_S` | `3600` | Wall-clock cap on one headless turn. |
+| `HIVE_HEADLESS_QUOTA_RETRY_S` | `900` | After headless reports quota/refusal, how long its PTY serves turns before headless is retried. |
+| `HIVE_HARNESS_RETRY_S` / `HIVE_HARNESS_DETECT_TTL_S` | `60` / `60` | Retry delay after an auth/unavailable failure; probe cache lifetime. |
+
+Pi caveats: no MCP (`search_knowledge` unavailable), no `/goal`, and the
+Ownership guard does not fence a Pi entity (cwd only). For a Maestro that must be
+fenced, use `HIVE_HARNESS_ORDER=claude,pi`. Headless Claude strips
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the subprocess so it can only use
+the subscription login, never per-token API billing.
 
 ### Claude Code version policy
 
@@ -1231,17 +1261,18 @@ become no-ops — Hive still boots.
 
 ## 10. Known limitations (as of 2026-04-26)
 
-- **Persistent PTY model** — each entity runs as a long-lived `claude` PTY
-  session (Ticket 007 removed the old `claude -p` subprocess-per-turn path).
-  Conversation context carries across turns via `claude --continue`. Entity
-  state still goes `idle` between turns — this is expected, not a bug.
+- **Headless first, PTY fallback** — turns run as one `pi -p` / `claude -p`
+  subprocess each (ADR 0029; Ticket 007's PTY-only runtime is superseded). The
+  Claude PTY session spawns lazily, only when headless is refused or out of
+  quota; conversation context carries across modes via `--resume`/`--continue`.
+  Entity state still goes `idle` between turns — this is expected, not a bug.
 - **`/cost` shows token counts, not dollars** — the PTY path is plan-billed,
   so per-turn `cost_usd` is `None`; token counts are the real accountability
   number. (Ticket 013 retired the advisor's one-shot `claude -p`; native
   `/advisor` is plan-billed in-session, so no metered call remains.)
-- **No multi-LLM routing** — all entities run on the Claude Code PTY harness.
-  Routing to other providers (Codex, OpenCode) is Phase 4, not yet
-  implemented.
+- **Harness coverage** — Pi and Claude Code only. Codex is detected but has no
+  adapter (T015); OpenCode (T016) and direct model-API support are not built.
+  Failover between harnesses is automatic only for refusals (auth/quota/refused).
 - **Blueprints require `VOYAGE_API_KEY`** — without it, `/blueprint save|search`
   and auto-retrieval of blueprints into agent prompts are disabled silently.
   Hive still boots, but these features are no-ops. (Switched from OpenAI →

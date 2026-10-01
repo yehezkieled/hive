@@ -94,6 +94,40 @@ MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # preserves the legacy PATH-lookup behavior when the knob is unset.
 CLAUDE_BINARY = os.path.expanduser(os.environ.get("HIVE_CLAUDE_BINARY", "claude"))
 
+# Harness selection (ADR 0029). Hive drives whichever agent harness is installed
+# AND signed in, preferring them in HARNESS_ORDER (Pi first — it needs no Claude
+# login, which Claude Code drops every ~30 days). Within a harness, RUN_MODE_ORDER
+# is the order of run modes: headless (`-p`, one subprocess per turn) is the
+# default; PTY (a persistent interactive session) is the fallback, entered only
+# when headless is refused or out of quota — detected from the harness's own
+# error, never guessed. Both are comma-separated, e.g. HIVE_HARNESS_ORDER=pi,claude.
+HARNESS_ORDER: list[str] = [
+    h.strip().lower()
+    for h in os.environ.get("HIVE_HARNESS_ORDER", "pi,claude").split(",")
+    if h.strip()
+]
+RUN_MODE_ORDER: list[str] = [
+    m.strip().lower()
+    for m in os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty").split(",")
+    if m.strip()
+]
+# Pi (https://pi.dev). PI_MODEL/PI_PROVIDER are optional: unset, Pi uses its own
+# configured default model (Hive's Claude aliases like "opus" mean nothing to Pi).
+PI_BINARY = os.path.expanduser(os.environ.get("HIVE_PI_BINARY", "pi"))
+PI_MODEL = os.environ.get("HIVE_PI_MODEL", "")
+PI_PROVIDER = os.environ.get("HIVE_PI_PROVIDER", "")
+CODEX_BINARY = os.path.expanduser(os.environ.get("HIVE_CODEX_BINARY", "codex"))
+# Hard cap on one headless turn (seconds). Headless has no streaming no-progress
+# reader like the PTY, so a wedged subprocess is bounded by wall clock instead.
+HEADLESS_TIMEOUT_S = float(os.environ.get("HIVE_HEADLESS_TIMEOUT_S", "3600"))
+# After headless reports quota exhaustion, how long before the harness's headless
+# mode is tried again (the PTY serves turns meanwhile). Auth/unavailable failures
+# use the shorter HARNESS_RETRY_S, since the user may re-login at any moment.
+HEADLESS_QUOTA_RETRY_S = float(os.environ.get("HIVE_HEADLESS_QUOTA_RETRY_S", "900"))
+HARNESS_RETRY_S = float(os.environ.get("HIVE_HARNESS_RETRY_S", "60"))
+# How long a harness installed/signed-in probe stays cached (seconds).
+HARNESS_DETECT_TTL_S = float(os.environ.get("HIVE_HARNESS_DETECT_TTL_S", "60"))
+
 # Default maestro
 DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "otter")
 

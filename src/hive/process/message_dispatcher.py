@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -32,6 +33,7 @@ from hive.bus.permissions import (
 )
 from hive.config import DEFAULT_MAESTRO
 from hive.models.entity import Entity
+from hive.runtime.harness import NoUsableHarnessError
 
 if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
@@ -47,6 +49,10 @@ if TYPE_CHECKING:
 # (``manager.py`` already imports this module at load).
 
 logger = logging.getLogger(__name__)
+
+# At most one fleet-wide "no usable harness" alert per this many seconds: a dozen
+# entities all failing the same turn window must not spam Telegram.
+_NO_HARNESS_ALERT_INTERVAL_S = 600.0
 
 # Parse-failure feedback loop. When an entity's <hive_actions> block
 # is malformed, the orchestrator routes a system->entity message with
@@ -81,6 +87,39 @@ class MessageDispatcher:
 
     def __init__(self, mgr: ProcessManager) -> None:
         self._mgr = mgr
+        # Last "harness (mode)" label each entity ran on — a notification fires
+        # only when it CHANGES (default calm: steady state is silent).
+        self._last_run: dict[str, str] = {}
+        # Monotonic time of the last "no usable harness" alert (fleet-wide dedup).
+        self._no_harness_alerted_at: float | None = None
+
+    async def _note_run(self, entity_name: str, usage: dict) -> None:
+        """Surface which harness + mode served the turn when it changed (ADR 0029)."""
+        harness, mode = usage.get("harness"), usage.get("mode")
+        if not harness:
+            return
+        label = f"{harness} ({mode})"
+        previous = self._last_run.get(entity_name)
+        self._last_run[entity_name] = label
+        if previous == label:
+            return
+        text = f"{entity_name} is now running on {label}"
+        fell_back = usage.get("fell_back") or []
+        if fell_back:
+            text += f" — fell back from: {'; '.join(fell_back)}"
+        await self._mgr._notify(
+            text,
+            kind="harness_run",
+            data={"entity": entity_name, "harness": harness, "mode": mode, "fell_back": fell_back},
+        )
+
+    async def _notify_no_harness(self, entity_name: str, err: NoUsableHarnessError) -> None:
+        now = time.monotonic()
+        last = self._no_harness_alerted_at
+        if last is not None and now - last < _NO_HARNESS_ALERT_INTERVAL_S:
+            return
+        self._no_harness_alerted_at = now
+        await self._mgr._notify(str(err), kind="harness_unavailable", data={"entity": entity_name})
 
     async def send_to_entity(
         self, entity_name: str, prompt: str, *, seed_goal: bool = False
@@ -246,12 +285,19 @@ class MessageDispatcher:
         # propagate unchanged. A successful turn — first try or retry — resets
         # the consecutive-stall count.
         try:
-            response, usage = await adapter.send_turn(prompt)
-        except TimeoutError:
-            if not await self._mgr._maybe_bounce_on_timeout(entity, adapter):
-                raise
-            adapter = await self._mgr._get_or_create_adapter(entity)
-            response, usage = await adapter.send_turn(prompt)
+            try:
+                response, usage = await adapter.send_turn(prompt)
+            except TimeoutError:
+                if not await self._mgr._maybe_bounce_on_timeout(entity, adapter):
+                    raise
+                adapter = await self._mgr._get_or_create_adapter(entity)
+                response, usage = await adapter.send_turn(prompt)
+        except NoUsableHarnessError as e:
+            # Claude Code logged out, Pi unconfigured, ...: say so loudly in the
+            # notification channels too — a scheduler poke has no reply to carry it.
+            await self._notify_no_harness(entity_name, e)
+            raise
+        await self._note_run(entity_name, usage)
         self._mgr._note_turn_success(entity_name)
         await self._mgr._record_usage(entity, usage)
 

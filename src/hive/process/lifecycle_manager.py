@@ -40,7 +40,9 @@ from hive.process.names import validate_name
 from hive.process.ownership_policy import WritablePolicy, settings_payload, writable_policy
 from hive.process.skill_curation import skill_denylist_for
 from hive.process.tool_policy import role_tool_denylist
-from hive.runtime.claude_adapter import ClaudeAdapter, ClaudeAdapterConfig
+from hive.runtime.adapter_config import AdapterConfig
+from hive.runtime.harness import RuntimeContext
+from hive.runtime.harness_runtime import HarnessRuntime
 
 if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
@@ -100,8 +102,8 @@ def _render_auto_personality(
     )
 
 
-def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
-    """Map an Entity to the ClaudeAdapterConfig needed by ClaudeAdapter."""
+def _adapter_config_from_entity(entity: Entity) -> AdapterConfig:
+    """Map an Entity to the harness-neutral AdapterConfig every adapter consumes."""
     # Merge three deny sources, de-duplicating while keeping first-seen
     # order: the entity's own tokens (personality ``## Tools`` override),
     # the role tool guard (Ticket 015, ADR 0010 — runs on every spawn,
@@ -113,7 +115,7 @@ def _adapter_config_from_entity(entity: Entity) -> ClaudeAdapterConfig:
             + skill_denylist_for(entity.role)
         )
     )
-    return ClaudeAdapterConfig(
+    return AdapterConfig(
         model=entity.model,
         system_prompt=entity.system_prompt,
         allowed_tools=list(entity.allowed_tools),
@@ -350,11 +352,13 @@ class LifecycleManager:
         cwd = Path(own_root) if own_root else None
         return (payload, cwd)
 
-    async def _get_or_create_adapter(self, entity: Entity) -> ClaudeAdapter:
-        """Return a live PTY adapter for entity, creating one if needed.
+    async def _get_or_create_adapter(self, entity: Entity) -> HarnessRuntime:
+        """Return the entity's HarnessRuntime, creating one if needed.
 
-        Adapters are cached per entity so the same persistent PTY process
-        handles all of that entity's turns.
+        One HarnessRuntime is cached per entity. It owns harness + mode selection
+        (ADR 0029): headless on the preferred signed-in harness by default, a
+        persistent PTY session only as the fallback — and spawns nothing until a
+        turn needs it.
         """
         existing = self._mgr._adapters.get(entity.name)
         if existing is not None and existing.is_alive():
@@ -386,12 +390,16 @@ class LifecycleManager:
             entity.name, _spawn_settings_payload(ownership_settings)
         )
         cwd = lead_cwd or maestro_cwd
-        adapter = ClaudeAdapter(
-            config,
-            cwd=cwd,
-            gate_coordinator=self._mgr.gate_coordinator,
-            entity_name=entity.name,
-            on_gate_state=self._mgr._on_gate_state,
+        adapter = HarnessRuntime(
+            RuntimeContext(
+                config=config,
+                cwd=cwd,
+                gate_coordinator=self._mgr.gate_coordinator,
+                entity_name=entity.name,
+                on_gate_state=self._mgr._on_gate_state,
+                resume_session_id=entity.session_id,
+            ),
+            self._mgr.harness_detector,
         )
         await adapter.start()
         async with self._mgr._state_lock:

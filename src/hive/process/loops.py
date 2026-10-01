@@ -42,6 +42,16 @@ def seed_goal(prompt: str) -> str:
     return f"/goal {prompt}"
 
 
+def unseed_goal(prompt: str) -> str:
+    """Inverse of ``seed_goal`` for harnesses with no native ``/goal`` command.
+
+    The dispatcher seeds ``/goal`` without knowing which harness will run the turn
+    (selection happens per turn, in ``HarnessRuntime``); a harness that cannot
+    interpret the slash command gets the goal text on its own.
+    """
+    return prompt.removeprefix("/goal ")
+
+
 # Maestro structural-identity blocks (Ticket 033), appended after the shared
 # maestro role JD. The role JD is ownership-neutral; this block tells a maestro
 # *which* kind it is, keyed on ``is_pa``. Kept here as short prompt text in

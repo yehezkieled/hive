@@ -113,7 +113,9 @@ ticket detail is in `docs/archive/tickets/` and the sprint files in
 Before working on `runtime/` or the `process/` modules, read the
 adapter code,
 [ADR 0001](docs/adr/0001-harness-agnostic-runtime.md) (harness-agnostic
-runtime) and
+runtime), [ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)
+(Pi first, headless default, PTY fallback — add new Harnesses as a
+`HarnessSpec` in `runtime/registry.py`) and
 [ADR 0006](docs/adr/0006-god-object-breakup-composition.md)
 (composition pattern for the breakup) first.
 
