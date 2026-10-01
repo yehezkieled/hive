@@ -317,20 +317,26 @@ async def test_headless_success_retires_the_stale_pty_so_it_respawns_on_the_live
     assert [e[1:] for e in env.log if e[0] == "start" and e[2] is P] == [("claude", P)] * 2
 
 
-async def test_fenced_role_defaults_to_claude_first(monkeypatch) -> None:
+@pytest.mark.parametrize("role", ["maestro", "lead", "vault"])
+async def test_fenced_roles_default_to_claude_first(monkeypatch, role) -> None:
     monkeypatch.setattr(config, "HARNESS_ORDER", ["pi", "claude"])
-    monkeypatch.delenv("HIVE_HARNESS_ORDER_MAESTRO", raising=False)
-    monkeypatch.delenv("HIVE_HARNESS_ORDER_LEAD", raising=False)
+    monkeypatch.delenv(f"HIVE_HARNESS_ORDER_{role.upper()}", raising=False)
     scripts = {("pi", H): ["pi"], ("claude", H): ["claude"]}
 
-    maestro = Env(scripts, _status(), role="maestro", harness_order=None)
-    await maestro.rt.start()
-    _, usage = await maestro.rt.send_turn("x")
+    env = Env(scripts, _status(), role=role, harness_order=None)
+    await env.rt.start()
+    _, usage = await env.rt.send_turn("x")
     assert (usage["harness"], usage["unfenced"]) == ("claude", False)
 
-    lead = Env(scripts, _status(), role="lead", harness_order=None)
-    await lead.rt.start()
-    _, usage = await lead.rt.send_turn("x")
+
+async def test_unfenced_role_keeps_the_global_order(monkeypatch) -> None:
+    monkeypatch.setattr(config, "HARNESS_ORDER", ["pi", "claude"])
+    monkeypatch.delenv("HIVE_HARNESS_ORDER_SCOUT", raising=False)
+    scripts = {("pi", H): ["pi"], ("claude", H): ["claude"]}
+
+    env = Env(scripts, _status(), role="scout", harness_order=None)
+    await env.rt.start()
+    _, usage = await env.rt.send_turn("x")
     assert (usage["harness"], usage["unfenced"]) == ("pi", False)
 
 
@@ -341,7 +347,8 @@ async def test_per_role_env_overrides_the_harness_order(monkeypatch) -> None:
 
     lead = Env(scripts, _status(), role="lead", harness_order=None)
     await lead.rt.start()
-    assert (await lead.rt.send_turn("x"))[1]["harness"] == "claude"
+    _, usage = await lead.rt.send_turn("x")
+    assert (usage["harness"], usage["unfenced"]) == ("claude", False)
 
     maestro = Env(scripts, _status(), role="maestro", harness_order=None)
     await maestro.rt.start()

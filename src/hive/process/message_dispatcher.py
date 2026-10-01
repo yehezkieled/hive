@@ -112,8 +112,8 @@ class MessageDispatcher:
             text += f" — fell back from: {'; '.join(fell_back)}"
         if unfenced:
             text += (
-                f"\n⚠️ Ownership fence NOT enforced on {harness}: "
-                f"{entity_name} can write outside its Project."
+                f"\n⚠️ Guardrails NOT enforced on {harness}: {entity_name}'s "
+                "ownership fence and tool/skill denylists are off."
             )
         await self._mgr._notify(
             text,

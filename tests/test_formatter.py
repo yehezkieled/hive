@@ -113,4 +113,4 @@ def test_status_flags_an_unfenced_maestro() -> None:
     ]  # fmt: skip
     pm = SimpleNamespace(get_status=lambda: statuses)
     text = Formatter(pm)._format_status()  # type: ignore[arg-type]
-    assert "via pi/headless) ⚠️ ownership fence NOT enforced" in text
+    assert "via pi/headless) ⚠️ guardrails NOT enforced" in text

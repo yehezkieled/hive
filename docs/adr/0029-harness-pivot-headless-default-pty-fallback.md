@@ -30,13 +30,15 @@ Two billing facts changed since ADR 0007:
    detects which harnesses are installed *and signed in* — Pi, Claude Code, and
    (detect-only) Codex — via cheap, spend-free probes cached for 60 s. Preference
    order is `HIVE_HARNESS_ORDER` (default `pi,claude`), overridable per role with
-   `HIVE_HARNESS_ORDER_<ROLE>` (e.g. `HIVE_HARNESS_ORDER_LEAD=claude,pi`).
-   **Fenced roles default to Claude first**: a Maestro (project or PA) is spawned
-   with the Ownership guard ([ADR 0017](0017-ownership-guard-pretooluse-hook.md)),
-   which only Claude Code enforces, so its default order is `claude,pi` — Pi only
-   when Claude cannot run the turn (logged out, out of quota). Every other role
-   keeps `pi,claude`. When a fenced role does run on Pi, `/status` marks it
-   "⚠️ ownership fence NOT enforced" and Telegram is alerted. A harness joins the run
+   `HIVE_HARNESS_ORDER_<ROLE>` (e.g. `HIVE_HARNESS_ORDER_LEAD=pi,claude`).
+   **Fenced roles default to Claude first**: every role whose lockdown is a
+   Claude-only control — the Ownership guard
+   ([ADR 0017](0017-ownership-guard-pretooluse-hook.md), Maestros), the role
+   tool/skill denylists (Maestros, Leads) and the Vault's Bash/Write/Edit denial —
+   defaults to `claude,pi` (`config.FENCED_ROLES`: maestro, lead, vault), using Pi
+   only when Claude cannot run the turn (logged out, out of quota). Any other role
+   keeps `HIVE_HARNESS_ORDER`. When a fenced role does run on Pi, `/status` marks
+   it "⚠️ guardrails NOT enforced" and Telegram is alerted. A harness joins the run
    by adding one `HarnessSpec`; Codex (T015), OpenCode (T016) and a direct
    model-API harness each need exactly that and nothing in the router.
 2. **Headless is the default mode; PTY is the fallback**
@@ -107,8 +109,8 @@ further `HarnessSpec`).
   guard ([ADR 0017](0017-ownership-guard-pretooluse-hook.md)) does not fence a Pi
   entity.** Its only fence is its working directory (project root / lead
   worktree). A guard for Pi (an extension hook) is follow-up work; until then
-  Maestros default to `claude,pi` (decision 1) and a Maestro that lands on Pi is
-  flagged on `/status` and in Telegram as unfenced.
+  fenced roles default to `claude,pi` (decision 1) and one that lands on Pi is
+  flagged on `/status` and in Telegram as running without its guardrails.
 - **Interactive gates do not occur headless** (`--dangerously-skip-permissions`
   under yolo/yotree), so the gate bridge only matters in the PTY fallback.
 - **Workflow progress, jam description and the Ticket 020 auto-bounce are PTY

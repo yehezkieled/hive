@@ -89,12 +89,18 @@ def default_detector() -> HarnessDetector:
 async def availability_report(
     detector: HarnessDetector,
 ) -> tuple[list[str], NoUsableHarnessError | None]:
-    """Startup summary: one line per harness, plus the error to alert on when no
-    (harness, mode) can run a turn (e.g. Claude Code logged out and Pi unconfigured)."""
+    """Startup summary: one line per harness and one run order per distinct role
+    order, plus the error to alert on when no (harness, mode) can run a turn (e.g.
+    Claude Code logged out and Pi unconfigured)."""
     statuses = await detector.detect(force=True)
     lines = [s.describe() for s in statuses.values()]
-    plan = plan_candidates(detector.specs, statuses, config.HARNESS_ORDER, config.RUN_MODE_ORDER)
-    if plan:
-        lines.append("run order: " + " → ".join(f"{c.harness} ({c.mode.value})" for c in plan))
-        return lines, None
-    return lines, NoUsableHarnessError(statuses, detector.specs)
+    groups: dict[tuple[str, ...], list[str]] = {tuple(config.HARNESS_ORDER): ["default"]}
+    for role in sorted(config.FENCED_ROLES):
+        groups.setdefault(tuple(config.harness_order_for(role)), []).append(role)
+    for order, roles in groups.items():
+        plan = plan_candidates(detector.specs, statuses, order, config.RUN_MODE_ORDER)
+        if not plan:
+            return lines, NoUsableHarnessError(statuses, detector.specs)
+        steps = " → ".join(f"{c.harness} ({c.mode.value})" for c in plan)
+        lines.append(f"run order ({', '.join(roles)}): {steps}")
+    return lines, None

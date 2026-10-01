@@ -108,11 +108,12 @@ def _csv(raw: str) -> list[str]:
 # error, never guessed. Both are comma-separated, e.g. HIVE_HARNESS_ORDER=pi,claude.
 HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "pi,claude"))
 RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty"))
-# Roles fenced by Claude-only controls — the ownership-guard PreToolUse hook
-# (ADR 0017) a maestro is spawned with. Pi enforces none of them, so these roles
+# Roles fenced by Claude-only controls: the ownership-guard PreToolUse hook
+# (ADR 0017, maestro), the role tool/skill denylists (lead, maestro), and the
+# vault's Bash/Write/Edit lockdown. Pi enforces none of them, so these roles
 # default to Claude first and use Pi only when Claude cannot run the turn (with
-# a loud "fence NOT enforced" alert).
-FENCED_ROLES: frozenset[str] = frozenset({"maestro"})
+# a loud "guardrails NOT enforced" alert).
+FENCED_ROLES: frozenset[str] = frozenset({"maestro", "lead", "vault"})
 
 
 def harness_order_for(role: str) -> list[str]:

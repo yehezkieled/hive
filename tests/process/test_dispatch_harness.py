@@ -91,7 +91,7 @@ async def test_fenced_entity_on_pi_alerts_that_the_fence_is_off(dispatcher, mgr)
 
     notes = _harness_notifications(mgr)
     assert len(notes) == 1
-    assert "Ownership fence NOT enforced on pi" in notes[0][0]
+    assert "Guardrails NOT enforced on pi" in notes[0][0]
     assert notes[0][2]["unfenced"] is True
 
 

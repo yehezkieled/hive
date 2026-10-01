@@ -46,7 +46,7 @@ class RunInfo:
     # Failures of earlier candidates this turn, e.g. ["pi (headless): auth — …"].
     fell_back_from: tuple[str, ...] = ()
     # A fenced role (config.FENCED_ROLES) ran on a harness that does not enforce
-    # the ownership guard — the user must be told the fence is off.
+    # its Claude-only guardrails — the user must be told they are off.
     unfenced: bool = False
 
     def label(self) -> str:
