@@ -301,13 +301,13 @@ _Avoid_: rate limit, token usage
 
 ### Project management
 
-Live planning lives in `docs/pm/` (pm plugin layout, ADR 0028). The
-older three-altitude layout (roadmap / sprints / ticket folders, ADR
-0003) is archived under `docs/archive/`.
+Direction lives in `docs/roadmap.md`; work tracking lives outside the repo
+(GitHub issues mirror open work). The older layouts are archived under
+`docs/archive/`.
 
 **Milestone**:
 An ordered version of Hive — what the product does for its user when
-the milestone is done. Listed top to bottom in `docs/pm/roadmap.md`;
+the milestone is done. Listed top to bottom in `docs/roadmap.md`;
 never a calendar target. Ideas with no milestone yet sit in the
 roadmap's Backlog.
 _Avoid_: sprint, release date. "Phase" is only the archived roadmap's
@@ -315,16 +315,13 @@ label for its milestones (Phases 1–8); do not use it for new work.
 
 **Epic**:
 A big piece of work inside a Milestone — a goal plus the Tickets that
-reach it, with a dependency Flow drawn by `pm.py flow`. One file per
-epic in `docs/pm/epics/Exx-slug.md`.
+reach it. Tracked outside the repo.
 _Avoid_: theme, track, sprint.
 
 **Ticket**:
-One unit of work. A single file `docs/pm/tickets/Txxx-slug.md` with
-What / Why / Acceptance / Subtasks / Plan. Created thin by `/pm:plan`,
-grilled to `ready: yes` by `/pm:grill`, built end to end by `/pm:work`.
+One unit of work, tracked outside the repo and mirrored as a GitHub issue.
 _Note_: Tickets `001`–`067` in `docs/archive/tickets/` are the legacy
-folder-per-ticket form; the open ones were migrated to `T001`–`T016`.
+folder-per-ticket form; the open ones were later re-tracked as `T0xx` tickets, now outside the repo.
 _Avoid_: task (overloaded — `/task add` in Telegram is a different
 concept), feature (a roadmap-level idea that may eventually become
 one or more Tickets), issue (the GitHub mirror of a Ticket, not the
@@ -370,16 +367,3 @@ Replaced by ordered **Milestones**.
   Maestro owns (Ticket 024 registry record). A lowercase "project" in
   `docs/` means the project-management sense (Milestones/Epics/Tickets). Prefer
   the capital-P term when ownership is meant.
-
-## pm
-flow: branch-pr
-host: github
-mirror: on
-merge: ask
-gates: tdd, checks, review, docs
-check: uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/ && uv run pytest -m "not integration"
-milestone: M1
-tools: python3=yes gh=yes
-routines: work=off audit=off
-auto_cap: 1
-review_model: sonnet

@@ -6,7 +6,11 @@ When a decision changes, add a new entry and write "Replaces entry of <date>"
 so the old entry stays as history.
 
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
-This file holds the smaller process and tooling decisions the pm workflow makes.
+This file holds the smaller process and tooling decisions.
+
+## 2026-10-01: Work tracking leaves the repo
+Context: the in-repo pm board (`docs/pm/tickets`, `epics`) was written by an older pm-plugin version that newer versions no longer read.
+Decision: Open tickets moved to the maintainer's external backlog; each still links its GitHub issue. The repo carries no tickets or epics. `docs/pm/roadmap.md` and `decisions.md` moved to `docs/roadmap.md` and `docs/decisions.md`. Replaces entries of 2026-09-06 and the `mirror: on` entry.
 
 ## 2026-09-09: Command surface v2 (T007) design calls
 Context: T007 (from 064) bundles four command changes plus a fifth — removing typed `/approve` `/deny` `/vault` — that is hard-gated on T004's needs-you buttons. Grilling settled the open forks.
