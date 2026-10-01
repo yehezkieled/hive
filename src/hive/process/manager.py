@@ -719,7 +719,7 @@ class ProcessManager:
                     # Which harness/mode served this entity's last turn (ADR 0029).
                     "harness": last_run.harness if last_run else None,
                     "mode": last_run.mode.value if last_run else None,
-                    "unfenced": last_run.unfenced if last_run else False,
+                    "unfenced": last_run.unfenced if last_run else None,
                     "uptime": entity.uptime_seconds,
                 }
             )

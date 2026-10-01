@@ -317,7 +317,7 @@ async def test_headless_success_retires_the_stale_pty_so_it_respawns_on_the_live
     assert [e[1:] for e in env.log if e[0] == "start" and e[2] is P] == [("claude", P)] * 2
 
 
-@pytest.mark.parametrize("role", ["maestro", "lead", "vault"])
+@pytest.mark.parametrize("role", ["maestro", "vault"])
 async def test_fenced_roles_default_to_claude_first(monkeypatch, role) -> None:
     monkeypatch.setattr(config, "HARNESS_ORDER", ["pi", "claude"])
     monkeypatch.delenv(f"HIVE_HARNESS_ORDER_{role.upper()}", raising=False)
@@ -326,18 +326,19 @@ async def test_fenced_roles_default_to_claude_first(monkeypatch, role) -> None:
     env = Env(scripts, _status(), role=role, harness_order=None)
     await env.rt.start()
     _, usage = await env.rt.send_turn("x")
-    assert (usage["harness"], usage["unfenced"]) == ("claude", False)
+    assert (usage["harness"], usage["unfenced"]) == ("claude", None)
 
 
-async def test_unfenced_role_keeps_the_global_order(monkeypatch) -> None:
+async def test_lead_runs_pi_first_and_is_never_flagged(monkeypatch) -> None:
     monkeypatch.setattr(config, "HARNESS_ORDER", ["pi", "claude"])
-    monkeypatch.delenv("HIVE_HARNESS_ORDER_SCOUT", raising=False)
+    monkeypatch.delenv("HIVE_HARNESS_ORDER_LEAD", raising=False)
     scripts = {("pi", H): ["pi"], ("claude", H): ["claude"]}
 
-    env = Env(scripts, _status(), role="scout", harness_order=None)
+    env = Env(scripts, _status(), role="lead", harness_order=None)
     await env.rt.start()
     _, usage = await env.rt.send_turn("x")
-    assert (usage["harness"], usage["unfenced"]) == ("pi", False)
+    assert (usage["harness"], usage["unfenced"]) == ("pi", None)
+    assert env.rt.last_run.unfenced is None
 
 
 async def test_per_role_env_overrides_the_harness_order(monkeypatch) -> None:
@@ -348,23 +349,26 @@ async def test_per_role_env_overrides_the_harness_order(monkeypatch) -> None:
     lead = Env(scripts, _status(), role="lead", harness_order=None)
     await lead.rt.start()
     _, usage = await lead.rt.send_turn("x")
-    assert (usage["harness"], usage["unfenced"]) == ("claude", False)
+    assert (usage["harness"], usage["unfenced"]) == ("claude", None)
 
     maestro = Env(scripts, _status(), role="maestro", harness_order=None)
     await maestro.rt.start()
     _, usage = await maestro.rt.send_turn("x")
-    assert (usage["harness"], usage["unfenced"]) == ("pi", True)
+    assert (usage["harness"], usage["unfenced"]) == ("pi", "ownership fence")
 
 
-async def test_fenced_role_on_pi_is_flagged_unfenced(monkeypatch) -> None:
-    monkeypatch.delenv("HIVE_HARNESS_ORDER_MAESTRO", raising=False)
+@pytest.mark.parametrize(
+    ("role", "guardrail"), [("maestro", "ownership fence"), ("vault", "tool denylist")]
+)
+async def test_fenced_role_on_pi_names_the_lost_guardrail(monkeypatch, role, guardrail) -> None:
+    monkeypatch.delenv(f"HIVE_HARNESS_ORDER_{role.upper()}", raising=False)
     env = Env(
         {("pi", H): ["pi"], ("claude", H): [_auth("claude")]},
         _status(),
-        role="maestro",
+        role=role,
         harness_order=None,
     )
     await env.rt.start()
     _, usage = await env.rt.send_turn("x")
     assert env.ran() == [("claude", "headless"), ("pi", "headless")]
-    assert usage["unfenced"] is True and env.rt.last_run.unfenced
+    assert usage["unfenced"] == guardrail == env.rt.last_run.unfenced

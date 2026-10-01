@@ -102,7 +102,7 @@ class MessageDispatcher:
         previous = self._last_run.get(entity_name)
         self._last_run[entity_name] = label
         fell_back = usage.get("fell_back") or []
-        unfenced = bool(usage.get("unfenced"))
+        unfenced = usage.get("unfenced")
         if previous == label:
             return
         if previous is None and not fell_back and not unfenced:
@@ -111,10 +111,7 @@ class MessageDispatcher:
         if fell_back:
             text += f" — fell back from: {'; '.join(fell_back)}"
         if unfenced:
-            text += (
-                f"\n⚠️ Guardrails NOT enforced on {harness}: {entity_name}'s "
-                "ownership fence and tool/skill denylists are off."
-            )
+            text += f"\n⚠️ {entity_name}'s {unfenced} is NOT enforced on {harness}."
         await self._mgr._notify(
             text,
             kind="harness_run",

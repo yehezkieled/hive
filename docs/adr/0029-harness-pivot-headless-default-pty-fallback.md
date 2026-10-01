@@ -30,15 +30,18 @@ Two billing facts changed since ADR 0007:
    detects which harnesses are installed *and signed in* — Pi, Claude Code, and
    (detect-only) Codex — via cheap, spend-free probes cached for 60 s. Preference
    order is `HIVE_HARNESS_ORDER` (default `pi,claude`), overridable per role with
-   `HIVE_HARNESS_ORDER_<ROLE>` (e.g. `HIVE_HARNESS_ORDER_LEAD=pi,claude`).
-   **Fenced roles default to Claude first**: every role whose lockdown is a
-   Claude-only control — the Ownership guard
-   ([ADR 0017](0017-ownership-guard-pretooluse-hook.md), Maestros), the role
-   tool/skill denylists (Maestros, Leads) and the Vault's Bash/Write/Edit denial —
-   defaults to `claude,pi` (`config.FENCED_ROLES`: maestro, lead, vault), using Pi
-   only when Claude cannot run the turn (logged out, out of quota). Any other role
-   keeps `HIVE_HARNESS_ORDER`. When a fenced role does run on Pi, `/status` marks
-   it "⚠️ guardrails NOT enforced" and Telegram is alerted. A harness joins the run
+   `HIVE_HARNESS_ORDER_<ROLE>` (e.g. `HIVE_HARNESS_ORDER_VAULT=pi,claude`).
+   **Fenced roles default to Claude first** (`config.FENCED_ROLES`): a role whose
+   lockdown is a Claude-only control Pi would silently drop. A Maestro relies on
+   the Ownership guard ([ADR 0017](0017-ownership-guard-pretooluse-hook.md)); the
+   Vault's whole lockdown is its Bash/Write/Edit tool denylist. Both default to
+   `claude,pi`, using Pi only when Claude cannot run the turn (logged out, out of
+   quota). Leads keep `HIVE_HARNESS_ORDER` (Pi first): their denylist only blocks
+   Claude Code tools (Agent, Task, TodoWrite, …) Pi does not have, so they lose no
+   guardrail on Pi. When a fenced role does run on Pi, `/status` marks it with the
+   lost guardrail ("⚠️ ownership fence NOT enforced" for a Maestro, "⚠️ tool
+   denylist NOT enforced" for the Vault) and Telegram is alerted; a Lead is never
+   flagged. A harness joins the run
    by adding one `HarnessSpec`; Codex (T015), OpenCode (T016) and a direct
    model-API harness each need exactly that and nothing in the router.
 2. **Headless is the default mode; PTY is the fallback**
@@ -109,8 +112,8 @@ further `HarnessSpec`).
   guard ([ADR 0017](0017-ownership-guard-pretooluse-hook.md)) does not fence a Pi
   entity.** Its only fence is its working directory (project root / lead
   worktree). A guard for Pi (an extension hook) is follow-up work; until then
-  fenced roles default to `claude,pi` (decision 1) and one that lands on Pi is
-  flagged on `/status` and in Telegram as running without its guardrails.
+  Maestros and the Vault default to `claude,pi` (decision 1) and one that lands
+  on Pi is flagged on `/status` and in Telegram with the guardrail it lost.
 - **Interactive gates do not occur headless** (`--dangerously-skip-permissions`
   under yolo/yotree), so the gate bridge only matters in the PTY fallback.
 - **Workflow progress, jam description and the Ticket 020 auto-bounce are PTY

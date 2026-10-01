@@ -45,9 +45,9 @@ class RunInfo:
     mode: RunMode
     # Failures of earlier candidates this turn, e.g. ["pi (headless): auth — …"].
     fell_back_from: tuple[str, ...] = ()
-    # A fenced role (config.FENCED_ROLES) ran on a harness that does not enforce
-    # its Claude-only guardrails — the user must be told they are off.
-    unfenced: bool = False
+    # The guardrail a fenced role (config.FENCED_ROLES) lost by running on a
+    # harness that does not enforce it — the user must be told it is off.
+    unfenced: str | None = None
 
     def label(self) -> str:
         return f"{self.harness} ({self.mode.value})"
@@ -66,7 +66,7 @@ class HarnessRuntime(Runtime):
         self._ctx = ctx
         self._detector = detector
         self._harness_order = list(harness_order or config.harness_order_for(ctx.config.role))
-        self._fenced = ctx.config.role in config.FENCED_ROLES
+        self._guardrail = config.FENCED_ROLES.get(ctx.config.role)
         self._mode_order = list(mode_order or config.RUN_MODE_ORDER)
         self._clock = clock
         self._runtimes: dict[Candidate, Runtime] = {}
@@ -179,7 +179,8 @@ class HarnessRuntime(Runtime):
                     continue
                 self._last = rt
                 await self._sync_sessions(cand, usage.get("session_id"))
-                unfenced = self._fenced and not self._detector.specs[cand.harness].enforces_fence
+                enforced = self._detector.specs[cand.harness].enforces_fence
+                unfenced = None if enforced else self._guardrail
                 info = RunInfo(cand.harness, cand.mode, tuple(str(a) for a in attempts), unfenced)
                 self.last_run = info
                 usage = {

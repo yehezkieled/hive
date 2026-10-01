@@ -82,7 +82,7 @@ async def test_fenced_entity_on_pi_alerts_that_the_fence_is_off(dispatcher, mgr)
                 "harness": "pi",
                 "mode": "headless",
                 "fell_back": ["claude: auth — Not logged in"],
-                "unfenced": True,
+                "unfenced": "ownership fence",
             }
         ]
     )
@@ -91,17 +91,19 @@ async def test_fenced_entity_on_pi_alerts_that_the_fence_is_off(dispatcher, mgr)
 
     notes = _harness_notifications(mgr)
     assert len(notes) == 1
-    assert "Guardrails NOT enforced on pi" in notes[0][0]
-    assert notes[0][2]["unfenced"] is True
+    assert "dev's ownership fence is NOT enforced on pi" in notes[0][0]
+    assert notes[0][2]["unfenced"] == "ownership fence"
 
 
 async def test_unfenced_first_turn_alerts_even_without_a_fallback(dispatcher, mgr) -> None:
     # Claude probed signed-out, so Pi was the first candidate: still an exception.
-    mgr.adapter = _Turn([{"harness": "pi", "mode": "headless", "fell_back": [], "unfenced": True}])
+    mgr.adapter = _Turn(
+        [{"harness": "pi", "mode": "headless", "fell_back": [], "unfenced": "tool denylist"}]
+    )
     with _hermetic_send_flags():
         await dispatcher.send_to_entity("dev", "go")
     notes = _harness_notifications(mgr)
-    assert len(notes) == 1 and "NOT enforced" in notes[0][0]
+    assert len(notes) == 1 and "dev's tool denylist is NOT enforced on pi" in notes[0][0]
 
 
 async def test_fallback_is_announced_with_the_reason(dispatcher, mgr) -> None:
