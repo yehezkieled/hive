@@ -2,10 +2,12 @@
 
 ## Status
 
-Accepted, 2026-10-02. Supersedes the Entity-runtime ADRs listed under
-[Superseded ADRs](#superseded-adrs). Takes effect at the cut-over (step 10 of the
-build order below); until then the existing runtime stays in the code. ADRs
-0022, 0023, 0026 and 0027 stay valid.
+Accepted, 2026-10-02. The Entity-runtime ADRs listed under
+[Superseded ADRs](#superseded-adrs) are superseded by this ADR. ADRs are
+append-only, so their own files are left untouched; this list is the record.
+The supersession takes effect at the cut-over (step 10 of the build order
+below); until then the existing runtime stays in the code. ADR 0029 remains the
+bridge until the cut-over. ADRs 0022, 0023, 0026 and 0027 stay valid.
 
 ## Context
 
@@ -91,14 +93,15 @@ the brain.** Design option D from the design report
 6. Land or close the parked Hive tickets so the Hive backlog can be handed off.
 7. Firstmate-repo changes for the sync pieces in decision 6.
 8. Two-home contract test in Hive CI.
-9. Promote Hive to its own project first mate.
+9. Promote Hive to its own second mate.
 10. Cut over: Telegram becomes an optional ping, the Maestro runtime and entity
     tables are retired, T017 and T005 land.
 
 ## Superseded ADRs
 
-Each body was read; an ADR is superseded only if its decision is about running
-Hive's own Entities, which this ADR retires.
+These ADRs are superseded by this ADR; their files are not edited (ADRs are
+append-only). Each body was read; an ADR is superseded only if its decision is
+about running Hive's own Entities, which this ADR retires.
 
 - [0001](0001-harness-agnostic-runtime.md) harness-agnostic runtime: firstmate drives harnesses now.
 - [0004](0004-interactive-gate-hold-and-inject.md), [0005](0005-permission-gate-not-transcript-detectable.md): PTY gate bridge and its limits; the PTY adapter retires.

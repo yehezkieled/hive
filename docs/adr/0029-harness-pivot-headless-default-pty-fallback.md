@@ -2,8 +2,6 @@
 
 ## Status
 
-Bridge. Stays in force until the [ADR 0030](0030-firstmate-implemented-in-hive.md) cut-over, then its runtime is retired with the rest of the Entity runtime; this ADR is not superseded until then. Original status:
-
 Accepted, 2026-10-01. Extends [ADR 0001](0001-harness-agnostic-runtime.md) (the
 harness-agnostic interface it promised is now real: two harnesses behind one
 registry) and supersedes the "PTY is the only runtime" half of

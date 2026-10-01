@@ -1,6 +1,6 @@
 # 0019 — A maestro's first team spawn is code-gated on a user confirmation
 
-**Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted (2026-06-16)
+**Status:** Accepted (2026-06-16)
 **Ticket:** [019](../tickets/019-maestro-phase-confirmation/)
 **Relates to:** [ADR 0018](0018-conversational-decision-channel.md) (the
 content-dumb decision channel this fires at a phase boundary — builds on, does

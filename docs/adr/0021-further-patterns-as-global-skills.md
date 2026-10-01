@@ -1,6 +1,6 @@
 # ADR 0021 — Further interaction patterns ship as user-authored global skills, not Hive-native recipes
 
-- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted — amends [ADR 0020](0020-interaction-patterns-as-jd-recipes.md)
+- **Status:** Accepted — amends [ADR 0020](0020-interaction-patterns-as-jd-recipes.md)
 - **Date:** 2026-06-18
 - **Tickets:** supersedes [035](../tickets/035-interaction-pattern-blackboard/)
   (`blackboard`) and [036](../tickets/036-interaction-pattern-tournament/)

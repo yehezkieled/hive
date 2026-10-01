@@ -2,8 +2,6 @@
 
 ## Status
 
-Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was:
-
 Accepted — 2026-06-01
 
 ## Context

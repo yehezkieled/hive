@@ -1,6 +1,6 @@
 # ADR 0010 — Leads orchestrate leaf work via Claude Code Workflow
 
-- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
+- **Status:** Accepted
 - **Date:** 2026-06-10
 - **Ticket:** [015](../tickets/015-lead-workflow-leaf-engine/)
 

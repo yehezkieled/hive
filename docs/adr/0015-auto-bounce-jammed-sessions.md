@@ -1,6 +1,6 @@
 # 0015 — Auto-bounce jammed sessions, guarded by liveness checks
 
-**Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted (2026-06-14)
+**Status:** Accepted (2026-06-14)
 **Ticket:** [020](../tickets/020-adapter-liveness-escalation/)
 
 ## Context

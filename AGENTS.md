@@ -110,11 +110,6 @@ the web is an installable PWA with Web Push (web dashboard to PWA,
 ticket detail is in `docs/archive/tickets/` and the sprint files in
 `docs/archive/sprints/`.
 
-**Direction.** [ADR 0030](docs/adr/0030-firstmate-implemented-in-hive.md)
-records that firstmate is implemented in Hive (one first mate, project lenses,
-website over Tailscale) and supersedes the Entity-runtime ADRs at cut-over; do
-not invest in new adapters or Entity features.
-
 Before working on `runtime/` or the `process/` modules, read the
 adapter code,
 [ADR 0001](docs/adr/0001-harness-agnostic-runtime.md) (harness-agnostic

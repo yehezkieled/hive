@@ -1,6 +1,6 @@
 # ADR 0011 — Pin adapter transcripts by session id, not directory heuristics
 
-- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
+- **Status:** Accepted
 - **Date:** 2026-06-11
 - **Ticket:** [023](../tickets/023-activate-worktree-floor/)
 

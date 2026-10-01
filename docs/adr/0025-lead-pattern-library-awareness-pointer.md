@@ -1,6 +1,6 @@
 # ADR 0025 — Lead pattern-library awareness via a JD pointer; the Lead self-selects
 
-- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted — amends [ADR 0021](0021-further-patterns-as-global-skills.md);
+- **Status:** Accepted — amends [ADR 0021](0021-further-patterns-as-global-skills.md);
   narrows [ADR 0020](0020-interaction-patterns-as-jd-recipes.md)'s
   maestro-names-the-pattern path
 - **Date:** 2026-06-28

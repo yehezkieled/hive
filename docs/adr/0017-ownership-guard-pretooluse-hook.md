@@ -1,6 +1,6 @@
 # ADR 0017 — Enforce project write-boundaries with a PreToolUse hook, under bypass
 
-- **Status:** Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then). Was: Accepted
+- **Status:** Accepted
 - **Date:** 2026-06-14
 - **Ticket:** [024](../tickets/024-project-ownership-pa-write-policy/)
 

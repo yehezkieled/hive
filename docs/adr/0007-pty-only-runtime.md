@@ -1,9 +1,5 @@
 # PTY-only runtime — drop the headless `claude -p` fallback
 
-## Status
-
-Superseded by [ADR 0030](0030-firstmate-implemented-in-hive.md) (takes effect at the 0030 cut-over; the code stays until then).
-
 ## Context
 
 [ADR 0001](0001-harness-agnostic-runtime.md) made Hive harness-agnostic and
