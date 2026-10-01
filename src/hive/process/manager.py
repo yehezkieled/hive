@@ -77,6 +77,7 @@ from hive.runtime.claude_adapter import (
     ClaudeAdapter,  # noqa: F401  re-exported; LifecycleManager reads it via this module
 )
 from hive.runtime.gate_coordinator import GateCoordinator
+from hive.runtime.base import QuotaExhausted
 from hive.runtime.quota_monitor import QuotaMonitor
 from hive.vault.provider import PaymentProvider
 
@@ -375,6 +376,27 @@ class ProcessManager:
     # -----------------------------------------------------------------
     # Auto-bounce jammed PTY sessions (Ticket 020, ADR 0015)
     # -----------------------------------------------------------------
+
+    def quota_wall_until(self) -> datetime | None:
+        """Reset time of the plan-quota wall if one is up, else None."""
+        monitor = self.quota_monitor
+        return monitor.exhausted_until() if monitor is not None else None
+
+    async def _quota_wall_after_timeout(self) -> datetime | None:
+        """Fresh-read wall check for a turn that just timed out (adapter probe)."""
+        monitor = self.quota_monitor
+        return await monitor.wall_after_timeout() if monitor is not None else None
+
+    async def _note_quota_wall(self, entity: Entity, exc: QuotaExhausted) -> None:
+        """Surface a quota-wall turn as its own outcome — never a stall or bounce."""
+        await self._notify(
+            f"{entity.name}: turn blocked — {exc}. Paused, not bounced.",
+            kind="quota_wall",
+            data={
+                "entity": entity.name,
+                "resets_at": exc.resets_at.isoformat() if exc.resets_at else None,
+            },
+        )
 
     def _liveness_entry(self, name: str) -> dict:
         """Per-entity liveness record, created on first access."""

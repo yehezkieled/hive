@@ -586,3 +586,114 @@ def test_format_quota_handles_no_reading_yet():
         stale_after_seconds=360.0,
     )
     assert "no reading" in text.lower() or "not yet" in text.lower()
+
+
+# ---------------------------------------------------------------------------
+# T013 — quota wall + OAuth refresh
+# ---------------------------------------------------------------------------
+
+
+async def _polled(tmp_path: Path, **resp) -> QuotaMonitor:
+    monitor, _ = _make_monitor_with_recorder(
+        tmp_path, AsyncMock(return_value=_success_response(**resp))
+    )
+    await monitor.poll_once()
+    return monitor
+
+
+async def test_exhausted_until_returns_latest_reset_of_spent_windows(tmp_path: Path) -> None:
+    monitor = await _polled(
+        tmp_path,
+        five_hour_util=100.0,
+        five_hour_resets="2026-05-20T14:00:00+00:00",
+        seven_day_util=100.0,
+        seven_day_resets="2026-05-22T15:00:00+00:00",
+    )
+    now = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
+    assert monitor.exhausted_until(now) == datetime(2026, 5, 22, 15, 0, tzinfo=UTC)
+
+
+async def test_exhausted_until_clears_after_reset_passes(tmp_path: Path) -> None:
+    monitor = await _polled(tmp_path, five_hour_util=100.0)
+    after = datetime(2026, 5, 20, 14, 0, 1, tzinfo=UTC)
+    assert monitor.exhausted_until(after) is None
+
+
+async def test_exhausted_until_none_below_100_or_before_first_poll(tmp_path: Path) -> None:
+    monitor, _ = _make_monitor_with_recorder(tmp_path, AsyncMock())
+    assert monitor.exhausted_until() is None
+    monitor = await _polled(tmp_path, five_hour_util=99.0)
+    assert monitor.exhausted_until(datetime(2026, 5, 20, 12, 0, tzinfo=UTC)) is None
+
+
+def _expiring_creds(path: Path, expires_ms: int) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "old-token",
+                    "refreshToken": "refresh-1",
+                    "expiresAt": expires_ms,
+                    "scopes": ["user:inference"],
+                }
+            }
+        )
+    )
+    return path
+
+
+async def test_expired_token_is_refreshed_and_persisted(tmp_path: Path) -> None:
+    creds = _expiring_creds(tmp_path / "credentials.json", 1)  # long expired
+    fetch = AsyncMock(return_value=_success_response())
+    refresh = AsyncMock(
+        return_value={"access_token": "new-token", "refresh_token": "refresh-2", "expires_in": 3600}
+    )
+    monitor = QuotaMonitor(
+        credentials_path=creds,
+        notifications=NotificationDispatcher(),
+        fetch_callable=fetch,
+        refresh_callable=refresh,
+    )
+    await monitor.poll_once()
+
+    refresh.assert_awaited_once_with("refresh-1")
+    assert fetch.await_args.args[1]["Authorization"] == "Bearer new-token"
+    saved = json.loads(creds.read_text())["claudeAiOauth"]
+    assert saved["accessToken"] == "new-token"
+    assert saved["refreshToken"] == "refresh-2"
+    assert saved["scopes"] == ["user:inference"]  # untouched fields preserved
+    assert saved["expiresAt"] > datetime.now(UTC).timestamp() * 1000
+    assert monitor.get_quota() is not None
+
+
+async def test_valid_token_is_not_refreshed(tmp_path: Path) -> None:
+    far = int((datetime.now(UTC).timestamp() + 86400) * 1000)
+    creds = _expiring_creds(tmp_path / "credentials.json", far)
+    refresh = AsyncMock()
+    monitor = QuotaMonitor(
+        credentials_path=creds,
+        notifications=NotificationDispatcher(),
+        fetch_callable=AsyncMock(return_value=_success_response()),
+        refresh_callable=refresh,
+    )
+    await monitor.poll_once()
+    refresh.assert_not_awaited()
+
+
+async def test_401_forces_one_refresh_and_retry(tmp_path: Path) -> None:
+    far = int((datetime.now(UTC).timestamp() + 86400) * 1000)
+    creds = _expiring_creds(tmp_path / "credentials.json", far)
+    unauthorized = urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+    fetch = AsyncMock(side_effect=[unauthorized, _success_response()])
+    refresh = AsyncMock(return_value={"access_token": "new-token", "expires_in": 3600})
+    monitor = QuotaMonitor(
+        credentials_path=creds,
+        notifications=NotificationDispatcher(),
+        fetch_callable=fetch,
+        refresh_callable=refresh,
+    )
+    await monitor.poll_once()
+
+    refresh.assert_awaited_once()
+    assert fetch.await_count == 2
+    assert monitor.get_quota() is not None

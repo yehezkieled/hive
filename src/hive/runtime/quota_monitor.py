@@ -9,6 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import tempfile
+import urllib.error
 import urllib.request
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -31,7 +34,17 @@ _BAND_KIND: dict[int, str] = {
     100: "quota_exhausted",
 }
 
+# OAuth refresh — same undocumented surface as the usage endpoint (ADR 0002).
+# [UNSURE] endpoint and client id are the ones Claude Code itself uses, taken
+# from community sources, not an Anthropic doc.
+_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+# Refresh this long before expiry so a poll never races the cutoff.
+_REFRESH_SKEW_SECONDS = 300.0
+
 FetchCallable = Callable[[str, dict[str, str]], Awaitable[dict]]
+# (refresh_token) -> {"access_token", "refresh_token"?, "expires_in"?}
+RefreshCallable = Callable[[str], Awaitable[dict]]
 
 
 @dataclass(frozen=True)
@@ -66,6 +79,7 @@ class QuotaMonitor:
         poll_seconds: float = 180.0,
         fetch_callable: FetchCallable | None = None,
         failure_threshold: int = 5,
+        refresh_callable: RefreshCallable | None = None,
     ) -> None:
         from hive.runtime.quota_state import QuotaState
 
@@ -73,6 +87,7 @@ class QuotaMonitor:
         self._notifications = notifications
         self._poll_seconds = poll_seconds
         self._fetch: FetchCallable = fetch_callable or _default_fetch
+        self._refresh: RefreshCallable = refresh_callable or _default_refresh
         self._latest: QuotaReading | None = None
         # (window_name, band) pairs already alerted in the current window cycle
         self._fired: set[tuple[str, int]] = set()
@@ -122,12 +137,16 @@ class QuotaMonitor:
 
     async def _poll_inner(self) -> None:
         """The risky body — read token, fetch, parse, alert, store."""
-        token = self._read_token()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "anthropic-beta": _BETA_HEADER,
-        }
-        data = await self._fetch(_USAGE_URL, headers)
+        token = await self._fresh_token()
+        try:
+            data = await self._fetch(_USAGE_URL, self._headers(token))
+        except urllib.error.HTTPError as exc:
+            if exc.code != 401:
+                raise
+            # Token rejected despite looking valid (revoked / clock skew):
+            # force one refresh and retry once.
+            token = await self._fresh_token(force=True)
+            data = await self._fetch(_USAGE_URL, self._headers(token))
         five, seven = self._parse_windows(data)
         windows = (("five_hour", five), ("seven_day", seven))
 
@@ -209,13 +228,88 @@ class QuotaMonitor:
             )
         )
 
+    def exhausted_until(self, now: datetime | None = None) -> datetime | None:
+        """Reset time of the quota wall if one is up right now, else None.
+
+        A wall is a window at 100% whose ``resets_at`` is still in the future.
+        With both windows spent, the later reset is when turns can resume. A
+        stale 100% reading self-clears once ``resets_at`` passes, so a paused
+        caller resumes on its own without waiting for the next poll.
+        """
+        if self._latest is None:
+            return None
+        now = now or datetime.now(UTC)
+        walls = [
+            w.resets_at
+            for w in (self._latest.five_hour, self._latest.seven_day)
+            if w.utilization >= 100 and w.resets_at is not None and w.resets_at > now
+        ]
+        return max(walls) if walls else None
+
+    async def wall_after_timeout(self) -> datetime | None:
+        """Re-poll, then report the wall — for a turn that just timed out.
+
+        The cached reading can be up to a poll interval old, so a wall that
+        went up mid-turn would be missed without a fresh read.
+        """
+        await self.poll_once()
+        return self.exhausted_until()
+
     def get_quota(self) -> QuotaReading | None:
         """Latest successful reading, or None if none has landed yet."""
         return self._latest
 
-    def _read_token(self) -> str:
-        data = json.loads(self._credentials_path.read_text())
-        return str(data["claudeAiOauth"]["accessToken"])
+    @staticmethod
+    def _headers(token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}", "anthropic-beta": _BETA_HEADER}
+
+    def _read_oauth(self) -> dict:
+        return json.loads(self._credentials_path.read_text())["claudeAiOauth"]
+
+    async def _fresh_token(self, *, force: bool = False) -> str:
+        """Access token, refreshed first when expired / near expiry (or forced).
+
+        Re-reads the credentials file right before refreshing: Claude Code
+        refreshes the same file while sessions run, and refresh tokens rotate,
+        so if it already did, use its token rather than burning ours.
+        """
+        oauth = self._read_oauth()
+        expires_ms = oauth.get("expiresAt")
+        near_expiry = (
+            expires_ms is not None
+            and expires_ms / 1000.0 - datetime.now(UTC).timestamp() < _REFRESH_SKEW_SECONDS
+        )
+        if not (force or near_expiry):
+            return str(oauth["accessToken"])
+        refresh_token = oauth.get("refreshToken")
+        if not refresh_token:
+            if force:
+                raise RuntimeError("OAuth token rejected and no refresh token on file")
+            return str(oauth["accessToken"])  # let the fetch decide
+        granted = await self._refresh(str(refresh_token))
+        self._write_oauth(granted)
+        logger.info("QuotaMonitor refreshed the OAuth access token")
+        return str(granted["access_token"])
+
+    def _write_oauth(self, granted: dict) -> None:
+        """Persist a refresh grant into the credentials file atomically."""
+        creds = json.loads(self._credentials_path.read_text())
+        oauth = creds["claudeAiOauth"]
+        oauth["accessToken"] = granted["access_token"]
+        if granted.get("refresh_token"):
+            oauth["refreshToken"] = granted["refresh_token"]
+        if granted.get("expires_in") is not None:
+            expires_at = datetime.now(UTC).timestamp() + float(granted["expires_in"])
+            oauth["expiresAt"] = int(expires_at * 1000)
+        fd, tmp = tempfile.mkstemp(dir=self._credentials_path.parent, prefix=".creds-")
+        try:
+            with os.fdopen(fd, "w") as fh:
+                json.dump(creds, fh)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, self._credentials_path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def _parse_windows(data: dict) -> tuple[WindowReading, WindowReading]:
@@ -272,6 +366,26 @@ async def _default_fetch(url: str, headers: dict[str, str]) -> dict:
     def _blocking() -> dict:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - trusted URL
+            return json.loads(resp.read().decode("utf-8"))
+
+    return await asyncio.to_thread(_blocking)
+
+
+async def _default_refresh(refresh_token: str) -> dict:
+    """Production refresh — POST the refresh_token grant."""
+
+    def _blocking() -> dict:
+        body = json.dumps(
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": _OAUTH_CLIENT_ID,
+            }
+        ).encode()
+        req = urllib.request.Request(  # noqa: S310 - trusted URL
+            _TOKEN_URL, data=body, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
             return json.loads(resp.read().decode("utf-8"))
 
     return await asyncio.to_thread(_blocking)

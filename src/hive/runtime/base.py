@@ -3,6 +3,22 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
+
+
+class QuotaExhausted(Exception):
+    """A Turn died on a plan-quota wall, not a stall.
+
+    At 100% plan quota the harness writes nothing, so the turn would otherwise
+    dead-end in the no-progress timeout and read as a jam. Adapters raise this
+    instead so callers can tell "the plan is spent until ``resets_at``" apart
+    from "the session is wedged" — and must never bounce the entity for it.
+    """
+
+    def __init__(self, resets_at: datetime | None) -> None:
+        self.resets_at = resets_at
+        when = resets_at.strftime("%Y-%m-%d %H:%M UTC") if resets_at is not None else "unknown"
+        super().__init__(f"plan quota exhausted — resets {when}")
 
 
 class Runtime(ABC):

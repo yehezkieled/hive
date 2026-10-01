@@ -1628,6 +1628,49 @@ class TestAutoBounce:
         kinds = [k for _, k in channel.events]
         assert kinds.count("auto_bounce") == 1
 
+    async def test_quota_wall_timeout_is_not_a_stall_and_never_bounces(
+        self, manager: ProcessManager
+    ) -> None:
+        from hive.runtime.base import QuotaExhausted
+
+        channel = _KindChannel()
+        manager.notification_dispatcher.register(channel)
+        maestro = Maestro(name="otter", model="opus")
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+
+        resets = datetime.now(UTC) + timedelta(hours=2)
+        adapter = FakeAdapter([QuotaExhausted(resets)])
+        with (
+            using_adapter_sequence(manager, [adapter]),
+            patch("hive.process.manager.BOUNCE_STALL_THRESHOLD", 1),
+        ):
+            with pytest.raises(QuotaExhausted):
+                await manager.send_to_entity("otter", "hi")
+
+        assert not adapter.stopped  # not bounced
+        assert manager._liveness.get("otter", {}).get("stalls", 0) == 0
+        kinds = [k for _, k in channel.events]
+        assert kinds == ["quota_wall"]
+        assert "auto_bounce" not in kinds
+
+    async def test_send_refused_up_front_while_quota_wall_is_up(
+        self, manager: ProcessManager
+    ) -> None:
+        from hive.runtime.base import QuotaExhausted
+
+        maestro = Maestro(name="otter", model="opus")
+        manager._entities["otter"] = maestro
+        manager.router.register("otter")
+        manager.quota_monitor = MagicMock()
+        manager.quota_monitor.exhausted_until.return_value = datetime.now(UTC) + timedelta(hours=1)
+
+        adapter = FakeAdapter("ok")
+        with using_adapter_sequence(manager, [adapter]):
+            with pytest.raises(QuotaExhausted):
+                await manager.send_to_entity("otter", "hi")
+        assert adapter.prompts == []  # no turn burned on the wall
+
     async def test_success_resets_stall_counter(self, manager: ProcessManager) -> None:
         maestro = Maestro(name="otter", model="opus")
         manager._entities["otter"] = maestro

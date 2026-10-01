@@ -11,13 +11,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
 from hive.config import CLAUDE_BINARY
-from hive.runtime.base import Runtime
+from hive.runtime.base import QuotaExhausted, Runtime
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
 from hive.runtime.workflow_progress import WorkflowProgress, parse_run_dir, run_active
@@ -84,8 +85,12 @@ class ClaudeAdapter(Runtime):
         entity_name: str | None = None,
         gate_approver: str = "user",
         on_gate_state: Callable[[str, str], None] | None = None,
+        quota_probe: Callable[[], Awaitable[datetime | None]] | None = None,
     ) -> None:
         self._config = config
+        # Consulted when a turn times out: returns the quota reset time if the
+        # plan is exhausted (so the timeout is a quota wall, not a stall).
+        self._quota_probe = quota_probe
         self._cwd = cwd
         self._pty: PtySession | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
@@ -208,6 +213,16 @@ class ClaudeAdapter(Runtime):
         except Exception:
             return None
 
+    async def _probe_quota_wall(self) -> datetime | None:
+        """Reset time when the plan quota is exhausted, else None. Fail-soft."""
+        if self._quota_probe is None:
+            return None
+        try:
+            return await self._quota_probe()
+        except Exception:
+            logger.exception("quota probe failed")
+            return None
+
     async def send_turn(self, prompt: str) -> tuple[str, dict]:
         async with self._lock:
             assert self._pty is not None, "PtySession not started — call start() first"
@@ -215,7 +230,13 @@ class ClaudeAdapter(Runtime):
             # session .jsonl transcript, not the scraped screen. Pass the token
             # counts through and add cost_usd=None (plan-billed: no marginal
             # dollar cost).
-            text, raw_usage = await self._pty.send(prompt)
+            try:
+                text, raw_usage = await self._pty.send(prompt)
+            except TimeoutError:
+                resets_at = await self._probe_quota_wall()
+                if resets_at is not None:
+                    raise QuotaExhausted(resets_at) from None
+                raise
             usage: dict = {
                 "input_tokens": raw_usage.get("input_tokens", 0),
                 "output_tokens": raw_usage.get("output_tokens", 0),

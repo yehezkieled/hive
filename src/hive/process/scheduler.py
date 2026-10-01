@@ -245,6 +245,12 @@ class PriorityScheduler:
         """
         self.reset_window()
         pm = self.process_manager
+        # T013: a quota wall means every poke would burn a 180s timeout. Skip
+        # the whole tick; ``run`` re-arms for the reset so dispatch resumes.
+        wall = pm.quota_wall_until()
+        if wall is not None:
+            logger.info("scheduler: plan quota exhausted until %s — pausing tick", wall)
+            return []
         maestros = [e for e in pm.entities.values() if isinstance(e, Maestro)]
         poked: list[str] = []
         for m in maestros:
@@ -301,11 +307,13 @@ class PriorityScheduler:
     async def run(self, stop_event: asyncio.Event) -> None:
         """Main loop — sleep one interval, run_once, repeat until stop_event."""
         while not stop_event.is_set():
+            timeout = self.eval_interval.total_seconds()
+            wall = self.process_manager.quota_wall_until()
+            if wall is not None:
+                # Paused on a quota wall: wake at the reset, not a full interval later.
+                timeout = max(1.0, min(timeout, (wall - datetime.now(UTC)).total_seconds()))
             try:
-                await asyncio.wait_for(
-                    stop_event.wait(),
-                    timeout=self.eval_interval.total_seconds(),
-                )
+                await asyncio.wait_for(stop_event.wait(), timeout=timeout)
                 break
             except TimeoutError:
                 pass

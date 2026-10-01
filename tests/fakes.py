@@ -88,6 +88,8 @@ class FakeAdapter:
         self._i += 1
         if outcome is TIMEOUT:
             raise TimeoutError("Turn did not complete within 180.0s")
+        if isinstance(outcome, BaseException):
+            raise outcome
         usage: dict = {
             "input_tokens": 0,
             "output_tokens": 0,

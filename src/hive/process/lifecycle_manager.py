@@ -392,6 +392,7 @@ class LifecycleManager:
             gate_coordinator=self._mgr.gate_coordinator,
             entity_name=entity.name,
             on_gate_state=self._mgr._on_gate_state,
+            quota_probe=self._mgr._quota_wall_after_timeout,
         )
         await adapter.start()
         async with self._mgr._state_lock:

@@ -53,6 +53,7 @@ QUOTA_KINDS = frozenset(
         "quota_warn",
         "quota_urgent",
         "quota_exhausted",
+        "quota_wall",
         "quota_monitor_blind",
         "quota_monitor_recovered",
     }

@@ -32,6 +32,7 @@ from hive.bus.permissions import (
 )
 from hive.config import DEFAULT_MAESTRO
 from hive.models.entity import Entity
+from hive.runtime.base import QuotaExhausted
 
 if TYPE_CHECKING:
     from hive.process.manager import ProcessManager
@@ -128,6 +129,14 @@ class MessageDispatcher:
                 f"<{entity_name} is parked at gate {request_id}; answer it with "
                 f"/approve gate {request_id} or /deny gate {request_id} before sending more>"
             )
+
+        # --- T013: quota wall ---
+        # At 100% plan quota the harness writes nothing, so the turn would
+        # burn the 180s no-progress timeout. Refuse up front, before draining
+        # the inbox so queued peer mail survives until the window resets.
+        wall = self._mgr.quota_wall_until()
+        if wall is not None:
+            raise QuotaExhausted(wall)
 
         # Track activity for idle-kill detection
         entity.last_activity_at = datetime.now(UTC)
@@ -245,13 +254,19 @@ class MessageDispatcher:
         # adapter) or a legitimate wait / sub-threshold blip that should
         # propagate unchanged. A successful turn — first try or retry — resets
         # the consecutive-stall count.
+        # T013: a timeout that is really a quota wall surfaces as QuotaExhausted
+        # (raised by the adapter) — not a stall, so it never reaches the bounce.
         try:
-            response, usage = await adapter.send_turn(prompt)
-        except TimeoutError:
-            if not await self._mgr._maybe_bounce_on_timeout(entity, adapter):
-                raise
-            adapter = await self._mgr._get_or_create_adapter(entity)
-            response, usage = await adapter.send_turn(prompt)
+            try:
+                response, usage = await adapter.send_turn(prompt)
+            except TimeoutError:
+                if not await self._mgr._maybe_bounce_on_timeout(entity, adapter):
+                    raise
+                adapter = await self._mgr._get_or_create_adapter(entity)
+                response, usage = await adapter.send_turn(prompt)
+        except QuotaExhausted as exc:
+            await self._mgr._note_quota_wall(entity, exc)
+            raise
         self._mgr._note_turn_success(entity_name)
         await self._mgr._record_usage(entity, usage)
 

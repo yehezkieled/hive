@@ -439,3 +439,49 @@ async def test_run_once_establishes_nudge_baseline_after_restart(
     assert poked == []
     assert channel.messages == []  # baseline established, not nudged this tick
     assert dev.last_nudged_at is not None  # clock armed for next interval
+
+
+async def test_run_once_pauses_on_quota_wall_and_resumes_after(manager: ProcessManager) -> None:
+    """T013: no pokes while the plan quota is walled; the next tick resumes."""
+    from unittest.mock import MagicMock
+
+    manager._entities["dev"] = Maestro(name="dev", model="sonnet")
+    manager.router.register("dev")
+    sent: list[str] = []
+
+    async def fake_send(name: str, prompt: str) -> str:
+        sent.append(name)
+        return ""
+
+    manager.send_to_entity = fake_send  # type: ignore[method-assign]
+    manager.quota_monitor = MagicMock()
+    manager.quota_monitor.exhausted_until.return_value = datetime.now(UTC) + timedelta(hours=1)
+
+    sched = PriorityScheduler(process_manager=manager)
+    assert await sched.run_once() == []
+    assert sent == []
+
+    manager.quota_monitor.exhausted_until.return_value = None  # window reset
+    assert await sched.run_once() == ["dev"]
+
+
+async def test_run_loop_wakes_at_quota_reset_not_full_interval(manager: ProcessManager) -> None:
+    from unittest.mock import MagicMock
+
+    manager.quota_monitor = MagicMock()
+    manager.quota_monitor.exhausted_until.return_value = datetime.now(UTC) + timedelta(seconds=30)
+    sched = PriorityScheduler(process_manager=manager, eval_interval_minutes=120)
+    stop = asyncio.Event()
+    timeouts: list[float] = []
+
+    async def fake_wait_for(coro, timeout):
+        timeouts.append(timeout)
+        coro.close()
+        stop.set()
+        raise TimeoutError
+
+    from unittest.mock import patch
+
+    with patch("hive.process.scheduler.asyncio.wait_for", fake_wait_for):
+        await sched.run(stop)
+    assert timeouts and timeouts[0] <= 31

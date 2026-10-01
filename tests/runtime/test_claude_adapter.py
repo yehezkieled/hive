@@ -204,3 +204,38 @@ def test_pty_system_prompts_lead_gets_no_maestro_identity() -> None:
     joined = "\n".join(prompts)
     assert MAESTRO_IDENTITY["pa"] not in joined
     assert MAESTRO_IDENTITY["project"] not in joined
+
+
+async def test_timeout_on_quota_wall_raises_quota_exhausted() -> None:
+    from datetime import UTC, datetime
+
+    from hive.runtime.base import QuotaExhausted
+
+    resets = datetime(2026, 10, 2, 3, 0, tzinfo=UTC)
+
+    async def probe():
+        return resets
+
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty_cls:
+        mock_pty = AsyncMock()
+        mock_pty.send.side_effect = TimeoutError("no progress")
+        mock_pty_cls.return_value = mock_pty
+        adapter = ClaudeAdapter(_config(), quota_probe=probe)
+        await adapter.start()
+        with pytest.raises(QuotaExhausted) as info:
+            await adapter.send_turn("hi")
+    assert info.value.resets_at == resets
+
+
+async def test_timeout_without_quota_wall_stays_a_timeout() -> None:
+    async def probe():
+        return None
+
+    with patch("hive.runtime.claude_adapter.PtySession") as mock_pty_cls:
+        mock_pty = AsyncMock()
+        mock_pty.send.side_effect = TimeoutError("no progress")
+        mock_pty_cls.return_value = mock_pty
+        adapter = ClaudeAdapter(_config(), quota_probe=probe)
+        await adapter.start()
+        with pytest.raises(TimeoutError):
+            await adapter.send_turn("hi")
