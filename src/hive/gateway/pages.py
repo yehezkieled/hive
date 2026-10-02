@@ -87,7 +87,8 @@ if(f({dateStyle:'short'},d)===f({dateStyle:'short'},new Date()))t='today '+h;
 else t=f({weekday:'short',day:'numeric',month:'short'},d)+', '+h;}
 el.textContent=t;el.title=f({dateStyle:'medium',timeStyle:'short'},d)+' ('+Z+')';}
 function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.length;i++)stamp(a[i]);}
-function busy(){var a=document.activeElement;
+function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed);}
+function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
 if(document.querySelector('details[open]'))return true;
 var x=document.querySelectorAll('textarea,input[type=text]');
@@ -99,17 +100,17 @@ function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store
 headers:{'X-Hive-Refresh':'1'}}).then(function(r){return r.ok?r.text():null;}).then(function(t){
 if(t)cb(new DOMParser().parseFromString(t,'text/html'));}).catch(function(){});}
 var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('data-poll');
-var th=document.getElementById('thread');
+var th=document.getElementById('thread'),c=document.querySelector('main');
+var last=th?th.innerHTML:c?c.textContent:null;
 function bottom(){window.scrollTo(0,document.documentElement.scrollHeight);}
 if(th)bottom();
-if(poll&&th)setInterval(function(){if(document.hidden)return;load(function(doc){
-var n=doc.getElementById('thread');if(!n||n.innerHTML===th.innerHTML)return;
+if(poll&&th)setInterval(function(){if(document.hidden||sel())return;load(function(doc){
+var n=doc.getElementById('thread');if(!n||n.innerHTML===last||sel())return;last=n.innerHTML;
 var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-120;
 th.innerHTML=n.innerHTML;stamps();if(near)bottom();});},poll);
-else if(every)setInterval(function(){if(document.hidden||busy())return;load(function(doc){
-if(busy())return;var m=doc.querySelector('main'),c=document.querySelector('main');
-if(!m||!c||m.innerHTML===c.innerHTML)return;var y=window.scrollY;
-c.innerHTML=m.innerHTML;stamps();window.scrollTo(0,y);});},every);
+else if(every&&c)setInterval(function(){if(document.hidden||busy())return;load(function(doc){
+var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
+var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();window.scrollTo(0,y);});},every);
 stamps();setInterval(stamps,30000);
 })();
 """
