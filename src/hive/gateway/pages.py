@@ -96,8 +96,8 @@ for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
 for(var j=0;j<x.length;j++)if(x[j].checked!==x[j].defaultChecked)return true;
 return false;}
-function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store',
-headers:{'X-Hive-Refresh':'1'}}).then(function(r){return r.ok?r.text():null;}).then(function(t){
+function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store'})
+.then(function(r){return r.ok?r.text():null;}).then(function(t){
 if(t)cb(new DOMParser().parseFromString(t,'text/html'));}).catch(function(){});}
 var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('data-poll');
 var th=document.getElementById('thread'),c=document.querySelector('main');
