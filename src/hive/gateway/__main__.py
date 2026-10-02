@@ -20,7 +20,13 @@ def main() -> None:
     audit.setLevel(logging.INFO)
     port = int(os.environ.get("HIVE_GATEWAY_PORT", DEFAULT_PORT))
     # Hard-coded loopback bind: never 0.0.0.0, never configurable.
-    uvicorn.run(create_app(), host="127.0.0.1", port=port, proxy_headers=False)
+    uvicorn.run(
+        create_app(),
+        host="127.0.0.1",
+        port=port,
+        proxy_headers=False,
+        timeout_graceful_shutdown=3,
+    )
 
 
 if __name__ == "__main__":

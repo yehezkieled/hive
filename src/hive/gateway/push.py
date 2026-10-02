@@ -126,6 +126,7 @@ class PushService:
             vapid_private_key=self._load_vapid(),
             vapid_claims={"sub": self._subject},
             ttl=3600,
+            timeout=10,
         )
 
     async def notify_one(self, sub: dict, title: str, body: str) -> None:

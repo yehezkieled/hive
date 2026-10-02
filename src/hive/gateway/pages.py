@@ -130,7 +130,7 @@ es.addEventListener('chat',function(){seen=Date.now();if(th)refreshThread();});}
 if(poll&&th)setInterval(function(){if(!live)refreshThread();},poll);
 else if(every&&c)setInterval(function(){if(!live)refreshMain();},every);
 if(!tail&&((poll&&th)||(every&&c))&&window.EventSource){connect();
-setInterval(function(){if(live&&Date.now()-seen>45000){live=false;es.close();connect();}
+setInterval(function(){if((live&&Date.now()-seen>45000)||es.readyState===2){live=false;es.close();connect();}
 if(want&&!th&&!document.hidden)refreshMain();},2000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&want&&!th)refreshMain();});}
 if(tail){var pre=document.getElementById('tail'),st=document.getElementById('tail-status'),
