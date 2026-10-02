@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import stat
 from pathlib import Path
 
@@ -91,7 +92,13 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     assert res.headers["cache-control"] == "no-store"
     assert html.count("<script") == 1  # the one pinned inline script
     assert "<a href='/chat'" in html and "Message the first mate" in html
-    assert "alpha-build" not in html.split("Projects")[0].split("Needs you")[0]
+    needs = html.split("Needs you (3)", 1)[1].split("<h2>Projects</h2>", 1)[0]
+    leads = re.findall(r"<div class=need><span class=what>([^<]*)</span>", needs)
+    subs = re.findall(r"<span class=sub>([^<]*)</span>", needs)
+    assert len(leads) == len(subs) == 3
+    assert any(lead.endswith("Build the alpha widget") for lead in leads)
+    assert not any("alpha-build" in lead for lead in leads)
+    assert any("alpha-build" in sub for sub in subs)
 
 
 def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -> None:
@@ -179,7 +186,6 @@ def test_cards_are_plain_language_and_board_links_rewritten(tmp_path: Path) -> N
     assert 'href="https://board.example.ts.net:8445/session/abc123"' in html
     assert "Pick the beta palette" in html.split("Projects")[0]  # human title leads the card
     assert "script-src 'sha256-" in res.headers["content-security-policy"]
-    assert "Australia/Sydney" in __import__("hive.gateway.pages", fromlist=["x"]).SCRIPT
 
 
 def test_times_are_local_not_utc(client: TestClient) -> None:

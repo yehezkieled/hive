@@ -30,7 +30,7 @@ class GatewaySettings:
     trusted_peers: frozenset[str] = field(default=LOOPBACK_PEERS)
     # Public origin of the Lavish board bridge; loopback board links are rewritten to it.
     board_url: str = DEFAULT_BOARD_URL
-    # Time zone used server-side and as the browser fallback.
+    # Time zone for server-rendered times; the page script carries its own fallback.
     default_tz: str = DEFAULT_TZ
     snapshot_ttl_s: float = 5.0
     snapshot_timeout_s: float = 20.0
