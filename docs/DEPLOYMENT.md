@@ -1329,12 +1329,13 @@ re-runs the script. Every write logs one
 journal); free text is never logged, only its length. Chat shows receipts
 and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
 the header of every page; Home has a compose box). One fixed inline script,
-pinned by hash in the CSP, localises times, polls `/chat` every 4 s, and
-refreshes Home and Project every 30 s; neither swaps the page while text is
+pinned by hash in the CSP, localises times and updates pages from the SSE
+stream (below); only while that stream is down does it poll `/chat` every 4 s
+and Home and Project every 30 s. It never swaps the page while text is
 selected, and the refresh also waits while a form is being used.
 
 Auth (everything else is a bare 403; a method other than GET/HEAD, or POST
-outside `/act/`, is 405): the TCP peer must be loopback,
+outside `/act/` and the two `/push/` routes, is 405): the TCP peer must be loopback,
 `Tailscale-User-Login` must equal the owner, `Host` must be in the allowlist,
 and any `Origin` must be too. A POST must also carry an allowed `Origin` and
 no cross-site `Sec-Fetch-Site`.
@@ -1347,15 +1348,64 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_PORT` | `8480` |
 | `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
+| `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
+| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
 
-Trial publish (documented, not run by the build). Tailnet only, never
-Funnel; port 8446 is free next to the existing 8443-8445 mappings:
+### Live updates, alerts and live tail
+
+- **SSE.** `GET /events` is one `text/event-stream` per open page. A background
+  watcher (started with the app) stats `$FM_HOME/state/*.status` every 2 s and runs
+  `fm-inbox.sh receipts` every 5 s. When a status file moves it re-runs the snapshot
+  (at most every 5 s, plus a 60 s heartbeat) and sends `desk` or `chat` events. Pages
+  re-fetch themselves and swap in place (same busy rules as before: never while text
+  is selected or a form is in use; the refresh then waits). The 30 s (Home/Project)
+  and 4 s (Chat) polls only run while the stream is down.
+- **Web Push (ADR 0026, gateway-local).** The first call to `GET /push/key` creates the
+  VAPID key under `HIVE_GATEWAY_DATA_DIR`. The header's **Alerts** button asks for
+  notification permission and stores the subscription (`POST /push/subscribe`, with
+  the page's CSRF token; the same owner, Host and Origin checks apply). Pushes go
+  only for: a decision or hold waiting, a PR ready for review (merge approval), work
+  whose latest status is `blocked` or `failed`, and a first-mate chat reply. Each is
+  pushed once; the first look after a restart is a silent baseline. Subscriptions the
+  push service reports gone (404/410) are pruned.
+  **iPhone and iPad:** push only works for the desk added to the Home Screen
+  (Safari Share, Add to Home Screen, iOS/iPadOS 16.4 or later), opened from that icon.
+  The desk serves the manifest (`/manifest.webmanifest`), icons and service worker
+  (`/sw.js`) that needs. Desktop Chrome and Android work from a normal tab.
+- **Live tail.** Each crew on a Project page has **Watch live** (`/w/<task>`), which polls
+  `GET /w/<task>/out` every 3 s. That runs `fm-peek.sh <task> 60` (read-only), only for a
+  task the snapshot lists as a crew; output has terminal escapes stripped, is capped
+  at 64 KB and is inserted as text, never HTML.
+
+No new write actions: the only new POSTs store or remove the owner's own push
+subscription.
+
+### Run and update (production)
+
+The desk binds `127.0.0.1:8480` and is published to the tailnet only:
 
 ```
 tailscale serve --bg --https=8446 http://127.0.0.1:8480
-tailscale serve status        # must say "(tailnet only)"
+tailscale serve status        # every line must say "(tailnet only)"; never use funnel
 ```
 
-Requests from the PC to its own tailnet name carry no login header and get
-403 by design; use the iPad or phone. Undo with
-`tailscale serve --https=8446 off`.
+Install and run it as a user service (`deploy/hive-gateway.service`; edit
+`WorkingDirectory` if the checkout is elsewhere):
+
+```
+mkdir -p ~/.config/systemd/user && cp deploy/hive-gateway.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now hive-gateway.service
+```
+
+Update after a merge to `main`:
+
+```
+git -C <checkout> pull --ff-only && uv sync --project <checkout>
+systemctl --user restart hive-gateway.service
+journalctl --user -u hive-gateway.service -n 20
+```
+
+Then, from the iPad or phone (a request from the PC itself carries no login header and
+gets 403 by design), open `https://desktop-lfme032.tailfb3900.ts.net:8446/`, tap
+**Alerts**, and a "Alerts are on" push confirms the subscription works. Undo the
+publish with `tailscale serve --https=8446 off`.

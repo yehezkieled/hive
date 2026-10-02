@@ -33,6 +33,11 @@ margin:0 -16px;padding:6px 16px}
 .top div{max-width:960px;margin:0 auto;display:flex;justify-content:space-between;
 align-items:center;gap:8px}
 .brand{font-weight:600;text-decoration:none;color:var(--ink)}
+.top nav{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+#alerts{margin-left:4px;padding:0 10px;font-size:.9rem}
+.tail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;
+font:12px/1.35 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;
+min-height:12rem;max-height:70vh;overflow:auto}
 .top nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;
 border-radius:8px;text-decoration:none}
 .top nav a[aria-current]{background:var(--card);border:1px solid var(--line);font-weight:600}
@@ -69,8 +74,9 @@ border-top:1px solid var(--line)}
 @media (max-width:480px){.msg{max-width:94%}.top nav a{padding:0 8px}}
 """
 
-# Local time and self-refresh. Pinned by hash in the CSP (see ``SCRIPT_CSP_HASH``); no
-# server data is interpolated into it, so changing it here changes the hash with it.
+# Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
+# Pinned by hash in the CSP (see ``SCRIPT_CSP_HASH``); no server data is interpolated into
+# it, so changing it here changes the hash with it.
 SCRIPT = """
 (function(){
 var FB='Australia/Sydney',Z;
@@ -100,17 +106,69 @@ function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store
 .then(function(r){return r.ok?r.text():null;}).then(function(t){
 if(t)cb(new DOMParser().parseFromString(t,'text/html'));}).catch(function(){});}
 var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('data-poll');
+var tail=b.getAttribute('data-tail');
 var th=document.getElementById('thread'),c=document.querySelector('main');
-var last=th?th.innerHTML:c?c.textContent:null;
+var last=th?th.innerHTML:c?c.textContent:null,live=false,want=false,es,seen=0;
 function bottom(){window.scrollTo(0,document.documentElement.scrollHeight);}
 if(th)bottom();
-if(poll&&th)setInterval(function(){if(document.hidden||sel())return;load(function(doc){
+function refreshThread(){if(document.hidden||sel())return;load(function(doc){
 var n=doc.getElementById('thread');if(!n||n.innerHTML===last||sel())return;last=n.innerHTML;
 var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-120;
-th.innerHTML=n.innerHTML;stamps();if(near)bottom();});},poll);
-else if(every&&c)setInterval(function(){if(document.hidden||busy())return;load(function(doc){
+th.innerHTML=n.innerHTML;stamps();if(near)bottom();});}
+function refreshMain(){if(document.hidden||busy()){want=true;return;}
+want=false;load(function(doc){
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
-var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();window.scrollTo(0,y);});},every);
+var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();window.scrollTo(0,y);});}
+function refreshAny(){if(th)refreshThread();else refreshMain();}
+function connect(){es=new EventSource('/events');
+es.onopen=function(){live=true;seen=Date.now();};
+es.onerror=function(){live=false;};
+es.addEventListener('hello',function(){seen=Date.now();live=true;refreshAny();});
+es.addEventListener('ping',function(){seen=Date.now();});
+es.addEventListener('desk',function(){seen=Date.now();if(!th)refreshMain();});
+es.addEventListener('chat',function(){seen=Date.now();if(th)refreshThread();});}
+if(poll&&th)setInterval(function(){if(!live)refreshThread();},poll);
+else if(every&&c)setInterval(function(){if(!live)refreshMain();},every);
+if(!tail&&((poll&&th)||(every&&c))&&window.EventSource){connect();
+setInterval(function(){if((live&&Date.now()-seen>45000)||es.readyState===2){live=false;es.close();connect();}
+if(want&&!th&&!document.hidden)refreshMain();},2000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&want&&!th)refreshMain();});}
+if(tail){var pre=document.getElementById('tail'),st=document.getElementById('tail-status'),
+url='/w/'+encodeURIComponent(tail)+'/out';
+function tick(){if(document.hidden)return;fetch(url,{credentials:'same-origin',cache:'no-store'})
+.then(function(r){return r.json();}).then(function(j){
+if(!j.ok){st.textContent='Cannot read output: '+j.error;return;}
+var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-120;
+if(pre.textContent!==j.text){pre.textContent=j.text;if(near)bottom();}
+st.textContent='Live · updated '+new Date().toLocaleTimeString();})
+.catch(function(){st.textContent='Connection lost, retrying…';});}
+tick();setInterval(tick,3000);document.addEventListener('visibilitychange',tick);}
+var ab=document.getElementById('alerts');
+function key(s){s=s.replace(/-/g,'+').replace(/_/g,'/');s+='='.repeat((4-s.length%4)%4);
+var r=atob(s),a=new Uint8Array(r.length);for(var i=0;i<r.length;i++)a[i]=r.charCodeAt(i);return a;}
+function post(path,obj,csrf){return fetch(path,{method:'POST',credentials:'same-origin',
+headers:{'content-type':'application/json','x-csrf':csrf},body:JSON.stringify(obj)});}
+function note(t){var an=document.getElementById('alerts-note');if(an)an.textContent=t;}
+if(ab){var ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+var standalone=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
+if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){
+if(ios&&!standalone)note('To get alerts on iPhone or iPad, add the desk to the Home Screen (Share, Add to Home Screen; iOS 16.4 or later), then open it from there.');
+}else{
+navigator.serviceWorker.register('/sw.js').then(function(reg){
+function show(on){ab.hidden=false;ab.textContent=on?'Alerts on':'Alerts off';ab.setAttribute('aria-pressed',on?'true':'false');}
+reg.pushManager.getSubscription().then(function(sub){show(!!sub);});
+ab.onclick=function(){reg.pushManager.getSubscription().then(function(sub){
+return fetch('/push/key',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(k){
+if(sub){return post('/push/unsubscribe',{endpoint:sub.endpoint},k.csrf).then(function(){return sub.unsubscribe();})
+.then(function(){show(false);note('');});}
+if(!k.enabled){note('Alerts are not set up on the server.');return;}
+return Notification.requestPermission().then(function(p){
+if(p!=='granted'){note('Notifications are blocked for this site in the browser settings.');return;}
+return reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(k.key)}).then(function(s){
+return post('/push/subscribe',s.toJSON(),k.csrf).then(function(r){
+if(!r.ok){s.unsubscribe();note('Could not save the subscription.');return;}show(true);note('');});});});
+});}).catch(function(){note('Could not change alerts. Try again.');});};
+}).catch(function(){});}}
 stamps();setInterval(stamps,30000);
 })();
 """
@@ -193,9 +251,16 @@ def _page(title: str, body: str, active: str = "", attrs: str = "") -> str:
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
         "<meta name=color-scheme content='light dark'>"
+        "<meta name=theme-color content='#b4531a'>"
+        "<meta name=apple-mobile-web-app-capable content=yes>"
+        "<meta name=apple-mobile-web-app-title content='Hive desk'>"
+        "<link rel=manifest href='/manifest.webmanifest'>"
+        "<link rel=icon href='/icons/icon-192.png'>"
+        "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
         f"<title>{esc(title)}</title><style>{CSS}</style></head>"
         f"<body{attrs}><header class=top><div><a class=brand href='/'>Hive desk</a>"
-        f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a></nav>"
+        f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
+        "<button id=alerts class=quiet hidden type=button>Alerts</button></nav>"
         f"</div></header><main>{body}</main><script>{SCRIPT}</script></body></html>"
     )
 
@@ -288,7 +353,7 @@ def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx) -> str:
     return _page(
         "Hive desk",
         f"<h1>Hive desk</h1>{stamp}{_compose(ctx)}<h2>Needs you ({len(desk.needs_you)})</h2>{needs}"
-        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div>",
+        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div><p class=mute id=alerts-note></p>",
         "desk",
         attrs,
     )
@@ -304,7 +369,8 @@ def _crew(c: Crew, ctx: Ctx) -> str:
     return (
         f"<div class=row><span class=tag>{esc(c.state)}</span><strong>{esc(c.title or c.id)}"
         f"</strong> <span class=mute>{esc(c.detail)}</span>"
-        f"<span class=sub>{esc(c.id)} · {esc(c.kind)} · {esc(c.harness)}</span>{controls}</div>"
+        f"<span class=sub>{esc(c.id)} · {esc(c.kind)} · {esc(c.harness)} · "
+        f"<a href='/w/{esc(quote(c.id, safe=''))}'>Watch live</a></span>{controls}</div>"
     )
 
 
@@ -414,6 +480,19 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
     if view.omitted:
         out = "<p class=mute>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>" + out
     return out
+
+
+def render_watch(crew: Crew, ctx: Ctx) -> str:
+    return _page(
+        f"{crew.id} · Hive desk",
+        f"<p><a href='/'>← Desk</a></p><h1>{esc(crew.title or crew.id)}</h1>"
+        f"<p class=mute><span class=tag>{esc(crew.state)}</span>{esc(crew.detail)} · "
+        f"{esc(crew.id)} · {esc(crew.harness)}</p>"
+        "<p class=mute id=tail-status role=status>Loading…</p>"
+        "<pre class=tail id=tail aria-label='Recent output' aria-live=off></pre>",
+        "",
+        f" data-tail='{esc(crew.id)}'",
+    )
 
 
 def render_chat(view: ChatView, ctx: Ctx) -> str:
