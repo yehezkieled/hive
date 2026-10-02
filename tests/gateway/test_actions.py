@@ -173,11 +173,19 @@ def test_repeated_answer_runs_once_and_shows_first_result(client: TestClient, ho
     assert len(_calls(home)) == 1
 
 
-def test_failed_answer_can_be_retried_with_the_same_request_id(
+def test_invalid_answer_can_be_corrected_with_the_same_request_id(
     client: TestClient, home: Path
 ) -> None:
     assert post(client, "answer", task="beta-hold", text="x" * 7000).status_code == 400
     assert post(client, "answer", task="beta-hold", text="shorter").status_code == 200
+    assert len(_calls(home)) == 1
+
+
+def test_failed_answer_script_is_not_rerun(client: TestClient, home: Path) -> None:
+    _script(home, "fm-captain-hold.sh", 'rec "$@"; echo "partial"; exit 1')
+    first = post(client, "answer", task="beta-hold", text="x")
+    again = post(client, "answer", task="beta-hold", text="x")
+    assert first.status_code == again.status_code == 409
     assert len(_calls(home)) == 1
 
 
@@ -370,6 +378,17 @@ def test_repeated_control_confirm_runs_once(client: TestClient, home: Path) -> N
     again = post(client, "control", task="alpha-build", verb="relaunch", confirm="1", **fields)
     assert first.status_code == again.status_code == 200
     assert "ok: relaunch" in first.text and "ok: relaunch" in again.text
+    assert len(_calls(home)) == 1
+
+
+def test_failed_control_is_not_rerun_by_a_repeat_post(client: TestClient, home: Path) -> None:
+    _script(home, "fm-control.sh", 'rec "$@"; echo "half relaunched"; exit 1')
+    res = post(client, "control", task="alpha-build", verb="relaunch")
+    fields = {k: _hidden(res.text, k) for k in ("step", "rid", "note")}
+    first = post(client, "control", task="alpha-build", verb="relaunch", confirm="1", **fields)
+    again = post(client, "control", task="alpha-build", verb="relaunch", confirm="1", **fields)
+    assert first.status_code == again.status_code == 409
+    assert "half relaunched" in again.text
     assert len(_calls(home)) == 1
 
 

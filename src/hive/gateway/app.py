@@ -151,10 +151,11 @@ async def _dispatch(
         if not actions.REQUEST_ID_RE.fullmatch(rid):
             raise ActionError("invalid request id")
         release = form.get("release") == "1"
+        answer_body = actions.answer_body(form.get("text", ""), owner)
 
         async def answer() -> Outcome:
             _need(desk, "hold", task)
-            return await actions.answer_hold(settings, task, form.get("text", ""), release, owner)
+            return await actions.answer_hold(settings, task, answer_body, release)
 
         return await runs.run(rid, answer)
 
@@ -221,7 +222,11 @@ async def _dispatch(
                     {"task": task, "verb": verb, "rid": rid, "step": step, **extra},
                 )
             )
-        note = form.get("note") if verb == "relaunch" else None
+        note = (
+            actions.check_text(form.get("note", ""), "relaunch note", 1000)
+            if verb == "relaunch"
+            else None
+        )
         return await runs.run(rid, lambda: actions.control(settings, task, verb, note))
 
     raise ActionError("unknown action", 404)

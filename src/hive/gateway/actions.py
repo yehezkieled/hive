@@ -95,9 +95,9 @@ def new_request_id() -> str:
 class RunOnce:
     """In-memory request ids seen within the step-up lifetime.
 
-    A repeat POST with the same id awaits the first run and gets its result instead of
-    running the script again. A failed run is forgotten so a corrected retry can run.
-    Nothing is persisted; expired ids are pruned.
+    A repeat POST with the same id awaits the first run and gets its result (or error)
+    instead of running the script again. Validate input before calling ``run`` so only a
+    started run claims the id. Nothing is persisted; expired ids are pruned.
     """
 
     def __init__(self, ttl_s: float = STEP_UP_TTL_S) -> None:
@@ -109,13 +109,7 @@ class RunOnce:
         self._runs = {k: v for k, v in self._runs.items() if v[0] > now}
         if request_id not in self._runs:
             self._runs[request_id] = (now + self._ttl_s, asyncio.ensure_future(start()))
-        run = self._runs[request_id][1]
-        try:
-            return await asyncio.shield(run)
-        except ActionError:
-            if self._runs.get(request_id, (0.0, None))[1] is run:
-                del self._runs[request_id]
-            raise
+        return await asyncio.shield(self._runs[request_id][1])
 
 
 # ---- running scripts --------------------------------------------------------------
@@ -277,14 +271,16 @@ async def send_note(
     return Outcome(action, subject, summary)
 
 
-async def answer_hold(
-    settings: GatewaySettings, task: str, text: str, release: bool, owner: str
-) -> Outcome:
-    check_id(task, "task id")
-    text = check_text(text, "answer", MAX_ANSWER_BYTES)
-    body = text + provenance_footer(owner)
+def answer_body(text: str, owner: str) -> str:
+    """The hold answer as recorded: the owner's text plus a provenance footer."""
+    body = check_text(text, "answer", MAX_ANSWER_BYTES) + provenance_footer(owner)
     if len(body.encode()) > MAX_ANSWER_BYTES + 400:
         raise ActionError("answer is too long")
+    return body
+
+
+async def answer_hold(settings: GatewaySettings, task: str, body: str, release: bool) -> Outcome:
+    check_id(task, "task id")
     fd, name = tempfile.mkstemp(prefix="hive-gw-answer-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -297,9 +293,9 @@ async def answer_hold(
         Path(name).unlink(missing_ok=True)
     subject = f"{task}{' release' if release else ''}"
     if code != 0:
-        audit("answer", subject, "failed", exit=code, chars=len(text))
+        audit("answer", subject, "failed", exit=code, chars=len(body))
         raise ActionError(f"fm-captain-hold refused: {_first_line(out)}", 409)
-    audit("answer", subject, "recorded", exit=code, chars=len(text))
+    audit("answer", subject, "recorded", exit=code, chars=len(body))
     return Outcome("answer", subject, _clean(out) or "Recorded.")
 
 
@@ -309,7 +305,7 @@ async def control(settings: GatewaySettings, task: str, verb: str, note: str | N
         raise ActionError("unsupported control verb")
     args = [task, verb]
     if verb == "relaunch":
-        args += ["--note", check_text(note or "", "relaunch note", 1000)]
+        args += ["--note", note or ""]
     code, out = await run_script(settings, "fm-control.sh", *args)
     subject = f"{task} {verb}"
     if code != 0:
