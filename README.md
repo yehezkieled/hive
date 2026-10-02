@@ -148,7 +148,7 @@ src/hive/
 ├── telegram/          # Telegram bridge + command parser
 ├── commands/          # /command handlers
 ├── web/               # FastAPI dashboard
-├── gateway/           # read-only desk over Tailscale (ADR 0030)
+├── gateway/           # owner desk over Tailscale: read + act (ADR 0030)
 ├── knowledge/         # blueprints + embeddings
 ├── vault/             # security-gated payment Entity
 ├── notifications/

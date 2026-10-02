@@ -1321,7 +1321,10 @@ firstmate script with an argument list, never a shell string:
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
 on top of the checks below; control and merge also need a short-lived
-step-up token minted by the confirm page. Every write logs one
+step-up token minted by the confirm page. A hold answer and a control confirm
+carry a one-time request id kept in memory for the step-up lifetime (180 s):
+a repeat POST, even after a failed run, shows the first result and never
+re-runs the script. Every write logs one
 `gateway-audit action=... subject=... outcome=...` line to stderr (the
 journal); free text is never logged, only its length. Chat shows receipts
 and replies from `fm-inbox.sh receipts`.
