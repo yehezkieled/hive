@@ -1298,3 +1298,36 @@ become no-ops — Hive still boots.
 - **Daily summary timing** — the scheduler checks once per hour, so the
   summary may fire up to 59 minutes after the configured hour if the
   process restarts mid-cycle.
+
+## Gateway (read-only desk, ADR 0030)
+
+`python -m hive.gateway` serves the read-only desk (Home and Project pages)
+on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
+and no Hive core. Each page load runs firstmate's
+`$HIVE_GATEWAY_FM_HOME/bin/fm-fleet-snapshot.sh --json` (cached 5 s) and
+pins schema major `fm-fleet-snapshot.v1`; any other schema, a failed run or
+bad JSON shows a read-only fallback banner. It never writes to the firstmate
+home or calls a mutating script.
+
+Auth (everything else is a bare 403; non-GET/HEAD is 405): the TCP peer must
+be loopback, `Tailscale-User-Login` must equal the owner, `Host` must be in
+the allowlist, and any `Origin` must be too.
+
+| Env | Default |
+|---|---|
+| `HIVE_GATEWAY_OWNER` | `yehezkieled1502@gmail.com` |
+| `HIVE_GATEWAY_HOSTS` | `desktop-lfme032.tailfb3900.ts.net,localhost,127.0.0.1` |
+| `HIVE_GATEWAY_FM_HOME` | `/home/hezki/firstmate` |
+| `HIVE_GATEWAY_PORT` | `8480` |
+
+Trial publish (documented, not run by the build). Tailnet only, never
+Funnel; port 8446 is free next to the existing 8443-8445 mappings:
+
+```
+tailscale serve --bg --https=8446 http://127.0.0.1:8480
+tailscale serve status        # must say "(tailnet only)"
+```
+
+Requests from the PC to its own tailnet name carry no login header and get
+403 by design; use the iPad or phone. Undo with
+`tailscale serve --https=8446 off`.
