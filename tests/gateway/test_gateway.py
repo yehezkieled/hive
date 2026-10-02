@@ -76,6 +76,7 @@ def test_owner_with_matching_origin_and_port_ok(client: TestClient) -> None:
 def test_writes_refused_after_auth(client: TestClient) -> None:
     assert client.post("/", headers=GOOD).status_code == 405
     assert client.post("/", headers={"host": HOST}).status_code == 403
+    assert client.put("/act/chat", headers=GOOD).status_code == 405
 
 
 def test_home_page_from_fixture(client: TestClient) -> None:
@@ -88,7 +89,7 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     assert "&lt;b&gt;chore&lt;/b&gt;" in html or "(no project)" in html
     assert "<b>chore</b>" not in html
     assert res.headers["cache-control"] == "no-store"
-    assert "<form" not in html and "<script" not in html
+    assert "<script" not in html
 
 
 def test_project_page_from_fixture(client: TestClient) -> None:
@@ -123,6 +124,7 @@ def test_fallback_when_snapshot_unusable(tmp_path: Path, body: str) -> None:
         res = c.get(path, headers=GOOD)
         assert res.status_code == 200
         assert "Read-only fallback" in res.text
+        assert "<form" not in res.text
 
 
 def test_missing_script_falls_back(tmp_path: Path) -> None:

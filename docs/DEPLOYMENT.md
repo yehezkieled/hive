@@ -1299,19 +1299,38 @@ become no-ops — Hive still boots.
   summary may fire up to 59 minutes after the configured hour if the
   process restarts mid-cycle.
 
-## Gateway (read-only desk, ADR 0030)
+## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the read-only desk (Home and Project pages)
+`python -m hive.gateway` serves the desk (Home, Project and Chat pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no Hive core. Each page load runs firstmate's
 `$HIVE_GATEWAY_FM_HOME/bin/fm-fleet-snapshot.sh --json` (cached 5 s) and
 pins schema major `fm-fleet-snapshot.v1`; any other schema, a failed run or
-bad JSON shows a read-only fallback banner. It never writes to the firstmate
-home or calls a mutating script.
+bad JSON shows a read-only fallback banner with every write button removed
+(and every write refused). It never edits a backlog or any firstmate file.
 
-Auth (everything else is a bare 403; non-GET/HEAD is 405): the TCP peer must
-be loopback, `Tailscale-User-Login` must equal the owner, `Host` must be in
-the allowlist, and any `Origin` must be too.
+Writes (the act slice) are `POST /act/<name>` only, and each calls one fixed
+firstmate script with an argument list, never a shell string:
+
+| Action | Script |
+|---|---|
+| answer a captain hold | `fm-captain-hold.sh answer <task> --decision-file <tmp> [--release]` (web provenance appended to the recorded words) |
+| chat, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
+| worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
+
+The website never merges: the Merge button only records the owner's merge
+word as a note, after a confirm page. Each write needs the form's CSRF token
+on top of the checks below; control and merge also need a short-lived
+step-up token minted by the confirm page. Every write logs one
+`gateway-audit action=... subject=... outcome=...` line to stderr (the
+journal); free text is never logged, only its length. Chat shows receipts
+and replies from `fm-inbox.sh receipts`.
+
+Auth (everything else is a bare 403; a method other than GET/HEAD, or POST
+outside `/act/`, is 405): the TCP peer must be loopback,
+`Tailscale-User-Login` must equal the owner, `Host` must be in the allowlist,
+and any `Origin` must be too. A POST must also carry an allowed `Origin` and
+no cross-site `Sec-Fetch-Site`.
 
 | Env | Default |
 |---|---|

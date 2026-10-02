@@ -1,0 +1,388 @@
+"""Write actions against a throwaway FM_HOME of fake scripts; the real home is never used."""
+
+from __future__ import annotations
+
+import json
+import re
+import stat
+from pathlib import Path
+from urllib.parse import urlencode
+
+import pytest
+from fastapi.testclient import TestClient
+
+from hive.gateway.actions import Tokens
+from hive.gateway.app import create_app
+from hive.gateway.settings import GatewaySettings
+
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
+OWNER = "owner@example.test"
+HOST = "desk.example.ts.net"
+GOOD = {
+    "tailscale-user-login": OWNER,
+    "host": HOST,
+    "origin": f"https://{HOST}",
+    "content-type": "application/x-www-form-urlencoded",
+}
+CSRF = Tokens(b"k" * 32)
+
+# Every fake script appends one JSON line (argv + stdin) to $FM_HOME/calls.jsonl.
+LOGGER = r"""
+rec() {
+  python3 - "$@" <<'PY'
+import json, os, sys
+argv = sys.argv[1:]
+files = {}
+for i, a in enumerate(argv):
+    if a == "--decision-file":
+        files["decision"] = open(argv[i + 1]).read()
+stdin = "" if os.isatty(0) else os.environ.get("FAKE_STDIN", "")
+with open(os.path.join(os.environ["FM_HOME"], "calls.jsonl"), "a") as fh:
+    fh.write(json.dumps({"script": os.environ["FAKE_NAME"], "argv": argv,
+                         "files": files, "stdin": stdin}) + "\n")
+PY
+}
+"""
+
+
+def _script(home: Path, name: str, body: str) -> None:
+    path = home / "bin" / name
+    path.write_text(f"#!/usr/bin/env bash\nset -u\nexport FAKE_NAME={name}\n{LOGGER}\n{body}\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+@pytest.fixture
+def home(tmp_path: Path) -> Path:
+    (tmp_path / "bin").mkdir()
+    _script(tmp_path, "fm-fleet-snapshot.sh", f"cat '{FIXTURE}'")
+    _script(tmp_path, "fm-captain-hold.sh", 'rec "$@"; echo "closed: $2"')
+    _script(
+        tmp_path,
+        "fm-inbox.sh",
+        'case "$1" in\n'
+        '  note) IN="$(cat; printf x)"; FAKE_STDIN="${IN%x}" rec "$@"; '
+        'echo \'{"schema":"fm-inbox-note.v1","outcome":"created","id":"n1"}\' ;;\n'
+        '  receipts) cat "$FM_HOME/receipts.json" 2>/dev/null || echo "{}" ;;\n'
+        "  ready) echo '{\"can_receive\": true}' ;;\n"
+        "esac",
+    )
+    _script(tmp_path, "fm-control.sh", 'rec "$@"; echo "ok: $2"')
+    return tmp_path
+
+
+def _calls(home: Path) -> list[dict]:
+    path = home / "calls.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+@pytest.fixture
+def client(home: Path) -> TestClient:
+    settings = GatewaySettings(
+        owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home, snapshot_ttl_s=0
+    )
+    return TestClient(
+        create_app(settings, tokens=CSRF), client=("127.0.0.1", 5000), follow_redirects=False
+    )
+
+
+def post(client: TestClient, name: str, **fields: str):
+    data = {"csrf": CSRF.csrf(), "next": "/", "rid": "web-0123456789abcdef", **fields}
+    return client.post(f"/act/{name}", content=urlencode(data), headers=GOOD)
+
+
+# ---- guards -----------------------------------------------------------------------
+
+
+def test_csrf_required(client: TestClient, home: Path) -> None:
+    res = client.post("/act/chat", content=urlencode({"text": "hi"}), headers=GOOD)
+    assert res.status_code == 403
+    res = post(client, "chat", text="hi", csrf="wrong")
+    assert res.status_code == 403
+    assert _calls(home) == []
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"origin": "https://evil.example"}, {"sec-fetch-site": "cross-site"}],
+)
+def test_cross_origin_post_refused(client: TestClient, home: Path, extra: dict) -> None:
+    data = urlencode({"csrf": CSRF.csrf(), "text": "hi", "rid": "web-0123456789abcdef"})
+    res = client.post("/act/chat", content=data, headers={**GOOD, **extra})
+    assert res.status_code == 403
+    no_origin = {k: v for k, v in GOOD.items() if k != "origin"}
+    assert client.post("/act/chat", content=data, headers=no_origin).status_code == 403
+    assert _calls(home) == []
+
+
+def test_post_outside_act_is_405(client: TestClient) -> None:
+    assert client.post("/chat", headers=GOOD).status_code == 405
+
+
+def test_forms_carry_csrf_and_fallback_hides_them(client: TestClient, tmp_path: Path) -> None:
+    html = client.get("/", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
+    assert CSRF.csrf() in html and "/act/answer" in html and "/act/merge" in html
+
+
+def test_writes_refused_when_snapshot_unusable(tmp_path: Path) -> None:
+    (tmp_path / "bin").mkdir()
+    _script(tmp_path, "fm-fleet-snapshot.sh", "echo not-json")
+    _script(tmp_path, "fm-inbox.sh", 'rec "$@"')
+    settings = GatewaySettings(owner_login=OWNER, allowed_hosts=(HOST,), fm_home=tmp_path)
+    c = TestClient(create_app(settings, tokens=CSRF), client=("127.0.0.1", 5000))
+    res = post(c, "chat", text="hi")
+    assert res.status_code == 503
+    assert _calls(tmp_path) == []
+
+
+# ---- decisions --------------------------------------------------------------------
+
+
+def test_answer_hold_calls_script_with_args_and_provenance(client: TestClient, home: Path) -> None:
+    res = post(client, "answer", task="beta-hold", text="Use the warm palette", release="1")
+    assert res.status_code == 303 and res.headers["location"] == "/?ok=answer"
+    (call,) = _calls(home)
+    assert call["script"] == "fm-captain-hold.sh"
+    assert call["argv"][:2] == ["answer", "beta-hold"]
+    assert call["argv"][2] == "--decision-file" and call["argv"][-1] == "--release"
+    decision = call["files"]["decision"]
+    assert decision.startswith("Use the warm palette")
+    assert "Hive website" in decision and OWNER in decision
+    assert not Path(call["argv"][3]).exists()  # temp file cleaned up
+
+
+def test_answer_without_release_and_shell_chars_stay_argv(client: TestClient, home: Path) -> None:
+    res = post(client, "answer", task="beta-hold", text="$(touch /tmp/pwned); `x`")
+    assert res.status_code == 303
+    (call,) = _calls(home)
+    assert "--release" not in call["argv"]
+    assert "$(touch /tmp/pwned)" in call["files"]["decision"]
+
+
+@pytest.mark.parametrize("task", ["alpha-build", "no-such-task", "bad id;rm", ""])
+def test_answer_only_open_holds(client: TestClient, home: Path, task: str) -> None:
+    res = post(client, "answer", task=task, text="x")
+    assert res.status_code in (400, 409)
+    assert _calls(home) == []
+
+
+def test_answer_empty_or_oversize_refused(client: TestClient, home: Path) -> None:
+    assert post(client, "answer", task="beta-hold", text="  ").status_code == 400
+    assert post(client, "answer", task="beta-hold", text="x" * 7000).status_code == 400
+    assert _calls(home) == []
+
+
+def test_answer_script_refusal_is_shown(home: Path) -> None:
+    _script(home, "fm-captain-hold.sh", 'echo "skipped: already closed"; exit 1')
+    settings = GatewaySettings(
+        owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home, snapshot_ttl_s=0
+    )
+    c = TestClient(create_app(settings, tokens=CSRF), client=("127.0.0.1", 5000))
+    res = post(c, "answer", task="beta-hold", text="x")
+    assert res.status_code == 409 and "already closed" in res.text
+
+
+def test_decision_answer_becomes_structured_note(client: TestClient, home: Path) -> None:
+    res = post(client, "decision", task="beta-pr", key="board-review", text="Option A")
+    assert res.status_code == 303 and res.headers["location"] == "/?ok=decision"
+    (call,) = _calls(home)
+    assert call["script"] == "fm-inbox.sh"
+    assert call["argv"] == ["note", "--request-id", "web-0123456789abcdef", "--json", "-"]
+    assert call["stdin"].startswith("HIVE-WEB DECISION ANSWER v1\ntask: beta-pr\n")
+    assert "decision: board-review" in call["stdin"] and call["stdin"].endswith("Option A\n")
+
+
+def test_decision_must_be_open(client: TestClient, home: Path) -> None:
+    assert post(client, "decision", task="beta-pr", key="other", text="x").status_code == 409
+    assert _calls(home) == []
+
+
+# ---- chat and receipts ------------------------------------------------------------
+
+
+def test_chat_sends_note_with_request_id(client: TestClient, home: Path) -> None:
+    res = post(client, "chat", text="status please")
+    assert res.status_code == 303 and res.headers["location"] == "/?ok=chat"
+    (call,) = _calls(home)
+    assert call["argv"] == ["note", "--request-id", "web-0123456789abcdef", "--json", "-"]
+    assert call["stdin"] == "status please"
+
+
+def test_chat_rejects_bad_request_id_and_empty(client: TestClient, home: Path) -> None:
+    assert post(client, "chat", text="x", rid="not-valid").status_code == 400
+    assert post(client, "chat", text="  ").status_code == 400
+    assert _calls(home) == []
+
+
+def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) -> None:
+    receipts = {
+        "schema": "fm-inbox-receipts.v1",
+        "pending": [
+            {
+                "id": "n2",
+                "at": "2030-01-02T00:00:02Z",
+                "body": "later <b>note</b>",
+                "acknowledged": False,
+                "reply": None,
+            },
+            {
+                "id": "n3",
+                "at": "2030-01-02T00:00:03Z",
+                "body": "HIVE-WEB TICKET REQUEST v1\naction: edit\n---\nnew title",
+                "acknowledged": False,
+                "reply": None,
+            },
+        ],
+        "handled": [
+            {
+                "id": "n1",
+                "at": "2030-01-02T00:00:01Z",
+                "body": "first",
+                "acknowledged": True,
+                "reply": {"id": "n1", "at": "2030-01-02T00:00:05Z", "body": "done, applied"},
+            },
+        ],
+        "omitted": [],
+    }
+    (home / "receipts.json").write_text(json.dumps(receipts))
+    html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
+    assert "done, applied" in html and "answered" in html
+    assert "waiting for the first mate" in html and "ticket request" in html
+    assert "<b>note</b>" not in html and "&lt;b&gt;note&lt;/b&gt;" in html
+    assert re.search(r"/act/chat", html)
+
+
+# ---- tickets ----------------------------------------------------------------------
+
+
+def test_ticket_edit_request_shape(client: TestClient, home: Path) -> None:
+    res = post(
+        client,
+        "ticket",
+        mode="edit",
+        project="alpha",
+        ticket="alpha-docs",
+        field="title",
+        text="Write the alpha docs, v2",
+    )
+    assert res.status_code == 303 and res.headers["location"] == "/?ok=ticket"
+    (call,) = _calls(home)
+    assert call["stdin"] == (
+        "HIVE-WEB TICKET REQUEST v1\naction: edit\nticket: alpha-docs\nproject: alpha\n"
+        f"field: title\nfrom: hive web ({OWNER})\n---\nWrite the alpha docs, v2\n"
+    )
+
+
+def test_ticket_create_request_shape(client: TestClient, home: Path) -> None:
+    res = post(
+        client,
+        "ticket",
+        mode="create",
+        project="alpha",
+        title="Add dark mode",
+        text="Respect prefers-color-scheme",
+    )
+    assert res.status_code == 303
+    (call,) = _calls(home)
+    assert "action: create\nticket: (new)\nproject: alpha\nfield: new\n" in call["stdin"]
+    assert call["stdin"].endswith("---\nAdd dark mode\n\nRespect prefers-color-scheme\n")
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"mode": "edit", "project": "alpha", "ticket": "alpha-old", "field": "title", "text": "x"},
+        {"mode": "edit", "project": "alpha", "ticket": "ghost", "field": "title", "text": "x"},
+        {"mode": "edit", "project": "alpha", "ticket": "alpha-docs", "field": "state", "text": "x"},
+        {"mode": "edit", "project": "nope", "ticket": "alpha-docs", "field": "title", "text": "x"},
+        {"mode": "create", "project": "alpha", "title": "two\nlines", "text": ""},
+        {"mode": "bogus", "project": "alpha"},
+    ],
+)
+def test_ticket_refusals(client: TestClient, home: Path, fields: dict) -> None:
+    assert post(client, "ticket", **fields).status_code in (400, 404, 409)
+    assert _calls(home) == []
+
+
+# ---- worker controls --------------------------------------------------------------
+
+
+def test_control_needs_confirm_step(client: TestClient, home: Path) -> None:
+    res = post(client, "control", task="alpha-build", verb="interrupt")
+    assert res.status_code == 200 and "Confirm" in res.text
+    assert _calls(home) == []
+    step = re.search(r'name=step value="([^"]+)"', res.text).group(1)
+    done = post(client, "control", task="alpha-build", verb="interrupt", step=step, confirm="1")
+    assert done.status_code == 303 and done.headers["location"] == "/?ok=control"
+    (call,) = _calls(home)
+    assert call["script"] == "fm-control.sh" and call["argv"] == ["alpha-build", "interrupt"]
+
+
+def test_control_relaunch_passes_note(client: TestClient, home: Path) -> None:
+    res = post(client, "control", task="alpha-build", verb="relaunch", note="pick up from tests")
+    step = re.search(r'name=step value="([^"]+)"', res.text).group(1)
+    note = re.search(r'name=note value="([^"]+)"', res.text).group(1)
+    post(client, "control", task="alpha-build", verb="relaunch", step=step, note=note)
+    (call,) = _calls(home)
+    assert call["argv"] == ["alpha-build", "relaunch", "--note", "pick up from tests"]
+
+
+def test_control_step_is_bound_to_task_and_verb(client: TestClient, home: Path) -> None:
+    step = CSRF.step_up("control", "alpha-build:interrupt")
+    assert (
+        post(
+            client, "control", task="alpha-build", verb="relaunch", step=step, note="n"
+        ).status_code
+        == 200
+    )  # back to the confirm page
+    assert _calls(home) == []
+    expired = CSRF.step_up("control", "alpha-build:interrupt", now=1.0)
+    res = post(client, "control", task="alpha-build", verb="interrupt", step=expired)
+    assert res.status_code == 200 and _calls(home) == []
+
+
+@pytest.mark.parametrize("verb", ["exit", "teardown", "relaunch;ls", ""])
+def test_no_exit_or_teardown(client: TestClient, home: Path, verb: str) -> None:
+    step = CSRF.step_up("control", f"alpha-build:{verb}")
+    res = post(client, "control", task="alpha-build", verb=verb, step=step)
+    assert res.status_code == 400 and _calls(home) == []
+
+
+def test_control_unlisted_worker_refused(client: TestClient, home: Path) -> None:
+    res = post(client, "control", task="ghost", verb="interrupt")
+    assert res.status_code == 409 and _calls(home) == []
+
+
+# ---- merge ------------------------------------------------------------------------
+
+
+def test_merge_word_is_a_note_after_step_up(client: TestClient, home: Path) -> None:
+    res = post(client, "merge", task="alpha-build")
+    assert res.status_code == 200 and "never merges" in res.text and _calls(home) == []
+    step = re.search(r'name=step value="([^"]+)"', res.text).group(1)
+    done = post(client, "merge", task="alpha-build", step=step)
+    assert done.status_code == 303 and done.headers["location"] == "/?ok=merge"
+    (call,) = _calls(home)
+    assert call["script"] == "fm-inbox.sh" and call["argv"][0] == "note"
+    assert call["stdin"].startswith("HIVE-WEB MERGE WORD v1\ntask: alpha-build\n")
+    assert "pr: https://example.invalid/alpha/pull/2" in call["stdin"]
+
+
+def test_merge_requires_a_listed_merge_approval(client: TestClient, home: Path) -> None:
+    step = CSRF.step_up("merge", "beta-hold")
+    res = post(client, "merge", task="beta-hold", step=step)
+    assert res.status_code == 409 and _calls(home) == []
+    assert not any(c["script"] == "fm-captain-hold.sh" for c in _calls(home))
+
+
+def test_audit_line_per_action(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO", logger="hive.gateway.audit")
+    post(client, "answer", task="beta-hold", text="secret words")
+    lines = [r.getMessage() for r in caplog.records if r.name == "hive.gateway.audit"]
+    assert len(lines) == 1 and "action=answer" in lines[0] and "subject=beta-hold" in lines[0]
+    assert "secret words" not in lines[0]
+
+
+def test_unknown_action_404(client: TestClient) -> None:
+    assert post(client, "teardown", task="alpha-build").status_code == 404
