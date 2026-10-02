@@ -11,18 +11,21 @@ from hive.gateway.snapshot import Snapshot
 
 CSS = """
 :root{--bg:#f6f3ec;--card:#fffdf8;--ink:#1d1b16;--mute:#6b665a;--line:#ddd6c6;--acc:#b4531a;--ok:#2f6b3a}
-@media (prefers-color-scheme:dark){:root{--bg:#16140f;--card:#201d16;--ink:#efe9da;--mute:#a39c8a;--line:#3a352a;--acc:#f0925a;--ok:#7fc48c}}
+@media (prefers-color-scheme:dark){:root{--bg:#16140f;--card:#201d16;--ink:#efe9da;
+--mute:#a39c8a;--line:#3a352a;--acc:#f0925a;--ok:#7fc48c}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif;
 padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
 main{max-width:960px;margin:0 auto;padding:16px 0 48px}
 h1{font-size:1.4rem;margin:.2rem 0}h2{font-size:1.05rem;margin:1.6rem 0 .6rem}
 a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
-.banner{border:1px solid var(--acc);border-radius:10px;padding:12px;margin:12px 0;background:var(--card)}
+.banner{border:1px solid var(--acc);border-radius:10px;padding:12px;margin:12px 0;
+background:var(--card)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 .card.hot{border-color:var(--acc)}.card h3{margin:0 0 6px;font-size:1.05rem}
-.need{background:var(--card);border:1px solid var(--acc);border-radius:12px;padding:12px;margin:8px 0;
+.need{background:var(--card);border:1px solid var(--acc);border-radius:12px;padding:12px;
+margin:8px 0;
 overflow-wrap:anywhere}
 .tag{display:inline-block;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;
 border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-right:6px;color:var(--mute)}
