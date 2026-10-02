@@ -247,7 +247,7 @@ def test_chat_sends_note_with_request_id(client: TestClient, home: Path) -> None
     ("reply", "shown"),
     [
         ('echo \'{"outcome":"created"}\'; exit 3', "has not been woken yet"),
-        ("echo '{\"outcome\":\"replay\"}'", "Already sent"),
+        ('echo \'{"outcome":"replay"}\'', "Already sent"),
     ],
 )
 def test_chat_shows_the_inbox_outcome(
