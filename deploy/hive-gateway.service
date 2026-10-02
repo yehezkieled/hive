@@ -1,0 +1,15 @@
+[Unit]
+Description=Hive desk (gateway) - loopback only, published with tailscale serve
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/apps/hive
+ExecStart=%h/apps/hive/.venv/bin/python -m hive.gateway
+Restart=on-failure
+RestartSec=3
+Environment=HIVE_GATEWAY_PORT=8480
+# Optional overrides: HIVE_GATEWAY_ORIGIN, HIVE_GATEWAY_OWNER, HIVE_GATEWAY_FM_HOME,
+# HIVE_GATEWAY_DATA_DIR (see docs/DEPLOYMENT.md, "Gateway").
+
+[Install]
+WantedBy=default.target

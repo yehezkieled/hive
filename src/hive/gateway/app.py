@@ -2,20 +2,34 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import re
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, Response
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 
 from hive.gateway import actions, pages
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
 from hive.gateway.chat import load_chat
 from hive.gateway.desk import Desk, build_desk
+from hive.gateway.live import LiveHub
+from hive.gateway.push import PushService, valid_subscription
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
+from hive.gateway.tail import peek
 
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
@@ -24,10 +38,55 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; style-src 'unsafe-inline'; "
         f"script-src '{pages.SCRIPT_CSP_HASH}'; connect-src 'self'; "
+        "manifest-src 'self'; img-src 'self'; worker-src 'self'; "
         "base-uri 'none'; form-action 'self'"
     ),
 }
 MAX_BODY = 64 * 1024
+PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
+ICONS_DIR = Path(__file__).resolve().parents[1] / "web" / "static" / "icons"
+ICON_FILES = {
+    "icon-192.png": "icon-192.png",
+    "icon-512.png": "icon-512.png",
+    "apple-touch-icon-180.png": "apple-touch-icon-180.png",
+}
+MANIFEST = {
+    "name": "Hive desk",
+    "short_name": "Hive desk",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#16140f",
+    "theme_color": "#b4531a",
+    "icons": [
+        {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    ],
+}
+SERVICE_WORKER = """
+self.addEventListener('install', function(){ self.skipWaiting(); });
+self.addEventListener('activate', function(e){ e.waitUntil(self.clients.claim()); });
+self.addEventListener('push', function(e){
+  var d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) {}
+  var url = typeof d.url === 'string' && d.url.charAt(0) === '/' ? d.url : '/';
+  e.waitUntil(self.registration.showNotification(String(d.title || 'Hive desk'), {
+    body: String(d.body || ''), tag: d.tag ? String(d.tag) : undefined,
+    icon: '/icons/icon-192.png', data: { url: url }
+  }));
+});
+self.addEventListener('notificationclick', function(e){
+  e.notification.close();
+  var url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then(function(list){
+    for (var i = 0; i < list.length; i++) {
+      if ('focus' in list[i]) { list[i].navigate(url); return list[i].focus(); }
+    }
+    return self.clients.openWindow(url);
+  }));
+});
+"""
 NEXT_RE = re.compile(r"^/(chat|p/[A-Za-z0-9%._~-]{1,200})?$")
 
 
@@ -50,14 +109,27 @@ def create_app(
     provider = provider or SnapshotProvider(settings)
     tokens = tokens or Tokens()
     runs = RunOnce()
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
+    hub = LiveHub(settings, provider, push.notify)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if settings.live:
+            hub.start()
+        try:
+            yield
+        finally:
+            await hub.stop()
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
     @app.middleware("http")
     async def owner_only(request: Request, call_next) -> Response:
         if not is_authorised(request, settings):
             return forbidden()
         if request.method == "POST":
-            if not request.url.path.startswith("/act/"):
+            path = request.url.path
+            if not (path.startswith("/act/") or path in PUSH_POSTS):
                 return method_not_allowed()
             if not is_same_origin_write(request):
                 return forbidden()
@@ -97,6 +169,106 @@ def create_app(
         view = await load_chat(settings)
         return HTMLResponse(pages.render_chat(view, ctx_for(snap, "/chat")))
 
+    @app.get("/w/{task}", response_class=HTMLResponse)
+    async def watch(task: str) -> HTMLResponse:
+        snap = await provider.get()
+        crew = _find_crew(snap, task)
+        if crew is None:
+            return pages_error("Not found", "That worker is not listed.", "/", 404)
+        return HTMLResponse(pages.render_watch(crew, ctx_for(snap, "/")))
+
+    @app.get("/w/{task}/out")
+    async def watch_out(task: str) -> Response:
+        snap = await provider.get()
+        if _find_crew(snap, task) is None:
+            return JSONResponse({"ok": False, "error": "not listed"}, status_code=404)
+        try:
+            text = await peek(settings, task)
+        except ActionError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=exc.status)
+        return JSONResponse({"ok": True, "text": text, "at": int(time.time())})
+
+    @app.get("/events")
+    async def events(request: Request) -> StreamingResponse:
+        async def stream():
+            q = hub.subscribe()
+            try:
+                yield "retry: 3000\nevent: hello\ndata: {}\n\n"
+                while True:
+                    try:
+                        yield await asyncio.wait_for(q.get(), 15)
+                    except TimeoutError:
+                        if await request.is_disconnected():
+                            return
+                        yield "event: ping\ndata: {}\n\n"
+            finally:
+                hub.unsubscribe(q)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/push/key")
+    async def push_key() -> Response:
+        try:
+            key = await asyncio.to_thread(push.public_key)
+        except Exception:
+            return JSONResponse({"enabled": False})
+        return JSONResponse({"enabled": True, "key": key, "csrf": tokens.csrf()})
+
+    async def _push_body(request: Request) -> dict | None:
+        raw = await request.body()
+        if len(raw) > MAX_BODY or not tokens.check_csrf(request.headers.get("x-csrf", "")):
+            return None
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    @app.post("/push/subscribe")
+    async def push_subscribe(request: Request) -> Response:
+        data = await _push_body(request)
+        sub = valid_subscription(data)
+        if sub is None:
+            return forbidden()
+        if not await asyncio.to_thread(push.add, sub):
+            return JSONResponse({"ok": False, "error": "too many devices"}, status_code=409)
+        actions.audit("push-subscribe", "-", "added")
+        await push.notify_one(sub, "Alerts are on", "You will be pinged when something needs you.")
+        return JSONResponse({"ok": True})
+
+    @app.post("/push/unsubscribe")
+    async def push_unsubscribe(request: Request) -> Response:
+        data = await _push_body(request)
+        endpoint = data.get("endpoint") if data else None
+        if not isinstance(endpoint, str):
+            return forbidden()
+        await asyncio.to_thread(push.remove, endpoint)
+        actions.audit("push-subscribe", "-", "removed")
+        return JSONResponse({"ok": True})
+
+    @app.get("/sw.js")
+    async def service_worker() -> Response:
+        return Response(
+            SERVICE_WORKER,
+            media_type="application/javascript",
+            headers={"Service-Worker-Allowed": "/"},
+        )
+
+    @app.get("/manifest.webmanifest")
+    async def manifest() -> Response:
+        return Response(json.dumps(MANIFEST), media_type="application/manifest+json")
+
+    @app.get("/icons/{name}")
+    async def icon(name: str) -> Response:
+        fname = ICON_FILES.get(name)
+        if fname is None or not (ICONS_DIR / fname).is_file():
+            return PlainTextResponse("not found", status_code=404)
+        return Response((ICONS_DIR / fname).read_bytes(), media_type="image/png")
+
     @app.post("/act/{name}")
     async def act(name: str, request: Request) -> Response:
         body = await request.body()
@@ -125,6 +297,13 @@ def create_app(
         return HTMLResponse(pages.render_outcome(result, nxt))
 
     return app
+
+
+def _find_crew(snap: Snapshot, task: str):
+    if snap.data is None:
+        return None
+    desk = build_desk(snap.data)
+    return next((c for p in desk.projects.values() for c in p.crews if c.id == task), None)
 
 
 def pages_error(title: str, message: str, nxt: str, status: int) -> HTMLResponse:

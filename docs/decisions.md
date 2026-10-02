@@ -8,6 +8,11 @@ so the old entry stays as history.
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
 This file holds the smaller process and tooling decisions.
 
+## 2026-10-03: Desk live updates and push live in the gateway, not the Entity runtime
+Context: ADR 0026's Web Push channel hangs off Hive's `NotificationDispatcher` and Postgres store, which retire at the cut-over (ADR 0030), and the desk reads firstmate's files, not Hive events.
+Decision: The gateway runs its own watcher (`state/*.status` stat plus `fm-inbox.sh receipts`, snapshot on change) that feeds SSE and a file-backed push store (`HIVE_GATEWAY_DATA_DIR`, VAPID key and subscriptions mode 0600, outside the repo). It reuses ADR 0026's actionable-set idea and the `pywebpush` dependency, but nothing from the Entity runtime. The only new POSTs store or remove the owner's push subscription; no new action on firstmate.
+Consequences: nothing to migrate at the cut-over; two push senders exist until then, one per service.
+
 ## 2026-10-01: Harness pivot — Pi first, headless default, PTY fallback
 Context: Claude Code drops its login about monthly, which stops the whole fleet; headless runs currently share the subscription limits and a separate headless credit was announced then paused.
 Decision: Detect installed+signed-in harnesses (Pi, Claude Code; Codex detect-only) and prefer Pi (`HIVE_HARNESS_ORDER=pi,claude`). Run each turn headless by default (`HIVE_RUN_MODE_ORDER=headless,pty`), falling back to the PTY session only on a refusal read from the harness's own error (auth, quota, refused, unavailable). Surface harness/mode in `/status` and Telegram, with a clear alert when none is usable. Direct model-API support is deliberately not built — it is one more `HarnessSpec` later. Recorded as ADR 0029; Codex/OpenCode adapters (T015/T016) stay parked behind the same extension point.

@@ -127,6 +127,7 @@ async def run_script(
     *args: str,
     stdin: str | None = None,
     merge_stderr: bool = True,
+    timeout_s: float | None = None,
 ) -> tuple[int, str]:
     """Run ``<fm_home>/bin/<script>`` with an argument list. Returns (exit code, output)."""
     path = settings.fm_home / "bin" / script
@@ -147,7 +148,8 @@ async def run_script(
         raise ActionError(f"could not run {script}", 502) from exc
     try:
         out, _ = await asyncio.wait_for(
-            proc.communicate(stdin.encode() if stdin is not None else None), SCRIPT_TIMEOUT_S
+            proc.communicate(stdin.encode() if stdin is not None else None),
+            timeout_s or SCRIPT_TIMEOUT_S,
         )
     except TimeoutError as exc:
         proc.kill()
