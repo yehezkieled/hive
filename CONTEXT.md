@@ -63,7 +63,7 @@ workspace.
 The 1-Project-↔-≤1-Maestro model plus the write-policy it drives: a
 project Maestro writes only its own Project; the **PA Maestro** reads any
 Project but writes only **ownerless** ones. Enforced by the **Ownership
-guard** (Ticket 024, [ADR 0017](adr/0017-ownership-guard-pretooluse-hook.md)).
+guard** (Ticket 024, [ADR 0017](docs/adr/0017-ownership-guard-pretooluse-hook.md)).
 
 **Ownership guard**:
 The enforcement layer behind **Project ownership**: a Claude Code
@@ -74,6 +74,53 @@ set. It fires **even under bypass mode** (where permission `deny` rules do
 not), but fences only the file tools — a guardrail against accidental
 cross-project writes, **not** a `Bash`/subprocess-proof wall.
 _Avoid_: permission rule, sandbox, deny rule.
+
+### Firstmate in Hive
+
+Direction per [ADR 0030](docs/adr/0030-firstmate-implemented-in-hive.md): Hive becomes
+the front door of firstmate. At the cut-over, **Entity**, **Maestro**, **Team
+Lead**, **Team**, **Leaf agent** and **Workflow run** (and the Execution terms
+that serve them: **Adapter**, **Turn**, **Auto-bounce**, …) retire with the
+Entity runtime; until then they describe the code as it runs.
+
+**First mate**:
+The single supervisor across all projects: the owner's one point of contact for
+software work, and the owner of the backlog. Hive's website talks to it through
+the gateway; it replaces the PA Maestro.
+_Avoid_: PA Maestro, orchestrator, boss.
+
+**Second mate**:
+A persistent firstmate with its own home, its own backlog and clones of one
+project, created for a project only when that project earns one (its own context
+or harness). Replaces the project Maestro. Hive is promoted to one after the
+ticket-sync pieces exist.
+_Avoid_: project Maestro, sub-agent.
+
+**Lens**:
+A project page on the website: the first mate's backlog, crews, parked work,
+landed PRs and reports filtered to one project. A lens is a view, not a
+supervisor; which agent answers is a routing detail, shown by the chat-target chip.
+_Avoid_: workspace, tenant.
+
+**Ticket home**:
+The one backlog that owns a ticket (the first mate's, or a second mate's). There
+is no two-way mirror: the home edits directly, everyone else reads by rollup and
+changes it by a routed request. Tickets must be editable from the terminal
+first mate, the website and a second mate, or they do not get finished.
+_Avoid_: sync, mirror, source of truth (one home per ticket, not one global copy).
+
+**Handoff**:
+Moving a ticket, with its dependency-closed set, from one home to another,
+atomically and idempotently. Today only main to second mate and only queued
+items; reverse and lateral handoff are to be built.
+_Avoid_: reassignment, copy.
+
+**Gateway**:
+The loopback-only service behind the website, published with `tailscale serve`
+(tailnet only), trusting the owner's Tailscale login. Three verbs — read, say,
+decide — each calling firstmate's scripts; it holds no work logic and never
+writes project files.
+_Avoid_: backend, API server.
 
 ### Execution
 
@@ -143,7 +190,7 @@ a Workflow itself). Adds no engine capability — it makes free-form fan-out
 authoring a consistent, shared vocabulary.
 _Note_: `debate` shipped in Ticket 034 as the one Hive-native recipe. The
 further named patterns (`blackboard`/`tournament`, Tickets 035/036) were
-**superseded** ([ADR 0021](adr/0021-further-patterns-as-global-skills.md)):
+**superseded** ([ADR 0021](docs/adr/0021-further-patterns-as-global-skills.md)):
 further coordination shapes now ship as user-authored **global skills**
 (`~/.claude/skills`, inherited by Leads via Ticket 012 / ADR 0008), not JD
 recipes.
@@ -182,7 +229,7 @@ its content. **One-deep** — a Maestro has at most one open decision at a time
 (emitting one ends the Turn). Distinct from an **approval** (a `mode_request` or
 `vault_action`: a structured, row-id'd allow/deny backed by its own store) and
 from the vault's hard money-approval rail. Surfaced on the web — answerable from
-the iPad — in Ticket 038 ([ADR 0024](adr/0024-decision-channel-entity-keyed.md)),
+the iPad — in Ticket 038 ([ADR 0024](docs/adr/0024-decision-channel-entity-keyed.md)),
 where it stays **entity-keyed**, not row-id'd.
 _Avoid_: approval, gate, prompt, poll, vote.
 
@@ -198,7 +245,7 @@ escalate to the user instead of flapping. Per Ticket 020 / ADR 0015.
 _Avoid_: restart, reboot, kill-and-retry.
 
 **Phase-confirmation gate**:
-A code-enforced floor (Ticket 019, [ADR 0019](adr/0019-maestro-phase-confirmation-gate.md))
+A code-enforced floor (Ticket 019, [ADR 0019](docs/adr/0019-maestro-phase-confirmation-gate.md))
 that blocks a Maestro's **first** `spawn_team` until it has completed one
 user decision round-trip — tracked by the durable `confirmed_with_user` flag,
 set when a user reply clears `awaiting_decision`. It rides Ticket 029's
