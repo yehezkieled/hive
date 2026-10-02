@@ -130,7 +130,8 @@ def desk_digest(desk: Desk) -> str:
 
 
 def chat_digest(view: ChatView) -> str:
-    return repr([(r.id, r.state, r.reply_at) for r in view.receipts]) + repr(view.can_receive)
+    shown = [(r.id, r.state, r.reply_at) for r in view.receipts]
+    return repr((view.available, view.can_receive, shown))
 
 
 class LiveHub:
@@ -210,7 +211,10 @@ class LiveHub:
     async def _look_at_desk(self, before: str) -> str:
         snap = await self._provider.get(fresh=True)
         if snap.data is None:
-            return before
+            digest = "err:" + (snap.reason or "")
+            if digest != before:
+                self.publish("desk")
+            return digest
         desk = build_desk(snap.data)
         alerts = need_alerts(desk) + await asyncio.to_thread(
             status_alerts, self._settings.state_dir
@@ -223,9 +227,8 @@ class LiveHub:
 
     async def _look_at_chat(self, before: str) -> str:
         view = await load_chat(self._settings)
-        if not view.available:
-            return before
-        await self._alert(reply_alerts(view))
+        if view.available:
+            await self._alert(reply_alerts(view))
         digest = chat_digest(view)
         if digest != before:
             self.publish("chat")

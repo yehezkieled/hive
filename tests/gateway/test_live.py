@@ -16,7 +16,7 @@ from hive.gateway.desk import build_desk
 from hive.gateway.live import LiveHub
 from hive.gateway.push import Alert, PushService, valid_subscription
 from hive.gateway.settings import GatewaySettings
-from hive.gateway.snapshot import SnapshotProvider
+from hive.gateway.snapshot import Snapshot, SnapshotProvider
 from hive.gateway.tail import clean_output
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
@@ -125,6 +125,32 @@ async def test_hub_baselines_then_alerts_once_and_publishes(tmp_path: Path) -> N
     while not q.empty():
         events.append(q.get_nowait())
     assert any(e.startswith("event: desk") for e in events)
+
+
+async def test_hub_publishes_desk_when_the_snapshot_starts_failing(tmp_path: Path) -> None:
+    home = _home(tmp_path)
+    settings = _settings(home)
+    snaps = [SnapshotProvider(settings), None]
+
+    class Flaky:
+        async def get(self, fresh: bool = False) -> Snapshot:
+            if snaps[1] is not None:
+                return snaps[1]
+            return await snaps[0].get(fresh=fresh)
+
+    async def notify(a: Alert) -> None:
+        pass
+
+    hub = LiveHub(settings, Flaky(), notify)  # type: ignore[arg-type]
+    q = hub.subscribe()
+    good = await hub._look_at_desk("")
+    while not q.empty():
+        q.get_nowait()
+    snaps[1] = Snapshot(None, None, None, "firstmate snapshot failed")
+    failed = await hub._look_at_desk(good)
+    assert failed != good
+    assert q.get_nowait().startswith("event: desk")
+    assert await hub._look_at_desk(failed) == failed and q.empty()
 
 
 # ---- routes ------------------------------------------------------------------------
