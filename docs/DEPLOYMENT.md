@@ -1327,7 +1327,10 @@ a repeat POST, even after a failed run, shows the first result and never
 re-runs the script. Every write logs one
 `gateway-audit action=... subject=... outcome=...` line to stderr (the
 journal); free text is never logged, only its length. Chat shows receipts
-and replies from `fm-inbox.sh receipts`.
+and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
+the header of every page; Home has a compose box). One fixed inline script,
+pinned by hash in the CSP, localises times, polls `/chat` every 4 s, and
+refreshes Home and Project every 30 s unless a form is being used.
 
 Auth (everything else is a bare 403; a method other than GET/HEAD, or POST
 outside `/act/`, is 405): the TCP peer must be loopback,
@@ -1341,6 +1344,8 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_HOSTS` | `desktop-lfme032.tailfb3900.ts.net,localhost,127.0.0.1` |
 | `HIVE_GATEWAY_FM_HOME` | `/home/hezki/firstmate` |
 | `HIVE_GATEWAY_PORT` | `8480` |
+| `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
+| `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 
 Trial publish (documented, not run by the build). Tailnet only, never
 Funnel; port 8446 is free next to the existing 8443-8445 mappings:

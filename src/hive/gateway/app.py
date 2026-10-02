@@ -22,7 +22,9 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": (
-        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'"
+        "default-src 'none'; style-src 'unsafe-inline'; "
+        f"script-src '{pages.SCRIPT_CSP_HASH}'; connect-src 'self'; "
+        "base-uri 'none'; form-action 'self'"
     ),
 }
 MAX_BODY = 64 * 1024
@@ -66,7 +68,13 @@ def create_app(
         return response
 
     def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
-        return pages.Ctx(tokens.csrf(), writable=snap.ok, nxt=nxt)
+        return pages.Ctx(
+            tokens.csrf(),
+            writable=snap.ok,
+            nxt=nxt,
+            board_url=settings.board_url,
+            tz=settings.default_tz,
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def home() -> HTMLResponse:
@@ -144,7 +152,7 @@ async def _dispatch(
     rid = form.get("rid", "")
 
     def ctx() -> pages.Ctx:
-        return pages.Ctx(tokens.csrf(), True, nxt)
+        return pages.Ctx(tokens.csrf(), True, nxt, settings.board_url, settings.default_tz)
 
     if name == "answer":
         task = actions.check_id(form.get("task", ""), "task id")
