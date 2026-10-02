@@ -92,6 +92,14 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     assert "<script" not in html
 
 
+def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -> None:
+    # Fetch spec: under "no-referrer" a browser serialises a form POST's Origin
+    # as "null", which the Origin check refuses, so no action could ever run.
+    # "same-origin" sends the real Origin to us and no referrer to other sites.
+    res = client.get("/", headers=GOOD)
+    assert res.headers["referrer-policy"] == "same-origin"
+
+
 def test_project_page_from_fixture(client: TestClient) -> None:
     html = client.get("/p/alpha", headers=GOOD).text
     assert "Build the alpha widget" in html and "blocked by alpha-build" in html
