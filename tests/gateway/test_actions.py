@@ -165,6 +165,27 @@ def test_answer_without_release_and_shell_chars_stay_argv(client: TestClient, ho
     assert "$(touch /tmp/pwned)" in call["files"]["decision"]
 
 
+def test_repeated_answer_runs_once_and_shows_first_result(client: TestClient, home: Path) -> None:
+    first = post(client, "answer", task="beta-hold", text="Use the warm palette")
+    again = post(client, "answer", task="beta-hold", text="Use the warm palette")
+    assert first.status_code == again.status_code == 200
+    assert "closed: beta-hold" in again.text
+    assert len(_calls(home)) == 1
+
+
+def test_failed_answer_can_be_retried_with_the_same_request_id(
+    client: TestClient, home: Path
+) -> None:
+    assert post(client, "answer", task="beta-hold", text="x" * 7000).status_code == 400
+    assert post(client, "answer", task="beta-hold", text="shorter").status_code == 200
+    assert len(_calls(home)) == 1
+
+
+def test_answer_rejects_bad_request_id(client: TestClient, home: Path) -> None:
+    assert post(client, "answer", task="beta-hold", text="x", rid="").status_code == 400
+    assert _calls(home) == []
+
+
 @pytest.mark.parametrize("task", ["alpha-build", "no-such-task", "bad id;rm", ""])
 def test_answer_only_open_holds(client: TestClient, home: Path, task: str) -> None:
     res = post(client, "answer", task=task, text="x")

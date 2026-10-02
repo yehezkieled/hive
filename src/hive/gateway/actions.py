@@ -95,8 +95,9 @@ def new_request_id() -> str:
 class RunOnce:
     """In-memory request ids seen within the step-up lifetime.
 
-    A repeat POST with the same id awaits the first run and gets its result (or error)
-    instead of running the script again. Nothing is persisted; expired ids are pruned.
+    A repeat POST with the same id awaits the first run and gets its result instead of
+    running the script again. A failed run is forgotten so a corrected retry can run.
+    Nothing is persisted; expired ids are pruned.
     """
 
     def __init__(self, ttl_s: float = STEP_UP_TTL_S) -> None:
@@ -108,7 +109,13 @@ class RunOnce:
         self._runs = {k: v for k, v in self._runs.items() if v[0] > now}
         if request_id not in self._runs:
             self._runs[request_id] = (now + self._ttl_s, asyncio.ensure_future(start()))
-        return await asyncio.shield(self._runs[request_id][1])
+        run = self._runs[request_id][1]
+        try:
+            return await asyncio.shield(run)
+        except ActionError:
+            if self._runs.get(request_id, (0.0, None))[1] is run:
+                del self._runs[request_id]
+            raise
 
 
 # ---- running scripts --------------------------------------------------------------

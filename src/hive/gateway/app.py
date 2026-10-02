@@ -47,7 +47,7 @@ def create_app(
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
     tokens = tokens or Tokens()
-    control_runs = RunOnce()
+    runs = RunOnce()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -108,7 +108,7 @@ def create_app(
                     "The desk is read-only until firstmate's snapshot is readable.", 503
                 )
             desk = build_desk(snap.data)
-            result = await _dispatch(name, form, desk, settings, tokens, control_runs, nxt)
+            result = await _dispatch(name, form, desk, settings, tokens, runs, nxt)
         except ActionError as exc:
             actions.audit(name, "-", "refused", status=exc.status)
             return pages_error(name, str(exc), nxt, exc.status)
@@ -136,7 +136,7 @@ async def _dispatch(
     desk: Desk,
     settings: GatewaySettings,
     tokens: Tokens,
-    control_runs: RunOnce,
+    runs: RunOnce,
     nxt: str,
 ) -> Outcome | HTMLResponse:
     """Run one action. Returns its outcome, or a confirm page for step-up actions."""
@@ -148,9 +148,15 @@ async def _dispatch(
 
     if name == "answer":
         task = actions.check_id(form.get("task", ""), "task id")
-        _need(desk, "hold", task)
+        if not actions.REQUEST_ID_RE.fullmatch(rid):
+            raise ActionError("invalid request id")
         release = form.get("release") == "1"
-        return await actions.answer_hold(settings, task, form.get("text", ""), release, owner)
+
+        async def answer() -> Outcome:
+            _need(desk, "hold", task)
+            return await actions.answer_hold(settings, task, form.get("text", ""), release, owner)
+
+        return await runs.run(rid, answer)
 
     if name == "decision":
         task = actions.check_id(form.get("task", ""), "task id")
@@ -216,7 +222,7 @@ async def _dispatch(
                 )
             )
         note = form.get("note") if verb == "relaunch" else None
-        return await control_runs.run(rid, lambda: actions.control(settings, task, verb, note))
+        return await runs.run(rid, lambda: actions.control(settings, task, verb, note))
 
     raise ActionError("unknown action", 404)
 

@@ -104,6 +104,7 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
             "Release the work item (resume it) instead of closing the question</label>"
             "<button>Record answer</button>",
             task=n.ref,
+            rid=new_request_id(),
         )
     elif n.kind == "decision":
         task, _, key = n.ref.partition("/")
