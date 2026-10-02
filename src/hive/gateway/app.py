@@ -7,10 +7,10 @@ from urllib.parse import parse_qs
 
 from fastapi import FastAPI
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, Response
 
 from hive.gateway import actions, pages
-from hive.gateway.actions import ActionError, Tokens
+from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
 from hive.gateway.chat import load_chat
 from hive.gateway.desk import Desk, build_desk
@@ -27,7 +27,6 @@ SECURITY_HEADERS = {
 }
 MAX_BODY = 64 * 1024
 NEXT_RE = re.compile(r"^/(chat|p/[A-Za-z0-9%._~-]{1,200})?$")
-FLASH_CODES = frozenset(pages.FLASH)
 
 
 def _safe_next(value: str) -> str:
@@ -48,6 +47,7 @@ def create_app(
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
     tokens = tokens or Tokens()
+    control_runs = RunOnce()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -68,32 +68,26 @@ def create_app(
     def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
         return pages.Ctx(tokens.csrf(), writable=snap.ok, nxt=nxt)
 
-    def flash_of(request: Request) -> str | None:
-        code = request.query_params.get("ok")
-        return code if code in FLASH_CODES else None
-
     @app.get("/", response_class=HTMLResponse)
-    async def home(request: Request) -> HTMLResponse:
+    async def home() -> HTMLResponse:
         snap = await provider.get()
         desk = build_desk(snap.data) if snap.data is not None else None
-        return HTMLResponse(pages.render_home(snap, desk, ctx_for(snap, "/"), flash_of(request)))
+        return HTMLResponse(pages.render_home(snap, desk, ctx_for(snap, "/")))
 
     @app.get("/p/{name}", response_class=HTMLResponse)
-    async def project(name: str, request: Request) -> HTMLResponse:
+    async def project(name: str) -> HTMLResponse:
         snap = await provider.get()
         desk = build_desk(snap.data) if snap.data is not None else None
         proj = desk.projects.get(name) if desk else None
         status = 200 if (proj or desk is None) else 404
         ctx = ctx_for(snap, _quote_project(name))
-        return HTMLResponse(
-            pages.render_project(name, snap, proj, ctx, flash_of(request)), status_code=status
-        )
+        return HTMLResponse(pages.render_project(name, snap, proj, ctx), status_code=status)
 
     @app.get("/chat", response_class=HTMLResponse)
-    async def chat(request: Request) -> HTMLResponse:
+    async def chat() -> HTMLResponse:
         snap = await provider.get()
         view = await load_chat(settings)
-        return HTMLResponse(pages.render_chat(view, ctx_for(snap, "/chat"), flash_of(request)))
+        return HTMLResponse(pages.render_chat(view, ctx_for(snap, "/chat")))
 
     @app.post("/act/{name}")
     async def act(name: str, request: Request) -> Response:
@@ -114,13 +108,13 @@ def create_app(
                     "The desk is read-only until firstmate's snapshot is readable.", 503
                 )
             desk = build_desk(snap.data)
-            result = await _dispatch(name, form, desk, settings, tokens, nxt)
+            result = await _dispatch(name, form, desk, settings, tokens, control_runs, nxt)
         except ActionError as exc:
             actions.audit(name, "-", "refused", status=exc.status)
             return pages_error(name, str(exc), nxt, exc.status)
         if isinstance(result, HTMLResponse):  # a confirm page
             return result
-        return RedirectResponse(f"{nxt}?ok={result}", status_code=303)
+        return HTMLResponse(pages.render_outcome(result, nxt))
 
     return app
 
@@ -142,9 +136,10 @@ async def _dispatch(
     desk: Desk,
     settings: GatewaySettings,
     tokens: Tokens,
+    control_runs: RunOnce,
     nxt: str,
-) -> str | HTMLResponse:
-    """Run one action. Returns a flash code, or a confirm page for step-up actions."""
+) -> Outcome | HTMLResponse:
+    """Run one action. Returns its outcome, or a confirm page for step-up actions."""
     owner = settings.owner_login
     rid = form.get("rid", "")
 
@@ -155,8 +150,7 @@ async def _dispatch(
         task = actions.check_id(form.get("task", ""), "task id")
         _need(desk, "hold", task)
         release = form.get("release") == "1"
-        await actions.answer_hold(settings, task, form.get("text", ""), release, owner)
-        return "answer"
+        return await actions.answer_hold(settings, task, form.get("text", ""), release, owner)
 
     if name == "decision":
         task = actions.check_id(form.get("task", ""), "task id")
@@ -164,16 +158,14 @@ async def _dispatch(
         _need(desk, "decision", f"{task}/{key}")
         text = actions.check_text(form.get("text", ""), "answer")
         body = actions.decision_note_body(task, key, text, owner)
-        await actions.send_note(settings, body, rid, "decision", f"{task}/{key}")
-        return "decision"
+        return await actions.send_note(settings, body, rid, "decision", f"{task}/{key}")
 
     if name == "chat":
         text = actions.check_text(form.get("text", ""), "message")
-        await actions.send_note(settings, text, rid, "chat", "-")
-        return "chat"
+        return await actions.send_note(settings, text, rid, "chat", "-")
 
     if name == "ticket":
-        return await _ticket(form, desk, settings, nxt)
+        return await _ticket(form, desk, settings)
 
     if name == "merge":
         task = actions.check_id(form.get("task", ""), "task id")
@@ -192,8 +184,7 @@ async def _dispatch(
                 )
             )
         body = actions.merge_word_body(task, need.url or "", owner)
-        await actions.send_note(settings, body, rid, "merge", task)
-        return "merge"
+        return await actions.send_note(settings, body, rid, "merge", task)
 
     if name == "control":
         task = actions.check_id(form.get("task", ""), "task id")
@@ -202,9 +193,11 @@ async def _dispatch(
             raise ActionError("unsupported control verb")
         if not any(c.id == task for p in desk.projects.values() for c in p.crews):
             raise ActionError("That worker is not listed. Refresh the desk.", 409)
-        subject = f"{task}:{verb}"
-        if not tokens.check_step_up(form.get("step", ""), "control", subject):
-            step = tokens.step_up("control", subject)
+        if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
+            form.get("step", ""), "control", f"{task}:{verb}:{rid}"
+        ):
+            rid = actions.new_request_id()
+            step = tokens.step_up("control", f"{task}:{verb}:{rid}")
             extra = {}
             inner_note = ""
             if verb == "relaunch":
@@ -219,18 +212,16 @@ async def _dispatch(
                     ),
                     "control",
                     ctx(),
-                    {"task": task, "verb": verb, "step": step, **extra},
+                    {"task": task, "verb": verb, "rid": rid, "step": step, **extra},
                 )
             )
         note = form.get("note") if verb == "relaunch" else None
-        await actions.control(settings, task, verb, note)
-        return "control"
+        return await control_runs.run(rid, lambda: actions.control(settings, task, verb, note))
 
     raise ActionError("unknown action", 404)
 
 
-async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings, nxt: str) -> str:
-    del nxt
+async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings) -> Outcome:
     mode = form.get("mode", "")
     project = desk.projects.get(form.get("project", ""))
     if project is None:
@@ -242,8 +233,9 @@ async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings, n
         body = actions.ticket_request_body(
             "create", "(new)", project.name, "new", text, settings.owner_login
         )
-        await actions.send_note(settings, body, form.get("rid", ""), "ticket-create", project.name)
-        return "ticket"
+        return await actions.send_note(
+            settings, body, form.get("rid", ""), "ticket-create", project.name
+        )
     if mode == "edit":
         ticket = actions.check_id(form.get("ticket", ""), "ticket id")
         row = next((r for r in project.rows if r.id == ticket and r.state != "done"), None)
@@ -256,6 +248,5 @@ async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings, n
         body = actions.ticket_request_body(
             "edit", ticket, project.name, field, text, settings.owner_login
         )
-        await actions.send_note(settings, body, form.get("rid", ""), "ticket-edit", ticket)
-        return "ticket"
+        return await actions.send_note(settings, body, form.get("rid", ""), "ticket-edit", ticket)
     raise ActionError("unknown ticket action")

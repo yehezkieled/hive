@@ -25,6 +25,7 @@ GOOD = {
     "content-type": "application/x-www-form-urlencoded",
 }
 CSRF = Tokens(b"k" * 32)
+RID = "web-0123456789abcdef"
 
 # Every fake script appends one JSON line (argv + stdin) to $FM_HOME/calls.jsonl.
 LOGGER = r"""
@@ -88,8 +89,12 @@ def client(home: Path) -> TestClient:
 
 
 def post(client: TestClient, name: str, **fields: str):
-    data = {"csrf": CSRF.csrf(), "next": "/", "rid": "web-0123456789abcdef", **fields}
+    data = {"csrf": CSRF.csrf(), "next": "/", "rid": RID, **fields}
     return client.post(f"/act/{name}", content=urlencode(data), headers=GOOD)
+
+
+def _hidden(html: str, name: str) -> str:
+    return re.search(rf'name={name} value="([^"]+)"', html).group(1)
 
 
 # ---- guards -----------------------------------------------------------------------
@@ -141,7 +146,7 @@ def test_writes_refused_when_snapshot_unusable(tmp_path: Path) -> None:
 
 def test_answer_hold_calls_script_with_args_and_provenance(client: TestClient, home: Path) -> None:
     res = post(client, "answer", task="beta-hold", text="Use the warm palette", release="1")
-    assert res.status_code == 303 and res.headers["location"] == "/?ok=answer"
+    assert res.status_code == 200 and "closed: beta-hold" in res.text
     (call,) = _calls(home)
     assert call["script"] == "fm-captain-hold.sh"
     assert call["argv"][:2] == ["answer", "beta-hold"]
@@ -154,7 +159,7 @@ def test_answer_hold_calls_script_with_args_and_provenance(client: TestClient, h
 
 def test_answer_without_release_and_shell_chars_stay_argv(client: TestClient, home: Path) -> None:
     res = post(client, "answer", task="beta-hold", text="$(touch /tmp/pwned); `x`")
-    assert res.status_code == 303
+    assert res.status_code == 200
     (call,) = _calls(home)
     assert "--release" not in call["argv"]
     assert "$(touch /tmp/pwned)" in call["files"]["decision"]
@@ -185,7 +190,7 @@ def test_answer_script_refusal_is_shown(home: Path) -> None:
 
 def test_decision_answer_becomes_structured_note(client: TestClient, home: Path) -> None:
     res = post(client, "decision", task="beta-pr", key="board-review", text="Option A")
-    assert res.status_code == 303 and res.headers["location"] == "/?ok=decision"
+    assert res.status_code == 200 and "Sent to the first mate." in res.text
     (call,) = _calls(home)
     assert call["script"] == "fm-inbox.sh"
     assert call["argv"] == ["note", "--request-id", "web-0123456789abcdef", "--json", "-"]
@@ -203,10 +208,25 @@ def test_decision_must_be_open(client: TestClient, home: Path) -> None:
 
 def test_chat_sends_note_with_request_id(client: TestClient, home: Path) -> None:
     res = post(client, "chat", text="status please")
-    assert res.status_code == 303 and res.headers["location"] == "/?ok=chat"
+    assert res.status_code == 200 and "Sent to the first mate." in res.text
     (call,) = _calls(home)
     assert call["argv"] == ["note", "--request-id", "web-0123456789abcdef", "--json", "-"]
     assert call["stdin"] == "status please"
+
+
+@pytest.mark.parametrize(
+    ("reply", "shown"),
+    [
+        ('echo \'{"outcome":"created"}\'; exit 3', "has not been woken yet"),
+        ("echo '{\"outcome\":\"replay\"}'", "Already sent"),
+    ],
+)
+def test_chat_shows_the_inbox_outcome(
+    client: TestClient, home: Path, reply: str, shown: str
+) -> None:
+    _script(home, "fm-inbox.sh", f'case "$1" in\n  note) cat >/dev/null; {reply} ;;\nesac')
+    res = post(client, "chat", text="status please")
+    assert res.status_code == 200 and shown in res.text
 
 
 def test_chat_rejects_bad_request_id_and_empty(client: TestClient, home: Path) -> None:
@@ -266,7 +286,7 @@ def test_ticket_edit_request_shape(client: TestClient, home: Path) -> None:
         field="title",
         text="Write the alpha docs, v2",
     )
-    assert res.status_code == 303 and res.headers["location"] == "/?ok=ticket"
+    assert res.status_code == 200 and "Sent to the first mate." in res.text
     (call,) = _calls(home)
     assert call["stdin"] == (
         "HIVE-WEB TICKET REQUEST v1\naction: edit\nticket: alpha-docs\nproject: alpha\n"
@@ -283,7 +303,7 @@ def test_ticket_create_request_shape(client: TestClient, home: Path) -> None:
         title="Add dark mode",
         text="Respect prefers-color-scheme",
     )
-    assert res.status_code == 303
+    assert res.status_code == 200
     (call,) = _calls(home)
     assert "action: create\nticket: (new)\nproject: alpha\nfield: new\n" in call["stdin"]
     assert call["stdin"].endswith("---\nAdd dark mode\n\nRespect prefers-color-scheme\n")
@@ -312,24 +332,43 @@ def test_control_needs_confirm_step(client: TestClient, home: Path) -> None:
     res = post(client, "control", task="alpha-build", verb="interrupt")
     assert res.status_code == 200 and "Confirm" in res.text
     assert _calls(home) == []
-    step = re.search(r'name=step value="([^"]+)"', res.text).group(1)
-    done = post(client, "control", task="alpha-build", verb="interrupt", step=step, confirm="1")
-    assert done.status_code == 303 and done.headers["location"] == "/?ok=control"
+    step = _hidden(res.text, "step")
+    rid = _hidden(res.text, "rid")
+    done = post(
+        client, "control", task="alpha-build", verb="interrupt", step=step, rid=rid, confirm="1"
+    )
+    assert done.status_code == 200 and "ok: interrupt" in done.text
     (call,) = _calls(home)
     assert call["script"] == "fm-control.sh" and call["argv"] == ["alpha-build", "interrupt"]
 
 
+def test_repeated_control_confirm_runs_once(client: TestClient, home: Path) -> None:
+    res = post(client, "control", task="alpha-build", verb="relaunch")
+    fields = {k: _hidden(res.text, k) for k in ("step", "rid", "note")}
+    first = post(client, "control", task="alpha-build", verb="relaunch", confirm="1", **fields)
+    again = post(client, "control", task="alpha-build", verb="relaunch", confirm="1", **fields)
+    assert first.status_code == again.status_code == 200
+    assert "ok: relaunch" in first.text and "ok: relaunch" in again.text
+    assert len(_calls(home)) == 1
+
+
+def test_control_step_is_bound_to_request_id(client: TestClient, home: Path) -> None:
+    res = post(client, "control", task="alpha-build", verb="interrupt")
+    step = _hidden(res.text, "step")
+    other = post(client, "control", task="alpha-build", verb="interrupt", step=step)
+    assert other.status_code == 200 and "Confirm" in other.text and _calls(home) == []
+
+
 def test_control_relaunch_passes_note(client: TestClient, home: Path) -> None:
     res = post(client, "control", task="alpha-build", verb="relaunch", note="pick up from tests")
-    step = re.search(r'name=step value="([^"]+)"', res.text).group(1)
-    note = re.search(r'name=note value="([^"]+)"', res.text).group(1)
-    post(client, "control", task="alpha-build", verb="relaunch", step=step, note=note)
+    fields = {k: _hidden(res.text, k) for k in ("step", "rid", "note")}
+    post(client, "control", task="alpha-build", verb="relaunch", **fields)
     (call,) = _calls(home)
     assert call["argv"] == ["alpha-build", "relaunch", "--note", "pick up from tests"]
 
 
 def test_control_step_is_bound_to_task_and_verb(client: TestClient, home: Path) -> None:
-    step = CSRF.step_up("control", "alpha-build:interrupt")
+    step = CSRF.step_up("control", f"alpha-build:interrupt:{RID}")
     assert (
         post(
             client, "control", task="alpha-build", verb="relaunch", step=step, note="n"
@@ -337,14 +376,14 @@ def test_control_step_is_bound_to_task_and_verb(client: TestClient, home: Path) 
         == 200
     )  # back to the confirm page
     assert _calls(home) == []
-    expired = CSRF.step_up("control", "alpha-build:interrupt", now=1.0)
+    expired = CSRF.step_up("control", f"alpha-build:interrupt:{RID}", now=1.0)
     res = post(client, "control", task="alpha-build", verb="interrupt", step=expired)
     assert res.status_code == 200 and _calls(home) == []
 
 
 @pytest.mark.parametrize("verb", ["exit", "teardown", "relaunch;ls", ""])
 def test_no_exit_or_teardown(client: TestClient, home: Path, verb: str) -> None:
-    step = CSRF.step_up("control", f"alpha-build:{verb}")
+    step = CSRF.step_up("control", f"alpha-build:{verb}:{RID}")
     res = post(client, "control", task="alpha-build", verb=verb, step=step)
     assert res.status_code == 400 and _calls(home) == []
 
@@ -360,9 +399,8 @@ def test_control_unlisted_worker_refused(client: TestClient, home: Path) -> None
 def test_merge_word_is_a_note_after_step_up(client: TestClient, home: Path) -> None:
     res = post(client, "merge", task="alpha-build")
     assert res.status_code == 200 and "never merges" in res.text and _calls(home) == []
-    step = re.search(r'name=step value="([^"]+)"', res.text).group(1)
-    done = post(client, "merge", task="alpha-build", step=step)
-    assert done.status_code == 303 and done.headers["location"] == "/?ok=merge"
+    done = post(client, "merge", task="alpha-build", step=_hidden(res.text, "step"))
+    assert done.status_code == 200 and "Sent to the first mate." in done.text
     (call,) = _calls(home)
     assert call["script"] == "fm-inbox.sh" and call["argv"][0] == "note"
     assert call["stdin"].startswith("HIVE-WEB MERGE WORD v1\ntask: alpha-build\n")

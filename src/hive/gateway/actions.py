@@ -19,6 +19,7 @@ import re
 import secrets
 import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -89,6 +90,25 @@ class Tokens:
 
 def new_request_id() -> str:
     return f"web-{secrets.token_hex(8)}"
+
+
+class RunOnce:
+    """In-memory request ids seen within the step-up lifetime.
+
+    A repeat POST with the same id awaits the first run and gets its result (or error)
+    instead of running the script again. Nothing is persisted; expired ids are pruned.
+    """
+
+    def __init__(self, ttl_s: float = STEP_UP_TTL_S) -> None:
+        self._ttl_s = ttl_s
+        self._runs: dict[str, tuple[float, asyncio.Future[Outcome]]] = {}
+
+    async def run(self, request_id: str, start: Callable[[], Awaitable[Outcome]]) -> Outcome:
+        now = time.time()
+        self._runs = {k: v for k, v in self._runs.items() if v[0] > now}
+        if request_id not in self._runs:
+            self._runs[request_id] = (now + self._ttl_s, asyncio.ensure_future(start()))
+        return await asyncio.shield(self._runs[request_id][1])
 
 
 # ---- running scripts --------------------------------------------------------------

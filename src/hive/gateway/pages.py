@@ -52,21 +52,6 @@ def _safe_url(url: str | None) -> str | None:
     return None
 
 
-FLASH = {
-    "answer": "Answer recorded.",
-    "chat": "Sent to the first mate.",
-    "ticket": "Ticket request sent to the first mate.",
-    "merge": "Merge word recorded for the first mate.",
-    "control": "Control verb delivered.",
-    "decision": "Answer sent to the first mate.",
-}
-
-
-def flash(code: str | None) -> str:
-    msg = FLASH.get(code or "")
-    return f"<div class='banner ok' role=status>{esc(msg)}</div>" if msg else ""
-
-
 class Ctx:
     """Per-render write context: CSRF token and whether writes are allowed at all."""
 
@@ -151,8 +136,8 @@ def _nav(title: str, snap_ok: bool) -> str:
     )
 
 
-def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx, flash_code: str | None = None) -> str:
-    head = _nav("Hive desk", snap.ok) + flash(flash_code)
+def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx) -> str:
+    head = _nav("Hive desk", snap.ok)
     if desk is None:
         return _page("Hive desk", head + _banner(snap))
     needs = (
@@ -226,7 +211,6 @@ def render_project(
     snap: Snapshot,
     project: Project | None,
     ctx: Ctx,
-    flash_code: str | None = None,
 ) -> str:
     back = "<p><a href='/'>← Desk</a></p>"
     if project is None:
@@ -254,7 +238,7 @@ def render_project(
     crews = "".join(_crew(c, ctx) for c in project.crews) or "<p class=mute>No live crews.</p>"
     return _page(
         f"{name} · Hive desk",
-        f"{back}<h1>{esc(name)}</h1>{flash(flash_code)}<h2>Needs you ({len(project.needs_you)})</h2>"
+        f"{back}<h1>{esc(name)}</h1><h2>Needs you ({len(project.needs_you)})</h2>"
         f"{needs}<h2>Crews</h2>{crews}<h2>Backlog ({len(project.rows)})</h2>"
         f"{_new_ticket(project.name, ctx)}{''.join(rows) or '<p class=mute>Empty.</p>'}",
     )
@@ -273,7 +257,7 @@ _STATE_LABEL = {
 }
 
 
-def render_chat(view: ChatView, ctx: Ctx, flash_code: str | None = None) -> str:
+def render_chat(view: ChatView, ctx: Ctx) -> str:
     if view.can_receive is False:
         status = (
             "<div class=banner role=status>The first mate session is not receiving right now. "
@@ -311,7 +295,7 @@ def render_chat(view: ChatView, ctx: Ctx, flash_code: str | None = None) -> str:
             items += "<p class=mute>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>"
     return _page(
         "Chat · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>Chat with the first mate</h1>{flash(flash_code)}"
+        f"<p><a href='/'>← Desk</a></p><h1>Chat with the first mate</h1>"
         f"{status}{form}<h2>Messages and requests</h2>{items}",
     )
 
@@ -337,4 +321,4 @@ def render_result(title: str, message: str, nxt: str, ok: bool) -> str:
 
 
 def render_outcome(out: Outcome, nxt: str) -> str:
-    return render_result(out.action, out.summary, nxt, True)
+    return render_result(out.action.replace("-", " ").capitalize(), out.summary, nxt, True)
