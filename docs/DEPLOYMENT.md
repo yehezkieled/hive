@@ -1330,7 +1330,8 @@ journal); free text is never logged, only its length. Chat shows receipts
 and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
 the header of every page; Home has a compose box). One fixed inline script,
 pinned by hash in the CSP, localises times, polls `/chat` every 4 s, and
-refreshes Home and Project every 30 s unless a form is being used.
+refreshes Home and Project every 30 s; neither swaps the page while text is
+selected, and the refresh also waits while a form is being used.
 
 Auth (everything else is a bare 403; a method other than GET/HEAD, or POST
 outside `/act/`, is 405): the TCP peer must be loopback,
