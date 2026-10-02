@@ -21,6 +21,7 @@ class NeedsYou:
     ref: str
     text: str
     url: str | None = None
+    gated: bool = False  # a hold on a work item: answering releases it instead of closing
 
 
 @dataclass
@@ -100,7 +101,13 @@ def build_desk(data: dict) -> Desk:
         )
         if rec.get("captain_actionable") is True:
             project(name).needs_you.append(
-                NeedsYou(name, "hold", _s(rec.get("id")), hold or _s(rec.get("title")))
+                NeedsYou(
+                    name,
+                    "hold",
+                    _s(rec.get("id")),
+                    hold or _s(rec.get("title")),
+                    gated=_s(rec.get("kind")) != "captain",
+                )
             )
 
     for task in _list(data.get("tasks")):

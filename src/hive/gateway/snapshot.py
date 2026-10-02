@@ -93,10 +93,10 @@ class SnapshotProvider:
         self._at = 0.0
         self._value: Snapshot | None = None
 
-    async def get(self) -> Snapshot:
+    async def get(self, fresh: bool = False) -> Snapshot:
         async with self._lock:
             now = time.monotonic()
-            if self._value is None or now - self._at > self._settings.snapshot_ttl_s:
+            if fresh or self._value is None or now - self._at > self._settings.snapshot_ttl_s:
                 self._value = await run_snapshot(self._settings)
                 self._at = time.monotonic()
             return self._value

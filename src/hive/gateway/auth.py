@@ -1,7 +1,8 @@
 """Owner-only access: Tailscale login header, loopback peer, Host/Origin allowlist.
 
 Everything that fails a check is a bare 403, with no hint about which check failed.
-The gateway is read-only, so any method other than GET/HEAD is refused after auth.
+Reads are GET/HEAD; the only other method is POST, and only under ``/act/``. A POST must
+also carry an allowed ``Origin`` and not be marked cross-site by the browser.
 """
 
 from __future__ import annotations
@@ -42,9 +43,18 @@ def is_authorised(request: Request, settings: GatewaySettings) -> bool:
     return True
 
 
+def is_same_origin_write(request: Request) -> bool:
+    """A write needs an Origin (``is_authorised`` vetted it) and no cross-site hint."""
+    if request.headers.get("origin") is None:
+        return False
+    return request.headers.get("sec-fetch-site", "same-origin") in ("same-origin", "none")
+
+
 def forbidden() -> Response:
     return PlainTextResponse("forbidden", status_code=403)
 
 
 def method_not_allowed() -> Response:
-    return PlainTextResponse("read-only", status_code=405, headers={"Allow": "GET, HEAD"})
+    return PlainTextResponse(
+        "method not allowed", status_code=405, headers={"Allow": "GET, HEAD, POST"}
+    )
