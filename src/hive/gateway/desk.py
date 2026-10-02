@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import PurePath
 
-NO_PROJECT = "(no project)"
+NO_PROJECT = "General"
 STATE_ORDER = ("in_flight", "queued", "done")
 
 
@@ -21,6 +21,7 @@ class NeedsYou:
     ref: str
     text: str
     url: str | None = None
+    title: str = ""  # the work item's human title, when the snapshot knows it
     gated: bool = False  # a hold on a work item: answering releases it instead of closing
 
 
@@ -41,6 +42,7 @@ class Crew:
     harness: str
     state: str
     detail: str
+    title: str = ""
 
 
 @dataclass
@@ -81,11 +83,13 @@ def build_desk(data: dict) -> Desk:
         return projects.setdefault(name, Project(name))
 
     task_project: dict[str, str] = {}
+    task_title: dict[str, str] = {}
     for rec in _list(_list_of(data, "backlog", "records")):
         if not isinstance(rec, dict):
             continue
         name = _project_name(rec.get("repo"))
         task_project[_s(rec.get("id"))] = name
+        task_title[_s(rec.get("id"))] = _s(rec.get("title"))
         hold = _s(rec.get("hold_reason")) or None
         project(name).rows.append(
             Row(
@@ -106,6 +110,7 @@ def build_desk(data: dict) -> Desk:
                     "hold",
                     _s(rec.get("id")),
                     hold or _s(rec.get("title")),
+                    title=_s(rec.get("title")),
                     gated=_s(rec.get("kind")) != "captain",
                 )
             )
@@ -127,6 +132,7 @@ def build_desk(data: dict) -> Desk:
                 _s(task.get("harness")),
                 _s(cur.get("state")),
                 _s(cur.get("detail")),
+                task_title.get(tid, ""),
             )
         )
         hints = task.get("hints") if isinstance(task.get("hints"), dict) else {}
@@ -134,7 +140,11 @@ def build_desk(data: dict) -> Desk:
             if isinstance(dec, dict):
                 project(name).needs_you.append(
                     NeedsYou(
-                        name, "decision", f"{tid}/{_s(dec.get('key'))}", _s(dec.get("summary"))
+                        name,
+                        "decision",
+                        f"{tid}/{_s(dec.get('key'))}",
+                        _s(dec.get("summary")),
+                        title=task_title.get(tid, ""),
                     )
                 )
 
@@ -144,7 +154,14 @@ def build_desk(data: dict) -> Desk:
         tid = _s(item.get("task"))
         name = task_project.get(tid, NO_PROJECT)
         project(name).needs_you.append(
-            NeedsYou(name, "merge", tid, _s(item.get("reason")), _s(item.get("url")) or None)
+            NeedsYou(
+                name,
+                "merge",
+                tid,
+                _s(item.get("reason")),
+                _s(item.get("url")) or None,
+                task_title.get(tid, ""),
+            )
         )
 
     for proj in projects.values():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import stat
 from pathlib import Path
 
@@ -86,10 +87,18 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     assert "Needs you (3)" in html  # hold + decision + merge approval
     assert "merge approval needed" in html and "Choose option A or B" in html
     assert "alpha" in html and "beta" in html
-    assert "&lt;b&gt;chore&lt;/b&gt;" in html or "(no project)" in html
+    assert "General" in html and "(no project)" not in html
     assert "<b>chore</b>" not in html
     assert res.headers["cache-control"] == "no-store"
-    assert "<script" not in html
+    assert html.count("<script") == 1  # the one pinned inline script
+    assert "<a href='/chat'" in html and "Message the first mate" in html
+    needs = html.split("Needs you (3)", 1)[1].split("<h2>Projects</h2>", 1)[0]
+    leads = re.findall(r"<div class=need><span class=what>([^<]*)</span>", needs)
+    subs = re.findall(r"<span class=sub>([^<]*)</span>", needs)
+    assert len(leads) == len(subs) == 3
+    assert any(lead.endswith("Build the alpha widget") for lead in leads)
+    assert not any("alpha-build" in lead for lead in leads)
+    assert any("alpha-build" in sub for sub in subs)
 
 
 def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -> None:
@@ -102,7 +111,7 @@ def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -
 
 def test_project_page_from_fixture(client: TestClient) -> None:
     html = client.get("/p/alpha", headers=GOOD).text
-    assert "Build the alpha widget" in html and "blocked by alpha-build" in html
+    assert "Build the alpha widget" in html and "blocked by Build the alpha widget" in html
     assert "merge approval needed" in html
     assert "Pick the beta palette" not in html
 
@@ -155,3 +164,41 @@ async def test_provider_caches(tmp_path: Path) -> None:
     await provider.get()
     await provider.get()
     assert len(counter.read_text().splitlines()) == 1
+
+
+def test_cards_are_plain_language_and_board_links_rewritten(tmp_path: Path) -> None:
+    data = json.loads(FIXTURE.read_text())
+    for task in data["tasks"]:
+        for dec in task.get("hints", {}).get("open_decisions", []):
+            dec["summary"] = "pick one; board http://127.0.0.1:4387/session/abc123"
+    home = _fake_home(tmp_path, f"cat <<'EOF'\n{json.dumps(data)}\nEOF")
+    settings = GatewaySettings(
+        owner_login=OWNER,
+        allowed_hosts=(HOST,),
+        fm_home=home,
+        snapshot_ttl_s=0,
+        board_url="https://board.example.ts.net:8445/",
+    )
+    c = TestClient(create_app(settings), client=("127.0.0.1", 5000))
+    res = c.get("/", headers=GOOD)
+    html = res.text
+    assert "127.0.0.1:4387" not in html
+    assert 'href="https://board.example.ts.net:8445/session/abc123"' in html
+    assert "Pick the beta palette" in html.split("Projects")[0]  # human title leads the card
+    assert "script-src 'sha256-" in res.headers["content-security-policy"]
+
+
+def test_times_are_local_not_utc(client: TestClient) -> None:
+    html = client.get("/", headers=GOOD).text
+    assert "<time datetime='2030-01-02T03:04:05+00:00'>Wed 2 Jan, 2:04 PM</time>" in html
+    assert "03:04:05Z" not in html
+
+
+def test_header_links_chat_on_every_page(client: TestClient) -> None:
+    for path in ("/", "/p/alpha", "/chat"):
+        assert "<a href='/chat'" in client.get(path, headers=GOOD).text
+
+
+def test_auto_refresh_hooks(client: TestClient) -> None:
+    assert "data-refresh=30000" in client.get("/", headers=GOOD).text
+    assert "data-refresh=30000" in client.get("/p/alpha", headers=GOOD).text

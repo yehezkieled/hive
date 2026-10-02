@@ -296,10 +296,20 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
     }
     (home / "receipts.json").write_text(json.dumps(receipts))
     html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
-    assert "done, applied" in html and "answered" in html
+    assert "done, applied" in html and "Answered" in html
     assert "waiting for the first mate" in html and "ticket request" in html
     assert "<b>note</b>" not in html and "&lt;b&gt;note&lt;/b&gt;" in html
     assert re.search(r"/act/chat", html)
+    # a conversation: oldest first, the reply right after its message, newest last
+    assert (
+        html.index("first<")
+        < html.index("done, applied")
+        < html.index("later")
+        < html.index("new title")
+    )
+    assert "data-poll" in html
+    assert "2030-01-02T00:00:05+00:00" in html  # <time> the page script localises
+    assert "Wed 2 Jan, 11:00 AM" in html
 
 
 # ---- tickets ----------------------------------------------------------------------

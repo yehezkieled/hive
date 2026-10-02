@@ -10,6 +10,8 @@ DEFAULT_OWNER = "yehezkieled1502@gmail.com"
 DEFAULT_FM_HOME = "/home/hezki/firstmate"
 DEFAULT_HOSTS = ("desktop-lfme032.tailfb3900.ts.net", "localhost", "127.0.0.1")
 DEFAULT_PORT = 8480
+DEFAULT_BOARD_URL = "https://desktop-lfme032.tailfb3900.ts.net:8445"
+DEFAULT_TZ = "Australia/Sydney"
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
 
 
@@ -26,6 +28,10 @@ class GatewaySettings:
     fm_home: Path = Path(DEFAULT_FM_HOME)
     # Only a request whose TCP peer is one of these may carry the login header.
     trusted_peers: frozenset[str] = field(default=LOOPBACK_PEERS)
+    # Public origin of the Lavish board bridge; loopback board links are rewritten to it.
+    board_url: str = DEFAULT_BOARD_URL
+    # Time zone for server-rendered times; the page script carries its own fallback.
+    default_tz: str = DEFAULT_TZ
     snapshot_ttl_s: float = 5.0
     snapshot_timeout_s: float = 20.0
 
@@ -40,4 +46,6 @@ class GatewaySettings:
             owner_login=env.get("HIVE_GATEWAY_OWNER", DEFAULT_OWNER).strip().lower(),
             allowed_hosts=_csv(env.get("HIVE_GATEWAY_HOSTS"), DEFAULT_HOSTS),
             fm_home=Path(env.get("HIVE_GATEWAY_FM_HOME", DEFAULT_FM_HOME)),
+            board_url=env.get("HIVE_GATEWAY_BOARD_URL", DEFAULT_BOARD_URL).strip().rstrip("/"),
+            default_tz=env.get("HIVE_GATEWAY_TZ", DEFAULT_TZ).strip() or DEFAULT_TZ,
         )
