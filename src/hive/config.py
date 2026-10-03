@@ -100,13 +100,12 @@ def _csv(raw: str) -> list[str]:
 
 
 # Harness selection (ADR 0029). Hive drives whichever agent harness is installed
-# AND signed in, preferring them in HARNESS_ORDER (Pi first — it needs no Claude
-# login, which Claude Code drops every ~30 days). Within a harness, RUN_MODE_ORDER
+# AND signed in, preferring them in HARNESS_ORDER. Within a harness, RUN_MODE_ORDER
 # is the order of run modes: headless (`-p`, one subprocess per turn) is the
 # default; PTY (a persistent interactive session) is the fallback, entered only
 # when headless is refused or out of quota — detected from the harness's own
-# error, never guessed. Both are comma-separated, e.g. HIVE_HARNESS_ORDER=pi,claude.
-HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "pi,claude"))
+# error, never guessed. Both are comma-separated.
+HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "codex,claude,pi"))
 RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty"))
 # Roles whose lockdown is a Claude-only control Pi would silently drop, mapped to
 # that guardrail: a maestro's ownership-guard PreToolUse hook (ADR 0017), and the
@@ -136,6 +135,8 @@ PI_BINARY = os.path.expanduser(os.environ.get("HIVE_PI_BINARY", "pi"))
 PI_MODEL = os.environ.get("HIVE_PI_MODEL", "")
 PI_PROVIDER = os.environ.get("HIVE_PI_PROVIDER", "")
 CODEX_BINARY = os.path.expanduser(os.environ.get("HIVE_CODEX_BINARY", "codex"))
+CODEX_MODEL = os.environ.get("HIVE_CODEX_MODEL", "gpt-6.1-sol")
+CODEX_EFFORT = os.environ.get("HIVE_CODEX_EFFORT", "medium")
 # Hard cap on one headless turn (seconds). Headless has no streaming no-progress
 # reader like the PTY, so a wedged subprocess is bounded by wall clock instead.
 HEADLESS_TIMEOUT_S = float(os.environ.get("HIVE_HEADLESS_TIMEOUT_S", "3600"))

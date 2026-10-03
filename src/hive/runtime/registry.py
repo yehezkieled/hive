@@ -1,6 +1,6 @@
 """The harnesses Hive knows about — the single place to register a new one.
 
-To add a harness (Codex T015, OpenCode T016, a direct model-API harness): write
+To add a harness (OpenCode T016, a direct model-API harness): write
 its adapter(s) implementing ``Runtime``, write a ``probe`` that answers
 installed/signed-in without spending credit, and add one ``HarnessSpec`` below.
 Detection, preference ordering, fallback and the "no usable harness" message are
@@ -9,16 +9,13 @@ all driven off the specs — nothing else changes.
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-
 import hive.config as config
 from hive.runtime.claude_adapter import ClaudeAdapter
 from hive.runtime.claude_headless import ClaudeHeadlessAdapter, probe_claude
+from hive.runtime.codex_adapter import CodexAdapter, probe_codex
 from hive.runtime.harness import (
     HarnessDetector,
     HarnessSpec,
-    HarnessStatus,
     NoUsableHarnessError,
     RunMode,
     RuntimeContext,
@@ -44,19 +41,8 @@ def _build_pi(mode: RunMode, ctx: RuntimeContext):
     return PiAdapter(ctx.config, ctx.cwd, ctx.resume_session_id)
 
 
-def probe_codex() -> HarnessStatus:
-    """Detect-only: Codex is reported in the "no usable harness" message so the user
-    can see it is available, but Hive has no Codex adapter until T015."""
-    binary = config.CODEX_BINARY
-    if shutil.which(binary) is None:
-        return HarnessStatus("codex", False, None, f"{binary} not found", has_adapter=False)
-    try:
-        proc = subprocess.run(
-            [binary, "login", "status"], capture_output=True, text=True, timeout=15
-        )
-    except (OSError, subprocess.SubprocessError):
-        return HarnessStatus("codex", True, None, "", has_adapter=False)
-    return HarnessStatus("codex", True, proc.returncode == 0, "", has_adapter=False)
+def _build_codex(mode: RunMode, ctx: RuntimeContext):
+    return CodexAdapter(ctx.config, ctx.cwd, ctx.resume_session_id)
 
 
 def default_specs() -> dict[str, HarnessSpec]:
@@ -77,8 +63,13 @@ def default_specs() -> dict[str, HarnessSpec]:
             enforces_fence=True,
             login_hint="run `claude auth login` on the host",
         ),
-        # T015: give this a build() + modes and it joins the fallback chain.
-        "codex": HarnessSpec(name="codex", probe=probe_codex),
+        "codex": HarnessSpec(
+            name="codex",
+            probe=probe_codex,
+            modes=(RunMode.HEADLESS,),
+            build=_build_codex,
+            login_hint="run `codex login` on the host",
+        ),
     }
 
 

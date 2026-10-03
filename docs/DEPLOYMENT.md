@@ -59,21 +59,22 @@ any one and the next turn works, no restart.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HIVE_HARNESS_ORDER` | `pi,claude` | Preference order. A harness not listed is tried after the listed ones. |
-| `HIVE_HARNESS_ORDER_<ROLE>` | maestro/vault: `claude,pi`; others (leads): `HIVE_HARNESS_ORDER` | Per-role override, e.g. `HIVE_HARNESS_ORDER_VAULT=pi,claude`. Maestros (Ownership guard) and the Vault (Bash/Write/Edit denylist) default to Claude first, since Pi enforces neither. |
+| `HIVE_HARNESS_ORDER` | `codex,claude,pi` | Preference order. A harness not listed is tried after the listed ones. |
+| `HIVE_HARNESS_ORDER_<ROLE>` | maestro/vault: `claude,codex,pi`; others (leads): `HIVE_HARNESS_ORDER` | Per-role override, e.g. `HIVE_HARNESS_ORDER_VAULT=codex,claude,pi`. Maestros (Ownership guard) and the Vault (Bash/Write/Edit denylist) default to Claude first, since Codex and Pi do not enforce those controls. |
 | `HIVE_RUN_MODE_ORDER` | `headless,pty` | Mode order within a harness; omit a mode to disable it (`headless` alone = never spawn a PTY). |
 | `HIVE_PI_BINARY` / `HIVE_PI_PROVIDER` / `HIVE_PI_MODEL` | `pi` / *(unset)* / *(unset)* | Pi launcher; optional provider/model (`--provider`/`--model`). Unset = Pi's own default model. With a provider set, sign-in is probed with `pi auth check --provider`. |
+| `HIVE_CODEX_BINARY` / `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | `codex` / `gpt-6.1-sol` / `medium` | Codex launcher, model, and reasoning effort. Login is probed with `codex login status`. |
 | `HIVE_HEADLESS_TIMEOUT_S` | `3600` | Wall-clock cap on one headless turn. |
 | `HIVE_HEADLESS_QUOTA_RETRY_S` | `900` | After headless reports quota/refusal, how long its PTY serves turns before headless is retried. |
 | `HIVE_HARNESS_RETRY_S` / `HIVE_HARNESS_DETECT_TTL_S` | `60` / `60` | Retry delay after an auth/unavailable failure; probe cache lifetime. |
 
 Pi caveats: no MCP (`search_knowledge` unavailable), no `/goal`, and the
 Ownership guard and the tool denylists do not apply to a Pi entity (cwd only).
-Maestros and the Vault therefore default to `claude,pi` and use Pi only when Claude
-cannot run the turn; when one does run on Pi, `/status` shows the lost guardrail
+Codex also lacks Hive's Claude-only ownership hook and denylist. Maestros and
+the Vault therefore default to `claude,codex,pi`; when either runs on Codex or Pi,
+`/status` shows the lost guardrail
 ("⚠️ ownership fence NOT enforced" / "⚠️ tool denylist NOT enforced") next to it and
-Telegram gets an alert. Leads run Pi first and are never flagged: their denylist only
-blocks Claude Code tools Pi lacks. The startup log
+Telegram gets an alert. Leads run Codex first and are never flagged. The startup log
 prints one run order per distinct role order. Headless Claude strips
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the subprocess so it can only use
 the subscription login, never per-token API billing.
@@ -1267,7 +1268,7 @@ become no-ops — Hive still boots.
 
 ## 10. Known limitations (as of 2026-04-26)
 
-- **Headless first, PTY fallback** — turns run as one `pi -p` / `claude -p`
+- **Headless first, PTY fallback** — turns run as one `codex exec` / `pi -p` / `claude -p`
   subprocess each (ADR 0029; Ticket 007's PTY-only runtime is superseded). The
   Claude PTY session spawns lazily, only when headless is refused or out of
   quota; conversation context carries across modes via `--resume`/`--continue`.
@@ -1276,9 +1277,11 @@ become no-ops — Hive still boots.
   so per-turn `cost_usd` is `None`; token counts are the real accountability
   number. (Ticket 013 retired the advisor's one-shot `claude -p`; native
   `/advisor` is plan-billed in-session, so no metered call remains.)
-- **Harness coverage** — Pi and Claude Code only. Codex is detected but has no
-  adapter (T015); OpenCode (T016) and direct model-API support are not built.
-  Failover between harnesses is automatic only for refusals (auth/quota/refused).
+- **Harness coverage** — Codex, Claude Code, and Pi. OpenCode (T016) and direct
+  model-API support are not built. Failover between harnesses is automatic only
+  for refusals (auth/quota/refused). Codex reports tokens per turn through its
+  JSON stream; it does not provide Hive a numeric remaining-quota reading.
+  `/quota` and its threshold alerts still describe the Claude plan only.
 - **Blueprints require `VOYAGE_API_KEY`** — without it, `/blueprint save|search`
   and auto-retrieval of blueprints into agent prompts are disabled silently.
   Hive still boots, but these features are no-ops. (Switched from OpenAI →

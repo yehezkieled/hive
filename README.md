@@ -3,9 +3,9 @@
 Hive is a multi-agent orchestration platform: it runs and coordinates
 a fleet of AI coding agents that you control from Telegram. Each
 Entity (Maestro / Team Lead) runs on a Harness Hive picks per turn —
-Pi first (Claude Code first for Maestros and the Vault), each in headless mode by default with
+Codex first (Claude Code first for Maestros and the Vault), each in headless mode by default with
 Claude's interactive PTY session as the fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
-Codex and OpenCode adapters are planned.
+Codex runs `gpt-6.1-sol` at medium reasoning effort by default; OpenCode remains planned.
 
 See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
 Maestro, Harness, Plan-billed, …) and
@@ -34,7 +34,7 @@ Adapter — uniform turn-level interface, harness-specific internals.
 
 - Python 3.12+
 - Docker + Docker Compose
-- Claude Code CLI on the host (`claude` must work)
+- At least one signed-in Codex, Claude Code, or Pi CLI on the host
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - OpenAI API key (optional — for blueprint embeddings)
 

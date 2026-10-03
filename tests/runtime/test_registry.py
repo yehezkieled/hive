@@ -6,6 +6,7 @@ import hive.config as config
 from hive.runtime.adapter_config import AdapterConfig
 from hive.runtime.claude_adapter import ClaudeAdapter
 from hive.runtime.claude_headless import ClaudeHeadlessAdapter
+from hive.runtime.codex_adapter import CodexAdapter
 from hive.runtime.harness import HarnessDetector, HarnessStatus, RunMode, RuntimeContext
 from hive.runtime.pi_adapter import PiAdapter
 from hive.runtime.registry import availability_report, default_specs
@@ -13,12 +14,13 @@ from hive.runtime.registry import availability_report, default_specs
 CTX = RuntimeContext(AdapterConfig(name="otter", role="lead"))
 
 
-def test_default_specs_cover_pi_claude_and_detect_only_codex() -> None:
+def test_default_specs_cover_codex_claude_and_pi() -> None:
     specs = default_specs()
     assert set(specs) == {"pi", "claude", "codex"}
     assert specs["pi"].modes == (RunMode.HEADLESS,)  # no Pi PTY driver
     assert set(specs["claude"].modes) == {RunMode.HEADLESS, RunMode.PTY}
-    assert not specs["codex"].has_adapter  # T015 extension point: detect only
+    assert specs["codex"].modes == (RunMode.HEADLESS,)
+    assert specs["codex"].has_adapter
     assert specs["claude"].native_goal and not specs["pi"].native_goal
 
 
@@ -27,10 +29,11 @@ def test_specs_build_the_right_runtime_per_mode() -> None:
     assert isinstance(specs["pi"].build(RunMode.HEADLESS, CTX), PiAdapter)
     assert isinstance(specs["claude"].build(RunMode.HEADLESS, CTX), ClaudeHeadlessAdapter)
     assert isinstance(specs["claude"].build(RunMode.PTY, CTX), ClaudeAdapter)
+    assert isinstance(specs["codex"].build(RunMode.HEADLESS, CTX), CodexAdapter)
 
 
-def test_default_preference_is_pi_then_claude_headless_first() -> None:
-    assert config.HARNESS_ORDER[:2] == ["pi", "claude"]
+def test_default_preference_is_codex_then_claude_then_pi() -> None:
+    assert config.HARNESS_ORDER == ["codex", "claude", "pi"]
     assert config.RUN_MODE_ORDER == ["headless", "pty"]
 
 
@@ -39,7 +42,7 @@ def _detector(pi: bool | None, claude: bool | None) -> HarnessDetector:
     probes = {
         "pi": HarnessStatus("pi", True, pi),
         "claude": HarnessStatus("claude", True, claude, "Claude Code is logged out"),
-        "codex": HarnessStatus("codex", True, True, has_adapter=False),
+        "codex": HarnessStatus("codex", True, False),
     }
     return HarnessDetector(
         {n: type(s)(**{**s.__dict__, "probe": (lambda n=n: probes[n])}) for n, s in specs.items()}
