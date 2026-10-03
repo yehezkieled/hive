@@ -16,7 +16,7 @@ from pathlib import Path
 class AdapterConfig:
     """Everything an adapter needs to launch one entity on its harness."""
 
-    model: str = "sonnet"
+    model: str = ""
     system_prompt: str = ""
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
@@ -33,6 +33,7 @@ class AdapterConfig:
     # Selects the PA vs. project-maestro identity block in the system prompt.
     # Always False for non-maestro roles.
     is_pa: bool = False
+    codex_usage: dict = field(default_factory=dict)
 
 
 def build_system_prompts(cfg: AdapterConfig) -> list[str]:

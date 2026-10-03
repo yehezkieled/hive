@@ -621,7 +621,7 @@ class CommandDispatcher:
             return "Usage: /new maestro <name> [model]"
 
         name = parts[0]
-        model = parts[1] if len(parts) > 1 else "opus"
+        model = parts[1] if len(parts) > 1 else ""
 
         path = self.personalities_dir / f"{name}.md"
         if path.exists():
@@ -760,12 +760,13 @@ def _render_personality_md(name: str, purpose: str, style: str, model: str) -> s
     `personalities/_template.md` so :func:`parse_personality` reads it.
     """
     title = name[:1].upper() + name[1:] if name else name
+    model_line = f"- **Model**: {model}\n" if model else ""
     return (
         f"# Maestro: {title}\n\n"
         "## Identity\n"
         f"- **Name**: {name}\n"
         "- **Role**: maestro\n"
-        f"- **Model**: {model}\n\n"
+        f"{model_line}\n"
         "## System Prompt\n"
         f"{title} is a maestro for: {purpose}.\n"
         f"Communication style: {style}.\n"

@@ -85,7 +85,7 @@ TELEGRAM_ALLOWED_USER_IDS: list[int] = [
 ]
 
 # Claude CLI defaults
-DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "opus")
+DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "")
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # Absolute path (or bare name) of the `claude` binary the fleet spawns. The
 # service PATH omits ~/.local/bin, so a bare "claude" silently resolves to the
@@ -100,18 +100,17 @@ def _csv(raw: str) -> list[str]:
 
 
 # Harness selection (ADR 0029). Hive drives whichever agent harness is installed
-# AND signed in, preferring them in HARNESS_ORDER (Pi first — it needs no Claude
-# login, which Claude Code drops every ~30 days). Within a harness, RUN_MODE_ORDER
+# AND signed in, preferring them in HARNESS_ORDER. Within a harness, RUN_MODE_ORDER
 # is the order of run modes: headless (`-p`, one subprocess per turn) is the
 # default; PTY (a persistent interactive session) is the fallback, entered only
 # when headless is refused or out of quota — detected from the harness's own
-# error, never guessed. Both are comma-separated, e.g. HIVE_HARNESS_ORDER=pi,claude.
-HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "pi,claude"))
+# error, never guessed. Both are comma-separated.
+HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "codex,claude,pi"))
 RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty"))
-# Roles whose lockdown is a Claude-only control Pi would silently drop, mapped to
+# Roles whose lockdown is a Claude-only control Codex/Pi would drop, mapped to
 # that guardrail: a maestro's ownership-guard PreToolUse hook (ADR 0017), and the
 # vault's Bash/Write/Edit denial (its whole lockdown). These roles default to
-# Claude first and use Pi only when Claude cannot run the turn, with a loud
+# Claude first and use Codex/Pi only when Claude cannot run the turn, with a loud
 # "<guardrail> NOT enforced" alert. A lead is not here: its denylist only blocks
 # Claude Code tools Pi does not have, so it loses nothing on Pi.
 FENCED_ROLES: dict[str, str] = {"maestro": "ownership fence", "vault": "tool denylist"}
@@ -136,6 +135,28 @@ PI_BINARY = os.path.expanduser(os.environ.get("HIVE_PI_BINARY", "pi"))
 PI_MODEL = os.environ.get("HIVE_PI_MODEL", "")
 PI_PROVIDER = os.environ.get("HIVE_PI_PROVIDER", "")
 CODEX_BINARY = os.path.expanduser(os.environ.get("HIVE_CODEX_BINARY", "codex"))
+CODEX_MODEL = os.environ.get("HIVE_CODEX_MODEL", "gpt-6.1-sol")
+CODEX_EFFORT = os.environ.get("HIVE_CODEX_EFFORT", "medium")
+
+
+def claude_model_for(role: str) -> str:
+    """Role-specific Claude default; the maestro is the Opus orchestrator."""
+    default = "claude-opus-5-5" if role == "maestro" else "claude-sonnet-5-5"
+    return os.environ.get(f"HIVE_CLAUDE_MODEL_{role.upper()}", default)
+
+
+def codex_model_for(role: str) -> str:
+    return os.environ.get(f"HIVE_CODEX_MODEL_{role.upper()}", CODEX_MODEL)
+
+
+def codex_effort_for(role: str) -> str:
+    return os.environ.get(f"HIVE_CODEX_EFFORT_{role.upper()}", CODEX_EFFORT)
+
+
+def pi_model_for(role: str) -> str:
+    return os.environ.get(f"HIVE_PI_MODEL_{role.upper()}", PI_MODEL)
+
+
 # Hard cap on one headless turn (seconds). Headless has no streaming no-progress
 # reader like the PTY, so a wedged subprocess is bounded by wall clock instead.
 HEADLESS_TIMEOUT_S = float(os.environ.get("HIVE_HEADLESS_TIMEOUT_S", "3600"))

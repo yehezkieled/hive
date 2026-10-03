@@ -1,13 +1,14 @@
 """Harness registry types: what Hive can drive, how, and what went wrong.
 
-ADR 0029. Hive drives whichever agent *harness* is installed and signed in
-(Pi first, then Claude Code) and runs each turn in the harness's headless mode,
+ADR 0029 and 0031. Hive drives whichever agent *harness* is installed and signed in
+(Codex first, then Claude Code, then Pi for unfenced roles) and runs each turn
+in the harness's headless mode,
 falling back to a PTY-driven interactive session only when headless is refused
 or out of quota. This module is the vocabulary for that:
 
 * ``HarnessSpec`` — one registry entry: how to probe a harness and how to build
   a ``Runtime`` for a (harness, mode). **This is the extension point.** The
-  Codex (T015) and OpenCode (T016) adapters, or a direct model-API harness, are
+  OpenCode (T016) or a direct model-API harness are
   each one more spec in ``registry.py`` — no router or dispatcher change.
 * ``HarnessStatus`` — the result of a probe (installed? signed in?).
 * ``HarnessError`` — a failed run, classified from the harness's *real* error

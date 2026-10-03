@@ -3,9 +3,11 @@
 Hive is a multi-agent orchestration platform: it runs and coordinates
 a fleet of AI coding agents that you control from Telegram. Each
 Entity (Maestro / Team Lead) runs on a Harness Hive picks per turn —
-Pi first (Claude Code first for Maestros and the Vault), each in headless mode by default with
+Codex first (Claude Code first for Maestros and the Vault), each in headless mode by default with
 Claude's interactive PTY session as the fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
-Codex and OpenCode adapters are planned.
+Model defaults and overrides are documented in the
+[deployment runbook](docs/DEPLOYMENT.md#harness-selection-adr-0029).
+OpenCode remains planned.
 
 See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
 Maestro, Harness, Plan-billed, …) and
@@ -34,7 +36,7 @@ Adapter — uniform turn-level interface, harness-specific internals.
 
 - Python 3.12+
 - Docker + Docker Compose
-- Claude Code CLI on the host (`claude` must work)
+- At least one signed-in Codex, Claude Code, or Pi CLI on the host
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - OpenAI API key (optional — for blueprint embeddings)
 
@@ -75,7 +77,7 @@ Common commands:
 | `/m:<name> <msg>` | Send a message to a named Entity |
 | `/mode <plan\|edit\|auto\|yolo> [entity]` | Set Claude permission mode |
 | `/loop <ralph\|ship-it\|plan-act-observe\|build-test-refine> [entity]` | Set agent reasoning loop |
-| `/model <opus\|sonnet\|haiku> [entity]` | Switch model |
+| `/model <opus\|sonnet\|haiku> [entity]` | Switch Claude model |
 | `/runtime <entity> <harness> [model]` | Switch the Entity's Harness |
 | `/quota` | Plan-quota status (5h + 7d windows) |
 | `/task add "<title>"` | Add a task to the queue |

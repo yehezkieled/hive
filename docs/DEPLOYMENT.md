@@ -29,12 +29,10 @@ commands below use a venv at `.venv/`.
 
 ### Authentication
 
-- **An agent harness, signed in** — Hive needs at least one of **Pi**
-  (`pi`, then `/login` or a provider API key) or **Claude Code**
-  (`claude auth login`). It probes both (see "Harness selection" below), prefers
-  Pi, and runs turns headless; Claude's interactive PTY session
-  (`claude --continue`) is the fallback mode. Claude Code logging out every
-  ~30 days no longer stops the fleet while Pi is signed in. A
+- **An agent harness, signed in** — Hive needs at least one of **Codex**
+  (`codex login`, subscription login required), **Claude Code**
+  (`claude auth login`), or **Pi** (`pi`, then `/login` or a provider API key).
+  See "Harness selection" below for probing and fallback. A
   stronger second opinion comes from Claude Code's native `/advisor`
   (Ticket 013): Hive enables it per-entity by passing `--advisor <model>` at
   spawn, with a model-aware default (off for Opus mains, `opus`
@@ -50,30 +48,36 @@ commands below use a venv at `.venv/`.
 
 Every turn, Hive probes (cached 60 s, no quota spent) which harnesses are
 installed and signed in, then runs the turn on the first working
-(harness, mode): `pi (headless)` → `claude (headless)` → `claude (pty)`.
+(harness, mode), following the role and mode orders below.
 `/status` shows `via <harness>/<mode>` per entity; Telegram gets one line when an
 entity's harness/mode changes. If nothing can run — e.g. Claude Code is logged out
-and Pi is unconfigured — Hive says so in Telegram (at startup and on the first
+and neither Codex nor Pi is configured — Hive says so in Telegram (at startup and on the first
 failed turn, at most once per 10 min) with the one-line fix per harness; sign in to
 any one and the next turn works, no restart.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HIVE_HARNESS_ORDER` | `pi,claude` | Preference order. A harness not listed is tried after the listed ones. |
-| `HIVE_HARNESS_ORDER_<ROLE>` | maestro/vault: `claude,pi`; others (leads): `HIVE_HARNESS_ORDER` | Per-role override, e.g. `HIVE_HARNESS_ORDER_VAULT=pi,claude`. Maestros (Ownership guard) and the Vault (Bash/Write/Edit denylist) default to Claude first, since Pi enforces neither. |
+| `HIVE_HARNESS_ORDER` | `codex,claude,pi` | Preference order. A harness not listed is tried after the listed ones. |
+| `HIVE_HARNESS_ORDER_<ROLE>` | maestro/vault: `claude,codex,pi`; others (leads): `HIVE_HARNESS_ORDER` | Per-role override, e.g. `HIVE_HARNESS_ORDER_VAULT=codex,claude,pi`. Maestros (Ownership guard) and the Vault (Bash/Write/Edit denylist) default to Claude first, since Codex and Pi do not enforce those controls. |
 | `HIVE_RUN_MODE_ORDER` | `headless,pty` | Mode order within a harness; omit a mode to disable it (`headless` alone = never spawn a PTY). |
 | `HIVE_PI_BINARY` / `HIVE_PI_PROVIDER` / `HIVE_PI_MODEL` | `pi` / *(unset)* / *(unset)* | Pi launcher; optional provider/model (`--provider`/`--model`). Unset = Pi's own default model. With a provider set, sign-in is probed with `pi auth check --provider`. |
+| `HIVE_CODEX_BINARY` / `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | `codex` / `gpt-6.1-sol` / `medium` | Codex launcher, model, and reasoning effort. Login is probed with `codex login status`. |
+| `HIVE_CLAUDE_MODEL_<ROLE>` | maestro: `claude-opus-5-5`; lead/vault: `claude-sonnet-5-5` | Claude default per role, including PTY fallback; explicit entity/personality model choices take precedence. |
+| `HIVE_CODEX_MODEL_<ROLE>` / `HIVE_CODEX_EFFORT_<ROLE>` | `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | Per-role Codex model and reasoning effort overrides. |
+| `HIVE_PI_MODEL_<ROLE>` | `HIVE_PI_MODEL` | Per-role Pi model override. |
 | `HIVE_HEADLESS_TIMEOUT_S` | `3600` | Wall-clock cap on one headless turn. |
 | `HIVE_HEADLESS_QUOTA_RETRY_S` | `900` | After headless reports quota/refusal, how long its PTY serves turns before headless is retried. |
 | `HIVE_HARNESS_RETRY_S` / `HIVE_HARNESS_DETECT_TTL_S` | `60` / `60` | Retry delay after an auth/unavailable failure; probe cache lifetime. |
 
+New entities keep an omitted model unset so the serving harness applies its role default. Explicit entity and personality choices take precedence for Claude. Existing stored `opus` values are preserved: the roster does not distinguish an old implicit default from an explicit selection. `/model` selects the Claude model; Codex and Pi use their harness configuration in the table above.
+
 Pi caveats: no MCP (`search_knowledge` unavailable), no `/goal`, and the
 Ownership guard and the tool denylists do not apply to a Pi entity (cwd only).
-Maestros and the Vault therefore default to `claude,pi` and use Pi only when Claude
-cannot run the turn; when one does run on Pi, `/status` shows the lost guardrail
+Codex also lacks Hive's Claude-only ownership hook and denylist. Maestros and
+the Vault therefore default to `claude,codex,pi`; when either runs on Codex or Pi,
+`/status` shows the lost guardrail
 ("⚠️ ownership fence NOT enforced" / "⚠️ tool denylist NOT enforced") next to it and
-Telegram gets an alert. Leads run Pi first and are never flagged: their denylist only
-blocks Claude Code tools Pi lacks. The startup log
+Telegram gets an alert. Leads run Codex first and are never flagged. The startup log
 prints one run order per distinct role order. Headless Claude strips
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the subprocess so it can only use
 the subscription login, never per-token API billing.
@@ -1210,12 +1214,12 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `POSTGRES_USER` | `hive` | User |
 | `POSTGRES_PASSWORD` | `hive` | Password |
 | `HIVE_DEFAULT_MAESTRO` | `otter` | Auto-registered maestro name on first run |
-| `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
+| `HIVE_DEFAULT_MODEL` | unset | Explicit model for startup Maestro and Vault; omitted values use serving harness role defaults |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
 | `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Set to the VPS's Tailscale IP (e.g. `100.79.194.84`) for tailnet-only access from other devices. Keep off `0.0.0.0` until auth lands (deferred past Sprint 14). |
 | `HIVE_AUTO_COMPACT_ENABLED` | `true` | Auto-compact entities when context exceeds threshold |
-| `HIVE_AUTO_COMPACT_THRESHOLD` | `50000` | Input token count that triggers auto-compact |
+| `HIVE_AUTO_COMPACT_THRESHOLD` | `50000` | Measured final model-call input context that triggers auto-compact; unavailable context (including Codex JSON turns) skips automatic compaction |
 | `HIVE_AUTO_KILL_IDLE_ENABLED` | `true` | Kill entities inactive beyond timeout |
 | `HIVE_IDLE_TIMEOUT_MINUTES` | `30` | Minutes of inactivity before auto-kill |
 | `HIVE_DAILY_SUMMARY_ENABLED` | `true` | Send daily Telegram summary |
@@ -1267,7 +1271,7 @@ become no-ops — Hive still boots.
 
 ## 10. Known limitations (as of 2026-04-26)
 
-- **Headless first, PTY fallback** — turns run as one `pi -p` / `claude -p`
+- **Headless first, PTY fallback** — turns run as one `codex exec` / `pi -p` / `claude -p`
   subprocess each (ADR 0029; Ticket 007's PTY-only runtime is superseded). The
   Claude PTY session spawns lazily, only when headless is refused or out of
   quota; conversation context carries across modes via `--resume`/`--continue`.
@@ -1276,9 +1280,13 @@ become no-ops — Hive still boots.
   so per-turn `cost_usd` is `None`; token counts are the real accountability
   number. (Ticket 013 retired the advisor's one-shot `claude -p`; native
   `/advisor` is plan-billed in-session, so no metered call remains.)
-- **Harness coverage** — Pi and Claude Code only. Codex is detected but has no
-  adapter (T015); OpenCode (T016) and direct model-API support are not built.
-  Failover between harnesses is automatic only for refusals (auth/quota/refused).
+- **Harness coverage** — Codex, Claude Code, and Pi. OpenCode (T016) and direct
+  model-API support are not built. Failover between harnesses is automatic only
+  for refusals (auth/quota/refused/unavailable), including unsupported Codex
+  models before tool activity. Turns with Codex tool activity are not replayed.
+  Codex reports accounting tokens per turn through its
+  JSON stream; it does not provide Hive a numeric remaining-quota reading.
+  `/quota` and its threshold alerts still describe the Claude plan only.
 - **Blueprints require `VOYAGE_API_KEY`** — without it, `/blueprint save|search`
   and auto-retrieval of blueprints into agent prompts are disabled silently.
   Hive still boots, but these features are no-ops. (Switched from OpenAI →

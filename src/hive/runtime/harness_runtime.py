@@ -1,7 +1,8 @@
 """HarnessRuntime — one Runtime per entity that picks the harness and mode per turn.
 
 ADR 0029. Every turn: probe (cached) which harnesses are installed and signed in,
-rank (harness, mode) candidates — Pi first, headless before PTY — and run the turn
+rank (harness, mode) candidates — Codex first for unfenced roles, headless before
+PTY — and run the turn
 on the first that works. A candidate that fails with a *refusal* (auth, quota,
 headless refused, binary missing) is skipped for a cooldown and the next one runs
 the same turn; any other failure surfaces untouched, because it may have failed

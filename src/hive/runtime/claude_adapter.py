@@ -184,11 +184,20 @@ class ClaudeAdapter(Runtime):
             # dollar cost).
             text, raw_usage = await self._pty.send(prompt)
             usage: dict = {
+                "context_tokens": sum(
+                    int(raw_usage.get(key) or 0)
+                    for key in (
+                        "input_tokens",
+                        "cache_read_input_tokens",
+                        "cache_creation_input_tokens",
+                    )
+                ),
                 "input_tokens": raw_usage.get("input_tokens", 0),
                 "output_tokens": raw_usage.get("output_tokens", 0),
                 "cache_creation_input_tokens": raw_usage.get("cache_creation_input_tokens", 0),
                 "cache_read_input_tokens": raw_usage.get("cache_read_input_tokens", 0),
                 "session_id": raw_usage.get("session_id"),
+                "model": self._config.model,
                 "cost_usd": None,
             }
             return text, usage

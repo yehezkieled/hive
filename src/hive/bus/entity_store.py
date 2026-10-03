@@ -38,10 +38,10 @@ class EntityStore:
                  permission_mode, loop_mode, current_priority,
                  worktree_path, task_id, last_activity_at, awaiting_decision,
                  confirmed_with_user, phase_confirm, last_decision_question,
-                 updated_at)
+                 codex_usage, updated_at)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -62,6 +62,7 @@ class EntityStore:
                 confirmed_with_user = EXCLUDED.confirmed_with_user,
                 phase_confirm = EXCLUDED.phase_confirm,
                 last_decision_question = EXCLUDED.last_decision_question,
+                codex_usage = EXCLUDED.codex_usage,
                 updated_at = NOW()
             """,
             entity.name,
@@ -84,6 +85,7 @@ class EntityStore:
             entity.confirmed_with_user,  # Ticket 019 (ADR 0019)
             entity.phase_confirm,  # Ticket 019 (ADR 0019)
             entity.last_decision_question,  # Ticket 038
+            entity.codex_usage,
         )
 
     async def load(self, name: str) -> Entity | None:
@@ -147,6 +149,7 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         pid=None,
         started_at=None,
         session_id=row["session_id"],
+        codex_usage=dict(row.get("codex_usage") or {}),
         permission_mode=row["permission_mode"] or "default",
         loop_mode=row["loop_mode"] or "ralph",
         current_priority=row["current_priority"] if row["current_priority"] is not None else 3,

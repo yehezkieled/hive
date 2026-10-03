@@ -172,15 +172,34 @@ class ClaudeHeadlessAdapter(Runtime):
         if result.get("is_error") or result.get("subtype", "success") != "success":
             raise self._failure(events, result, proc.stderr)
         raw = result.get("usage") or {}
+        final_usage = next(
+            (
+                (e.get("message") or {}).get("usage")
+                for e in reversed(events)
+                if e.get("type") == "assistant" and (e.get("message") or {}).get("usage")
+            ),
+            None,
+        )
         session_id = result.get("session_id") or self._session_id
         if session_id:
             self._session_id = session_id
         usage = {
+            "context_tokens": None
+            if final_usage is None
+            else sum(
+                int(final_usage.get(key) or 0)
+                for key in (
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                )
+            ),
             "input_tokens": raw.get("input_tokens", 0),
             "output_tokens": raw.get("output_tokens", 0),
             "cache_creation_input_tokens": raw.get("cache_creation_input_tokens", 0),
             "cache_read_input_tokens": raw.get("cache_read_input_tokens", 0),
             "session_id": session_id,
+            "model": self._config.model,
             # Plan-billed: no marginal dollar cost (the CLI's own total_cost_usd is
             # an API-price estimate, not what a subscription is charged).
             "cost_usd": None,

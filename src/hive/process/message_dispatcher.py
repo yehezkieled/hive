@@ -312,13 +312,24 @@ class MessageDispatcher:
         self._mgr._note_turn_success(entity_name)
         await self._mgr._record_usage(entity, usage)
 
+        if "codex_usage" in usage:
+            entity.codex_usage = usage["codex_usage"]
+
+        # Store session_id for resume on next call
+        if usage.get("session_id"):
+            entity.session_id = usage["session_id"]
+            await self._mgr._persist(entity)
+
+        context_tokens = usage.get("context_tokens")
+
         # Auto-compact if context is too large
         if (
             _mgr_mod.AUTO_COMPACT_ENABLED
             and entity_name not in self._mgr._compacting
-            and usage.get("input_tokens", 0) > _mgr_mod.AUTO_COMPACT_THRESHOLD
+            and context_tokens is not None
+            and context_tokens > _mgr_mod.AUTO_COMPACT_THRESHOLD
         ):
-            input_tokens = usage["input_tokens"]
+            input_tokens = context_tokens
             logger.info(
                 "Auto-compacting %s (input_tokens=%d > threshold=%d)",
                 entity_name,
@@ -340,11 +351,6 @@ class MessageDispatcher:
                 logger.exception("Auto-compact failed for %s", entity_name)
             finally:
                 self._mgr._compacting.discard(entity_name)
-
-        # Store session_id for resume on next call
-        if usage.get("session_id"):
-            entity.session_id = usage["session_id"]
-            await self._mgr._persist(entity)
 
         # --- Phase 3: parse and route actions from response ---
         clean_text, actions, parse_errors = parse_actions(response)
@@ -683,11 +689,7 @@ class MessageDispatcher:
                     lead = await self._mgr.create_team(
                         entity_name,
                         action.team_name,
-                        # Opus is the fleet default for every spawn (the Opus
-                        # advisor that Sonnet leads relied on is unavailable —
-                        # Ticket 013 post-mortem). A maestro may still pin a
-                        # cheaper model explicitly via the action.
-                        model=action.model or "opus",
+                        model=action.model or "",
                         display_name=action.display_name,
                         personality=action.personality,
                     )
