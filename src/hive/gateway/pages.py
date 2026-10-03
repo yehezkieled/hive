@@ -350,10 +350,15 @@ def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx) -> str:
             f"<span>{len(p.needs_you)} need you</span></div></a>"
         )
     stamp = f"<p class=mute>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
+    more = "".join(
+        f"<p class=mute>+{n} more owned by {esc(owner)}, not shown</p>"
+        for owner, n in desk.more.items()
+    )
     return _page(
         "Hive desk",
         f"<h1>Hive desk</h1>{stamp}{_compose(ctx)}<h2>Needs you ({len(desk.needs_you)})</h2>{needs}"
-        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div><p class=mute id=alerts-note></p>",
+        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div>{more}"
+        "<p class=mute id=alerts-note></p>",
         "desk",
         attrs,
     )

@@ -17,8 +17,9 @@ fails when a firstmate change breaks it, before the desk shows wrong data.
 | One-step new ticket in the mate, then a routed, receipted, idempotent edit from the primary | `fm-ticket.sh new`, `edit`, `owner` |
 | Pinned schema ids still match (`fm-fleet-snapshot.v1`, `fm-captain-hold-buckets.v1`); an unknown major puts the desk on its read-only fallback | `parse_snapshot`, `run_snapshot` |
 
-The desk side is covered too: `build_desk` reads second-mate tickets and decisions from
-`secondmate_current` (each row and needs-you item carries its `owner`), and
+The desk side is covered too: `build_desk` reads second-mate tickets (queued, in flight,
+and captain holds the bounded queued list cut off) from `secondmate_current`, each row and
+needs-you item carrying its `owner`, and shows "+N more" for any the roll-up omits; and
 `actions.answer_hold` feeds the owner-aware `answers` intake, so a decision held in a
 second mate home closes in that home.
 

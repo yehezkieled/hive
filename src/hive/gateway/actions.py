@@ -27,7 +27,7 @@ audit_log = logging.getLogger("hive.gateway.audit")
 
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 REQUEST_ID_RE = re.compile(r"^web-[0-9a-f]{16}$")
-MAX_ANSWER_CHARS = 512  # the keyed intake keeps only this much of an answer
+MAX_ANSWER_BYTES = 512  # the keyed intake keeps only this many bytes of an answer
 MAX_NOTE_CHARS = 4000
 SCRIPT_TIMEOUT_S = 30.0
 STEP_UP_TTL_S = 180
@@ -270,9 +270,12 @@ def answer_body(text: str) -> str:
     """The hold answer as one line: the keyed intake takes one tab-separated row.
 
     Provenance rides in the intake's ``--source``, not in the words, because the intake
-    keeps only the first ``MAX_ANSWER_CHARS`` characters and would silently cut a footer.
+    keeps only the first ``MAX_ANSWER_BYTES`` bytes (``cut -c``) and would silently cut a footer.
     """
-    return check_line(" ".join(text.split()), "answer", MAX_ANSWER_CHARS)
+    body = check_line(" ".join(text.split()), "answer", MAX_ANSWER_BYTES)
+    if len(body.encode()) > MAX_ANSWER_BYTES:
+        raise ActionError(f"answer is too long (max {MAX_ANSWER_BYTES} bytes)")
+    return body
 
 
 async def answer_hold(settings: GatewaySettings, task: str, body: str, release: bool) -> Outcome:

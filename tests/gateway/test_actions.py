@@ -171,6 +171,11 @@ def test_answer_longer_than_the_intake_keeps_is_refused(client: TestClient, home
     assert res.status_code == 400 and _calls(home) == []
 
 
+def test_answer_over_the_intake_byte_limit_is_refused(client: TestClient, home: Path) -> None:
+    res = post(client, "answer", task="beta-hold", text="é" * 300)
+    assert res.status_code == 400 and _calls(home) == []
+
+
 def test_repeated_answer_runs_once_and_shows_first_result(client: TestClient, home: Path) -> None:
     first = post(client, "answer", task="beta-hold", text="Use the warm palette")
     again = post(client, "answer", task="beta-hold", text="Use the warm palette")

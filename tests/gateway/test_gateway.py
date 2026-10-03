@@ -154,6 +154,47 @@ def test_desk_tolerates_missing_fields() -> None:
     assert desk.needs_you == []
 
 
+def _mate_snapshot() -> dict:
+    return {
+        "schema": "fm-fleet-snapshot.v1",
+        "secondmate_current": {
+            "records": [
+                {
+                    "id": "hive",
+                    "queued": [{"id": "q1", "title": "Queued", "repo": "/r/hive"}],
+                    "active_children": [
+                        {"id": "w1", "name": "Working", "repo": "/r/hive", "state": "working"}
+                    ],
+                    "decisions_open": [
+                        {"id": "h1", "verb": "captain-hold", "summary": "Pick", "reason": "A?"},
+                        {"id": "w1", "key": "k", "verb": "needs-decision", "summary": "Q?"},
+                    ],
+                    "counts": {"queued": 4, "active_children": 1, "decisions_open": 2},
+                }
+            ]
+        },
+    }
+
+
+def test_desk_reads_every_ticket_a_mate_owns_and_counts_the_cut_off_rest() -> None:
+    desk = build_desk(_mate_snapshot())
+    rows = {r.id: (r.state, r.owner) for p in desk.projects.values() for r in p.rows}
+    assert rows == {
+        "q1": ("queued", "hive"),
+        "w1": ("in_flight", "hive"),
+        "h1": ("queued", "hive"),
+    }
+    assert [(n.kind, n.ref, n.owner) for n in desk.needs_you] == [("hold", "h1", "hive")]
+    assert desk.more == {"hive": 2}
+
+
+def test_home_shows_how_many_mate_tickets_were_cut_off(tmp_path: Path) -> None:
+    home = _fake_home(tmp_path, f"cat <<'EOF'\n{json.dumps(_mate_snapshot())}\nEOF")
+    settings = GatewaySettings(owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home)
+    c = TestClient(create_app(settings), client=("127.0.0.1", 5000))
+    assert "+2 more owned by hive" in c.get("/", headers=GOOD).text
+
+
 async def test_provider_caches(tmp_path: Path) -> None:
     counter = tmp_path / "n"
     home = _fake_home(tmp_path, f"echo x >> '{counter}'; cat '{FIXTURE}'")

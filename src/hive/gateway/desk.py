@@ -63,6 +63,7 @@ class Desk:
     generated: str | None
     projects: dict[str, Project]
     needs_you: list[NeedsYou]
+    more: dict[str, int] = field(default_factory=dict)  # second-mate tickets the roll-up cut off
 
 
 def _s(value: object, default: str = "") -> str:
@@ -127,20 +128,35 @@ def build_desk(data: dict) -> Desk:
             add_record(rec)
 
     # Second mates own tickets too (ADR 0030): read their roll-up as the same rows.
-    mates = [
-        m for m in _list(_list_of(data, "secondmate_current", "records")) if isinstance(m, dict)
-    ]
-    for mate in mates:
+    more: dict[str, int] = {}
+    for mate in _list(_list_of(data, "secondmate_current", "records")):
+        if not isinstance(mate, dict):
+            continue
+        owner = _s(mate.get("id"))
+        seen: set[str] = set()
         for rec in _list(mate.get("queued")):
             if isinstance(rec, dict):
-                add_record({"owner": mate.get("id"), **rec})
-    for mate in mates:  # a decision the bounded queued list cut off still needs the owner
-        for dec in _list(mate.get("decisions_open")):
-            if not isinstance(dec, dict) or _s(dec.get("id")) in task_project:
+                seen.add(_s(rec.get("id")))
+                add_record({"owner": owner, **rec})
+        for child in _list(mate.get("active_children")):
+            if isinstance(child, dict):
+                seen.add(_s(child.get("id")))
+                add_record(
+                    {
+                        "owner": owner,
+                        "id": child.get("id"),
+                        "title": child.get("name"),
+                        "repo": child.get("repo"),
+                        "state": "in_flight",
+                    }
+                )
+        for dec in _list(mate.get("decisions_open")):  # a hold the bounded queued list cut off
+            if not isinstance(dec, dict) or dec.get("verb") != "captain-hold":
                 continue
+            seen.add(_s(dec.get("id")))
             add_record(
                 {
-                    "owner": dec.get("owner") or mate.get("id"),
+                    "owner": owner,
                     "id": dec.get("id"),
                     "title": dec.get("summary"),
                     "hold_reason": dec.get("reason"),
@@ -148,6 +164,12 @@ def build_desk(data: dict) -> Desk:
                     "captain_actionable": True,
                 }
             )
+        counts = mate.get("counts") if isinstance(mate.get("counts"), dict) else {}
+        owned = sum(
+            n for n in (counts.get("queued"), counts.get("active_children")) if isinstance(n, int)
+        )
+        if owned > len(seen):
+            more[owner] = owned - len(seen)
 
     for task in _list(data.get("tasks")):
         if not isinstance(task, dict):
@@ -205,7 +227,7 @@ def build_desk(data: dict) -> Desk:
         sorted(projects.items(), key=lambda kv: (-len(kv[1].needs_you), kv[0] == NO_PROJECT, kv[0]))
     )
     generated = data.get("generated") if isinstance(data.get("generated"), str) else None
-    return Desk(generated, ordered, needs)
+    return Desk(generated, ordered, needs, more)
 
 
 def _list_of(data: dict, section: str, key: str) -> object:
