@@ -1314,7 +1314,7 @@ firstmate script with an argument list, never a shell string:
 
 | Action | Script |
 |---|---|
-| answer a captain hold | `fm-captain-hold.sh answer <task> --decision-file <tmp> [--release]` (web provenance appended to the recorded words) |
+| answer a captain hold | `fm-captain-hold.sh answers --any-origin --source "hive website (<owner>)"`, one `task<TAB>answer<TAB>Hive desk<TAB>done\|release` row on stdin; the owner-aware intake closes it in whichever home holds the task. Answers are one line, max 512 bytes (the intake's limit) |
 | chat, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
 | worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
 

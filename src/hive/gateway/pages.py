@@ -289,7 +289,7 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
         checked = " checked" if n.gated else ""
         act = ctx.form(
             "answer",
-            "<label>Your answer</label><textarea name=text required maxlength=6000></textarea>"
+            "<label>Your answer</label><textarea name=text required maxlength=512></textarea>"
             f"<label><input type=checkbox name=release value=1{checked}> "
             "Release the work item (resume it) instead of closing the question</label>"
             "<button>Record answer</button>",
@@ -350,10 +350,15 @@ def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx) -> str:
             f"<span>{len(p.needs_you)} need you</span></div></a>"
         )
     stamp = f"<p class=mute>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
+    more = "".join(
+        f"<p class=mute>+{n} more owned by {esc(owner)}, not shown</p>"
+        for owner, n in desk.more.items()
+    )
     return _page(
         "Hive desk",
         f"<h1>Hive desk</h1>{stamp}{_compose(ctx)}<h2>Needs you ({len(desk.needs_you)})</h2>{needs}"
-        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div><p class=mute id=alerts-note></p>",
+        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div>{more}"
+        "<p class=mute id=alerts-note></p>",
         "desk",
         attrs,
     )
@@ -422,6 +427,8 @@ def render_project(
     rows = []
     for r in project.rows:
         extra = [r.id]
+        if r.owner and r.owner != "main":
+            extra.append(f"owner: {esc(r.owner)}")
         if r.hold:
             extra.append(f"held: {esc(r.hold)}")
         if r.blocked_by:

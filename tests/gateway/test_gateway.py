@@ -154,6 +154,96 @@ def test_desk_tolerates_missing_fields() -> None:
     assert desk.needs_you == []
 
 
+def _mate_snapshot() -> dict:
+    return {
+        "schema": "fm-fleet-snapshot.v1",
+        "secondmate_current": {
+            "records": [
+                {
+                    "id": "hive",
+                    "queued": [{"id": "q1", "title": "Queued", "repo": "/r/hive"}],
+                    "active_children": [
+                        {"id": "w1", "name": "Working", "repo": "/r/hive", "state": "working"}
+                    ],
+                    "decisions_open": [
+                        {"id": "h1", "verb": "captain-hold", "summary": "Pick", "reason": "A?"},
+                        {"id": "w1", "key": "k", "verb": "needs-decision", "summary": "Q?"},
+                    ],
+                    "holds": [
+                        {"id": "q1", "title": "Queued", "reason": "blocked", "source": "backlog"},
+                        {
+                            "id": "p1",
+                            "title": "Parked",
+                            "reason": "paused",
+                            "source": "child-state",
+                        },
+                    ],
+                    "counts": {
+                        "queued": 4,
+                        "active_children": 1,
+                        "decisions_open": 2,
+                        "holds": 3,
+                    },
+                }
+            ]
+        },
+    }
+
+
+def test_desk_reads_every_ticket_a_mate_owns_and_counts_the_cut_off_rest() -> None:
+    desk = build_desk(_mate_snapshot())
+    rows = {r.id: (r.state, r.owner) for p in desk.projects.values() for r in p.rows}
+    assert rows == {
+        "q1": ("queued", "hive"),
+        "w1": ("in_flight", "hive"),
+        "h1": ("queued", "hive"),
+        "p1": ("in_flight", "hive"),
+    }
+    assert [(n.kind, n.ref, n.owner) for n in desk.needs_you] == [("hold", "h1", "hive")]
+    assert desk.more == {"hive": 1}
+
+
+def test_mate_held_decision_is_listed_once_not_again_from_the_status_channel() -> None:
+    snap = _mate_snapshot()
+    snap["tasks"] = [
+        {
+            "id": "hive",
+            "hints": {
+                "open_decisions": [
+                    {"key": "captain-hold-h1-1", "summary": "Pick"},
+                    {"key": "captain-hold-h10-1", "summary": "Other hold"},
+                    {"key": "pick-db", "summary": "Postgres or SQLite?"},
+                ]
+            },
+        }
+    ]
+    desk = build_desk(snap)
+    assert sorted((n.kind, n.ref) for n in desk.needs_you) == [
+        ("decision", "hive/captain-hold-h10-1"),
+        ("decision", "hive/pick-db"),
+        ("hold", "h1"),
+    ]
+
+
+def test_mate_remainder_counts_only_tickets_that_exist_when_holds_are_capped() -> None:
+    blocked = [{"id": f"b{i}", "title": f"B{i}", "repo": "/r/hive"} for i in range(20)]
+    mate = {
+        "id": "hive",
+        "queued": blocked,
+        "holds": [{"id": b["id"], "reason": "blocked", "source": "backlog"} for b in blocked],
+        "counts": {"queued": 25, "active_children": 0, "holds": 25},
+    }
+    desk = build_desk({"secondmate_current": {"records": [mate]}})
+    assert desk.more == {"hive": 5}
+
+
+def test_home_shows_how_many_mate_tickets_were_cut_off(tmp_path: Path) -> None:
+    home = _fake_home(tmp_path, f"cat <<'EOF'\n{json.dumps(_mate_snapshot())}\nEOF")
+    settings = GatewaySettings(owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home)
+    c = TestClient(create_app(settings), client=("127.0.0.1", 5000))
+    assert "+1 more owned by hive" in c.get("/", headers=GOOD).text
+
+
 async def test_provider_caches(tmp_path: Path) -> None:
     counter = tmp_path / "n"
     home = _fake_home(tmp_path, f"echo x >> '{counter}'; cat '{FIXTURE}'")

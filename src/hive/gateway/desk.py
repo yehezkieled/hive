@@ -2,16 +2,20 @@
 
 No logic about holds, merges or crews lives here. It groups what the snapshot already
 decided (``hold_bucket``, ``captain_actionable``, ``open_decisions``, the captain
-contribution list) by project, and reads every field defensively.
+contribution list, each second mate's ``secondmate_current`` roll-up) by project, and
+reads every field defensively.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import PurePath
 
 NO_PROJECT = "General"
 STATE_ORDER = ("in_flight", "queued", "done")
+# A mate's captain hold, echoed onto the primary's status channel as a needs-decision line.
+CAPTAIN_HOLD_KEY = re.compile(r"captain-hold-(.+)-\d+")
 
 
 @dataclass
@@ -23,6 +27,7 @@ class NeedsYou:
     url: str | None = None
     title: str = ""  # the work item's human title, when the snapshot knows it
     gated: bool = False  # a hold on a work item: answering releases it instead of closing
+    owner: str = ""  # the home that owns the work item; empty when the snapshot omits it
 
 
 @dataclass
@@ -33,6 +38,7 @@ class Row:
     blocked_by: list[str]
     hold: str | None
     pr_url: str | None
+    owner: str = ""  # the home that owns the ticket; empty when the snapshot omits it
 
 
 @dataclass
@@ -61,6 +67,7 @@ class Desk:
     generated: str | None
     projects: dict[str, Project]
     needs_you: list[NeedsYou]
+    more: dict[str, int] = field(default_factory=dict)  # second-mate tickets the roll-up cut off
 
 
 def _s(value: object, default: str = "") -> str:
@@ -84,16 +91,20 @@ def build_desk(data: dict) -> Desk:
 
     task_project: dict[str, str] = {}
     task_title: dict[str, str] = {}
-    for rec in _list(_list_of(data, "backlog", "records")):
-        if not isinstance(rec, dict):
-            continue
+    hold_ids: set[str] = set()  # ids already on the desk as a hold card
+
+    def add_record(rec: dict) -> None:
+        tid = _s(rec.get("id"))
+        if tid in task_project:  # one owning home per ticket; the first read wins
+            return
         name = _project_name(rec.get("repo"))
-        task_project[_s(rec.get("id"))] = name
-        task_title[_s(rec.get("id"))] = _s(rec.get("title"))
+        owner = _s(rec.get("owner"))
+        task_project[tid] = name
+        task_title[tid] = _s(rec.get("title"))
         hold = _s(rec.get("hold_reason")) or None
         project(name).rows.append(
             Row(
-                id=_s(rec.get("id")),
+                id=tid,
                 title=_s(rec.get("title")),
                 state=_s(rec.get("state"), "queued"),
                 blocked_by=[
@@ -101,19 +112,93 @@ def build_desk(data: dict) -> Desk:
                 ],
                 hold=hold,
                 pr_url=_s(rec.get("pr_url")) or None,
+                owner=owner,
             )
         )
         if rec.get("captain_actionable") is True:
+            hold_ids.add(tid)
             project(name).needs_you.append(
                 NeedsYou(
                     name,
                     "hold",
-                    _s(rec.get("id")),
+                    tid,
                     hold or _s(rec.get("title")),
                     title=_s(rec.get("title")),
                     gated=_s(rec.get("kind")) != "captain",
+                    owner=owner,
                 )
             )
+
+    for rec in _list(_list_of(data, "backlog", "records")):
+        if isinstance(rec, dict):
+            add_record(rec)
+
+    # Second mates own tickets too (ADR 0030): read their roll-up as the same rows.
+    more: dict[str, int] = {}
+    for mate in _list(_list_of(data, "secondmate_current", "records")):
+        if not isinstance(mate, dict):
+            continue
+        owner = _s(mate.get("id"))
+        queued_seen: set[str] = set()
+        active_seen: set[str] = set()
+        for rec in _list(mate.get("queued")):
+            if isinstance(rec, dict):
+                queued_seen.add(_s(rec.get("id")))
+                add_record({"owner": owner, **rec})
+        for child in _list(mate.get("active_children")):
+            if isinstance(child, dict):
+                active_seen.add(_s(child.get("id")))
+                add_record(
+                    {
+                        "owner": owner,
+                        "id": child.get("id"),
+                        "title": child.get("name"),
+                        "repo": child.get("repo"),
+                        "state": "in_flight",
+                    }
+                )
+        for held in _list(mate.get("holds")):  # an in-flight ticket with a parked worker
+            if not isinstance(held, dict) or held.get("source") != "child-state":
+                continue
+            queued_seen.add(_s(held.get("id")))
+            add_record(
+                {
+                    "owner": owner,
+                    "id": held.get("id"),
+                    "title": held.get("title"),
+                    "hold_reason": held.get("reason"),
+                    "state": "in_flight",
+                }
+            )
+        for dec in _list(mate.get("decisions_open")):  # a hold the bounded queued list cut off
+            if not isinstance(dec, dict) or dec.get("verb") != "captain-hold":
+                continue
+            queued_seen.add(_s(dec.get("id")))
+            add_record(
+                {
+                    "owner": owner,
+                    "id": dec.get("id"),
+                    "title": dec.get("summary"),
+                    "hold_reason": dec.get("reason"),
+                    "kind": "captain",
+                    "captain_actionable": True,
+                }
+            )
+        # In-flight tickets in other states (idle, done awaiting landing) have no surface in
+        # the mate's summary, and the holds list's uncapped count overlaps the queued one, so
+        # the remainder counts only the exact queued and working totals: it may undercount
+        # parked workers but never shows a ticket that does not exist.
+        counts = mate.get("counts") if isinstance(mate.get("counts"), dict) else {}
+        hidden = sum(
+            max(0, n - len(shown))
+            for n, shown in (
+                (counts.get("queued"), queued_seen),
+                (counts.get("active_children"), active_seen),
+            )
+            if isinstance(n, int)
+        )
+        if hidden:
+            more[owner] = hidden
 
     for task in _list(data.get("tasks")):
         if not isinstance(task, dict):
@@ -137,16 +222,20 @@ def build_desk(data: dict) -> Desk:
         )
         hints = task.get("hints") if isinstance(task.get("hints"), dict) else {}
         for dec in _list(hints.get("open_decisions")):
-            if isinstance(dec, dict):
-                project(name).needs_you.append(
-                    NeedsYou(
-                        name,
-                        "decision",
-                        f"{tid}/{_s(dec.get('key'))}",
-                        _s(dec.get("summary")),
-                        title=task_title.get(tid, ""),
-                    )
+            if not isinstance(dec, dict):
+                continue
+            echo = CAPTAIN_HOLD_KEY.fullmatch(_s(dec.get("key")))
+            if echo and echo.group(1) in hold_ids:  # the hold card already asks this question
+                continue
+            project(name).needs_you.append(
+                NeedsYou(
+                    name,
+                    "decision",
+                    f"{tid}/{_s(dec.get('key'))}",
+                    _s(dec.get("summary")),
+                    title=task_title.get(tid, ""),
                 )
+            )
 
     for item in _list(_list_of(data, "contributions", "captain")):
         if not isinstance(item, dict):
@@ -171,7 +260,7 @@ def build_desk(data: dict) -> Desk:
         sorted(projects.items(), key=lambda kv: (-len(kv[1].needs_you), kv[0] == NO_PROJECT, kv[0]))
     )
     generated = data.get("generated") if isinstance(data.get("generated"), str) else None
-    return Desk(generated, ordered, needs)
+    return Desk(generated, ordered, needs, more)
 
 
 def _list_of(data: dict, section: str, key: str) -> object:
