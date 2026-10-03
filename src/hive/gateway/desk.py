@@ -2,7 +2,8 @@
 
 No logic about holds, merges or crews lives here. It groups what the snapshot already
 decided (``hold_bucket``, ``captain_actionable``, ``open_decisions``, the captain
-contribution list) by project, and reads every field defensively.
+contribution list, each second mate's ``secondmate_current`` roll-up) by project, and
+reads every field defensively.
 """
 
 from __future__ import annotations
