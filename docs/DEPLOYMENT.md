@@ -1415,3 +1415,5 @@ Then, from the iPad or phone (a request from the PC itself carries no login head
 gets 403 by design), open `https://desktop-lfme032.tailfb3900.ts.net:8446/`, tap
 **Alerts**, and a "Alerts are on" push confirms the subscription works. Undo the
 publish with `tailscale serve --https=8446 off`.
+
+New entities keep an omitted model unset so the serving harness applies its role default. Explicit entity and personality choices take precedence for Claude. Existing stored `opus` values are preserved: the roster does not distinguish an old implicit default from an explicit selection.

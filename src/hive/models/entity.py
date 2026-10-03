@@ -247,10 +247,7 @@ class Entity:
     name: str
     role: str  # "maestro", "lead", "vault"
     personality_path: Path | None = None
-    # Opus is the fleet default for every spawn. Ticket 013's native advisor
-    # (an Opus second-opinion for Sonnet executors) is unavailable on the
-    # fleet's CC, so entities run on Opus directly rather than via an advisor.
-    model: str = "opus"
+    model: str = ""
     advisor: str | None = None
     allowed_tools: list[str] = field(default_factory=list)
     disallowed_tools: list[str] = field(default_factory=list)
@@ -331,6 +328,8 @@ class Entity:
 
     def build_cli_args(self) -> list[str]:
         """Build claude -p command line arguments for this entity."""
+        from hive.config import claude_model_for
+
         args = [
             "claude",
             "-p",
@@ -338,7 +337,7 @@ class Entity:
             "stream-json",
             "--verbose",
             "--model",
-            self.model,
+            self.model or claude_model_for(self.role),
         ]
 
         if self.system_prompt:

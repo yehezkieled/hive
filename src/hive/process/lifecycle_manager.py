@@ -86,6 +86,7 @@ def _render_auto_personality(
         'uploaded files; `kind="both"` if unsure\n'
         "- Distances < 0.3 are usually solid matches; > 0.6 is noise\n"
     )
+    model_line = f"- **Model**: {model}\n" if model else ""
     return (
         "---\n"
         "auto_generated: true\n"
@@ -94,7 +95,7 @@ def _render_auto_personality(
         "## Identity\n"
         f"- **Name**: {entity_name}\n"
         f"- **Role**: {role}\n"
-        f"- **Model**: {model}\n\n"
+        f"{model_line}\n"
         "## System Prompt\n"
         f"You are {display_name}.\n\n"
         f"{personality}\n"
@@ -274,7 +275,7 @@ class LifecycleManager:
     async def register_maestro(
         self,
         name: str,
-        model: str = "opus",
+        model: str = "",
         personality_path: Path | None = None,
     ) -> Maestro:
         """Create and register a new maestro entity.
@@ -411,7 +412,7 @@ class LifecycleManager:
         self,
         maestro_name: str,
         team_name: str,
-        model: str = "opus",
+        model: str = "",
         display_name: str | None = None,
         personality: str | None = None,
     ) -> TeamLead:

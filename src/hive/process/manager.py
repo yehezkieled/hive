@@ -349,7 +349,7 @@ class ProcessManager:
     async def register_maestro(
         self,
         name: str,
-        model: str = "opus",
+        model: str = "",
         personality_path: Path | None = None,
     ) -> Maestro:
         return await self.lifecycle.register_maestro(name, model, personality_path)
@@ -605,7 +605,7 @@ class ProcessManager:
         self,
         maestro_name: str,
         team_name: str,
-        model: str = "opus",
+        model: str = "",
         display_name: str | None = None,
         personality: str | None = None,
     ) -> TeamLead:
