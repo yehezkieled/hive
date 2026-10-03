@@ -70,19 +70,23 @@ async def test_handoff_main_to_mate_rolls_up_through_the_gateway_snapshot(world:
     assert [r["id"] for r in snap.data["backlog"]["records"]] == ["other-t1"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="build_desk reads only the primary backlog.records, not secondmate_current; "
-    "a handed-off ticket vanishes from the desk until the desk gains a roll-up read "
-    "(M3). Remove this marker when it does.",
-)
 async def test_desk_shows_a_ticket_after_it_moves_to_the_mate(world: World) -> None:
     _add(world, "main", "hive-t1", "First")
     world.run("main", "fm-backlog-handoff.sh", MATE_ID, "hive-t1")
     world.refresh_mate()
     snap = await run_snapshot(world.settings())
     desk = build_desk(snap.data or {})
-    assert any(row.id == "hive-t1" for p in desk.projects.values() for row in p.rows)
+    rows = [row for p in desk.projects.values() for row in p.rows]
+    assert [(r.id, r.owner) for r in rows if r.id == "hive-t1"] == [("hive-t1", MATE_ID)]
+
+
+async def test_desk_lists_a_mate_held_decision_once_with_its_owner(world: World) -> None:
+    _hold_in_mate(world)
+    world.refresh_mate()
+    snap = await run_snapshot(world.settings())
+    desk = build_desk(snap.data or {})
+    [need] = [n for n in desk.needs_you if n.ref == "hive-d1"]
+    assert need.kind == "hold" and need.owner == MATE_ID
 
 
 def _hold_in_mate(world: World, key: str = "hive-d1") -> None:
@@ -130,17 +134,9 @@ async def test_mate_held_decision_is_answered_from_the_primary_and_closed_in_the
     assert _mate_record(await run_snapshot(world.settings()))["decisions_open"] == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=actions.ActionError,
-    reason="actions.answer_hold runs the single-task `answer`, which firstmate keeps "
-    "home-local (docs/captain-hold-lifecycle.md: it runs in the owning home), so the "
-    "desk cannot yet close a mate-held decision. It should feed the owner-aware "
-    "`answers` intake instead (M3). Remove this marker when it does.",
-)
 async def test_gateway_answer_action_reaches_a_mate_held_decision(world: World) -> None:
     _hold_in_mate(world)
-    body = actions.answer_body("go with B", "owner@example.test")
+    body = actions.answer_body("go with B")
     await actions.answer_hold(world.settings(), "hive-d1", body, release=False)
     assert "state: done" in world.tasks("mate", "show", "hive-d1")
 

@@ -59,6 +59,6 @@ from: hive web (<owner login>)
 
 Answers a worker's open `needs-decision` (a status-file decision, not a
 captain hold). Captain holds are answered directly with
-`fm-captain-hold.sh answer`, with the web provenance appended to the words.
+the owner-aware `fm-captain-hold.sh answers` intake (web provenance goes in `--source`).
 
 Plain chat messages are unstructured notes with no marker.

@@ -56,7 +56,11 @@ def _script(home: Path, name: str, body: str) -> None:
 def home(tmp_path: Path) -> Path:
     (tmp_path / "bin").mkdir()
     _script(tmp_path, "fm-fleet-snapshot.sh", f"cat '{FIXTURE}'")
-    _script(tmp_path, "fm-captain-hold.sh", 'rec "$@"; echo "closed: $2"')
+    _script(
+        tmp_path,
+        "fm-captain-hold.sh",
+        'IN="$(cat; printf x)"; FAKE_STDIN="${IN%x}" rec "$@"; echo "closed: ${IN%%$\'\\t\'*}"',
+    )
     _script(
         tmp_path,
         "fm-inbox.sh",
@@ -144,25 +148,27 @@ def test_writes_refused_when_snapshot_unusable(tmp_path: Path) -> None:
 # ---- decisions --------------------------------------------------------------------
 
 
-def test_answer_hold_calls_script_with_args_and_provenance(client: TestClient, home: Path) -> None:
-    res = post(client, "answer", task="beta-hold", text="Use the warm palette", release="1")
+def test_answer_hold_feeds_the_owner_aware_keyed_intake(client: TestClient, home: Path) -> None:
+    res = post(client, "answer", task="beta-hold", text="Use the warm\npalette", release="1")
     assert res.status_code == 200 and "closed: beta-hold" in res.text
     (call,) = _calls(home)
     assert call["script"] == "fm-captain-hold.sh"
-    assert call["argv"][:2] == ["answer", "beta-hold"]
-    assert call["argv"][2] == "--decision-file" and call["argv"][-1] == "--release"
-    decision = call["files"]["decision"]
-    assert decision.startswith("Use the warm palette")
-    assert "Hive website" in decision and OWNER in decision
-    assert not Path(call["argv"][3]).exists()  # temp file cleaned up
+    assert call["argv"][:3] == ["answers", "--any-origin", "--source"]
+    assert OWNER in call["argv"][3] and "answer" not in call["argv"][:1]
+    assert call["stdin"] == "beta-hold\tUse the warm palette\tHive desk\trelease\n"
 
 
-def test_answer_without_release_and_shell_chars_stay_argv(client: TestClient, home: Path) -> None:
+def test_answer_without_release_and_shell_chars_stay_data(client: TestClient, home: Path) -> None:
     res = post(client, "answer", task="beta-hold", text="$(touch /tmp/pwned); `x`")
     assert res.status_code == 200
     (call,) = _calls(home)
-    assert "--release" not in call["argv"]
-    assert "$(touch /tmp/pwned)" in call["files"]["decision"]
+    assert call["stdin"].endswith("\tHive desk\tdone\n")
+    assert "$(touch /tmp/pwned)" in call["stdin"]
+
+
+def test_answer_longer_than_the_intake_keeps_is_refused(client: TestClient, home: Path) -> None:
+    res = post(client, "answer", task="beta-hold", text="x" * 513)
+    assert res.status_code == 400 and _calls(home) == []
 
 
 def test_repeated_answer_runs_once_and_shows_first_result(client: TestClient, home: Path) -> None:

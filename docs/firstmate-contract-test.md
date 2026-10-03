@@ -17,14 +17,10 @@ fails when a firstmate change breaks it, before the desk shows wrong data.
 | One-step new ticket in the mate, then a routed, receipted, idempotent edit from the primary | `fm-ticket.sh new`, `edit`, `owner` |
 | Pinned schema ids still match (`fm-fleet-snapshot.v1`, `fm-captain-hold-buckets.v1`); an unknown major puts the desk on its read-only fallback | `parse_snapshot`, `run_snapshot` |
 
-Two tests are **strict xfails** that record desk gaps the test found, so they cannot be
-forgotten and flip to a failure (remove the marker) the day they are fixed:
-
-- `build_desk` reads only the primary's `backlog.records`, so a ticket handed to the mate
-  disappears from the desk instead of appearing from `secondmate_current`.
-- `actions.answer_hold` runs the single-task `answer`, which firstmate keeps home-local, so
-  the desk cannot yet close a mate-held decision; it should feed the owner-aware `answers`
-  intake.
+The desk side is covered too: `build_desk` reads second-mate tickets and decisions from
+`secondmate_current` (each row and needs-you item carries its `owner`), and
+`actions.answer_hold` feeds the owner-aware `answers` intake, so a decision held in a
+second mate home closes in that home.
 
 ## Hermetic by construction
 

@@ -338,7 +338,7 @@ async def _dispatch(
         if not actions.REQUEST_ID_RE.fullmatch(rid):
             raise ActionError("invalid request id")
         release = form.get("release") == "1"
-        answer_body = actions.answer_body(form.get("text", ""), owner)
+        answer_body = actions.answer_body(form.get("text", ""))
 
         async def answer() -> Outcome:
             _need(desk, "hold", task)

@@ -17,11 +17,9 @@ import logging
 import os
 import re
 import secrets
-import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 from hive.gateway.settings import GatewaySettings
 
@@ -29,7 +27,7 @@ audit_log = logging.getLogger("hive.gateway.audit")
 
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 REQUEST_ID_RE = re.compile(r"^web-[0-9a-f]{16}$")
-MAX_ANSWER_BYTES = 6000  # the script caps a decision at 8192; leave room for provenance
+MAX_ANSWER_CHARS = 512  # the keyed intake keeps only this much of an answer
 MAX_NOTE_CHARS = 4000
 SCRIPT_TIMEOUT_S = 30.0
 STEP_UP_TTL_S = 180
@@ -231,11 +229,6 @@ def decision_note_body(task: str, key: str, text: str, owner: str) -> str:
     )
 
 
-def provenance_footer(owner: str) -> str:
-    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    return f"\n\n[answered from the Hive website by {owner} at {stamp}]"
-
-
 # ---- actions ----------------------------------------------------------------------
 
 
@@ -273,32 +266,33 @@ async def send_note(
     return Outcome(action, subject, summary)
 
 
-def answer_body(text: str, owner: str) -> str:
-    """The hold answer as recorded: the owner's text plus a provenance footer."""
-    body = check_text(text, "answer", MAX_ANSWER_BYTES) + provenance_footer(owner)
-    if len(body.encode()) > MAX_ANSWER_BYTES + 400:
-        raise ActionError("answer is too long")
-    return body
+def answer_body(text: str) -> str:
+    """The hold answer as one line: the keyed intake takes one tab-separated row.
+
+    Provenance rides in the intake's ``--source``, not in the words, because the intake
+    keeps only the first ``MAX_ANSWER_CHARS`` characters and would silently cut a footer.
+    """
+    return check_line(" ".join(text.split()), "answer", MAX_ANSWER_CHARS)
 
 
 async def answer_hold(settings: GatewaySettings, task: str, body: str, release: bool) -> Outcome:
+    """Feed the owner-aware keyed intake: it routes to whichever home holds the task."""
     check_id(task, "task id")
-    fd, name = tempfile.mkstemp(prefix="hive-gw-answer-")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(body)
-        args = ["answer", task, "--decision-file", name]
-        if release:
-            args.append("--release")
-        code, out = await run_script(settings, "fm-captain-hold.sh", *args)
-    finally:
-        Path(name).unlink(missing_ok=True)
+    row = "\t".join((task, body, "Hive desk", "release" if release else "done")) + "\n"
+    source = f"hive website ({settings.owner_login})"
+    code, out = await run_script(
+        settings, "fm-captain-hold.sh", "answers", "--any-origin", "--source", source, stdin=row
+    )
     subject = f"{task}{' release' if release else ''}"
-    if code != 0:
+    closed = next((ln for ln in out.splitlines() if ln.startswith("closed: ")), None)
+    if code != 0 or closed is None:
+        reason = next(
+            (ln for ln in out.splitlines() if ln.startswith(("skipped:", "refused:"))), out
+        )
         audit("answer", subject, "failed", exit=code, chars=len(body))
-        raise ActionError(f"fm-captain-hold refused: {_first_line(out)}", 409)
+        raise ActionError(f"fm-captain-hold refused: {_first_line(reason)}", 409)
     audit("answer", subject, "recorded", exit=code, chars=len(body))
-    return Outcome("answer", subject, _clean(out) or "Recorded.")
+    return Outcome("answer", subject, _clean(closed) or "Recorded.")
 
 
 async def control(settings: GatewaySettings, task: str, verb: str, note: str | None) -> Outcome:

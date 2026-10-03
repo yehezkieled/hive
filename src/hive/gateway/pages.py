@@ -289,7 +289,7 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
         checked = " checked" if n.gated else ""
         act = ctx.form(
             "answer",
-            "<label>Your answer</label><textarea name=text required maxlength=6000></textarea>"
+            "<label>Your answer</label><textarea name=text required maxlength=512></textarea>"
             f"<label><input type=checkbox name=release value=1{checked}> "
             "Release the work item (resume it) instead of closing the question</label>"
             "<button>Record answer</button>",
@@ -422,6 +422,8 @@ def render_project(
     rows = []
     for r in project.rows:
         extra = [r.id]
+        if r.owner and r.owner != "main":
+            extra.append(f"owner: {esc(r.owner)}")
         if r.hold:
             extra.append(f"held: {esc(r.hold)}")
         if r.blocked_by:

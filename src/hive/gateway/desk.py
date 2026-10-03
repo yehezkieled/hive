@@ -23,6 +23,7 @@ class NeedsYou:
     url: str | None = None
     title: str = ""  # the work item's human title, when the snapshot knows it
     gated: bool = False  # a hold on a work item: answering releases it instead of closing
+    owner: str = ""  # the home that owns the work item; empty when the snapshot omits it
 
 
 @dataclass
@@ -33,6 +34,7 @@ class Row:
     blocked_by: list[str]
     hold: str | None
     pr_url: str | None
+    owner: str = ""  # the home that owns the ticket; empty when the snapshot omits it
 
 
 @dataclass
@@ -84,16 +86,19 @@ def build_desk(data: dict) -> Desk:
 
     task_project: dict[str, str] = {}
     task_title: dict[str, str] = {}
-    for rec in _list(_list_of(data, "backlog", "records")):
-        if not isinstance(rec, dict):
-            continue
+
+    def add_record(rec: dict) -> None:
+        tid = _s(rec.get("id"))
+        if tid in task_project:  # one owning home per ticket; the first read wins
+            return
         name = _project_name(rec.get("repo"))
-        task_project[_s(rec.get("id"))] = name
-        task_title[_s(rec.get("id"))] = _s(rec.get("title"))
+        owner = _s(rec.get("owner"))
+        task_project[tid] = name
+        task_title[tid] = _s(rec.get("title"))
         hold = _s(rec.get("hold_reason")) or None
         project(name).rows.append(
             Row(
-                id=_s(rec.get("id")),
+                id=tid,
                 title=_s(rec.get("title")),
                 state=_s(rec.get("state"), "queued"),
                 blocked_by=[
@@ -101,6 +106,7 @@ def build_desk(data: dict) -> Desk:
                 ],
                 hold=hold,
                 pr_url=_s(rec.get("pr_url")) or None,
+                owner=owner,
             )
         )
         if rec.get("captain_actionable") is True:
@@ -108,11 +114,39 @@ def build_desk(data: dict) -> Desk:
                 NeedsYou(
                     name,
                     "hold",
-                    _s(rec.get("id")),
+                    tid,
                     hold or _s(rec.get("title")),
                     title=_s(rec.get("title")),
                     gated=_s(rec.get("kind")) != "captain",
+                    owner=owner,
                 )
+            )
+
+    for rec in _list(_list_of(data, "backlog", "records")):
+        if isinstance(rec, dict):
+            add_record(rec)
+
+    # Second mates own tickets too (ADR 0030): read their roll-up as the same rows.
+    mates = [
+        m for m in _list(_list_of(data, "secondmate_current", "records")) if isinstance(m, dict)
+    ]
+    for mate in mates:
+        for rec in _list(mate.get("queued")):
+            if isinstance(rec, dict):
+                add_record({"owner": mate.get("id"), **rec})
+    for mate in mates:  # a decision the bounded queued list cut off still needs the owner
+        for dec in _list(mate.get("decisions_open")):
+            if not isinstance(dec, dict) or _s(dec.get("id")) in task_project:
+                continue
+            add_record(
+                {
+                    "owner": dec.get("owner") or mate.get("id"),
+                    "id": dec.get("id"),
+                    "title": dec.get("summary"),
+                    "hold_reason": dec.get("reason"),
+                    "kind": "captain",
+                    "captain_actionable": True,
+                }
             )
 
     for task in _list(data.get("tasks")):
