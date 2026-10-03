@@ -7,11 +7,14 @@ contribution list) by project, and reads every field defensively.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import PurePath
 
 NO_PROJECT = "General"
 STATE_ORDER = ("in_flight", "queued", "done")
+# A mate's captain hold, echoed onto the primary's status channel as a needs-decision line.
+CAPTAIN_HOLD_KEY = re.compile(r"captain-hold-(.+)-\d+")
 
 
 @dataclass
@@ -87,6 +90,7 @@ def build_desk(data: dict) -> Desk:
 
     task_project: dict[str, str] = {}
     task_title: dict[str, str] = {}
+    hold_ids: set[str] = set()  # ids already on the desk as a hold card
 
     def add_record(rec: dict) -> None:
         tid = _s(rec.get("id"))
@@ -111,6 +115,7 @@ def build_desk(data: dict) -> Desk:
             )
         )
         if rec.get("captain_actionable") is True:
+            hold_ids.add(tid)
             project(name).needs_you.append(
                 NeedsYou(
                     name,
@@ -216,16 +221,20 @@ def build_desk(data: dict) -> Desk:
         )
         hints = task.get("hints") if isinstance(task.get("hints"), dict) else {}
         for dec in _list(hints.get("open_decisions")):
-            if isinstance(dec, dict):
-                project(name).needs_you.append(
-                    NeedsYou(
-                        name,
-                        "decision",
-                        f"{tid}/{_s(dec.get('key'))}",
-                        _s(dec.get("summary")),
-                        title=task_title.get(tid, ""),
-                    )
+            if not isinstance(dec, dict):
+                continue
+            echo = CAPTAIN_HOLD_KEY.fullmatch(_s(dec.get("key")))
+            if echo and echo.group(1) in hold_ids:  # the hold card already asks this question
+                continue
+            project(name).needs_you.append(
+                NeedsYou(
+                    name,
+                    "decision",
+                    f"{tid}/{_s(dec.get('key'))}",
+                    _s(dec.get("summary")),
+                    title=task_title.get(tid, ""),
                 )
+            )
 
     for item in _list(_list_of(data, "contributions", "captain")):
         if not isinstance(item, dict):

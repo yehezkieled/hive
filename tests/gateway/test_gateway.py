@@ -203,6 +203,28 @@ def test_desk_reads_every_ticket_a_mate_owns_and_counts_the_cut_off_rest() -> No
     assert desk.more == {"hive": 1}
 
 
+def test_mate_held_decision_is_listed_once_not_again_from_the_status_channel() -> None:
+    snap = _mate_snapshot()
+    snap["tasks"] = [
+        {
+            "id": "hive",
+            "hints": {
+                "open_decisions": [
+                    {"key": "captain-hold-h1-1", "summary": "Pick"},
+                    {"key": "captain-hold-h10-1", "summary": "Other hold"},
+                    {"key": "pick-db", "summary": "Postgres or SQLite?"},
+                ]
+            },
+        }
+    ]
+    desk = build_desk(snap)
+    assert sorted((n.kind, n.ref) for n in desk.needs_you) == [
+        ("decision", "hive/captain-hold-h10-1"),
+        ("decision", "hive/pick-db"),
+        ("hold", "h1"),
+    ]
+
+
 def test_mate_remainder_counts_only_tickets_that_exist_when_holds_are_capped() -> None:
     blocked = [{"id": f"b{i}", "title": f"B{i}", "repo": "/r/hive"} for i in range(20)]
     mate = {
