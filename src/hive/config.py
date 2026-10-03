@@ -85,7 +85,7 @@ TELEGRAM_ALLOWED_USER_IDS: list[int] = [
 ]
 
 # Claude CLI defaults
-DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "opus")
+DEFAULT_MODEL = os.environ.get("HIVE_DEFAULT_MODEL", "")
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("HIVE_MAX_SESSIONS", "3"))
 # Absolute path (or bare name) of the `claude` binary the fleet spawns. The
 # service PATH omits ~/.local/bin, so a bare "claude" silently resolves to the

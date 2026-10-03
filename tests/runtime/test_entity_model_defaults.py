@@ -1,7 +1,11 @@
+import importlib
+import os
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from hive.commands.dispatch import CommandDispatcher
 from hive.models.entity import Entity, parse_personality
@@ -73,3 +77,55 @@ class EntityModelDefaultsTests(IsolatedAsyncioTestCase):
 
     def test_existing_opus_selection_is_preserved(self):
         self.assert_claude_model(Entity(name="dev", role="maestro", model="opus"), "opus")
+
+
+    async def test_startup_models_preserve_omitted_and_explicit_environment(self):
+        import hive.config as config
+        import hive.__main__ as entry
+
+        class StartupComplete(Exception):
+            pass
+
+        for chosen in (None, "haiku"):
+            with self.subTest(chosen=chosen), ExitStack() as stack:
+                stack.callback(importlib.reload, config)
+                stack.enter_context(patch.dict(os.environ))
+                os.environ.pop("HIVE_DEFAULT_MODEL", None)
+                if chosen is not None:
+                    os.environ["HIVE_DEFAULT_MODEL"] = chosen
+                stack.enter_context(patch("dotenv.load_dotenv"))
+                importlib.reload(config)
+                manager = ProcessManager(router=Mock())
+                stack.enter_context(patch.object(entry, "DEFAULT_MODEL", config.DEFAULT_MODEL))
+                stack.enter_context(patch.object(entry, "PERSONALITIES_DIR", self.root))
+                stack.enter_context(patch.object(entry, "DEFAULT_MAESTRO", "startup"))
+                stack.enter_context(patch.object(entry, "EMAIL_ENABLED", False))
+                stack.enter_context(patch.object(entry, "TELEGRAM_BOT_TOKEN", "test-token"))
+                store = Mock(connect=AsyncMock(), pool=Mock())
+                stack.enter_context(patch.object(entry, "MessageStore", return_value=store))
+                roster = Mock(purge_role=AsyncMock(return_value=0), all=AsyncMock(return_value=[]))
+                stack.enter_context(patch.object(entry, "EntityStore", return_value=roster))
+                for component in (
+                    "MessageRouter", "ProjectStore", "TokenStore", "TaskStore", "AuditLog",
+                    "VaultStore", "BlueprintStore", "ModeRequestStore", "AttachmentStore",
+                    "GateCoordinator", "PriorityScheduler", "ProgressStore", "build_provider",
+                ):
+                    stack.enter_context(patch.object(entry, component))
+                stack.enter_context(patch.object(entry, "build_process_manager", return_value=manager))
+                stack.enter_context(patch.object(entry.VaultConfig, "from_env", return_value=SimpleNamespace(
+                    enabled=True, provider="test", daily_cap_cents=0,
+                    monthly_cap_cents=0, cap_currencies=("AUD",),
+                )))
+                stack.enter_context(patch.object(entry, "QuotaMonitor", return_value=Mock(start=AsyncMock())))
+                stack.enter_context(patch.object(entry, "WorkflowWatcher", return_value=Mock(
+                    start=AsyncMock(), _interval=2,
+                )))
+                manager.reconcile_worktrees = AsyncMock()
+                manager.reconcile_orphaned_gates = AsyncMock()
+                stack.enter_context(patch("hive.telegram.bridge.TelegramBridge", side_effect=StartupComplete))
+                with self.assertRaises(StartupComplete):
+                    await entry.main()
+                for name, default in (("startup", "claude-opus-5-5"), ("vault", "claude-sonnet-5-5")):
+                    entity = manager.entities[name]
+                    self.assertEqual(entity.model, chosen or "")
+                    self.assert_claude_model(entity, chosen or default)

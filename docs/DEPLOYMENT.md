@@ -1214,7 +1214,7 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `POSTGRES_USER` | `hive` | User |
 | `POSTGRES_PASSWORD` | `hive` | Password |
 | `HIVE_DEFAULT_MAESTRO` | `otter` | Auto-registered maestro name on first run |
-| `HIVE_DEFAULT_MODEL` | `sonnet` | Model for the default maestro |
+| `HIVE_DEFAULT_MODEL` | unset | Explicit model for startup Maestro and Vault; omitted values use serving harness role defaults |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
 | `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Set to the VPS's Tailscale IP (e.g. `100.79.194.84`) for tailnet-only access from other devices. Keep off `0.0.0.0` until auth lands (deferred past Sprint 14). |
