@@ -150,6 +150,20 @@ def build_desk(data: dict) -> Desk:
                         "state": "in_flight",
                     }
                 )
+        holds = [h for h in _list(mate.get("holds")) if isinstance(h, dict)]
+        for held in holds:  # an in-flight ticket whose worker is parked, paused or blocked
+            if held.get("source") != "child-state":
+                continue
+            seen.add(_s(held.get("id")))
+            add_record(
+                {
+                    "owner": owner,
+                    "id": held.get("id"),
+                    "title": held.get("title"),
+                    "hold_reason": held.get("reason"),
+                    "state": "in_flight",
+                }
+            )
         for dec in _list(mate.get("decisions_open")):  # a hold the bounded queued list cut off
             if not isinstance(dec, dict) or dec.get("verb") != "captain-hold":
                 continue
@@ -164,10 +178,14 @@ def build_desk(data: dict) -> Desk:
                     "captain_actionable": True,
                 }
             )
+        # In-flight tickets in other states (idle, done awaiting landing) have no surface in
+        # the mate's summary, so they are neither shown nor counted here.
         counts = mate.get("counts") if isinstance(mate.get("counts"), dict) else {}
         owned = sum(
-            n for n in (counts.get("queued"), counts.get("active_children")) if isinstance(n, int)
-        )
+            n
+            for n in (counts.get("queued"), counts.get("active_children"), counts.get("holds"))
+            if isinstance(n, int)
+        ) - sum(1 for h in holds if h.get("source") == "backlog")
         if owned > len(seen):
             more[owner] = owned - len(seen)
 
