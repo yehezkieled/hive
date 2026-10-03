@@ -1212,3 +1212,23 @@ async def test_send_to_entity_proceeds_when_not_parked(
 
     assert len(mgr.adapter.prompts) == 1  # the turn reached the PTY
     assert result == "did the work"
+
+
+async def test_codex_baseline_persisted_and_cached_context_compacts(dispatcher, mgr):
+    from unittest.mock import AsyncMock
+
+    entity = Maestro(name="dev", model="sonnet")
+    mgr._entities["dev"] = entity
+    totals = {"session_id": "codex-thread", "input_tokens": 60000}
+    mgr.adapter = FakeTurnAdapter()
+    mgr.adapter.send_turn = AsyncMock(return_value=("ok", {
+        "input_tokens": 100, "cache_read_input_tokens": 59900,
+        "session_id": "codex-thread", "codex_usage": totals,
+    }))
+    mgr.compact_entity = AsyncMock()
+    with _hermetic_send_flags(), patch("hive.process.manager.AUTO_COMPACT_ENABLED", True), patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000):
+        await dispatcher.send_to_entity("dev", "go")
+    assert entity.session_id == "codex-thread"
+    assert entity.codex_usage == totals
+    assert entity in mgr.persisted
+    mgr.compact_entity.assert_awaited_once_with("dev")

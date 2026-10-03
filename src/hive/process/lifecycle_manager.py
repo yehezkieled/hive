@@ -117,6 +117,7 @@ def _adapter_config_from_entity(entity: Entity) -> AdapterConfig:
     )
     return AdapterConfig(
         model=entity.model,
+        codex_usage=dict(entity.codex_usage),
         system_prompt=entity.system_prompt,
         allowed_tools=list(entity.allowed_tools),
         disallowed_tools=disallowed_tools,

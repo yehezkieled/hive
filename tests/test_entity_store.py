@@ -360,3 +360,12 @@ async def test_phase_confirmation_defaults_on_restore(entity_store: EntityStore)
     assert loaded is not None
     assert loaded.confirmed_with_user is False
     assert loaded.phase_confirm is True
+
+
+async def test_codex_usage_round_trips(entity_store: EntityStore) -> None:
+    entity = Entity(name="dev", role="lead", session_id="codex-thread")
+    entity.codex_usage = {"session_id": "codex-thread", "input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 20, "cache_write_input_tokens": 0}
+    await entity_store.upsert(entity)
+    loaded = await entity_store.load("dev")
+    assert loaded is not None
+    assert loaded.codex_usage == entity.codex_usage

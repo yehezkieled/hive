@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,7 +12,7 @@ from pathlib import Path
 import hive.config as config
 from hive.runtime.adapter_config import AdapterConfig, build_system_prompts
 from hive.runtime.base import Runtime
-from hive.runtime.harness import HarnessError, HarnessStatus, RunMode
+from hive.runtime.harness import HarnessError, HarnessErrorKind, HarnessStatus, RunMode
 from hive.runtime.headless import (
     classify_failure_text,
     parse_jsonl,
@@ -21,7 +22,7 @@ from hive.runtime.headless import (
 )
 
 HARNESS = "codex"
-_WORK_ITEMS = frozenset({"command_execution", "file_change", "mcp_tool_call"})
+_WORK_ITEMS = frozenset({"command_execution", "file_change", "mcp_tool_call", "collab_tool_call"})
 _API_BILLING_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY")
 
 
@@ -62,6 +63,7 @@ class CodexAdapter(Runtime):
         self._config = cfg
         self._cwd = cwd
         self._session_id = resume_session_id
+        self._usage_totals = dict(cfg.codex_usage)
         self._started = False
 
     async def start(self) -> None:
@@ -122,26 +124,30 @@ class CodexAdapter(Runtime):
             timeout=config.HEADLESS_TIMEOUT_S,
         )
         events = parse_jsonl(proc.stdout)
-        failed = next(
-            (e for e in reversed(events) if e.get("type") in {"turn.failed", "error"}), None
+        terminal = next(
+            (e for e in reversed(events) if e.get("type") in {"turn.failed", "turn.completed"}),
+            None,
         )
-        completed = next((e for e in reversed(events) if e.get("type") == "turn.completed"), None)
-        if proc.returncode or failed is not None or completed is None:
-            error = (failed or {}).get("error") or {}
+        completed = terminal if terminal and terminal.get("type") == "turn.completed" else None
+        if proc.returncode or completed is None:
+            error = (terminal or {}).get("error") or {}
             detail = str(error.get("message") or "") if isinstance(error, dict) else str(error)
             if not detail:
-                prior = next(
-                    (e.get("error") for e in reversed(events) if e.get("type") == "error"),
-                    None,
-                )
-                detail = (
-                    str(prior.get("message") or "") if isinstance(prior, dict) else str(prior or "")
+                detail = next(
+                    (str(e.get("message") or "") for e in reversed(events) if e.get("type") == "error"),
+                    "",
                 )
             if not detail:
                 detail = tail(proc.stderr) or f"exit {proc.returncode}, no completed turn"
             if self._session_id and _missing_session(detail) and not _did_work(events):
                 return None
-            kind = unless_work_done(classify_failure_text(detail), _did_work(events))
+            kind = classify_failure_text(detail)
+            if kind is HarnessErrorKind.OTHER and re.search(
+                r"model[^\n]*(?:not (?:available|supported|found)|does not exist|unsupported)|"
+                r"(?:unsupported|unavailable) model", detail, re.I
+            ):
+                kind = HarnessErrorKind.UNAVAILABLE
+            kind = unless_work_done(kind, _did_work(events))
             raise HarnessError(kind, HARNESS, RunMode.HEADLESS, tail(detail))
 
         thread = next((e for e in events if e.get("type") == "thread.started"), {})
@@ -154,11 +160,19 @@ class CodexAdapter(Runtime):
             if isinstance(item := e.get("item"), dict) and item.get("type") == "agent_message"
         ]
         raw = completed.get("usage") or {}
+        totals = {
+            key: int(raw.get(key) or 0)
+            for key in ("input_tokens", "output_tokens", "cached_input_tokens", "cache_write_input_tokens")
+        }
+        previous = self._usage_totals if self._usage_totals.get("session_id") == session_id else {}
+        delta = {key: max(0, value - int(previous.get(key) or 0)) for key, value in totals.items()}
+        self._usage_totals = {"session_id": session_id, **totals}
         usage = {
-            "input_tokens": int(raw.get("input_tokens") or 0),
-            "output_tokens": int(raw.get("output_tokens") or 0),
-            "cache_read_input_tokens": int(raw.get("cached_input_tokens") or 0),
-            "cache_creation_input_tokens": int(raw.get("cache_write_input_tokens") or 0),
+            "input_tokens": max(0, delta["input_tokens"] - delta["cached_input_tokens"]),
+            "output_tokens": delta["output_tokens"],
+            "cache_read_input_tokens": delta["cached_input_tokens"],
+            "cache_creation_input_tokens": delta["cache_write_input_tokens"],
+            "codex_usage": dict(self._usage_totals),
             "session_id": session_id,
             "model": config.codex_model_for(self._config.role),
             "cost_usd": None,

@@ -326,7 +326,9 @@ class ProcessManager:
         """
         if self.token_store is None:
             return
-        if not usage or not usage.get("input_tokens"):
+        if not usage or not any(
+            usage.get(key) for key in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+        ):
             return
         try:
             await self.token_store.record(

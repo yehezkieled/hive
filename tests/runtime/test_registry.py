@@ -45,11 +45,11 @@ def test_role_model_defaults_and_overrides(monkeypatch) -> None:
         ("vault", "claude-sonnet-5-5"),
     ):
         monkeypatch.delenv(f"HIVE_CLAUDE_MODEL_{role.upper()}", raising=False)
-        ctx = RuntimeContext(AdapterConfig(name="n", role=role, model="opus"))
+        ctx = RuntimeContext(AdapterConfig(name="n", role=role))
         headless = specs["claude"].build(RunMode.HEADLESS, ctx)
         pty = specs["claude"].build(RunMode.PTY, ctx)
         assert headless._config.model == pty._config.model == expected
-        assert ctx.config.model == "opus"  # the shared context is not mutated
+        assert ctx.config.model == ""  # the shared context is not mutated
 
     monkeypatch.setenv("HIVE_CLAUDE_MODEL_LEAD", "custom-sonnet")
     assert config.claude_model_for("lead") == "custom-sonnet"
@@ -119,3 +119,11 @@ async def test_report_flags_no_usable_harness_when_claude_is_logged_out() -> Non
     msg = str(problem)
     assert "No usable agent harness" in msg and "Claude Code is logged out" in msg
     assert "claude auth login" in msg
+
+
+def test_explicit_model_preserved_in_both_claude_modes():
+    for role in ("maestro", "lead", "vault"):
+        ctx = RuntimeContext(AdapterConfig(role=role, model="haiku"))
+        for mode in (RunMode.HEADLESS, RunMode.PTY):
+            runtime = default_specs()["claude"].build(mode, ctx)
+            assert runtime._config.model == "haiku"

@@ -259,6 +259,7 @@ class Entity:
     started_at: datetime | None = None
     system_prompt: str = ""
     session_id: str | None = None
+    codex_usage: dict = field(default_factory=dict)
     permission_mode: str = "default"
     # Dormant since T007: the loop framework was retired for native /goal, but
     # the field + its DB column are kept so persisted rows round-trip without a

@@ -27,7 +27,7 @@ from hive.runtime.pi_adapter import PiAdapter, probe_pi
 
 
 def _build_claude(mode: RunMode, ctx: RuntimeContext):
-    cfg = replace(ctx.config, model=config.claude_model_for(ctx.config.role))
+    cfg = replace(ctx.config, model=ctx.config.model or config.claude_model_for(ctx.config.role))
     if mode is RunMode.HEADLESS:
         return ClaudeHeadlessAdapter(cfg, ctx.cwd, ctx.resume_session_id)
     return ClaudeAdapter(
