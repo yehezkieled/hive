@@ -53,7 +53,7 @@ async def test_success_model_effort_and_usage(tmp_path, monkeypatch) -> None:
     text, usage = await a.send_turn("say hi")
     assert text == "done"
     assert usage == {
-        "context_tokens": 120,
+        "context_tokens": None,
         "input_tokens": 80,
         "output_tokens": 12,
         "cache_read_input_tokens": 40,

@@ -79,11 +79,49 @@ class ContextTokensTests(IsolatedAsyncioTestCase):
         self.assertEqual(usage["context_tokens"], 31050)
         self.assertEqual(usage["input_tokens"], 1000)
 
-    async def test_codex_context_includes_cached_input_once(self):
-        output = jsonl({"type": "turn.completed", "usage": {"input_tokens": 31000, "cached_input_tokens": 30000}})
-        binary = make_fake_cli(self.root, "codex", stdout=output)
-        with patch.object(config, "CODEX_BINARY", str(binary)):
-            _, usage = await CodexAdapter(AdapterConfig(), self.root).send_turn("go")
-        self.assertEqual(usage["context_tokens"], 31000)
-        self.assertEqual(usage["input_tokens"], 1000)
-        self.assertEqual(usage["cache_read_input_tokens"], 30000)
+    async def test_codex_accounting_totals_do_not_trigger_compaction(self):
+        for input_tokens in (31000, 63000):
+            with self.subTest(input_tokens=input_tokens):
+                output = jsonl({"type": "turn.completed", "usage": {
+                    "input_tokens": input_tokens, "cached_input_tokens": 30000,
+                }})
+                binary = make_fake_cli(self.root, "codex", stdout=output)
+                adapter = CodexAdapter(AdapterConfig(), self.root)
+                token_store = Mock(record=AsyncMock())
+                manager = ProcessManager(
+                    router=Mock(has_pending=Mock(return_value=False)), token_store=token_store
+                )
+                manager._entities["lead"] = Entity(name="lead", role="lead")
+                manager._get_or_create_adapter = AsyncMock(return_value=adapter)
+                manager.compact_entity = AsyncMock()
+                manager._notify = AsyncMock()
+                manager._audit = AsyncMock()
+                with (
+                    patch.object(config, "CODEX_BINARY", str(binary)),
+                    patch("hive.process.manager.mcp_servers_enabled", return_value=False),
+                    patch("hive.process.manager.AUTO_RETRIEVE_ENABLED", False),
+                    patch("hive.process.manager.AUTO_COMPACT_ENABLED", True),
+                    patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
+                ):
+                    await manager.send_to_entity("lead", "go")
+                usage = token_store.record.await_args.args[1]
+                self.assertIsNone(usage["context_tokens"])
+                self.assertEqual(usage["input_tokens"], input_tokens - 30000)
+                self.assertEqual(usage["cache_read_input_tokens"], 30000)
+                manager.compact_entity.assert_not_awaited()
+                manager._notify.assert_not_awaited()
+                self.assertFalse(any(
+                    call.args[0] == "entity.auto_compact"
+                    for call in manager._audit.await_args_list
+                ))
+
+    async def test_claude_aggregate_without_final_message_has_no_context(self):
+        output = jsonl({"type": "result", "subtype": "success", "result": "done",
+                        "usage": {"input_tokens": 63000}})
+        binary = make_fake_cli(self.root, "claude", stdout=output)
+        with patch.object(config, "CLAUDE_BINARY", str(binary)):
+            _, usage = await ClaudeHeadlessAdapter(
+                AdapterConfig(model="haiku"), self.root
+            ).send_turn("go")
+        self.assertIsNone(usage["context_tokens"])
+        self.assertEqual(usage["input_tokens"], 63000)

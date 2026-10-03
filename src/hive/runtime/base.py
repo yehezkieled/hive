@@ -30,5 +30,5 @@ class Runtime(ABC):
         """Send one turn and return (response_text, usage).
 
         usage keys: input_tokens, output_tokens (accounting counters),
-        context_tokens (input context reported by the harness for compaction).
+        context_tokens (measured final-call input context, or None when unavailable).
         """
