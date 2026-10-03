@@ -14,8 +14,10 @@ fallbacks. The Vault still needs its Claude-only lockdown.
 
 - Keep the role order from ADR 0031: Maestro and Vault start with Claude;
   other roles start with Codex. Pi remains last.
-- Use `claude-opus-5-5` for Maestros and `claude-sonnet-5-5` for other roles
-  when Claude serves a turn. The model applies to both headless and PTY modes.
+- Default to `claude-opus-5-5` for Maestros and `claude-sonnet-5-5` for other
+  roles when Claude serves a turn. In both headless and PTY modes, an explicit
+  entity/personality model choice wins; otherwise use the role environment
+  setting, then the role default.
 - `HIVE_CLAUDE_MODEL_<ROLE>`, `HIVE_CODEX_MODEL_<ROLE>`,
   `HIVE_CODEX_EFFORT_<ROLE>`, and `HIVE_PI_MODEL_<ROLE>` override the defaults
   per role. Codex and Pi retain their global model settings as fallbacks.
@@ -24,5 +26,7 @@ fallbacks. The Vault still needs its Claude-only lockdown.
 ## Consequences
 
 An Entity's stored model field can differ from the model that serves a turn;
-token accounting records the serving model. Role-level environment settings
-are authoritative for these harnesses.
+token accounting records the serving model. Codex and Pi select their models
+from harness configuration rather than the Entity's Claude model choice; see
+[the deployment runbook](../DEPLOYMENT.md#harness-selection-adr-0029) for
+configuration and compatibility guidance.
