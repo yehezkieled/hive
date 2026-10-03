@@ -29,3 +29,34 @@ jobs:
 
       - name: Test
         run: uv run pytest -m "not integration" --cov --cov-report=term-missing
+
+  # Two-home contract test: the real firstmate scripts, pinned to one commit of the
+  # captain's fork, drive a throwaway primary home plus a throwaway `hive` second-mate
+  # home. It fails when a firstmate change breaks what the Hive desk relies on. See
+  # docs/firstmate-contract-test.md (including how to bump the pin).
+  firstmate-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HIVE_FIRSTMATE_ROOT: ${{ github.workspace }}/.firstmate
+      HIVE_FIRSTMATE_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Install tasks-axi
+        run: |
+          npm install -g tasks-axi@0.2.6
+          tasks-axi --version
+
+      - name: Fetch pinned firstmate
+        run: scripts/fetch-firstmate.sh "$HIVE_FIRSTMATE_ROOT"
+
+      - name: Two-home contract test
+        run: uv run pytest tests/firstmate_contract -m firstmate_contract --no-cov -p no:cacheprovider -v
