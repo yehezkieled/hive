@@ -8,6 +8,11 @@ so the old entry stays as history.
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
 This file holds the smaller process and tooling decisions.
 
+## 2026-10-03: Firstmate contract test runs the pinned scripts, not a vendored copy
+Context: the desk assumes ticket ownership, handoff, roll-up and decision routing behave as firstmate documents, and a project second mate for Hive is planned (ADR 0030).
+Decision: A separate CI job fetches one pinned commit of the captain's firstmate fork (`tests/firstmate_contract/FIRSTMATE_PIN`, shallow fetch) and drives its real scripts against throwaway primary and `hive` second-mate homes. It skips without `HIVE_FIRSTMATE_ROOT`, so the normal check is unchanged. Recorded in `docs/firstmate-contract-test.md`.
+Consequences: a firstmate change that breaks the desk fails CI; bumping the pin is a deliberate commit. Two desk gaps it found are strict xfails until fixed.
+
 ## 2026-10-03: Desk live updates and push live in the gateway, not the Entity runtime
 Context: ADR 0026's Web Push channel hangs off Hive's `NotificationDispatcher` and Postgres store, which retire at the cut-over (ADR 0030), and the desk reads firstmate's files, not Hive events.
 Decision: The gateway runs its own watcher (`state/*.status` stat plus `fm-inbox.sh receipts`, snapshot on change) that feeds SSE and a file-backed push store (`HIVE_GATEWAY_DATA_DIR`, VAPID key and subscriptions mode 0600, outside the repo). It reuses ADR 0026's actionable-set idea and the `pywebpush` dependency, but nothing from the Entity runtime. The only new POSTs store or remove the owner's push subscription; no new action on firstmate.

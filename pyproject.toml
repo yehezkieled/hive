@@ -51,6 +51,7 @@ testpaths = ["tests"]
 timeout = 30
 markers = [
     "integration: tests that drive real external processes or services (e.g. a live Harness); skipped in CI. Hermetic multi-component round-trips do NOT use this marker.",
+    "firstmate_contract: two-home contract test against the pinned firstmate checkout (HIVE_FIRSTMATE_ROOT); skips when it is absent, runs as its own CI job.",
 ]
 
 [tool.coverage.run]

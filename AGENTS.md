@@ -33,6 +33,9 @@ decisions in `docs/decisions.md` (newest first).
 uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/ && uv run pytest -m "not integration"
 ```
 
+The `firstmate-contract` CI job (two-home test against a pinned firstmate
+commit) skips locally without `HIVE_FIRSTMATE_ROOT`; see
+`docs/firstmate-contract-test.md` to run it or bump the pin.
 
 ## Environment
 
