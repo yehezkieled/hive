@@ -9,6 +9,8 @@ all driven off the specs — nothing else changes.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import hive.config as config
 from hive.runtime.claude_adapter import ClaudeAdapter
 from hive.runtime.claude_headless import ClaudeHeadlessAdapter, probe_claude
@@ -25,10 +27,11 @@ from hive.runtime.pi_adapter import PiAdapter, probe_pi
 
 
 def _build_claude(mode: RunMode, ctx: RuntimeContext):
+    cfg = replace(ctx.config, model=config.claude_model_for(ctx.config.role))
     if mode is RunMode.HEADLESS:
-        return ClaudeHeadlessAdapter(ctx.config, ctx.cwd, ctx.resume_session_id)
+        return ClaudeHeadlessAdapter(cfg, ctx.cwd, ctx.resume_session_id)
     return ClaudeAdapter(
-        ctx.config,
+        cfg,
         cwd=ctx.cwd,
         gate_coordinator=ctx.gate_coordinator,
         entity_name=ctx.entity_name,

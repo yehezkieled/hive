@@ -189,6 +189,7 @@ class ClaudeAdapter(Runtime):
                 "cache_creation_input_tokens": raw_usage.get("cache_creation_input_tokens", 0),
                 "cache_read_input_tokens": raw_usage.get("cache_read_input_tokens", 0),
                 "session_id": raw_usage.get("session_id"),
+                "model": self._config.model,
                 "cost_usd": None,
             }
             return text, usage

@@ -37,6 +37,30 @@ def test_default_preference_is_codex_then_claude_then_pi() -> None:
     assert config.RUN_MODE_ORDER == ["headless", "pty"]
 
 
+def test_role_model_defaults_and_overrides(monkeypatch) -> None:
+    specs = default_specs()
+    for role, expected in (
+        ("maestro", "claude-opus-5-5"),
+        ("lead", "claude-sonnet-5-5"),
+        ("vault", "claude-sonnet-5-5"),
+    ):
+        monkeypatch.delenv(f"HIVE_CLAUDE_MODEL_{role.upper()}", raising=False)
+        ctx = RuntimeContext(AdapterConfig(name="n", role=role, model="opus"))
+        headless = specs["claude"].build(RunMode.HEADLESS, ctx)
+        pty = specs["claude"].build(RunMode.PTY, ctx)
+        assert headless._config.model == pty._config.model == expected
+        assert ctx.config.model == "opus"  # the shared context is not mutated
+
+    monkeypatch.setenv("HIVE_CLAUDE_MODEL_LEAD", "custom-sonnet")
+    assert config.claude_model_for("lead") == "custom-sonnet"
+    monkeypatch.setenv("HIVE_CODEX_MODEL_LEAD", "custom-sol")
+    monkeypatch.setenv("HIVE_CODEX_EFFORT_LEAD", "high")
+    monkeypatch.setenv("HIVE_PI_MODEL_LEAD", "custom-pi")
+    assert config.codex_model_for("lead") == "custom-sol"
+    assert config.codex_effort_for("lead") == "high"
+    assert config.pi_model_for("lead") == "custom-pi"
+
+
 def _detector(pi: bool | None, claude: bool | None) -> HarnessDetector:
     specs = default_specs()
     probes = {

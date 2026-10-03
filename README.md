@@ -5,7 +5,9 @@ a fleet of AI coding agents that you control from Telegram. Each
 Entity (Maestro / Team Lead) runs on a Harness Hive picks per turn —
 Codex first (Claude Code first for Maestros and the Vault), each in headless mode by default with
 Claude's interactive PTY session as the fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
-Codex runs `gpt-6.1-sol` at medium reasoning effort by default; OpenCode remains planned.
+Maestros default to Claude `claude-opus-5-5`; other roles default to Codex
+`gpt-6.1-sol` at medium effort, then Claude `claude-sonnet-5-5`, then Pi.
+OpenCode remains planned.
 
 See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
 Maestro, Harness, Plan-billed, …) and

@@ -64,6 +64,9 @@ any one and the next turn works, no restart.
 | `HIVE_RUN_MODE_ORDER` | `headless,pty` | Mode order within a harness; omit a mode to disable it (`headless` alone = never spawn a PTY). |
 | `HIVE_PI_BINARY` / `HIVE_PI_PROVIDER` / `HIVE_PI_MODEL` | `pi` / *(unset)* / *(unset)* | Pi launcher; optional provider/model (`--provider`/`--model`). Unset = Pi's own default model. With a provider set, sign-in is probed with `pi auth check --provider`. |
 | `HIVE_CODEX_BINARY` / `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | `codex` / `gpt-6.1-sol` / `medium` | Codex launcher, model, and reasoning effort. Login is probed with `codex login status`. |
+| `HIVE_CLAUDE_MODEL_<ROLE>` | maestro: `claude-opus-5-5`; lead/vault: `claude-sonnet-5-5` | Claude model per role, including PTY fallback. |
+| `HIVE_CODEX_MODEL_<ROLE>` / `HIVE_CODEX_EFFORT_<ROLE>` | `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | Per-role Codex model and reasoning effort overrides. |
+| `HIVE_PI_MODEL_<ROLE>` | `HIVE_PI_MODEL` | Per-role Pi model override. |
 | `HIVE_HEADLESS_TIMEOUT_S` | `3600` | Wall-clock cap on one headless turn. |
 | `HIVE_HEADLESS_QUOTA_RETRY_S` | `900` | After headless reports quota/refusal, how long its PTY serves turns before headless is retried. |
 | `HIVE_HARNESS_RETRY_S` / `HIVE_HARNESS_DETECT_TTL_S` | `60` / `60` | Retry delay after an auth/unavailable failure; probe cache lifetime. |

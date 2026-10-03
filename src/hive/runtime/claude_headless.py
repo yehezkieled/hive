@@ -181,6 +181,7 @@ class ClaudeHeadlessAdapter(Runtime):
             "cache_creation_input_tokens": raw.get("cache_creation_input_tokens", 0),
             "cache_read_input_tokens": raw.get("cache_read_input_tokens", 0),
             "session_id": session_id,
+            "model": self._config.model,
             # Plan-billed: no marginal dollar cost (the CLI's own total_cost_usd is
             # an API-price estimate, not what a subscription is charged).
             "cost_usd": None,

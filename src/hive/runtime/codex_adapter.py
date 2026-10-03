@@ -81,8 +81,13 @@ class CodexAdapter(Runtime):
         argv = [config.CODEX_BINARY, "exec"]
         if self._session_id:
             argv.extend(["resume", self._session_id])
-        argv.extend(["--json", "--model", config.CODEX_MODEL])
-        argv.extend(["-c", f"model_reasoning_effort={json.dumps(config.CODEX_EFFORT)}"])
+        argv.extend(["--json", "--model", config.codex_model_for(self._config.role)])
+        argv.extend(
+            [
+                "-c",
+                f"model_reasoning_effort={json.dumps(config.codex_effort_for(self._config.role))}",
+            ]
+        )
         from hive.models.entity import DANGEROUS_MODES
 
         if self._config.permission_mode in DANGEROUS_MODES:
@@ -155,7 +160,7 @@ class CodexAdapter(Runtime):
             "cache_read_input_tokens": int(raw.get("cached_input_tokens") or 0),
             "cache_creation_input_tokens": int(raw.get("cache_write_input_tokens") or 0),
             "session_id": session_id,
-            "model": config.CODEX_MODEL,
+            "model": config.codex_model_for(self._config.role),
             "cost_usd": None,
         }
         return "\n".join(messages), usage

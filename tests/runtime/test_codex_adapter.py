@@ -78,6 +78,17 @@ async def test_resume_uses_thread_from_previous_turn(tmp_path, monkeypatch) -> N
     assert calls(tmp_path, "codex")[1]["argv"][:4] == ["exec", "resume", "codex-thread-1", "--json"]
 
 
+async def test_role_override_sets_model_and_effort(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HIVE_CODEX_MODEL_LEAD", "custom-sol")
+    monkeypatch.setenv("HIVE_CODEX_EFFORT_LEAD", "high")
+    a = _adapter(tmp_path, monkeypatch, stdout=jsonl(THREAD, MESSAGE, DONE))
+    _, usage = await a.send_turn("x")
+    argv = calls(tmp_path, "codex")[0]["argv"]
+    assert argv[argv.index("--model") + 1] == "custom-sol"
+    assert 'model_reasoning_effort="high"' in argv
+    assert usage["model"] == "custom-sol"
+
+
 @pytest.mark.parametrize(
     ("message", "kind"),
     [

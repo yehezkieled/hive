@@ -112,8 +112,9 @@ class PiAdapter(Runtime):
         argv = [config.PI_BINARY, "-p", "--mode", "json", "--session-id", self._session_id]
         if config.PI_PROVIDER:
             argv.extend(["--provider", config.PI_PROVIDER])
-        if config.PI_MODEL:
-            argv.extend(["--model", config.PI_MODEL])
+        model = config.pi_model_for(self._config.role)
+        if model:
+            argv.extend(["--model", model])
         for block in build_system_prompts(self._config):
             argv.extend(["--append-system-prompt", block])
         return argv
