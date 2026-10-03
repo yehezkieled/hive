@@ -186,7 +186,11 @@ class ClaudeAdapter(Runtime):
             usage: dict = {
                 "context_tokens": sum(
                     int(raw_usage.get(key) or 0)
-                    for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+                    for key in (
+                        "input_tokens",
+                        "cache_read_input_tokens",
+                        "cache_creation_input_tokens",
+                    )
                 ),
                 "input_tokens": raw_usage.get("input_tokens", 0),
                 "output_tokens": raw_usage.get("output_tokens", 0),

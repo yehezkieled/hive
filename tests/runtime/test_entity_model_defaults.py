@@ -78,12 +78,11 @@ class EntityModelDefaultsTests(IsolatedAsyncioTestCase):
     def test_existing_opus_selection_is_preserved(self):
         self.assert_claude_model(Entity(name="dev", role="maestro", model="opus"), "opus")
 
-
     async def test_startup_models_preserve_omitted_and_explicit_environment(self):
-        import hive.config as config
         import hive.__main__ as entry
+        import hive.config as config
 
-        class StartupComplete(Exception):
+        class StartupCompleteError(Exception):
             pass
 
         for chosen in (None, "haiku"):
@@ -106,26 +105,61 @@ class EntityModelDefaultsTests(IsolatedAsyncioTestCase):
                 roster = Mock(purge_role=AsyncMock(return_value=0), all=AsyncMock(return_value=[]))
                 stack.enter_context(patch.object(entry, "EntityStore", return_value=roster))
                 for component in (
-                    "MessageRouter", "ProjectStore", "TokenStore", "TaskStore", "AuditLog",
-                    "VaultStore", "BlueprintStore", "ModeRequestStore", "AttachmentStore",
-                    "GateCoordinator", "PriorityScheduler", "ProgressStore", "build_provider",
+                    "MessageRouter",
+                    "ProjectStore",
+                    "TokenStore",
+                    "TaskStore",
+                    "AuditLog",
+                    "VaultStore",
+                    "BlueprintStore",
+                    "ModeRequestStore",
+                    "AttachmentStore",
+                    "GateCoordinator",
+                    "PriorityScheduler",
+                    "ProgressStore",
+                    "build_provider",
                 ):
                     stack.enter_context(patch.object(entry, component))
-                stack.enter_context(patch.object(entry, "build_process_manager", return_value=manager))
-                stack.enter_context(patch.object(entry.VaultConfig, "from_env", return_value=SimpleNamespace(
-                    enabled=True, provider="test", daily_cap_cents=0,
-                    monthly_cap_cents=0, cap_currencies=("AUD",),
-                )))
-                stack.enter_context(patch.object(entry, "QuotaMonitor", return_value=Mock(start=AsyncMock())))
-                stack.enter_context(patch.object(entry, "WorkflowWatcher", return_value=Mock(
-                    start=AsyncMock(), _interval=2,
-                )))
+                stack.enter_context(
+                    patch.object(entry, "build_process_manager", return_value=manager)
+                )
+                stack.enter_context(
+                    patch.object(
+                        entry.VaultConfig,
+                        "from_env",
+                        return_value=SimpleNamespace(
+                            enabled=True,
+                            provider="test",
+                            daily_cap_cents=0,
+                            monthly_cap_cents=0,
+                            cap_currencies=("AUD",),
+                        ),
+                    )
+                )
+                stack.enter_context(
+                    patch.object(entry, "QuotaMonitor", return_value=Mock(start=AsyncMock()))
+                )
+                stack.enter_context(
+                    patch.object(
+                        entry,
+                        "WorkflowWatcher",
+                        return_value=Mock(
+                            start=AsyncMock(),
+                            _interval=2,
+                        ),
+                    )
+                )
                 manager.reconcile_worktrees = AsyncMock()
                 manager.reconcile_orphaned_gates = AsyncMock()
-                stack.enter_context(patch("hive.telegram.bridge.TelegramBridge", side_effect=StartupComplete))
-                with self.assertRaises(StartupComplete):
+                stack.enter_context(
+                    patch("hive.telegram.bridge.TelegramBridge", side_effect=StartupCompleteError)
+                )
+                with self.assertRaises(StartupCompleteError):
                     await entry.main()
-                for name, default in (("startup", "claude-opus-5-5"), ("vault", "claude-sonnet-5-5")):
+                for name, default in (
+                    ("startup", "claude-opus-5-5"),
+                    ("vault", "claude-sonnet-5-5"),
+                ):
                     entity = manager.entities[name]
                     self.assertEqual(entity.model, chosen or "")
                     self.assert_claude_model(entity, chosen or default)

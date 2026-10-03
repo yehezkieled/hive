@@ -110,12 +110,20 @@ async def test_turn_failure_classification(tmp_path, monkeypatch, message, kind)
     assert ei.value.kind is kind
 
 
-@pytest.mark.parametrize("item_type", ["command_execution", "file_change", "mcp_tool_call", "collab_tool_call"])
-@pytest.mark.parametrize("message", ["429 rate limit exceeded", "Model is not supported", "Thread not found"])
-async def test_failure_after_tool_activity_never_falls_back(tmp_path, monkeypatch, item_type, message) -> None:
+@pytest.mark.parametrize(
+    "item_type", ["command_execution", "file_change", "mcp_tool_call", "collab_tool_call"]
+)
+@pytest.mark.parametrize(
+    "message", ["429 rate limit exceeded", "Model is not supported", "Thread not found"]
+)
+async def test_failure_after_tool_activity_never_falls_back(
+    tmp_path, monkeypatch, item_type, message
+) -> None:
     tool = {"type": "item.started", "item": {"type": item_type}}
     failed = {"type": "turn.failed", "error": {"message": message}}
-    a = _adapter(tmp_path, monkeypatch, stdout=jsonl(THREAD, tool, failed), rc=1, session="codex-thread-1")
+    a = _adapter(
+        tmp_path, monkeypatch, stdout=jsonl(THREAD, tool, failed), rc=1, session="codex-thread-1"
+    )
 
     with pytest.raises(HarnessError) as ei:
         await a.send_turn("x")
@@ -175,9 +183,14 @@ def test_probe_rejects_api_key_login(tmp_path, monkeypatch) -> None:
     assert probe_codex().signed_in is False
 
 
-@pytest.mark.parametrize("failure, kind", [("You've hit your usage limit", "quota"), ("The model is not supported", "unavailable")])
+@pytest.mark.parametrize(
+    "failure, kind",
+    [("You've hit your usage limit", "quota"), ("The model is not supported", "unavailable")],
+)
 @pytest.mark.parametrize("claude_ready", [True, False])
-async def test_codex_failure_falls_to_claude_then_pi(tmp_path, monkeypatch, claude_ready, failure, kind) -> None:
+async def test_codex_failure_falls_to_claude_then_pi(
+    tmp_path, monkeypatch, claude_ready, failure, kind
+) -> None:
     codex_failure = {"type": "turn.failed", "error": {"message": failure}}
     monkeypatch.setattr(
         config,
@@ -240,9 +253,13 @@ async def test_codex_failure_falls_to_claude_then_pi(tmp_path, monkeypatch, clau
 
 
 async def test_recoverable_error_does_not_discard_completed_turn(tmp_path, monkeypatch):
-    a = _adapter(tmp_path, monkeypatch, stdout=jsonl(
-        THREAD, {"type": "error", "message": "429 rate limit exceeded"}, MESSAGE, DONE
-    ))
+    a = _adapter(
+        tmp_path,
+        monkeypatch,
+        stdout=jsonl(
+            THREAD, {"type": "error", "message": "429 rate limit exceeded"}, MESSAGE, DONE
+        ),
+    )
     text, usage = await a.send_turn("x")
     assert text == "done"
     assert usage["input_tokens"] == 80
@@ -252,31 +269,55 @@ async def test_recoverable_error_does_not_discard_completed_turn(tmp_path, monke
 async def test_cumulative_usage_across_turns_and_restored_adapter(tmp_path, monkeypatch):
     a = _adapter(tmp_path, monkeypatch, stdout=jsonl(THREAD, MESSAGE, DONE))
     _, first = await a.send_turn("one")
-    second_done = {"type": "turn.completed", "usage": {
-        "input_tokens": 180, "cached_input_tokens": 60,
-        "output_tokens": 20, "cache_write_input_tokens": 10,
-    }}
+    second_done = {
+        "type": "turn.completed",
+        "usage": {
+            "input_tokens": 180,
+            "cached_input_tokens": 60,
+            "output_tokens": 20,
+            "cache_write_input_tokens": 10,
+        },
+    }
     make_fake_cli(tmp_path, "codex", stdout=jsonl(THREAD, MESSAGE, second_done))
     _, second = await a.send_turn("two")
-    restored = CodexAdapter(AdapterConfig(codex_usage=second["codex_usage"]), tmp_path, second["session_id"])
-    third_done = {"type": "turn.completed", "usage": {
-        "input_tokens": 200, "cached_input_tokens": 70,
-        "output_tokens": 25, "cache_write_input_tokens": 12,
-    }}
+    restored = CodexAdapter(
+        AdapterConfig(codex_usage=second["codex_usage"]), tmp_path, second["session_id"]
+    )
+    third_done = {
+        "type": "turn.completed",
+        "usage": {
+            "input_tokens": 200,
+            "cached_input_tokens": 70,
+            "output_tokens": 25,
+            "cache_write_input_tokens": 12,
+        },
+    }
     make_fake_cli(tmp_path, "codex", stdout=jsonl(THREAD, MESSAGE, third_done))
     _, third = await restored.send_turn("three")
-    keys = ("input_tokens", "cache_read_input_tokens", "output_tokens", "cache_creation_input_tokens")
+    keys = (
+        "input_tokens",
+        "cache_read_input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+    )
     assert [second[k] for k in keys] == [40, 20, 8, 2]
     assert [third[k] for k in keys] == [10, 10, 5, 2]
     assert [sum(u[k] for u in (first, second, third)) for k in keys] == [130, 70, 25, 12]
     restored.adopt_session("new-thread")
-    make_fake_cli(tmp_path, "codex", stdout=jsonl({"type": "thread.started", "thread_id": "new-thread"}, MESSAGE, DONE))
+    make_fake_cli(
+        tmp_path,
+        "codex",
+        stdout=jsonl({"type": "thread.started", "thread_id": "new-thread"}, MESSAGE, DONE),
+    )
     _, fresh = await restored.send_turn("fresh")
     assert fresh["input_tokens"] == 80
 
 
 async def test_cached_input_is_not_counted_as_fresh(tmp_path, monkeypatch):
-    done = {"type": "turn.completed", "usage": {"input_tokens": 24763, "cached_input_tokens": 24448}}
+    done = {
+        "type": "turn.completed",
+        "usage": {"input_tokens": 24763, "cached_input_tokens": 24448},
+    }
     a = _adapter(tmp_path, monkeypatch, stdout=jsonl(THREAD, MESSAGE, done))
     _, usage = await a.send_turn("x")
     assert usage["input_tokens"] == 315
@@ -286,6 +327,7 @@ async def test_cached_input_is_not_counted_as_fresh(tmp_path, monkeypatch):
 async def test_cached_only_usage_is_recorded():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
+
     from hive.models.entity import Entity
     from hive.process.manager import ProcessManager
 

@@ -84,7 +84,7 @@ class EntityStore:
             entity.awaiting_decision,
             entity.confirmed_with_user,  # Ticket 019 (ADR 0019)
             entity.phase_confirm,  # Ticket 019 (ADR 0019)
-            entity.last_decision_question, # Ticket 038
+            entity.last_decision_question,  # Ticket 038
             entity.codex_usage,
         )
 

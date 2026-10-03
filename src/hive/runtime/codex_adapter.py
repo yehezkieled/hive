@@ -134,7 +134,11 @@ class CodexAdapter(Runtime):
             detail = str(error.get("message") or "") if isinstance(error, dict) else str(error)
             if not detail:
                 detail = next(
-                    (str(e.get("message") or "") for e in reversed(events) if e.get("type") == "error"),
+                    (
+                        str(e.get("message") or "")
+                        for e in reversed(events)
+                        if e.get("type") == "error"
+                    ),
                     "",
                 )
             if not detail:
@@ -144,7 +148,9 @@ class CodexAdapter(Runtime):
             kind = classify_failure_text(detail)
             if kind is HarnessErrorKind.OTHER and re.search(
                 r"model[^\n]*(?:not (?:available|supported|found)|does not exist|unsupported)|"
-                r"(?:unsupported|unavailable) model", detail, re.I
+                r"(?:unsupported|unavailable) model",
+                detail,
+                re.I,
             ):
                 kind = HarnessErrorKind.UNAVAILABLE
             kind = unless_work_done(kind, _did_work(events))
@@ -162,7 +168,12 @@ class CodexAdapter(Runtime):
         raw = completed.get("usage") or {}
         totals = {
             key: int(raw.get(key) or 0)
-            for key in ("input_tokens", "output_tokens", "cached_input_tokens", "cache_write_input_tokens")
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+            )
         }
         previous = self._usage_totals if self._usage_totals.get("session_id") == session_id else {}
         delta = {key: max(0, value - int(previous.get(key) or 0)) for key, value in totals.items()}

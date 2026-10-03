@@ -173,17 +173,26 @@ class ClaudeHeadlessAdapter(Runtime):
             raise self._failure(events, result, proc.stderr)
         raw = result.get("usage") or {}
         final_usage = next(
-            ((e.get("message") or {}).get("usage") for e in reversed(events)
-             if e.get("type") == "assistant" and (e.get("message") or {}).get("usage")),
+            (
+                (e.get("message") or {}).get("usage")
+                for e in reversed(events)
+                if e.get("type") == "assistant" and (e.get("message") or {}).get("usage")
+            ),
             None,
         )
         session_id = result.get("session_id") or self._session_id
         if session_id:
             self._session_id = session_id
         usage = {
-            "context_tokens": None if final_usage is None else sum(
+            "context_tokens": None
+            if final_usage is None
+            else sum(
                 int(final_usage.get(key) or 0)
-                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+                for key in (
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                )
             ),
             "input_tokens": raw.get("input_tokens", 0),
             "output_tokens": raw.get("output_tokens", 0),

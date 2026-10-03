@@ -1221,12 +1221,24 @@ async def test_codex_baseline_persisted_and_cached_context_compacts(dispatcher, 
     mgr._entities["dev"] = entity
     totals = {"session_id": "codex-thread", "input_tokens": 60000}
     mgr.adapter = FakeTurnAdapter()
-    mgr.adapter.send_turn = AsyncMock(return_value=("ok", {
-        "input_tokens": 100, "cache_read_input_tokens": 59900, "context_tokens": 60000,
-        "session_id": "codex-thread", "codex_usage": totals,
-    }))
+    mgr.adapter.send_turn = AsyncMock(
+        return_value=(
+            "ok",
+            {
+                "input_tokens": 100,
+                "cache_read_input_tokens": 59900,
+                "context_tokens": 60000,
+                "session_id": "codex-thread",
+                "codex_usage": totals,
+            },
+        )
+    )
     mgr.compact_entity = AsyncMock()
-    with _hermetic_send_flags(), patch("hive.process.manager.AUTO_COMPACT_ENABLED", True), patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000):
+    with (
+        _hermetic_send_flags(),
+        patch("hive.process.manager.AUTO_COMPACT_ENABLED", True),
+        patch("hive.process.manager.AUTO_COMPACT_THRESHOLD", 50000),
+    ):
         await dispatcher.send_to_entity("dev", "go")
     assert entity.session_id == "codex-thread"
     assert entity.codex_usage == totals
