@@ -49,7 +49,8 @@ async def test_success_parses_last_assistant_message(tmp_path, monkeypatch) -> N
     text, usage = await a.send_turn("do it")
 
     assert text == "final answer"
-    assert usage["input_tokens"] == 100  # last call: input 20 + cacheRead 80
+    assert usage["context_tokens"] == 102
+    assert usage["input_tokens"] == 40
     assert usage["output_tokens"] == 10  # summed across calls
     assert usage["session_id"] == "pi-sess-1"
     assert usage["cost_usd"] is None

@@ -179,9 +179,8 @@ class PiAdapter(Runtime):
             float(((m.get("usage") or {}).get("cost") or {}).get("total") or 0) for m in assistants
         )
         usage = {
-            # Context size of the final call (what auto-compact watches) — Pi's
-            # `input` excludes cache reads, so add them back.
-            "input_tokens": _u(last, "input") + _u(last, "cacheRead"),
+            "context_tokens": sum(_u(last, key) for key in ("input", "cacheRead", "cacheWrite")),
+            "input_tokens": sum(_u(m, "input") for m in assistants),
             "output_tokens": sum(_u(m, "output") for m in assistants),
             "cache_creation_input_tokens": sum(_u(m, "cacheWrite") for m in assistants),
             "cache_read_input_tokens": sum(_u(m, "cacheRead") for m in assistants),

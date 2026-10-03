@@ -1222,7 +1222,7 @@ async def test_codex_baseline_persisted_and_cached_context_compacts(dispatcher, 
     totals = {"session_id": "codex-thread", "input_tokens": 60000}
     mgr.adapter = FakeTurnAdapter()
     mgr.adapter.send_turn = AsyncMock(return_value=("ok", {
-        "input_tokens": 100, "cache_read_input_tokens": 59900,
+        "input_tokens": 100, "cache_read_input_tokens": 59900, "context_tokens": 60000,
         "session_id": "codex-thread", "codex_usage": totals,
     }))
     mgr.compact_entity = AsyncMock()

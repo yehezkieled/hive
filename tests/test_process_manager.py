@@ -971,7 +971,7 @@ class TestAutoCompact:
         # compact. The entity is guarded by ``_compacting`` while it runs, so
         # the compact's own two turns (summarise + reseed) don't re-trigger.
         adapter = FakeAdapter(
-            ["response", "summary"], usage={"input_tokens": 60000, "output_tokens": 100}
+            ["response", "summary"], usage={"input_tokens": 60000, "output_tokens": 100, "context_tokens": 60000}
         )
 
         with (
@@ -991,7 +991,7 @@ class TestAutoCompact:
         manager.router.register("dev")
 
         # input_tokens=60000 is above threshold, but compaction is disabled.
-        adapter = FakeAdapter("response", usage={"input_tokens": 60000, "output_tokens": 100})
+        adapter = FakeAdapter("response", usage={"input_tokens": 60000, "output_tokens": 100, "context_tokens": 60000})
 
         with (
             using_adapter(manager, adapter),
@@ -1010,7 +1010,7 @@ class TestAutoCompact:
         manager.router.register("dev")
 
         # input_tokens=30000 is below threshold=50000 — no compact.
-        adapter = FakeAdapter("response", usage={"input_tokens": 30000, "output_tokens": 100})
+        adapter = FakeAdapter("response", usage={"input_tokens": 30000, "output_tokens": 100, "context_tokens": 30000})
 
         with (
             using_adapter(manager, adapter),

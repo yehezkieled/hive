@@ -29,5 +29,6 @@ class Runtime(ABC):
     async def send_turn(self, prompt: str) -> tuple[str, dict[str, int]]:
         """Send one turn and return (response_text, usage).
 
-        usage keys: input_tokens, output_tokens (always present, zero on failure).
+        usage keys: input_tokens, output_tokens (accounting counters),
+        context_tokens (input context reported by the harness for compaction).
         """

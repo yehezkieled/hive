@@ -320,7 +320,7 @@ class MessageDispatcher:
             entity.session_id = usage["session_id"]
             await self._mgr._persist(entity)
 
-        context_tokens = usage.get("input_tokens", 0) + usage.get("cache_read_input_tokens", 0)
+        context_tokens = usage.get("context_tokens", 0)
 
         # Auto-compact if context is too large
         if (

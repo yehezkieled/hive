@@ -168,6 +168,7 @@ class CodexAdapter(Runtime):
         delta = {key: max(0, value - int(previous.get(key) or 0)) for key, value in totals.items()}
         self._usage_totals = {"session_id": session_id, **totals}
         usage = {
+            "context_tokens": delta["input_tokens"],
             "input_tokens": max(0, delta["input_tokens"] - delta["cached_input_tokens"]),
             "output_tokens": delta["output_tokens"],
             "cache_read_input_tokens": delta["cached_input_tokens"],
