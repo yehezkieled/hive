@@ -133,14 +133,15 @@ def build_desk(data: dict) -> Desk:
         if not isinstance(mate, dict):
             continue
         owner = _s(mate.get("id"))
-        seen: set[str] = set()
+        queued_seen: set[str] = set()
+        active_seen: set[str] = set()
         for rec in _list(mate.get("queued")):
             if isinstance(rec, dict):
-                seen.add(_s(rec.get("id")))
+                queued_seen.add(_s(rec.get("id")))
                 add_record({"owner": owner, **rec})
         for child in _list(mate.get("active_children")):
             if isinstance(child, dict):
-                seen.add(_s(child.get("id")))
+                active_seen.add(_s(child.get("id")))
                 add_record(
                     {
                         "owner": owner,
@@ -150,11 +151,10 @@ def build_desk(data: dict) -> Desk:
                         "state": "in_flight",
                     }
                 )
-        holds = [h for h in _list(mate.get("holds")) if isinstance(h, dict)]
-        for held in holds:  # an in-flight ticket whose worker is parked, paused or blocked
-            if held.get("source") != "child-state":
+        for held in _list(mate.get("holds")):  # an in-flight ticket with a parked worker
+            if not isinstance(held, dict) or held.get("source") != "child-state":
                 continue
-            seen.add(_s(held.get("id")))
+            queued_seen.add(_s(held.get("id")))
             add_record(
                 {
                     "owner": owner,
@@ -167,7 +167,7 @@ def build_desk(data: dict) -> Desk:
         for dec in _list(mate.get("decisions_open")):  # a hold the bounded queued list cut off
             if not isinstance(dec, dict) or dec.get("verb") != "captain-hold":
                 continue
-            seen.add(_s(dec.get("id")))
+            queued_seen.add(_s(dec.get("id")))
             add_record(
                 {
                     "owner": owner,
@@ -179,15 +179,20 @@ def build_desk(data: dict) -> Desk:
                 }
             )
         # In-flight tickets in other states (idle, done awaiting landing) have no surface in
-        # the mate's summary, so they are neither shown nor counted here.
+        # the mate's summary, and the holds list's uncapped count overlaps the queued one, so
+        # the remainder counts only the exact queued and working totals: it may undercount
+        # parked workers but never shows a ticket that does not exist.
         counts = mate.get("counts") if isinstance(mate.get("counts"), dict) else {}
-        owned = sum(
-            n
-            for n in (counts.get("queued"), counts.get("active_children"), counts.get("holds"))
+        hidden = sum(
+            max(0, n - len(shown))
+            for n, shown in (
+                (counts.get("queued"), queued_seen),
+                (counts.get("active_children"), active_seen),
+            )
             if isinstance(n, int)
-        ) - sum(1 for h in holds if h.get("source") == "backlog")
-        if owned > len(seen):
-            more[owner] = owned - len(seen)
+        )
+        if hidden:
+            more[owner] = hidden
 
     for task in _list(data.get("tasks")):
         if not isinstance(task, dict):

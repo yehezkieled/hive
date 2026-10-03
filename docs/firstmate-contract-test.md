@@ -20,7 +20,7 @@ fails when a firstmate change breaks it, before the desk shows wrong data.
 The desk side is covered too: `build_desk` reads second-mate tickets (queued, in flight
 and working, in flight with a parked, paused or blocked worker, and captain holds the
 bounded queued list cut off) from `secondmate_current`, each row and
-needs-you item carrying its `owner`, and shows "+N more" for any the roll-up omits; and
+needs-you item carrying its `owner`, and shows "+N more" for queued and working tickets the roll-up omits; and
 `actions.answer_hold` feeds the owner-aware `answers` intake, so a decision held in a
 second mate home closes in that home. In-flight tickets in other states (an idle worker,
 or done and awaiting landing) have no surface in the mate's summary, so the desk can
