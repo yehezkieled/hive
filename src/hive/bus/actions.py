@@ -16,7 +16,7 @@ Supported action types:
   current task is failing. Fields: ``reason``; optional ``task_id``
   override (defaults to the entity's current task_id).
 - ``spawn_team``: maestro creates a new team in its own org. Fields:
-  ``team_name``; optional ``model`` (default sonnet).
+  ``team_name``; optional ``model`` (serving harness role default when omitted).
 - ``kill_entity``: maestro or lead kills an entity in its scope.
   Fields: ``target``.
 - ``request_payment``: vault entity requests a structured payment.

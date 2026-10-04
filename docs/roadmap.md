@@ -19,7 +19,7 @@ Goal: The website acts, not only reads — decisions lane, chat with the first m
 Goal: Tickets are editable from the terminal first mate, the website and a project's second mate, with one owning home per ticket; Hive is promoted to its own second mate and the finance app is the next candidate. Parked Hive tickets are landed or closed first. (ADR 0030)
 
 ## M4: Cut-over
-Goal: Telegram becomes an optional ping and Hive's own Entity runtime (Maestro, Lead, adapters, entity tables) is retired. Codex/OpenCode adapters are not built; firstmate dispatches those harnesses. (ADR 0030)
+Goal: Telegram becomes an optional ping and Hive's own Entity runtime (Maestro, Lead, adapters, entity tables) is retired. The Codex adapter now serves Hive until that cut-over; OpenCode remains unbuilt, and firstmate dispatches harnesses afterward. (ADR 0030, ADR 0031)
 
 ## Backlog
 - Plan-quota chip fed by `quota-axi`.

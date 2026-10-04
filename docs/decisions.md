@@ -20,7 +20,7 @@ Consequences: nothing to migrate at the cut-over; two push senders exist until t
 
 ## 2026-10-01: Harness pivot — Pi first, headless default, PTY fallback
 Context: Claude Code drops its login about monthly, which stops the whole fleet; headless runs currently share the subscription limits and a separate headless credit was announced then paused.
-Decision: Detect installed+signed-in harnesses (Pi, Claude Code; Codex detect-only) and prefer Pi (`HIVE_HARNESS_ORDER=pi,claude`). Run each turn headless by default (`HIVE_RUN_MODE_ORDER=headless,pty`), falling back to the PTY session only on a refusal read from the harness's own error (auth, quota, refused, unavailable). Surface harness/mode in `/status` and Telegram, with a clear alert when none is usable. Direct model-API support is deliberately not built — it is one more `HarnessSpec` later. Recorded as ADR 0029; Codex/OpenCode adapters (T015/T016) stay parked behind the same extension point.
+Decision: See [ADR 0029](adr/0029-harness-pivot-headless-default-pty-fallback.md) for the original pivot; harness availability and ordering are superseded by [ADR 0031](adr/0031-codex-headless-harness.md). Current configuration is owned by the [deployment runbook](DEPLOYMENT.md#harness-selection-adr-0029).
 Consequences: Pi entities lose MCP, `/goal` and the Ownership guard (see ADR 0029 consequences); the fleet survives a Claude logout when Pi is signed in. Replaces nothing in this file; narrows ADR 0007.
 
 ## 2026-10-01: Work tracking leaves the repo

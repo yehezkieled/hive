@@ -49,7 +49,8 @@ async def test_success_parses_last_assistant_message(tmp_path, monkeypatch) -> N
     text, usage = await a.send_turn("do it")
 
     assert text == "final answer"
-    assert usage["input_tokens"] == 100  # last call: input 20 + cacheRead 80
+    assert usage["context_tokens"] == 102
+    assert usage["input_tokens"] == 40
     assert usage["output_tokens"] == 10  # summed across calls
     assert usage["session_id"] == "pi-sess-1"
     assert usage["cost_usd"] is None
@@ -68,6 +69,14 @@ async def test_model_and_provider_are_passed_only_when_configured(tmp_path, monk
     argv = calls(tmp_path, "pi")[0]["argv"]
     assert argv[argv.index("--model") + 1] == "sonnet:high"
     assert argv[argv.index("--provider") + 1] == "anthropic"
+
+
+async def test_role_model_override(tmp_path, monkeypatch) -> None:
+    a = _adapter(tmp_path, monkeypatch, stdout=jsonl(_HEADER, _assistant("ok")))
+    monkeypatch.setenv("HIVE_PI_MODEL_MAESTRO", "custom-pi")
+    await a.send_turn("x")
+    argv = calls(tmp_path, "pi")[0]["argv"]
+    assert argv[argv.index("--model") + 1] == "custom-pi"
 
 
 async def test_session_id_is_stable_across_turns_and_restarts(tmp_path, monkeypatch) -> None:

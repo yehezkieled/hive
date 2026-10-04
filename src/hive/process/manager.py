@@ -318,19 +318,28 @@ class ProcessManager:
     async def _record_usage(self, entity: Entity, usage: dict | None) -> None:
         """Record token usage from a completed turn, if a store is configured.
 
-        Merges the entity's canonical ``model`` into the usage dict before
+        Uses the model reported by the serving harness when available, otherwise
+        the entity's canonical ``model``, before
         handing it to the store. Fire-and-continue: any DB error is logged
         and swallowed, since token bookkeeping must not take down the
         user-facing send path. Skips zero-usage dicts (no tokens charged).
         """
         if self.token_store is None:
             return
-        if not usage or not usage.get("input_tokens"):
+        if not usage or not any(
+            usage.get(key)
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            )
+        ):
             return
         try:
             await self.token_store.record(
                 entity.name,
-                {**usage, "model": entity.model},
+                {"model": entity.model, **usage},
             )
         except Exception:
             logger.exception("Failed to record token usage for %s", entity.name)
@@ -346,7 +355,7 @@ class ProcessManager:
     async def register_maestro(
         self,
         name: str,
-        model: str = "opus",
+        model: str = "",
         personality_path: Path | None = None,
     ) -> Maestro:
         return await self.lifecycle.register_maestro(name, model, personality_path)
@@ -602,7 +611,7 @@ class ProcessManager:
         self,
         maestro_name: str,
         team_name: str,
-        model: str = "opus",
+        model: str = "",
         display_name: str | None = None,
         personality: str | None = None,
     ) -> TeamLead:
