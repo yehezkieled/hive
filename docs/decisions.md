@@ -8,6 +8,11 @@ so the old entry stays as history.
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
 This file holds the smaller process and tooling decisions.
 
+## 2026-10-05: Design mockups live in `docs/design/`; the brainstorm scratch is gone (T005)
+Context: T005 asked to remove `src/hive/web/static/brainstorm/` and `.superpowers/`, record where the redesign mockups live, and prune merged `ticket-*` branches.
+Decision: Approved mockups live in `docs/design/` (reviewed in Lavish Editor, Tailscale link only). Neither scratch directory is tracked or present in the tree, so nothing was left to delete; `.superpowers/` stays in `.gitignore`. No `ticket-*` branches exist: the remaining local branches are `fm/hive-*` crew branches, several still checked out in other worktrees, so none were pruned. The brief named `docs/pm/decisions.md`; that file moved to this one on 2026-10-01.
+Consequences: no behaviour change. Old `fm/hive-*` branches that are merged can be pruned by the captain or firstmate once their worktrees are released.
+
 ## 2026-10-03: Firstmate contract test runs the pinned scripts, not a vendored copy
 Context: the desk assumes ticket ownership, handoff, roll-up and decision routing behave as firstmate documents, and a project second mate for Hive is planned (ADR 0030).
 Decision: A separate CI job fetches one pinned commit of the captain's firstmate fork (`tests/firstmate_contract/FIRSTMATE_PIN`, shallow fetch) and drives its real scripts against throwaway primary and `hive` second-mate homes. It skips without `HIVE_FIRSTMATE_ROOT`, so the normal check is unchanged. Recorded in `docs/firstmate-contract-test.md`.
