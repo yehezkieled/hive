@@ -85,7 +85,7 @@ def parse_command(text: str) -> Command:
         # Other commands with args
         return Command(name=cmd_name, args=cmd_args)
 
-    # Simple commands: /status, /health, /health
+    # Simple commands: /status, /health
     simple_match = re.match(r"^/(\w+)$", text)
     if simple_match:
         return Command(name=simple_match.group(1).lower())

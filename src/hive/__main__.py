@@ -227,13 +227,6 @@ async def main() -> None:
         HIVE_CLAUDE_CREDENTIALS_PATH,
     )
 
-    # Purge rows of retired roles before restore: a leftover row would
-    # zombie-restore as a bare Entity. Idempotent.
-    for retired in ("worker", "maestro", "lead"):
-        purged = await entity_store.purge_role(retired)
-        if purged:
-            logger.info("Purged %d retired %s row(s) from the entity store", purged, retired)
-
     # Restore persisted entities (structure, not running procs)
     for persisted in await entity_store.all():
         process_manager.restore(persisted)

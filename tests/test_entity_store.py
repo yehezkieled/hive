@@ -229,40 +229,6 @@ async def test_last_activity_at_null_roundtrip(entity_store: EntityStore) -> Non
     assert loaded.last_activity_at is None
 
 
-# -- awaiting_decision (Ticket 029: maestro→user decision channel) --
-
-
-# -- purge_role (Ticket 018: retire the Worker entity) --
-
-
-async def test_purge_role_removes_worker_rows(entity_store: EntityStore) -> None:
-    """purge_role deletes every row for a retired role and returns the count.
-
-    Guards startup against a leftover ``role='worker'`` row zombie-restoring
-    as a bare Entity now that the Worker subclass is gone (Ticket 018).
-    """
-    # Two retired-role rows plus one live row that must survive.
-    await entity_store.upsert(Entity(name="dev.backend.w1", role="worker", model="haiku"))
-    await entity_store.upsert(Entity(name="dev.backend.w2", role="worker", model="haiku"))
-    await entity_store.upsert(Entity(name="dev", role="maestro", model="sonnet"))
-
-    removed = await entity_store.purge_role("worker")
-    assert removed == 2
-
-    # Only the non-worker row remains.
-    remaining = await entity_store.all()
-    assert [e.name for e in remaining] == ["dev"]
-
-
-async def test_purge_role_absent_returns_zero(entity_store: EntityStore) -> None:
-    """purge_role on a role with no rows removes nothing and returns 0."""
-    await entity_store.upsert(Entity(name="dev", role="maestro", model="sonnet"))
-
-    removed = await entity_store.purge_role("worker")
-    assert removed == 0
-    assert len(await entity_store.all()) == 1
-
-
 async def test_codex_usage_round_trips(entity_store: EntityStore) -> None:
     entity = Entity(name="dev", role="lead", session_id="codex-thread")
     entity.codex_usage = {

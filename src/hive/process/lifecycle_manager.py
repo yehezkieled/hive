@@ -284,8 +284,7 @@ class LifecycleManager:
                 continue
             # An adapter with a turn in flight is working, not idle —
             # last_activity_at only updates at turn start, so a long turn
-            # looks stale while
-            # actively running.
+            # looks stale while actively running.
             adapter = self._mgr._adapters.get(name)
             if adapter is not None and adapter.is_busy():
                 continue

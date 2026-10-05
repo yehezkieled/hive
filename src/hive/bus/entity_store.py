@@ -79,17 +79,6 @@ class EntityStore:
         """Remove an entity from the roster."""
         await self.pool.execute("DELETE FROM entities WHERE name = $1", name)
 
-    async def purge_role(self, role: str) -> int:
-        """Delete every row for a retired role; return the count removed.
-
-        Idempotent cleanup for startup — guards against a leftover
-        ``role='worker'`` row (Worker retired, Ticket 018) zombie-restoring
-        as a bare ``Entity`` after the subclass is gone.
-        """
-        result = await self.pool.execute("DELETE FROM entities WHERE role = $1", role)
-        # asyncpg returns a status string like "DELETE 3"
-        return int(result.split()[-1]) if result else 0
-
 
 def _row_to_entity(row: asyncpg.Record) -> Entity:
     """Convert a row from the entities table back into the correct subclass.

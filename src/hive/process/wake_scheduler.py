@@ -29,8 +29,7 @@ _WAKE_ON_INBOUND_TEXT = (
 # Bounded wake rate per recipient — guards against runaway A↔B
 # ping-pong. The drain phase prepends every queued message into the
 # next session's prompt, so throttled wakes never lose data: the
-# message stays in the queue and is read by the next wake or the
-# next wake.
+# message stays in the queue and is read by the next wake.
 _WAKE_BUDGET_WINDOW_SECONDS = 60
 _WAKE_BUDGET_MAX_PER_WINDOW = 6
 
@@ -81,7 +80,7 @@ class WakeScheduler:
         recipients (e.g. ``user``) and applies a per-recipient rolling
         rate limit so a chatty A↔B pair can't burn through the API
         budget. Throttled wakes don't lose data: queued messages are
-        still drained on the next wake or the next wake.
+        still drained on the next wake.
         """
         if recipient not in self._mgr._entities:
             return
