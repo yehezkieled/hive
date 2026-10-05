@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 import asyncpg
 
 from hive.models.entity import DANGEROUS_MODES, Entity, EntityState
-from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
 from hive.notifications import Notification
 from hive.vault.spend_caps import check_caps
@@ -43,18 +42,8 @@ class ApprovalHandler:
     # -----------------------------------------------------------------
 
     def _approver_for(self, entity: Entity) -> str:
-        """Return the approver name for a mode-elevation request.
-
-        Maestros escalate to the user; leads escalate to their parent
-        maestro.
-        """
-        if entity.role == "maestro":
-            return "user"
-        if entity.role == "lead" and isinstance(entity, TeamLead):
-            return entity.maestro_name
-        raise ValueError(
-            f"Cannot determine approver for entity {entity.name!r} (role={entity.role!r})"
-        )
+        """Return the approver name for a mode-elevation request: always the user."""
+        return "user"
 
     async def request_mode_change(
         self,
@@ -398,9 +387,7 @@ class ApprovalHandler:
         """Approve a pending mode request and update the requester's mode.
 
         For ``yotree``, caller is responsible for ensuring a worktree is
-        attached before the next spawn — workers already have one; leads
-        and maestros need one provisioned by the caller or by a future
-        spawn helper.
+        attached before the next spawn.
         """
         if self._mgr.mode_request_store is None:
             return None
@@ -604,14 +591,7 @@ class ApprovalHandler:
     # -----------------------------------------------------------------
 
     def _escalation_target_for(self, entity_name: str) -> str:
-        """Next rung up the hierarchy when a task fails past max retries.
-
-        Leads escalate to their parent maestro, maestros to the user.
-        Returns ``"user"`` when escalation reaches the top.
-        """
-        entity = self._mgr._entities.get(entity_name)
-        if isinstance(entity, TeamLead):
-            return entity.maestro_name
+        """Next rung up when a task fails past max retries: always the user."""
         return "user"
 
     async def handle_task_failure(self, task_id: int, error: str) -> None:
@@ -623,7 +603,7 @@ class ApprovalHandler:
              ``assigned_to`` entity, resend the original title to that
              entity prefixed with the failure context so Claude can retry.
           3. Otherwise escalate — route a failure report to the next rung
-             (parent lead -> parent maestro -> user via Telegram notify).
+             (the user, via the notification channels).
         """
         if self._mgr.task_store is None:
             logger.warning("handle_task_failure called but task_store not configured")
@@ -687,10 +667,3 @@ class ApprovalHandler:
             )
             await self._mgr._notify(summary)
             return
-
-        # Escalate to a registered parent entity by routing an internal
-        # message. The parent's next prompt will include this as pending
-        # inbox content; they can decide to reassign, abort, or message
-        # the user.
-        if next_rung in self._mgr._entities and assigned is not None:
-            await self._mgr.router.route(assigned, next_rung, summary)

@@ -11,8 +11,7 @@ from hive.models.entity import (
     default_permission_mode,
     parse_personality,
 )
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 
 
 class TestDefaultPermissionMode:
@@ -21,9 +20,6 @@ class TestDefaultPermissionMode:
     def test_maestro_is_yolo(self) -> None:
         assert default_permission_mode("maestro", is_git_repo=True) == "yolo"
         assert default_permission_mode("maestro", is_git_repo=False) == "yolo"
-
-    def test_lead_in_git_repo_is_yotree(self) -> None:
-        assert default_permission_mode("lead", is_git_repo=True) == "yotree"
 
     def test_lead_without_git_repo_falls_back_to_yolo(self) -> None:
         # yotree needs a git worktree; without one the lead falls back to yolo.
@@ -205,18 +201,6 @@ class TestEntityCLIArgs:
         assert "--allowedTools" in args
         assert "--disallowedTools" in args
 
-    def test_load_personality_updates_entity(self, personalities_dir: Path) -> None:
-        e = Entity(
-            name="dev",
-            role="maestro",
-            personality_path=personalities_dir / "maestro-dev.md",
-        )
-        config = e.load_personality()
-        assert config is not None
-        assert e.model == "sonnet"
-        assert e.system_prompt != ""
-        assert "Bash" in e.allowed_tools
-
 
 class TestEntityUptime:
     """Test uptime tracking."""
@@ -354,28 +338,6 @@ class TestMessagingPromptInjection:
     path for leads).
     """
 
-    def test_maestro_includes_role_jd_with_spawn_team(self) -> None:
-        m = Maestro(name="dev")
-        args = m.build_cli_args()
-        # identity + role JD = 2 --append-system-prompt entries (no loop block)
-        indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 2
-        appended = [args[i + 1] for i in indices]
-        assert any("hive_actions" in a for a in appended)
-        assert any("spawn_team" in a for a in appended)
-
-    def test_lead_includes_role_jd_with_workflow_leaf_path(self) -> None:
-        """The lead JD (ADR 0010: Workflow leaf engine) rides in as the
-        2nd appended block — identity first, then the JD, no loop block.
-        """
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        args = lead.build_cli_args()
-        indices = [i for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert len(indices) == 2
-        appended = [args[i + 1] for i in indices]
-        assert any("hive_actions" in a for a in appended)
-        assert any("Workflow" in a and "TaskOutput" in a for a in appended)
-
 
 class TestIdentityPreamble:
     """Every entity must know its own name and role. Without this, a lead
@@ -384,22 +346,10 @@ class TestIdentityPreamble:
     real bug where ``dev.mdcount`` emitted ``"lead": "maestro"``.
     """
 
-    def test_maestro_identity_preamble_includes_name(self) -> None:
-        m = Maestro(name="dev")
-        args = m.build_cli_args()
-        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert any("dev" in a and "maestro" in a.lower() for a in appended)
-
-    def test_lead_identity_preamble_includes_dotted_name(self) -> None:
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        args = lead.build_cli_args()
-        appended = [args[i + 1] for i, a in enumerate(args) if a == "--append-system-prompt"]
-        assert any("dev.backend" in a and "lead" in a.lower() for a in appended)
-
     def test_identity_preamble_is_first_append(self) -> None:
         """Identity comes before loop/messaging/autonomy so the model reads
         its own name before any guidance that references it."""
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        lead = Vault(name="dev.backend")
         args = lead.build_cli_args()
         first_idx = next(i for i, a in enumerate(args) if a == "--append-system-prompt")
         assert "dev.backend" in args[first_idx + 1]
@@ -408,63 +358,12 @@ class TestIdentityPreamble:
 class TestSubclasses:
     """Test the Maestro subclass."""
 
-    def test_maestro_default_role(self) -> None:
-        m = Maestro(name="dev")
-        assert m.role == "maestro"
-        assert m.teams == {}
-
 
 class TestPhaseConfirmation:
     """Ticket 019 (ADR 0019): phase-confirmation gate fields + personality parsing."""
-
-    def test_defaults_unconfirmed_gate_armed(self) -> None:
-        """A fresh entity starts unconfirmed with the gate on."""
-        e = Entity(name="dev", role="maestro")
-        assert e.confirmed_with_user is False
-        assert e.phase_confirm is True
-
-    def test_maestro_inherits_defaults(self) -> None:
-        m = Maestro(name="dev")
-        assert m.confirmed_with_user is False
-        assert m.phase_confirm is True
-
-    def test_parse_phase_confirm_off(self, tmp_path: Path) -> None:
-        p = tmp_path / "auto.md"
-        p.write_text(
-            "## Identity\n- **Name**: Otto\n- **Role**: maestro\n"
-            "- **Phase Confirm**: off\n\n## System Prompt\nGo.\n"
-        )
-        assert parse_personality(p).phase_confirm is False
-
-    def test_parse_phase_confirm_absent_defaults_true(self, tmp_path: Path) -> None:
-        p = tmp_path / "default.md"
-        p.write_text(
-            "## Identity\n- **Name**: Otto\n- **Role**: maestro\n\n## System Prompt\nGo.\n"
-        )
-        assert parse_personality(p).phase_confirm is True
-
-    def test_load_personality_applies_phase_confirm(self, tmp_path: Path) -> None:
-        p = tmp_path / "auto.md"
-        p.write_text(
-            "## Identity\n- **Name**: Otto\n- **Role**: maestro\n"
-            "- **Phase Confirm**: off\n\n## System Prompt\nGo.\n"
-        )
-        m = Maestro(name="otto", personality_path=p)
-        m.load_personality()
-        assert m.phase_confirm is False
 
 
 class TestMaestroIsPa:
     """The PA Maestro is the default route (Ticket 033). ``is_pa`` is the
     single source of truth for that structural role, keyed on the configured
     default-maestro name."""
-
-    def test_is_pa_true_for_default_maestro(self) -> None:
-        from hive.config import DEFAULT_MAESTRO
-
-        assert Maestro(name=DEFAULT_MAESTRO).is_pa is True
-
-    def test_is_pa_false_for_project_maestro(self) -> None:
-        from hive.config import DEFAULT_MAESTRO
-
-        assert Maestro(name=f"not-{DEFAULT_MAESTRO}").is_pa is False

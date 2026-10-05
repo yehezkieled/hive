@@ -33,7 +33,6 @@ from hive.runtime.harness import (
     RuntimeContext,
     plan_candidates,
 )
-from hive.runtime.workflow_progress import WorkflowProgress
 
 logger = logging.getLogger(__name__)
 
@@ -103,14 +102,6 @@ class HarnessRuntime(Runtime):
     # -- PTY-only probes (the manager duck-types these off the adapter) ----
     def _pty(self) -> Runtime | None:
         return next((rt for c, rt in self._runtimes.items() if c.mode is RunMode.PTY), None)
-
-    def poll_workflow_progress(self) -> list[WorkflowProgress]:
-        pty = self._pty()
-        return pty.poll_workflow_progress() if pty is not None else []  # type: ignore[attr-defined]
-
-    def workflow_active(self, window: float) -> bool:
-        pty = self._pty()
-        return pty.workflow_active(window) if pty is not None else False  # type: ignore[attr-defined]
 
     def describe_jam(self) -> dict | None:
         pty = self._pty()

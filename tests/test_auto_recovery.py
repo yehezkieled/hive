@@ -21,9 +21,8 @@ from hive.bus.actions import parse_actions
 from hive.bus.audit_log import AuditLog
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
-from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
-from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -67,8 +66,8 @@ def _populate_org(manager: ProcessManager) -> None:
     ephemeral Leaf agents inside a Lead's Workflow run, so the surviving
     escalation rungs are lead -> maestro -> user.
     """
-    maestro = Maestro(name="dev")
-    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    maestro = Vault(name="dev")
+    lead = Vault(name="dev.backend")
     for e in (maestro, lead):
         manager._entities[e.name] = e
         manager.router.register(e.name)
@@ -112,26 +111,6 @@ async def test_update_failure_sets_reason_without_bumping(task_store: TaskStore)
 # ---------------------------------------------------------------------------
 
 
-async def test_report_failure_parses() -> None:
-    text = """
-text before
-<hive_actions>
-[{"type": "report_failure", "reason": "tests fail"}]
-</hive_actions>
-"""
-    _, actions, _ = parse_actions(text)
-    assert len(actions) == 1
-    assert actions[0].type == "report_failure"
-    assert actions[0].reason == "tests fail"
-    assert actions[0].task_id is None
-
-
-async def test_report_failure_accepts_task_id_override() -> None:
-    text = '<hive_actions>[{"type":"report_failure","reason":"x","task_id":42}]</hive_actions>'
-    _, actions, _ = parse_actions(text)
-    assert actions[0].task_id == 42
-
-
 async def test_report_failure_without_reason_is_skipped() -> None:
     text = '<hive_actions>[{"type":"report_failure"}]</hive_actions>'
     _, actions, _ = parse_actions(text)
@@ -170,32 +149,6 @@ async def test_handle_task_failure_retries_below_limit(
     assert row is not None
     assert row.retry_count == 1
     assert row.failure_reason == "exit code 1"
-
-
-async def test_handle_task_failure_escalates_lead_to_maestro(
-    manager: ProcessManager,
-    task_store: TaskStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _populate_org(manager)
-    task = await task_store.create(
-        title="doomed",
-        assigned_to="dev.backend",
-        created_by="user",
-    )
-    # pre-bump to max_retries so the next failure triggers escalation
-    for _ in range(3):
-        await task_store.increment_retry(task.id, "prior")
-
-    send = AsyncMock()
-    monkeypatch.setattr(manager, "send_to_entity", send)
-
-    await manager.handle_task_failure(task.id, "final")
-
-    # No retry — escalation path instead
-    send.assert_not_called()
-    # Parent maestro received an escalation message via the router
-    assert manager.router.has_pending("dev")
 
 
 async def test_handle_task_failure_notifies_user_when_maestro_escalates(

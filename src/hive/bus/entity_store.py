@@ -13,8 +13,6 @@ from pathlib import Path
 import asyncpg
 
 from hive.models.entity import Entity, EntityState
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
 
 
@@ -26,22 +24,14 @@ class EntityStore:
 
     async def upsert(self, entity: Entity) -> None:
         """Insert or update an entity row by name."""
-        # Extract hierarchy fields from subclass-specific attributes
-        parent_name = _get_parent_name(entity)
-        team_name = _get_team_name(entity)
-
         await self.pool.execute(
             """
             INSERT INTO entities
                 (name, role, state, model, personality_path, pid, started_at,
-                 session_id, parent_name, team_name,
-                 permission_mode, loop_mode, current_priority,
-                 worktree_path, task_id, last_activity_at, awaiting_decision,
-                 confirmed_with_user, phase_confirm, last_decision_question,
-                 codex_usage, updated_at)
+                 session_id, permission_mode, loop_mode, current_priority,
+                 last_activity_at, codex_usage, updated_at)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW())
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NOW())
             ON CONFLICT (name) DO UPDATE SET
                 role = EXCLUDED.role,
                 state = EXCLUDED.state,
@@ -50,18 +40,10 @@ class EntityStore:
                 pid = EXCLUDED.pid,
                 started_at = EXCLUDED.started_at,
                 session_id = EXCLUDED.session_id,
-                parent_name = EXCLUDED.parent_name,
-                team_name = EXCLUDED.team_name,
                 permission_mode = EXCLUDED.permission_mode,
                 loop_mode = EXCLUDED.loop_mode,
                 current_priority = EXCLUDED.current_priority,
-                worktree_path = EXCLUDED.worktree_path,
-                task_id = EXCLUDED.task_id,
                 last_activity_at = EXCLUDED.last_activity_at,
-                awaiting_decision = EXCLUDED.awaiting_decision,
-                confirmed_with_user = EXCLUDED.confirmed_with_user,
-                phase_confirm = EXCLUDED.phase_confirm,
-                last_decision_question = EXCLUDED.last_decision_question,
                 codex_usage = EXCLUDED.codex_usage,
                 updated_at = NOW()
             """,
@@ -73,18 +55,10 @@ class EntityStore:
             entity.pid,
             entity.started_at,
             entity.session_id,
-            parent_name,
-            team_name,
             entity.permission_mode,
             entity.loop_mode,
             entity.current_priority,
-            None,  # worktree_path — was Worker-only; Workers retired (Ticket 018)
-            None,  # task_id — was Worker-only; Workers retired (Ticket 018)
             entity.last_activity_at,
-            entity.awaiting_decision,
-            entity.confirmed_with_user,  # Ticket 019 (ADR 0019)
-            entity.phase_confirm,  # Ticket 019 (ADR 0019)
-            entity.last_decision_question,  # Ticket 038
             entity.codex_usage,
         )
 
@@ -117,20 +91,6 @@ class EntityStore:
         return int(result.split()[-1]) if result else 0
 
 
-def _get_parent_name(entity: Entity) -> str | None:
-    """Extract the parent_name for DB storage based on entity type."""
-    if isinstance(entity, TeamLead):
-        return entity.maestro_name or None
-    return None
-
-
-def _get_team_name(entity: Entity) -> str | None:
-    """Extract the team_name for DB storage based on entity type."""
-    if isinstance(entity, TeamLead):
-        return entity.team_name or None
-    return None
-
-
 def _row_to_entity(row: asyncpg.Record) -> Entity:
     """Convert a row from the entities table back into the correct subclass.
 
@@ -154,30 +114,10 @@ def _row_to_entity(row: asyncpg.Record) -> Entity:
         loop_mode=row["loop_mode"] or "ralph",
         current_priority=row["current_priority"] if row["current_priority"] is not None else 3,
         last_activity_at=row["last_activity_at"],
-        # Ticket 029: restore the waiting flag (state is forced IDLE on restore,
-        # but awaiting_decision is orthogonal — an IDLE entity can still be
-        # parked on a user decision, and the scheduler skip keys off the flag).
-        awaiting_decision=bool(row["awaiting_decision"]),
-        # Ticket 038: restore the stored decision question so a pending decision
-        # survives a restart (durable, like the flag it rides alongside).
-        last_decision_question=row["last_decision_question"],
-        # Ticket 019 (ADR 0019): restore the phase-confirmation floor + opt-out
-        # so a confirmed maestro stays confirmed across a restart (and an
-        # unconfirmed one stays gated).
-        confirmed_with_user=bool(row["confirmed_with_user"]),
-        phase_confirm=bool(row["phase_confirm"]),
     )
 
     role = row["role"]
-    if role == "maestro":
-        return Maestro(**common)
     if role == "vault":
         return Vault(**common)
-    if role == "lead":
-        return TeamLead(
-            **common,
-            team_name=row["team_name"] or "",
-            maestro_name=row["parent_name"] or "",
-        )
     # Fallback for unknown / retired roles
     return Entity(**common, role=role)

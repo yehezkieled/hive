@@ -10,8 +10,7 @@ import pytest_asyncio
 
 from hive.bus.mode_request_store import ModeRequestStore
 from hive.bus.router import MessageRouter
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 
@@ -45,8 +44,8 @@ async def manager(
 
 def _populate_org(manager: ProcessManager) -> None:
     """Register a minimal maestro/lead tree."""
-    maestro = Maestro(name="dev")
-    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    maestro = Vault(name="dev")
+    lead = Vault(name="dev.backend")
     for e in (maestro, lead):
         manager._entities[e.name] = e
         manager.router.register(e.name)
@@ -55,11 +54,6 @@ def _populate_org(manager: ProcessManager) -> None:
 async def test_approver_for_maestro_is_user(manager: ProcessManager) -> None:
     _populate_org(manager)
     assert manager._approver_for(manager._entities["dev"]) == "user"
-
-
-async def test_approver_for_lead_is_parent_maestro(manager: ProcessManager) -> None:
-    _populate_org(manager)
-    assert manager._approver_for(manager._entities["dev.backend"]) == "dev"
 
 
 async def test_request_mode_change_persists_row(
@@ -73,7 +67,7 @@ async def test_request_mode_change_persists_row(
     assert row["status"] == "pending"
     assert row["requester"] == "dev.backend"
     assert row["requested_mode"] == "yotree"
-    assert row["approver"] == "dev"
+    assert row["approver"] == "user"
     assert row["reason"] == "refactor auth"
 
 
@@ -101,17 +95,6 @@ async def test_maestro_request_notifies_user(
     assert "dev" in channel.messages[0]
     assert "yolo" in channel.messages[0]
     assert "quick CI fix" in channel.messages[0]
-
-
-async def test_lead_request_does_not_notify_user(
-    manager: ProcessManager,
-) -> None:
-    """Leads escalate to their maestro, not the user — no TG ping."""
-    _populate_org(manager)
-    channel = _CapturingChannel()
-    manager.notification_dispatcher.register(channel)
-    await manager.request_mode_change("dev.backend", "yotree")
-    assert channel.messages == []
 
 
 async def test_approve_updates_entity_mode(

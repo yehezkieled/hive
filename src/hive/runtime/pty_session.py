@@ -19,7 +19,6 @@ from hive.config import CLAUDE_BINARY
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.gates import GateDetector
 from hive.runtime.transcript_reader import Gated, TranscriptReader
-from hive.runtime.workflow_progress import run_active
 
 logger = logging.getLogger(__name__)
 
@@ -229,15 +228,9 @@ class PtySession:
         # keeps the reader's two-outcome contract for sessions that don't
         # bridge gates.
         gate_detector = GateDetector() if self._gate_coordinator is not None else None
-        # §E2 (Ticket 017): give the reader a LIVENESS predicate so a healthy
-        # Workflow run resets its no-progress deadline instead of being declared
-        # dead. It must be lazy (a lambda) — self.session_dir is None until the
-        # session is pinned on first send(), so run_active is bound at call time
-        # against whatever session_dir is current, not captured here as None.
         self._transcript_reader = TranscriptReader(
             self._project_dir,
             gate_detector=gate_detector,
-            workflow_active=lambda window: run_active(self.session_dir, window),
         )
         # The pin is per-PROCESS (ADR 0011): clear it on every (re)spawn so
         # the next send() re-resolves against the NEW pid's state file.
@@ -287,14 +280,8 @@ class PtySession:
 
     @property
     def session_dir(self) -> Path | None:
-        """The session's working dir (holds ``workflows/`` and ``subagents/``),
-        or ``None`` until the session ``.jsonl`` is pinned on first send.
-
-        Claude Code writes a Workflow run's records under
-        ``<session>/workflows/`` and ``<session>/subagents/workflows/`` —
-        siblings of the session transcript. Ticket 017's read-only progress
-        watcher reads them here, never touching the PTY or its lock.
-        """
+        """The session's working dir, or ``None`` until the session ``.jsonl``
+        is pinned on first send."""
         if self._session_path is None:
             return None
         return self._session_path.with_suffix("")

@@ -55,13 +55,11 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 PERSONALITIES_DIR = PROJECT_ROOT / "personalities"
-WORKTREES_DIR = PROJECT_ROOT / "worktrees"
 BLUEPRINTS_DIR = DATA_DIR / "blueprints"
 UPLOADS_DIR = DATA_DIR / "uploads"
 
 # Ensure runtime directories exist
 DATA_DIR.mkdir(exist_ok=True)
-WORKTREES_DIR.mkdir(exist_ok=True)
 BLUEPRINTS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 
@@ -76,7 +74,8 @@ POSTGRES_DSN = _MaskedDSN(
     f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 )
 
-# Telegram
+# Telegram — an optional backup ping/approval channel (ADR 0033). Off unless a
+# bot token is configured; the desk (gateway over Tailscale) is the primary surface.
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ALLOWED_USER_IDS: list[int] = [
     int(uid.strip())
@@ -108,14 +107,12 @@ def _csv(raw: str) -> list[str]:
 HARNESS_ORDER: list[str] = _csv(os.environ.get("HIVE_HARNESS_ORDER", "codex,claude,pi"))
 RUN_MODE_ORDER: list[str] = _csv(os.environ.get("HIVE_RUN_MODE_ORDER", "headless,pty"))
 # Roles whose lockdown is a Claude-only control Codex/Pi would drop, mapped to
-# that guardrail: a maestro's ownership-guard PreToolUse hook (ADR 0017), and the
-# vault's Bash/Write/Edit denial (its whole lockdown). These roles default to
-# Claude first and use Codex/Pi only when Claude cannot run the turn, with a loud
-# "<guardrail> NOT enforced" alert. A lead is not here: its denylist only blocks
-# Claude Code tools Pi does not have, so it loses nothing on Pi.
-FENCED_ROLES: dict[str, str] = {"maestro": "ownership fence", "vault": "tool denylist"}
-# Every role Hive spawns (models/maestro.py, team_lead.py, vault.py).
-ROLES: tuple[str, ...] = ("lead", "maestro", "vault")
+# that guardrail: the vault's Bash/Write/Edit denial (its whole lockdown). These
+# roles default to Claude first and use Codex/Pi only when Claude cannot run the
+# turn, with a loud "<guardrail> NOT enforced" alert.
+FENCED_ROLES: dict[str, str] = {"vault": "tool denylist"}
+# Every role Hive spawns (models/vault.py).
+ROLES: tuple[str, ...] = ("vault",)
 
 
 def harness_order_for(role: str) -> list[str]:
@@ -140,9 +137,8 @@ CODEX_EFFORT = os.environ.get("HIVE_CODEX_EFFORT", "medium")
 
 
 def claude_model_for(role: str) -> str:
-    """Role-specific Claude default; the maestro is the Opus orchestrator."""
-    default = "claude-opus-5-5" if role == "maestro" else "claude-sonnet-5-5"
-    return os.environ.get(f"HIVE_CLAUDE_MODEL_{role.upper()}", default)
+    """Role-specific Claude default."""
+    return os.environ.get(f"HIVE_CLAUDE_MODEL_{role.upper()}", "claude-sonnet-5-5")
 
 
 def codex_model_for(role: str) -> str:
@@ -167,9 +163,6 @@ HEADLESS_QUOTA_RETRY_S = float(os.environ.get("HIVE_HEADLESS_QUOTA_RETRY_S", "90
 HARNESS_RETRY_S = float(os.environ.get("HIVE_HARNESS_RETRY_S", "60"))
 # How long a harness installed/signed-in probe stays cached (seconds).
 HARNESS_DETECT_TTL_S = float(os.environ.get("HIVE_HARNESS_DETECT_TTL_S", "60"))
-
-# Default maestro
-DEFAULT_MAESTRO = os.environ.get("HIVE_DEFAULT_MAESTRO", "otter")
 
 # Web dashboard (0 = disabled). WEB_HOST defaults to 127.0.0.1 so the
 # dashboard is only reachable locally (and via Tailscale) unless explicitly
@@ -205,12 +198,10 @@ AUTO_COMPACT_THRESHOLD = int(os.environ.get("HIVE_AUTO_COMPACT_THRESHOLD", "5000
 # Auto-bounce jammed PTY sessions (Ticket 020, ADR 0015). A genuine no-progress
 # stall past THRESHOLD consecutive turns kills + respawns the session
 # (conversation preserved); FLAP_MAX bounces within FLAP_WINDOW_S gives up loudly
-# instead of flapping. WORKFLOW_WINDOW_S is the liveness window the workflow-active
-# safety check consults (don't bounce a lead whose Workflow advanced recently).
+# instead of flapping.
 BOUNCE_STALL_THRESHOLD = int(os.environ.get("HIVE_BOUNCE_STALL_THRESHOLD", "2"))
 BOUNCE_FLAP_MAX = int(os.environ.get("HIVE_BOUNCE_FLAP_MAX", "3"))
 BOUNCE_FLAP_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_FLAP_WINDOW_S", "1800"))
-BOUNCE_WORKFLOW_WINDOW_S = float(os.environ.get("HIVE_BOUNCE_WORKFLOW_WINDOW_S", "180"))
 
 AUTO_KILL_IDLE_ENABLED = os.environ.get("HIVE_AUTO_KILL_IDLE_ENABLED", "true").lower() == "true"
 IDLE_TIMEOUT_MINUTES = int(os.environ.get("HIVE_IDLE_TIMEOUT_MINUTES", "30"))
@@ -266,10 +257,6 @@ AUTO_RETRIEVE_FIRST_TURN_ONLY = (
     os.environ.get("AUTO_RETRIEVE_FIRST_TURN_ONLY", "true").lower() == "true"
 )
 
-# Git workflow (Sprint 12 Phase 3). /merge is off by default — set the env
-# var to "1" to allow the Telegram bridge to execute `gh pr merge --squash`.
-ALLOW_AUTO_MERGE = os.environ.get("HIVE_ALLOW_AUTO_MERGE", "0") == "1"
-
 # Attachments (Sprint 17). 20 MB matches Telegram bot API getFile cap.
 UPLOAD_MAX_BYTES = int(os.environ.get("HIVE_UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
 
@@ -300,12 +287,3 @@ HIVE_CLAUDE_CREDENTIALS_PATH = Path(
         str(Path.home() / ".claude" / ".credentials.json"),
     )
 )
-
-# Maestro autonomy / priority scheduler (Sprint 19). The scheduler pokes
-# each alive maestro every PRIORITY_EVAL_INTERVAL_MINUTES with a "facts"
-# prompt (free slots, pending tasks by priority, org snapshot, 24h cost).
-# The maestro decides allocation via spawn_team / kill_entity actions.
-# AUTONOMOUS_SPAWN_LIMIT caps how many spawns each maestro can do per
-# eval window — runaway-loop guard.
-PRIORITY_EVAL_INTERVAL_MINUTES = int(os.environ.get("HIVE_PRIORITY_EVAL_INTERVAL_MINUTES", "120"))
-AUTONOMOUS_SPAWN_LIMIT = int(os.environ.get("HIVE_AUTONOMOUS_SPAWN_LIMIT", "3"))

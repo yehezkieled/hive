@@ -58,74 +58,6 @@ async def test_non_actionable_kind_does_not_send(monkeypatch):
     mock.assert_not_called()
 
 
-async def test_decision_request_builds_payload(monkeypatch):
-    mock = MagicMock()
-    monkeypatch.setattr("hive.notifications.web_push.webpush", mock)
-    store = FakeStore([_sub()])
-    channel = _channel(store)
-
-    await channel.send(
-        Notification(
-            text="ignored",
-            kind="decision_request",
-            data={"entity": "otter", "question": "which db?"},
-        )
-    )
-
-    mock.assert_called_once()
-    payload = _payload_of(mock)
-    assert payload["title"] == "otter needs your decision"
-    assert payload["body"] == "which db?"
-    assert payload["url"] == "/?reply=otter"
-
-
-async def test_workflow_completed_builds_payload(monkeypatch):
-    mock = MagicMock()
-    monkeypatch.setattr("hive.notifications.web_push.webpush", mock)
-    store = FakeStore([_sub()])
-    channel = _channel(store)
-
-    await channel.send(
-        Notification(
-            text="ignored",
-            kind="workflow_completed",
-            data={"entity": "otter", "run_id": "wf_9", "name": "build"},
-        )
-    )
-
-    mock.assert_called_once()
-    payload = _payload_of(mock)
-    assert payload["title"] == "✅ otter — run finished"
-    assert payload["body"] == "build"
-    assert payload["url"] == "/?focus=otter&run=wf_9"
-
-
-async def test_workflow_failed_builds_payload(monkeypatch):
-    mock = MagicMock()
-    monkeypatch.setattr("hive.notifications.web_push.webpush", mock)
-    store = FakeStore([_sub()])
-    channel = _channel(store)
-
-    await channel.send(
-        Notification(
-            text="ignored",
-            kind="workflow_failed",
-            data={
-                "entity": "otter",
-                "run_id": "wf_9",
-                "name": "build",
-                "status": "interrupted",
-            },
-        )
-    )
-
-    mock.assert_called_once()
-    payload = _payload_of(mock)
-    assert payload["title"] == "❌ otter — run ended"
-    assert payload["body"] == "build (interrupted)"
-    assert "run=wf_9" in payload["url"]
-
-
 async def test_mode_request_sends(monkeypatch):
     mock = MagicMock()
     monkeypatch.setattr("hive.notifications.web_push.webpush", mock)
@@ -177,8 +109,8 @@ async def test_inert_without_vapid_keys(monkeypatch):
     await channel.send(
         Notification(
             text="x",
-            kind="decision_request",
-            data={"entity": "otter", "question": "which db?"},
+            kind="mode_request",
+            data={"entity": "otter"},
         )
     )
 
@@ -194,8 +126,8 @@ async def test_gone_subscription_is_deleted(monkeypatch):
     await channel.send(
         Notification(
             text="x",
-            kind="decision_request",
-            data={"entity": "otter", "question": "which db?"},
+            kind="mode_request",
+            data={"entity": "otter"},
         )
     )
 
@@ -219,10 +151,26 @@ async def test_sends_to_every_subscription(monkeypatch):
     await channel.send(
         Notification(
             text="x",
-            kind="decision_request",
-            data={"entity": "otter", "question": "which db?"},
+            kind="mode_request",
+            data={"entity": "otter"},
         )
     )
 
     assert mock.call_count == 3
     assert store.deleted == []
+
+
+async def test_mode_request_builds_payload(monkeypatch):
+    mock = MagicMock()
+    monkeypatch.setattr("hive.notifications.web_push.webpush", mock)
+    channel = _channel(FakeStore([_sub()]))
+
+    await channel.send(
+        Notification(text="yotree for dev", kind="mode_request", data={"entity": "vault"})
+    )
+
+    mock.assert_called_once()
+    payload = _payload_of(mock)
+    assert payload["title"] == "vault — approval needed"
+    assert payload["body"] == "yotree for dev"
+    assert payload["url"] == "/?reply=vault"

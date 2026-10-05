@@ -19,14 +19,6 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
-from hive.bus.permissions import (
-    can_kill,  # noqa: F401  re-exported; moved to MessageDispatcher
-    can_message,  # noqa: F401  re-exported; moved to MessageDispatcher (patched in test_advisor_mcp)
-    can_request_decision,  # noqa: F401  re-exported; moved to MessageDispatcher
-    can_spawn_team,  # noqa: F401  re-exported; moved to MessageDispatcher
-    cc_targets_for,  # noqa: F401  re-exported; moved to MessageDispatcher
-)
-from hive.bus.project_store import ProjectStore
 from hive.bus.router import MessageRouter
 from hive.bus.task_store import TaskStore
 from hive.bus.token_store import TokenStore
@@ -42,7 +34,6 @@ from hive.config import (
     BOUNCE_FLAP_MAX,  # Ticket 020: auto-bounce knobs, read as module globals + patched in tests
     BOUNCE_FLAP_WINDOW_S,
     BOUNCE_STALL_THRESHOLD,
-    BOUNCE_WORKFLOW_WINDOW_S,
 )
 from hive.knowledge.blueprints import BlueprintStore
 from hive.mcp.config import (
@@ -53,14 +44,11 @@ from hive.models.entity import (
     Entity,
     EntityState,
 )
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.approval_handler import ApprovalHandler
 from hive.process.lifecycle_manager import (
     LifecycleManager,
     _adapter_config_from_entity,  # noqa: F401  re-exported for `from ...manager import`
-    _render_auto_personality,  # noqa: F401  re-exported for `from ...manager import` in tests
 )
 from hive.process.message_dispatcher import (
     _PARSE_FAILURE_MAX_PER_WINDOW,  # noqa: F401  re-exported for `from ...manager import`
@@ -71,8 +59,6 @@ from hive.process.wake_scheduler import (
     _WAKE_ON_INBOUND_TEXT,  # noqa: F401  re-exported for `from ...manager import` in tests
     WakeScheduler,
 )
-from hive.process.workflow_watcher import ProgressStore
-from hive.process.worktree import WorktreeManager
 from hive.runtime.claude_adapter import (
     ClaudeAdapter,  # noqa: F401  re-exported (the Claude PTY mode); tests patch it here
 )
@@ -97,10 +83,8 @@ class ProcessManager:
     def __init__(
         self,
         router: MessageRouter,
-        worktree_mgr: WorktreeManager | None = None,
         max_sessions: int = 3,
         entity_store: EntityStore | None = None,
-        project_store: ProjectStore | None = None,
         token_store: TokenStore | None = None,
         audit_log: AuditLog | None = None,
         blueprint_store: BlueprintStore | None = None,
@@ -116,10 +100,8 @@ class ProcessManager:
         personalities_dir: Path | None = None,
     ) -> None:
         self.router = router
-        self.worktree_mgr = worktree_mgr
         self.max_sessions = max_sessions
         self.entity_store = entity_store
-        self.project_store = project_store
         self.token_store = token_store
         self.audit_log = audit_log
         self.blueprint_store = blueprint_store
@@ -145,12 +127,7 @@ class ProcessManager:
         self._state_lock: asyncio.Lock = asyncio.Lock()
         self._last_routed_actions: list[str] = []
         self._last_mode_requests: list[int] = []
-        self._last_failure_reports: list[int] = []
-        self._last_spawned_teams: list[str] = []
-        self._last_killed_entities: list[str] = []
         self._last_vault_requests: list[int] = []
-        self._last_kickoffs: list[str] = []
-        self._kickoff_tasks: set[asyncio.Task] = set()
         # Wake-on-inbound state: detached tasks are tracked so they
         # aren't GC'd mid-flight, and per-recipient deques hold the
         # rolling window of wake timestamps for rate-limit checks. The
@@ -174,10 +151,6 @@ class ProcessManager:
         # the bounce destroys and respawns the adapter, so an adapter-held
         # counter would be wiped exactly when the flap-guard must fire.
         self._liveness: dict[str, dict] = {}
-        # Set after construction by __main__.py so the dispatch site can
-        # consult the rate limiter. Optional — tests construct managers
-        # without a scheduler and the spawn dispatch falls back to "allow".
-        self.scheduler: object | None = None
         # Set after construction by __main__.py. Optional — tests
         # construct managers without quota monitoring.
         self.quota_monitor: QuotaMonitor | None = None
@@ -185,11 +158,6 @@ class ProcessManager:
         # (Ticket 003). /approve and /deny on a gate row ring it to wake the
         # parked Turn. Optional — tests construct managers without it.
         self.gate_coordinator: GateCoordinator | None = None
-        # Set after construction by __main__.py (Ticket 017). The in-memory
-        # store of in-flight Workflow runs the WorkflowWatcher fills; the
-        # dashboard view-model reads it via process_manager.progress_store.
-        # Optional — tests construct managers without the watcher.
-        self.progress_store: ProgressStore | None = None
 
         # Collaborators (Ticket 004): focused objects holding a back-ref to
         # this manager. They reach all shared state via ``self._mgr``; the
@@ -215,38 +183,6 @@ class ProcessManager:
             # log and continue. The in-memory roster is still correct.
             logger.exception("Failed to persist entity %s", entity.name)
 
-    async def clear_awaiting_decision(self, entity_name: str) -> None:
-        """Unpark an entity waiting on a user decision (Ticket 029, ADR 0018).
-
-        Called from the USER command path when the human replies — never from
-        the shared scheduler/peer path — so a peer message can't false-clear the
-        flag. Persists the cleared flag so the unpark survives a restart. No-op
-        if the entity is unknown or wasn't waiting.
-        """
-        entity = self._entities.get(entity_name)
-        if entity is None or not entity.awaiting_decision:
-            return
-        entity.awaiting_decision = False
-        # #144: disarm the nudge clock so no stray reminder fires after unpark.
-        entity.last_nudged_at = None
-        # Ticket 038: drop the stored question — the decision is answered, so it
-        # must not surface in /api/decisions/pending (which scans the flag).
-        entity.last_decision_question = None
-        # Ticket 019 (ADR 0019): reaching here means the entity WAS parked on a
-        # request_decision and a user reply is unparking it — one decision
-        # round-trip is complete. For a maestro that lifts the phase-confirmation
-        # floor (durable, set once). Hive stays content-dumb: this proves the
-        # maestro *asked* and the user *replied*, not that the user approved —
-        # obeying the reply is the maestro's job (ADR 0018).
-        if entity.role == "maestro" and not entity.confirmed_with_user:
-            entity.confirmed_with_user = True
-            await self._audit(
-                "entity.phase_confirmation_cleared",
-                target=entity_name,
-                actor="user",
-            )
-        await self._persist(entity)
-
     async def _audit(
         self,
         action: str,
@@ -265,55 +201,6 @@ class ProcessManager:
         if self.audit_log is None:
             return
         await self.audit_log.record(actor=actor, action=action, target=target, details=details)
-
-    def _peer_directory_for(self, entity_name: str) -> str:
-        """Build a 'peers you can message' block for an entity's prompt.
-
-        Lists peers grouped by reach (same-parent direct, cross-parent
-        with CC) plus the entity's direct parent for request_decision.
-        Returns empty string if the entity is unknown.
-        """
-        entity = self._entities.get(entity_name)
-        if entity is None:
-            return ""
-
-        same_parent: list[str] = []
-        cross_parent: list[str] = []
-        parent: str | None = None
-        scope_label = ""
-
-        if entity.role == "maestro":
-            for name, e in self._entities.items():
-                if e.role == "maestro" and name != entity_name:
-                    same_parent.append(f"{name} (peer maestro — direct)")
-            scope_label = "maestro peer-to-peer"
-        elif entity.role == "lead":
-            sender_maestro = entity_name.split(".")[0]
-            parent = sender_maestro
-            for name, e in self._entities.items():
-                if e.role != "lead" or name == entity_name:
-                    continue
-                their_maestro = name.split(".")[0]
-                if their_maestro == sender_maestro:
-                    same_parent.append(f"{name} (same maestro — direct)")
-                else:
-                    cross_parent.append(f"{name} (cross-maestro — both maestros CC'd)")
-            scope_label = "lead peer-to-peer"
-
-        lines = [f"## Peers you can message ({scope_label})"]
-        if same_parent:
-            lines.extend(f"- {p}" for p in sorted(same_parent))
-        if cross_parent:
-            lines.extend(f"- {p}" for p in sorted(cross_parent))
-        if not same_parent and not cross_parent:
-            lines.append("- (none registered yet)")
-
-        if parent:
-            lines.append("")
-            lines.append("## Direct parent (use request_decision for escalations)")
-            lines.append(f"- {parent}")
-
-        return "\n".join(lines)
 
     async def _record_usage(self, entity: Entity, usage: dict | None) -> None:
         """Record token usage from a completed turn, if a store is configured.
@@ -351,14 +238,6 @@ class ProcessManager:
     @property
     def active_count(self) -> int:
         return sum(1 for a in self._adapters.values() if a.is_alive())
-
-    async def register_maestro(
-        self,
-        name: str,
-        model: str = "",
-        personality_path: Path | None = None,
-    ) -> Maestro:
-        return await self.lifecycle.register_maestro(name, model, personality_path)
 
     async def register_entity(self, entity: Entity) -> None:
         return await self.lifecycle.register_entity(entity)
@@ -418,26 +297,12 @@ class ProcessManager:
         upstream liveness reset is imperfect. Each is a reason to hold off:
           1. parked at a plan/ask gate — a permission-prompt jam is undetectable
              as a gate (ADR 0005), so this is False for exactly the jam to kill;
-          2. a Workflow run advanced within the liveness window (030's
-             false-timeout class);
-          3. parked on a user decision (029 defense-in-depth — cannot currently
-             overlap an in-flight send, but cheap insurance).
         A held-off timeout does NOT count as a stall.
         """
         name = entity.name
         if self.is_parked_at_gate(name):
             logger.info("liveness: %s timed out while gated — holding off bounce", name)
             return False
-        try:
-            if adapter.workflow_active(BOUNCE_WORKFLOW_WINDOW_S):
-                logger.info("liveness: %s timed out with a live Workflow — holding off", name)
-                return False
-        except Exception:
-            logger.exception("liveness: workflow_active probe failed for %s", name)
-        if getattr(entity, "awaiting_decision", False):
-            logger.info("liveness: %s timed out awaiting a user decision — holding off", name)
-            return False
-
         entry = self._liveness_entry(name)
         entry["stalls"] += 1
         if entry["stalls"] < BOUNCE_STALL_THRESHOLD:
@@ -587,40 +452,12 @@ class ProcessManager:
     async def _handle_parse_errors(self, entity: Entity, parse_errors: list[str]) -> None:
         return await self.dispatcher._handle_parse_errors(entity, parse_errors)
 
-    def _parent_of(self, entity: Entity) -> str | None:
-        """Return the entity's direct parent for escalation, or None.
-
-        Leads escalate to their maestro. Maestros have no Hive parent —
-        callers escalate to ``user`` via the notification dispatcher instead.
-        """
-        if isinstance(entity, TeamLead):
-            return entity.maestro_name or None
-        return None
-
     # -----------------------------------------------------------------
-    # Wake-on-inbound + spawn-kickoff (Ticket 004 — WakeScheduler)
+    # Wake-on-inbound (Ticket 004 — WakeScheduler)
     # -----------------------------------------------------------------
-
-    async def _auto_kickoff(self, target: str) -> None:
-        return await self.wake._auto_kickoff(target)
 
     def enable_wake_on_inbound(self) -> None:
         return self.wake.enable_wake_on_inbound()
-
-    async def create_team(
-        self,
-        maestro_name: str,
-        team_name: str,
-        model: str = "",
-        display_name: str | None = None,
-        personality: str | None = None,
-    ) -> TeamLead:
-        return await self.lifecycle.create_team(
-            maestro_name, team_name, model, display_name, personality
-        )
-
-    async def kill_team(self, maestro_name: str, team_name: str) -> None:
-        return await self.lifecycle.kill_team(maestro_name, team_name)
 
     async def kill_entity(self, name: str) -> None:
         return await self.lifecycle.kill_entity(name)
@@ -781,9 +618,6 @@ class ProcessManager:
     ) -> list[str]:
         return await self.lifecycle.kill_idle_entities(timeout_minutes, exempt_names)
 
-    async def reconcile_worktrees(self) -> dict[str, list[str]]:
-        return await self.lifecycle.reconcile_worktrees()
-
     def restore(self, entity: Entity) -> None:
         """Re-register a persisted entity on orchestrator startup.
 
@@ -801,24 +635,3 @@ class ProcessManager:
             entity.role,
             entity.model,
         )
-
-    def rebuild_hierarchy(self) -> None:
-        """Reconstruct Maestro.teams from restored TeamLead entities.
-
-        Called once after all entities are restored from the DB. Links each
-        TeamLead to its parent Maestro's teams dict.
-        """
-        from hive.models.team import Team
-
-        for entity in self._entities.values():
-            if isinstance(entity, TeamLead) and entity.maestro_name:
-                maestro = self._entities.get(entity.maestro_name)
-                if isinstance(maestro, Maestro) and entity.team_name not in maestro.teams:
-                    team = Team(
-                        name=entity.team_name,
-                        maestro=maestro.name,
-                        lead=entity.name,
-                    )
-                    maestro.teams[entity.team_name] = team
-
-        logger.info("Rebuilt hierarchy for %d entities", len(self._entities))

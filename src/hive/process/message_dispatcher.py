@@ -16,22 +16,12 @@ read stale and silently break every ``_last_*`` assertion.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from hive.bus.actions import Action, neutralize_action_tags, parse_actions
-from hive.bus.permissions import (
-    can_kill,
-    can_message,
-    can_message_user,
-    can_request_decision,
-    can_spawn_team,
-    cc_targets_for,
-)
-from hive.config import DEFAULT_MAESTRO
 from hive.models.entity import Entity
 from hive.runtime.harness import NoUsableHarnessError
 
@@ -59,8 +49,7 @@ _NO_HARNESS_ALERT_INTERVAL_S = 600.0
 # the error so the sender can retry. To avoid feedback->bad-retry
 # loops chewing tokens silently, we cap retries to 3 per 5 minutes
 # per entity. Beyond the cap we stop sending feedback and escalate
-# one notification to the entity's parent (lead->maestro,
-# maestro->user) so a human can intervene.
+# one notification to the user so a human can intervene.
 _PARSE_FAILURE_WINDOW_SECONDS = 300
 _PARSE_FAILURE_MAX_PER_WINDOW = 3
 
@@ -198,9 +187,6 @@ class MessageDispatcher:
         #     agents call the ``search_knowledge`` MCP tool when they need
         #     more or different context.
         prepended_blocks: list[str] = []
-        directory_block = self._mgr._peer_directory_for(entity_name)
-        if directory_block:
-            prepended_blocks.append(directory_block)
 
         # ``session_id`` is set after the first prompt of an activation, so
         # ``is None`` is the cheapest signal for "first turn this session."
@@ -361,12 +347,12 @@ class MessageDispatcher:
         # --- Turn-end inbox check (Ticket 023, design D4) ---
         # Wake-on-inbound is single-shot: a wake landing while this turn
         # was in flight was swallowed and nothing retries — the mail would
-        # park until the 120m scheduler tick. The drain phase above ran at
+        # park until the next wake. The drain phase above ran at
         # turn START, so anything still queued now arrived DURING the turn.
         # Runs on every completion path — a turn that parked at an
         # interactive gate and resumed returns through this same line.
         # Budget-exhausted recipients are throttled by the scheduler (no
-        # spin); the 120m tick remains the backstop.
+        # spin); the next wake remains the backstop.
         self._mgr.wake.schedule_wake_if_pending(entity_name)
 
         return result
@@ -400,199 +386,9 @@ class MessageDispatcher:
 
         self._mgr._last_routed_actions = []
         self._mgr._last_mode_requests = []
-        self._mgr._last_failure_reports = []
-        self._mgr._last_spawned_teams = []
-        self._mgr._last_killed_entities = []
         self._mgr._last_vault_requests = []
-        self._mgr._last_kickoffs = []
-        pending_kickoffs: list[str] = []
         for action in actions:
-            if action.type == "message":
-                requested_to = action.to or ""
-                recipient_name = self._resolve_message_alias(entity, requested_to)
-                if recipient_name == "user":
-                    # Ticket 021: maestro→user one-way report. Mirrors 029's
-                    # request_decision→user (ADR 0018) but FIRE-AND-FORGET — no
-                    # awaiting_decision, no break: a report isn't a blocking
-                    # question, so the maestro keeps processing its actions.
-                    body = action.text or ""
-                    if not can_message_user(entity.role):
-                        await self._reject_action(
-                            entity,
-                            "message",
-                            requested_to,
-                            "only a maestro may message the user; report to "
-                            'your maestro via to:"maestro" instead.',
-                        )
-                        continue
-                    if self._mgr.notification_dispatcher is None:
-                        # No path to the user — reject (don't claim delivery, so
-                        # the maestro can't narrate fictional success).
-                        await self._reject_action(
-                            entity,
-                            "message",
-                            "user",
-                            "no notification path to the user is configured — "
-                            "your message was not delivered.",
-                        )
-                        continue
-                    await self._mgr._notify(
-                        f"[{entity_name}] {body}",
-                        kind="entity_message",
-                        data={"entity": entity_name},
-                    )
-                    self._mgr._last_routed_actions.append("user")
-                    await self._mgr._audit(
-                        "user_message_sent",
-                        target="user",
-                        details={"sender": entity_name, "text": body[:200]},
-                        actor=entity_name,
-                    )
-                    continue
-                recipient = self._mgr._entities.get(recipient_name) if recipient_name else None
-                if not recipient:
-                    logger.warning("Unknown recipient: %s", requested_to)
-                    await self._reject_action(
-                        entity,
-                        "message",
-                        requested_to,
-                        f"unknown recipient {recipient_name or requested_to!r}. "
-                        + self._addressing_hint(entity),
-                    )
-                    continue
-                if not can_message(entity.role, entity.name, recipient.role, recipient.name):
-                    logger.warning("Permission denied: %s -> %s", entity.name, recipient_name)
-                    if recipient.name == entity.name:
-                        # The self-message ban (bus/permissions.py) caught an
-                        # alias that resolved back to the sender — explain the
-                        # resolution, not just the denial.
-                        reason = (
-                            f"{requested_to!r} resolves to yourself "
-                            f"({entity.name}); self-messages are not allowed. "
-                            + self._addressing_hint(entity)
-                        )
-                    else:
-                        reason = (
-                            f"permission denied: {entity.name} may not message "
-                            f"{recipient_name!r}. " + self._addressing_hint(entity)
-                        )
-                    await self._reject_action(entity, "message", requested_to, reason)
-                    continue
-                body = action.text or ""
-                await self._mgr.router.route(entity_name, recipient_name, body)
-                self._mgr._last_routed_actions.append(recipient_name)
-                await self._mgr._audit(
-                    "peer_message_sent",
-                    target=recipient_name,
-                    details={"sender": entity_name, "text": body[:200]},
-                    actor=entity_name,
-                )
-                cc_targets = cc_targets_for(
-                    entity.role, entity.name, recipient.role, recipient.name
-                )
-                cc_body = f"[CC: {entity.name} -> {recipient_name}] {body}"
-                for cc_name in cc_targets:
-                    if cc_name not in self._mgr._entities:
-                        continue
-                    await self._mgr.router.route(entity_name, cc_name, cc_body)
-                    await self._mgr._audit(
-                        "peer_message_cc_inserted",
-                        target=cc_name,
-                        details={
-                            "sender": entity_name,
-                            "recipient": recipient_name,
-                            "text": body[:200],
-                        },
-                        actor=entity_name,
-                    )
-            elif action.type == "request_decision":
-                if not action.to:
-                    continue
-                # Permission first — covers both the user target (maestro→user,
-                # Ticket 029) and the lead→own-maestro escalation.
-                if not can_request_decision(entity.role, entity.name, action.to):
-                    logger.warning("request_decision denied: %s -> %s", entity.name, action.to)
-                    await self._mgr._audit(
-                        "request_decision_blocked",
-                        target=action.to,
-                        details={"sender": entity_name, "reason": "permission_denied"},
-                        actor=entity_name,
-                    )
-                    await self._reject_action(
-                        entity,
-                        "request_decision",
-                        action.to,
-                        f"request_decision to {action.to!r} is not permitted for your role.",
-                    )
-                    continue
-                if action.to == "user":
-                    # Ticket 029 (ADR 0018): the conversational decision channel.
-                    # Deliver the question to the user (Telegram) via the
-                    # notification path, park the maestro on the durable
-                    # awaiting_decision flag so the scheduler won't poke it into
-                    # acting, and END THE TURN — break so any trailing actions in
-                    # the same block are dropped (no ask-then-act).
-                    if self._mgr.notification_dispatcher is None:
-                        # No path to the user — do NOT claim delivery (the
-                        # maestro must not narrate fictional success), and do NOT
-                        # park (it would wait forever for a reply that can't be
-                        # prompted).
-                        logger.warning(
-                            "request_decision to user from %s: no notification path", entity_name
-                        )
-                        await self._reject_action(
-                            entity,
-                            "request_decision",
-                            "user",
-                            "no notification path to the user is configured — your "
-                            "decision request was not delivered.",
-                        )
-                        continue
-                    text = action.text or ""
-                    # Ticket 038: persist the question on the entity (so the web
-                    # decision bubble can recover it after a reload) and carry it
-                    # in the notification data (so the live SSE bubble has the
-                    # text — the data dict is the only channel to the browser).
-                    entity.last_decision_question = text
-                    await self._mgr._notify(
-                        f"[decision needed] {text}",
-                        kind="decision_request",
-                        data={"entity": entity_name, "question": text},
-                    )
-                    entity.awaiting_decision = True
-                    # #144: arm the nudge clock — this original ask is nudge #0;
-                    # the scheduler re-pings the user once a full interval passes.
-                    entity.last_nudged_at = datetime.now(UTC)
-                    await self._mgr._persist(entity)
-                    self._mgr._last_routed_actions.append("user")
-                    await self._mgr._audit(
-                        "request_decision_sent",
-                        target="user",
-                        details={"sender": entity_name, "text": text[:200]},
-                        actor=entity_name,
-                    )
-                    break
-                # Non-user target: lead→maestro escalation, routed as peer mail.
-                recipient = self._mgr._entities.get(action.to)
-                if not recipient:
-                    logger.warning("Unknown request_decision recipient: %s", action.to)
-                    await self._reject_action(
-                        entity,
-                        "request_decision",
-                        action.to,
-                        f"unknown recipient {action.to!r}.",
-                    )
-                    continue
-                body = f"[DECISION REQUEST] {action.text or ''}"
-                await self._mgr.router.route(entity_name, action.to, body)
-                self._mgr._last_routed_actions.append(action.to)
-                await self._mgr._audit(
-                    "request_decision_sent",
-                    target=action.to,
-                    details={"sender": entity_name, "text": (action.text or "")[:200]},
-                    actor=entity_name,
-                )
-            elif action.type == "request_mode_change":
+            if action.type == "request_mode_change":
                 if not action.requested_mode:
                     continue
                 try:
@@ -618,135 +414,6 @@ class MessageDispatcher:
                         self._mgr._last_vault_requests.append(action_id)
                 except (KeyError, ValueError, PermissionError) as exc:
                     logger.warning("request_payment from %s rejected: %s", entity_name, exc)
-            elif action.type == "report_failure":
-                reason = action.reason or "(no reason given)"
-                task_id = action.task_id
-                if task_id is None:
-                    logger.warning(
-                        "report_failure from %s with no task_id",
-                        entity_name,
-                    )
-                    continue
-                try:
-                    await self._mgr.handle_task_failure(task_id, reason)
-                    self._mgr._last_failure_reports.append(task_id)
-                except Exception:
-                    logger.exception("handle_task_failure failed for task %s", task_id)
-            elif action.type == "spawn_team":
-                if not action.team_name:
-                    continue
-                if not can_spawn_team(entity.role, entity.name):
-                    logger.warning("spawn_team denied: %s (role=%s)", entity.name, entity.role)
-                    await self._mgr._audit(
-                        "entity.spawn_team_denied",
-                        target=action.team_name,
-                        details={"reason": "role_not_permitted", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    continue
-                # Ticket 019 (ADR 0019): the phase-confirmation gate. A maestro
-                # cannot spend (spawn a team) until it has completed one user
-                # decision round-trip (confirmed_with_user). Fires before the
-                # spawn, so it catches both [spawn_team, request_decision] and
-                # [request_decision, spawn_team] orderings. phase_confirm=False
-                # opts an unattended maestro out. The reject feeds a corrective
-                # note back so the maestro asks first instead of stalling.
-                if (
-                    entity.role == "maestro"
-                    and entity.phase_confirm
-                    and not entity.confirmed_with_user
-                ):
-                    logger.warning("spawn_team denied (phase gate): %s", entity.name)
-                    await self._mgr._audit(
-                        "entity.spawn_team_denied",
-                        target=action.team_name,
-                        details={"reason": "phase_not_confirmed"},
-                        actor=entity_name,
-                    )
-                    await self._reject_action(
-                        entity,
-                        "spawn_team",
-                        action.team_name,
-                        "you must get the user's confirmation before spawning teams — "
-                        "emit a request_decision to 'user' and wait for their reply first.",
-                    )
-                    continue
-                if self._mgr.scheduler is not None and not self._mgr.scheduler.can_autospawn(
-                    entity_name
-                ):
-                    logger.warning("spawn_team rate-limited: %s", entity_name)
-                    await self._mgr._audit(
-                        "entity.spawn_rate_limited",
-                        target=action.team_name,
-                        details={
-                            "action_type": "spawn_team",
-                            "limit": self._mgr.scheduler.spawn_limit,
-                        },
-                        actor=entity_name,
-                    )
-                    continue
-                try:
-                    lead = await self._mgr.create_team(
-                        entity_name,
-                        action.team_name,
-                        model=action.model or "",
-                        display_name=action.display_name,
-                        personality=action.personality,
-                    )
-                    self._mgr._last_spawned_teams.append(lead.name)
-                    if self._mgr.scheduler is not None:
-                        self._mgr.scheduler.record_autospawn(entity_name)
-                    await self._mgr._audit(
-                        "entity.spawn_team",
-                        target=lead.name,
-                        details={"team": action.team_name, "maestro": entity_name},
-                        actor=entity_name,
-                    )
-                    pending_kickoffs.append(lead.name)
-                except (KeyError, TypeError, ValueError) as exc:
-                    logger.warning("spawn_team from %s failed: %s", entity_name, exc)
-                    # Ticket 032: a failed create_team (e.g. an invalid team
-                    # name) must reach the requesting maestro so it can retry —
-                    # not just hit the log. Reuse the existing parse-failure
-                    # feedback channel: collect the error into a human-readable
-                    # list[str] and route it system->maestro the same way.
-                    await self._mgr._handle_parse_errors(
-                        entity,
-                        [f"spawn_team for {action.team_name!r} failed: {exc}"],
-                    )
-            elif action.type == "kill_entity":
-                if not action.target:
-                    continue
-                if not can_kill(entity.role, entity.name, action.target, DEFAULT_MAESTRO):
-                    logger.warning("kill_entity denied: %s -> %s", entity.name, action.target)
-                    await self._mgr._audit(
-                        "entity.kill_denied",
-                        target=action.target,
-                        details={"reason": "permission_denied", "role": entity.role},
-                        actor=entity_name,
-                    )
-                    continue
-                if action.target not in self._mgr._entities:
-                    logger.warning("kill_entity target not found: %s", action.target)
-                    continue
-                try:
-                    await self._mgr.kill_entity(action.target)
-                    self._mgr._last_killed_entities.append(action.target)
-                    await self._mgr._audit(
-                        "entity.autonomous_kill",
-                        target=action.target,
-                        details={"actor_role": entity.role},
-                        actor=entity_name,
-                    )
-                except Exception:
-                    logger.exception("kill_entity from %s failed", entity_name)
-
-        if pending_kickoffs:
-            self._mgr._last_kickoffs = list(pending_kickoffs)
-            for target in pending_kickoffs:
-                task = asyncio.create_task(self._mgr._auto_kickoff(target))
-                self._mgr._kickoff_tasks.add(task)
-                task.add_done_callback(self._mgr._kickoff_tasks.discard)
 
         if parse_errors:
             await self._mgr._handle_parse_errors(entity, parse_errors)
@@ -763,8 +430,7 @@ class MessageDispatcher:
            to its next prompt, and it can retry with corrected JSON.
         2. At cap (>= ``_PARSE_FAILURE_MAX_PER_WINDOW`` in
            ``_PARSE_FAILURE_WINDOW_SECONDS``): suppress the feedback
-           message and notify the parent (lead -> maestro,
-           maestro -> user) once. This breaks the loop
+           message and notify the user once. This breaks the loop
            when a model is stuck producing the same malformed output.
         """
         now = datetime.now(UTC)
@@ -796,7 +462,6 @@ class MessageDispatcher:
         if len(window) > _PARSE_FAILURE_MAX_PER_WINDOW:
             # Cap exceeded — escalate once, drop the feedback message
             # so we don't keep waking a stuck entity.
-            parent = self._mgr._parent_of(entity)
             escalation_msg = neutralize_action_tags(
                 f"{entity.name} has emitted {len(window)} malformed "
                 f"<hive_actions> blocks in the last "
@@ -805,28 +470,23 @@ class MessageDispatcher:
                 "Please intervene — kill, reset, or guide the entity. "
                 f"Latest errors:\n" + "\n".join(f"- {err}" for err in parse_errors)
             )
-            if parent and parent in self._mgr._entities:
-                await self._mgr.router.route("system", parent, escalation_msg)
-            else:
-                # Maestro (or detached entity) — surface to the user.
-                await self._mgr._notify(
-                    escalation_msg,
-                    kind="warning",
-                    data={"entity": entity.name, "kind": "parse_failure_cap"},
-                )
+            await self._mgr._notify(
+                escalation_msg,
+                kind="warning",
+                data={"entity": entity.name, "kind": "parse_failure_cap"},
+            )
             await self._mgr._audit(
                 "entity.parse_failure_capped",
                 target=entity.name,
                 details={
                     "window_size": len(window),
-                    "escalated_to": parent or "user",
+                    "escalated_to": "user",
                 },
             )
             logger.warning(
-                "Parse-failure cap hit for %s (%d in window) — escalated to %s",
+                "Parse-failure cap hit for %s (%d in window) — escalated to user",
                 entity.name,
                 len(window),
-                parent or "user",
             )
             return
 
@@ -846,80 +506,3 @@ class MessageDispatcher:
             len(parse_errors),
             len(window),
         )
-
-    def _resolve_message_alias(self, sender: Entity, to: str) -> str:
-        """Resolve the addressing aliases.
-
-        Upward (Ticket 023, design D2): ``to:"maestro"`` resolves to the
-        sender's org root (the first dotted segment); ``to:"parent"`` to its
-        immediate parent (the sender's name minus the last segment).
-
-        Downward (Ticket 031): ``to:"self"``/``to:"me"`` resolve to the
-        sender's own name, and ``to:"self.<child>"``/``to:"me.<child>"`` to
-        ``<sender>.<child>`` — so a maestro can address a freshly-spawned lead
-        as ``self.<team>`` without inventing its dotted name. Bare ``self``/
-        ``me`` resolve to the sender and are caught by the self-message ban.
-
-        Aliases let an entity never have to remember — or invent — a dotted
-        name. An org root has no parent, so its ``to:"parent"`` resolves to the
-        empty string and is rejected by the recipient lookup. Any other value
-        passes through unchanged: no fuzzy matching, because a silent
-        misdelivery is worse than a drop. The alias words are not reserved
-        entity names — a team literally named ``self``/``me``/``maestro``/
-        ``parent`` is shadowed by its alias (accepted risk, Ticket 023/031).
-        """
-        if to == "maestro":
-            return sender.name.split(".")[0]
-        if to == "parent":
-            return ".".join(sender.name.split(".")[:-1])
-        if to in ("self", "me"):
-            return sender.name
-        if to.startswith(("self.", "me.")):
-            return f"{sender.name}.{to.split('.', 1)[1]}"
-        return to
-
-    async def _reject_action(
-        self,
-        sender: Entity,
-        action_type: str,
-        attempted_to: str,
-        reason: str,
-    ) -> None:
-        """Audit a rejected action and feed the failure back to the sender.
-
-        Two halves (Ticket 023, design D2 — failure F2 was a silent drop):
-        an ``action_rejected`` audit entry (actor = sender, target = the
-        recipient as the sender wrote it), and a ``system -> sender`` note
-        naming what failed and the correct form. The note lands in the
-        sender's queue, wake-on-inbound delivers it, and the sender can
-        self-correct next turn. Runaway correction loops are capped by the
-        existing wake budget.
-        """
-        await self._mgr._audit(
-            "action_rejected",
-            target=attempted_to,
-            details={
-                "sender": sender.name,
-                "action_type": action_type,
-                "reason": reason,
-            },
-            actor=sender.name,
-        )
-        note = neutralize_action_tags(
-            f"[action rejected] your {action_type} to {attempted_to!r} was not delivered: {reason}"
-        )
-        await self._mgr.router.route("system", sender.name, note)
-
-    def _addressing_hint(self, sender: Entity) -> str:
-        """One-line 'correct form' hint appended to rejection feedback."""
-        parts = sender.name.split(".")
-        if len(parts) == 1:
-            return (
-                "You are an org root: address entities in your org by "
-                'their full dotted name (e.g. "yourname.team"), or a direct '
-                'child as "self.team".'
-            )
-        parent = ".".join(parts[:-1])
-        if sender.role == "lead":
-            return f'Your maestro is {parent!r} — address it as to:"maestro" (no name needed).'
-        return f'Your parent is {parent!r} — address it as to:"parent" (no name needed).'

@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import statistics
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from hive.models.entity import EntityState
-from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 
 if TYPE_CHECKING:
@@ -75,13 +73,7 @@ def _display_state(entity: Entity) -> str:
 
 
 async def _open_tasks_for(name: str, task_store: TaskStore | None) -> list[dict]:
-    """Tasks pending/in-progress assigned to ``name`` or anything below it.
-
-    Hive's naming convention is ``maestro.team`` (see ``Team``), so a maestro
-    card surfaces work assigned to the maestro itself *and* to any lead in its
-    org tree. Without this, a task delegated to ``dev.backend`` would never
-    appear on the ``dev`` maestro card.
-    """
+    """Tasks pending/in-progress assigned to ``name`` or anything below it."""
     if task_store is None:
         return []
     rows = await task_store.list(status=TaskStatus.PENDING, limit=200)
@@ -94,69 +86,16 @@ async def _open_tasks_for(name: str, task_store: TaskStore | None) -> list[dict]
     ]
 
 
-def _runs_for(process_manager: ProcessManager | None, name: str) -> list[dict]:
-    """Active Workflow runs for ``name`` from the progress store (Ticket 017).
-
-    Read defensively: the store is set post-construction (like ``quota_monitor``)
-    and is absent during cold starts and in most tests. A missing attribute or a
-    ``None`` store degrades to ``[]`` so the card still renders.
-
-    Leaf agents are not Entities (no org-tree presence), so a Lead's persistent
-    "workers" count is always 0 after Ticket 016. The aggregate run-card replaces
-    that always-zero ``W`` count: one card per active run, never per-agent rows.
-    """
-    store = getattr(process_manager, "progress_store", None)
-    if store is None:
-        return []
-    runs = store.runs_for(name)
-    return [
-        {
-            "run_id": run.run_id,
-            "name": run.name,
-            "phase": run.phase,
-            "status": run.status,
-            "done_count": run.done_count,
-            "agent_count": run.agent_count,
-        }
-        for run in runs
-    ]
-
-
 def _is_awaiting(process_manager: ProcessManager | None, entity: Entity) -> bool:
-    """True when ``entity`` is blocked on a human reply (Ticket 039).
+    """True when ``entity`` is parked on an interactive gate awaiting the user.
 
-    Two "frozen until you answer" sources: a 029 decision
-    (``awaiting_decision``, durable on the entity) or an interactive gate
-    (003, ``is_parked_at_gate``). Read both defensively so cold starts and
-    test fakes without the predicate degrade to the durable flag alone.
-    Mode/vault approvals (source C) stay on the bell, not the card.
+    Read defensively so cold starts and test fakes without the predicate
+    degrade to False. Mode/vault approvals stay on the bell, not the card.
     """
-    if bool(getattr(entity, "awaiting_decision", False)):
-        return True
     checker = getattr(process_manager, "is_parked_at_gate", None)
     if checker is None:
         return False
     return bool(checker(entity.name))
-
-
-def _awaiting_rollup(process_manager: ProcessManager | None, entity: Entity) -> bool:
-    """``entity``'s own awaiting flag OR any entity beneath it in the org tree.
-
-    Hive names are ``maestro.team`` (see ``Team``), so a maestro rolls up any
-    lead under its ``maestro.`` prefix — the same idiom ``_open_tasks_for``
-    uses. Leads/runs aren't rendered as their own nodes (Ticket 039 scope), so
-    a lead blocked on the user surfaces on its maestro's card.
-    """
-    if _is_awaiting(process_manager, entity):
-        return True
-    if process_manager is None:
-        return False
-    prefix = f"{entity.name}."
-    return any(
-        _is_awaiting(process_manager, other)
-        for other in process_manager.entities.values()
-        if other.name.startswith(prefix)
-    )
 
 
 async def _entity_to_card(
@@ -166,12 +105,6 @@ async def _entity_to_card(
     process_manager: ProcessManager | None = None,
 ) -> dict:
     """Build the card dict consumed by ``_macros.html`` ``maestro_card``."""
-    leads = 0
-    if isinstance(entity, Maestro):
-        leads = len(entity.teams)
-
-    runs = _runs_for(process_manager, entity.name)
-
     tasks = await _open_tasks_for(entity.name, task_store)
     status_word = entity.state.value
     plural = "" if len(tasks) == 1 else "s"
@@ -183,43 +116,25 @@ async def _entity_to_card(
         "state": _display_state(entity),
         "summary": summary,
         "updated": _relative_time(entity.last_activity_at or entity.started_at),
-        "leads": leads,
-        # Number of active Workflow runs — replaces the always-zero ``W`` count.
-        "active_runs": len(runs),
-        "runs": runs,
+        "leads": 0,
+        "active_runs": 0,
+        "runs": [],
         "tasks": tasks,
         "mode": entity.permission_mode,
         "model": entity.model,
         # Ticket 039: rolled-up "blocked on the user" signal (own + any lead).
-        "awaiting_you": _awaiting_rollup(process_manager, entity),
+        "awaiting_you": _is_awaiting(process_manager, entity),
     }
 
 
-def _list_dormant(personalities_dir: Path, registered: set[str]) -> list[dict]:
-    """Personality files in ``personalities/`` not yet registered as entities.
-
-    Concrete maestro personalities are bare ``<name>.md`` (e.g. ``dev.md``,
-    ``pa.md``). ``role-*.md`` files (``role-lead``, ``role-maestro``,
-    ``role-vault``) are role-definition templates, not specific entities, so
-    they are skipped — same with the ``_template.md`` skeleton.
-    """
-    if not personalities_dir.exists():
-        return []
-    out: list[dict] = []
-    for path in sorted(personalities_dir.glob("*.md")):
-        if path.stem.startswith("_") or path.stem.startswith("role-"):
-            continue
-        name = path.stem
-        if name not in registered:
-            out.append({"name": name})
-    return out
-
-
-_OTTER_STUB: dict = {
-    "name": "otter",
-    "role": "personal assistant",
-    "state": "dormant",
-    "summary": ("Otter maestro not yet spawned. Run /m:otter hello in Telegram to register."),
+# The pinned card at the top of the landing page. The Maestro chat agent retired
+# at the cut-over (ADR 0033); the card now points at the desk.
+_DESK_STUB: dict = {
+    "name": "desk",
+    "role": "first mate",
+    "state": "idle",
+    "summary": "Chat and tickets moved to the desk (firstmate). This page keeps "
+    "vault and mode approvals.",
     "updated": "—",
     "leads": 0,
     "active_runs": 0,
@@ -239,16 +154,14 @@ async def build_landing_view_model(
     token_store: TokenStore | None = None,
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
-    personalities_dir: Path | None = None,
-    default_maestro: str = "otter",
     message_store: MessageStore | None = None,
 ) -> dict:
     """Assemble the landing-page view-model dict from live Hive state."""
     entities = process_manager.entities
-    maestros = [e for e in entities.values() if isinstance(e, Maestro)]
+    maestros = list(entities.values())
 
-    active_maestros: list[Maestro] = []
-    idle_maestros: list[Maestro] = []
+    active_maestros: list[Entity] = []
+    idle_maestros: list[Entity] = []
     for m in maestros:
         (active_maestros if _display_state(m) == "active" else idle_maestros).append(m)
 
@@ -266,23 +179,13 @@ async def build_landing_view_model(
             "last_active": _relative_time(m.last_activity_at),
             # Ticket 039: an entity parked on a decision collapses to IDLE after
             # ~10 min — exactly when the badge matters most, so it rides here too.
-            "awaiting_you": _awaiting_rollup(process_manager, m),
+            "awaiting_you": _is_awaiting(process_manager, m),
         }
         for m in idle_maestros
     ]
 
     dormant_list: list[dict] = []
-    if personalities_dir is not None:
-        dormant_list = _list_dormant(personalities_dir, set(entities.keys()))
-
-    otter_entity = entities.get("otter")
-    otter_card = (
-        dict(_OTTER_STUB)
-        if otter_entity is None
-        else await _entity_to_card(
-            otter_entity, task_store=task_store, process_manager=process_manager
-        )
-    )
+    otter_card = dict(_DESK_STUB)
 
     vault_pending: list[dict] = []
     vault_recent: list[dict] = []
@@ -292,7 +195,7 @@ async def build_landing_view_model(
 
     mode_pending: list[dict] = []
     if mode_request_store is not None:
-        mode_pending = await mode_request_store.list_pending(default_maestro)
+        mode_pending = await mode_request_store.list_pending("user")
 
     pending_total = len(vault_pending) + len(mode_pending)
 
@@ -338,9 +241,6 @@ async def build_landing_view_model(
                     "text": r["content"],
                 }
             )
-
-    if not chat_participants and default_maestro in entities:
-        chat_participants = [f"/m:{default_maestro}"]
 
     active_count = len(active_maestros)
     idle_count = len(idle_maestros)

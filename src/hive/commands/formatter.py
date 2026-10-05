@@ -1,7 +1,7 @@
 """Formatter — the read-only command views (Ticket 045).
 
-Holds the handlers that *render* state and never mutate it: status / org /
-teams / quota / help / maestros / comms / health / cost / audit / tasks / files.
+Holds the handlers that *render* state and never mutate it: status /
+quota / help / health / cost / audit / tasks / files.
 
 Constructed with a ``ProcessManager`` plus only the **read-only** stores it
 needs (token / audit / task / attachment). It deliberately takes **no**
@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hive.commands.result import CommandResult
-from hive.models.maestro import Maestro
 from hive.models.task import TaskStatus
 from hive.telegram.help_text import format_all, format_one
 
@@ -57,34 +56,11 @@ class Formatter:
     async def status(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=self._format_status())
 
-    async def org(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._format_org())
-
-    async def teams(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=self._format_teams())
-
     async def quota(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=self._format_quota())
 
     async def help(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=self._execute_help(cmd.target))
-
-    async def maestros(self, cmd: Command, actor: str) -> CommandResult:
-        entities = self.process_manager.entities
-        maestros = [e for e in entities.values() if e.role == "maestro"]
-        if not maestros:
-            return CommandResult(text="No maestros running.")
-        lines = [f"- {m.name} ({m.state.value}, model={m.model})" for m in maestros]
-        return CommandResult(text="Maestros:\n" + "\n".join(lines))
-
-    async def comms(self, cmd: Command, actor: str) -> CommandResult:
-        recent = await self.process_manager.router.store.get_recent(limit=10)
-        if not recent:
-            return CommandResult(text="No messages yet.")
-        lines = []
-        for msg in reversed(recent):
-            lines.append(f"[{msg['sender']} -> {msg['recipient']}] {msg['content'][:80]}")
-        return CommandResult(text="Recent comms:\n" + "\n".join(lines))
 
     async def health(self, cmd: Command, actor: str) -> CommandResult:
         unhealthy = await self.process_manager.health_check()
@@ -213,42 +189,6 @@ class Formatter:
 
         lines = [_format_task_row(t) for t in open_tasks]
         return "Open tasks:\n" + "\n".join(lines)
-
-    def _format_teams(self) -> str:
-        """Format all teams across all maestros for /teams output."""
-        entities = self.process_manager.entities
-        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
-        if not maestros:
-            return "No maestros registered."
-
-        lines = []
-        for m in maestros:
-            if not m.teams:
-                lines.append(f"{m.name}: no teams")
-                continue
-            for team_name, team in m.teams.items():
-                lead_active = bool(team.lead and team.lead in entities)
-                lead_status = "active" if lead_active else "none"
-                lead_count = 1 if lead_active else 0
-                lines.append(f"{m.name}.{team_name}: lead={lead_status}, leads={lead_count}")
-        return "Teams:\n" + "\n".join(lines) if lines else "No teams."
-
-    def _format_org(self) -> str:
-        """Format a tree view of the organization for /org."""
-        entities = self.process_manager.entities
-        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
-        if not maestros:
-            return "No entities running."
-
-        lines = []
-        for m in sorted(maestros, key=lambda x: x.name):
-            lines.append(f"{m.name} [maestro] {m.state.value}")
-            for team_name, team in m.teams.items():
-                lines.append(f"  {team_name} [team]")
-                if team.lead and team.lead in entities:
-                    lead = entities[team.lead]
-                    lines.append(f"    {team.lead} [lead] {lead.state.value}")
-        return "\n".join(lines) if lines else "No entities running."
 
     def _format_status(self) -> str:
         """Format entity status for display."""

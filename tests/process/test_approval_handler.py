@@ -22,8 +22,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hive.models.entity import EntityState
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
 from hive.models.vault import Vault
 from hive.process.approval_handler import ApprovalHandler
 
@@ -106,8 +104,8 @@ def _populate_org(mgr: StubManager) -> None:
     agents inside a Lead's Workflow run, which have no Hive lifecycle and
     so never appear here.
     """
-    maestro = Maestro(name="dev")
-    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    maestro = Vault(name="dev")
+    lead = Vault(name="dev.backend")
     for entity in (maestro, lead):
         mgr._entities[entity.name] = entity
 
@@ -130,11 +128,6 @@ def test_handler_stores_back_ref(mgr: StubManager) -> None:
 def test_approver_for_maestro_is_user(handler: ApprovalHandler, mgr: StubManager) -> None:
     _populate_org(mgr)
     assert handler._approver_for(mgr._entities["dev"]) == "user"
-
-
-def test_approver_for_lead_is_maestro(handler: ApprovalHandler, mgr: StubManager) -> None:
-    _populate_org(mgr)
-    assert handler._approver_for(mgr._entities["dev.backend"]) == "dev"
 
 
 # ---------------------------------------------------------------------------
@@ -184,21 +177,6 @@ async def test_request_mode_change_maestro_notifies_user(
     assert mgr.notify_calls[0][1] == "mode_request"
 
 
-@pytest.mark.asyncio
-async def test_request_mode_change_lead_no_user_notify(
-    handler: ApprovalHandler, mgr: StubManager
-) -> None:
-    _populate_org(mgr)
-    mgr.mode_request_store = AsyncMock()
-    mgr.mode_request_store.create.return_value = {"id": 9}
-
-    await handler.request_mode_change("dev.backend", "yolo")
-
-    # Approver is the parent maestro (not user) -> no Telegram notify.
-    assert mgr.notify_calls == []
-    assert "mode.request" in mgr.audit_actions()
-
-
 # ---------------------------------------------------------------------------
 # request_payment
 # ---------------------------------------------------------------------------
@@ -217,24 +195,6 @@ async def test_request_payment_no_store_returns_none(handler: ApprovalHandler) -
         )
         is None
     )
-
-
-@pytest.mark.asyncio
-async def test_request_payment_non_vault_raises_and_audits(
-    handler: ApprovalHandler, mgr: StubManager
-) -> None:
-    _populate_org(mgr)
-    mgr.vault_store = AsyncMock()
-    with pytest.raises(PermissionError):
-        await handler.request_payment(
-            "dev",
-            amount_cents=100,
-            currency="USD",
-            recipient="acme",
-            idempotency_key="k1",
-            reason="r",
-        )
-    assert "vault.unauthorized" in mgr.audit_actions()
 
 
 @pytest.mark.asyncio
@@ -383,7 +343,7 @@ async def test_deny_vault_action_audits_and_notifies(
 async def test_approve_mode_request_updates_entity_mode(
     handler: ApprovalHandler, mgr: StubManager
 ) -> None:
-    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    lead = Vault(name="dev.backend")
     mgr._entities[lead.name] = lead
     mgr.mode_request_store = AsyncMock()
     mgr.mode_request_store.approve.return_value = {
@@ -419,7 +379,7 @@ async def test_on_gate_state_gated_transitions_and_notifies(
 ) -> None:
     # _on_gate_state is sync but schedules _notify_gate_waiting as a
     # background task, so it must run inside a live event loop.
-    entity = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    entity = Vault(name="dev.backend")
     entity.state = EntityState.RUNNING
     mgr._entities[entity.name] = entity
     mgr.notification_dispatcher = AsyncMock()
@@ -438,7 +398,7 @@ async def test_on_gate_state_gated_tracks_then_discards_task(
 ) -> None:
     # The detached notify task must be held in _gate_tasks while in-flight so
     # it can't be GC'd, then dropped by the done-callback once it completes.
-    entity = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    entity = Vault(name="dev.backend")
     entity.state = EntityState.RUNNING
     mgr._entities[entity.name] = entity
     mgr.notification_dispatcher = AsyncMock()
@@ -458,7 +418,7 @@ async def test_on_gate_state_gated_tracks_then_discards_task(
 
 
 def test_on_gate_state_running_transitions_back(handler: ApprovalHandler, mgr: StubManager) -> None:
-    entity = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    entity = Vault(name="dev.backend")
     entity.state = EntityState.GATED
     mgr._entities[entity.name] = entity
 
@@ -553,11 +513,6 @@ async def test_expire_old_mode_requests_audits_each(
 # ---------------------------------------------------------------------------
 
 
-def test_escalation_target_lead_to_maestro(handler: ApprovalHandler, mgr: StubManager) -> None:
-    _populate_org(mgr)
-    assert handler._escalation_target_for("dev.backend") == "dev"
-
-
 def test_escalation_target_maestro_to_user(handler: ApprovalHandler, mgr: StubManager) -> None:
     _populate_org(mgr)
     assert handler._escalation_target_for("dev") == "user"
@@ -586,28 +541,6 @@ async def test_handle_task_failure_retries_on_assignee(
 
     assert mgr.sent and mgr.sent[0][0] == "dev.backend"
     assert "task.retry" in mgr.audit_actions()
-
-
-@pytest.mark.asyncio
-async def test_handle_task_failure_escalates_to_maestro(
-    handler: ApprovalHandler, mgr: StubManager
-) -> None:
-    _populate_org(mgr)
-    mgr.task_store = AsyncMock()
-    mgr.task_store.increment_retry.return_value = SimpleNamespace(
-        assigned_to="dev.backend",
-        retry_count=4,
-        max_retries=3,
-        title="ship",
-        description=None,
-    )
-
-    await handler.handle_task_failure(7, "boom")
-
-    assert "task.escalated" in mgr.audit_actions()
-    # Escalation to a registered parent (the lead's maestro) routes an
-    # internal message.
-    mgr.router.route.assert_awaited_once()
 
 
 @pytest.mark.asyncio

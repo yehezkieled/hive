@@ -15,7 +15,7 @@ def _make_app() -> TestClient:
     process_manager.get_status.return_value = [
         {
             "name": "dev",
-            "role": "maestro",
+            "role": "vault",
             "state": "RUNNING",
             "model": "sonnet",
             "pid": 1234,
@@ -25,10 +25,10 @@ def _make_app() -> TestClient:
     process_manager.entities = {
         "dev": MagicMock(
             name="dev",
-            role="maestro",
+            role="vault",
             state=MagicMock(value="RUNNING"),
             model="sonnet",
-            teams={},
+            last_activity_at=None,
         ),
     }
 
@@ -68,20 +68,7 @@ class TestStatusEndpoint:
         data = client.get("/api/status").json()
         assert isinstance(data, list)
         assert data[0]["name"] == "dev"
-        assert data[0]["role"] == "maestro"
-
-
-class TestOrgEndpoint:
-    def test_org_returns_200(self) -> None:
-        client = _make_app()
-        resp = client.get("/api/org")
-        assert resp.status_code == 200
-
-    def test_org_returns_dict(self) -> None:
-        client = _make_app()
-        data = client.get("/api/org").json()
-        assert isinstance(data, dict)
-        assert "maestros" in data
+        assert data[0]["role"] == "vault"
 
 
 class TestTasksEndpoint:

@@ -5,8 +5,7 @@ from pathlib import Path
 
 from hive.bus.entity_store import EntityStore
 from hive.models.entity import Entity, EntityState
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 
 
 async def test_upsert_and_load(entity_store: EntityStore) -> None:
@@ -22,25 +21,6 @@ async def test_upsert_and_load(entity_store: EntityStore) -> None:
 
 async def test_load_missing_returns_none(entity_store: EntityStore) -> None:
     assert await entity_store.load("nobody") is None
-
-
-async def test_last_decision_question_round_trips(entity_store: EntityStore) -> None:
-    """Ticket 038: the 029 decision question is durable (survives restart)."""
-    entity = Entity(name="dev", role="maestro", model="sonnet")
-    entity.awaiting_decision = True
-    entity.last_decision_question = "auth table or new sessions table?"
-    await entity_store.upsert(entity)
-
-    loaded = await entity_store.load("dev")
-    assert loaded is not None
-    assert loaded.last_decision_question == "auth table or new sessions table?"
-
-
-async def test_last_decision_question_defaults_none(entity_store: EntityStore) -> None:
-    await entity_store.upsert(Entity(name="dev", role="maestro", model="sonnet"))
-    loaded = await entity_store.load("dev")
-    assert loaded is not None
-    assert loaded.last_decision_question is None
 
 
 async def test_upsert_updates_existing(entity_store: EntityStore) -> None:
@@ -169,39 +149,21 @@ async def test_session_id_update(entity_store: EntityStore) -> None:
 
 
 async def test_load_maestro_returns_maestro_instance(entity_store: EntityStore) -> None:
-    """Loading an entity with role='maestro' should return a Maestro."""
-    await entity_store.upsert(Maestro(name="dev", model="sonnet"))
+    """Loading an entity with role='maestro' should return a Vault."""
+    await entity_store.upsert(Vault(name="dev", model="sonnet"))
     loaded = await entity_store.load("dev")
-    assert isinstance(loaded, Maestro)
-
-
-async def test_load_lead_returns_team_lead_instance(entity_store: EntityStore) -> None:
-    """Loading an entity with role='lead' should return a TeamLead."""
-    lead = TeamLead(
-        name="dev.backend",
-        team_name="backend",
-        maestro_name="dev",
-    )
-    await entity_store.upsert(lead)
-    loaded = await entity_store.load("dev.backend")
-    assert isinstance(loaded, TeamLead)
-    assert loaded.team_name == "backend"
-    assert loaded.maestro_name == "dev"
+    assert isinstance(loaded, Vault)
 
 
 async def test_hierarchy_columns_roundtrip(entity_store: EntityStore) -> None:
     """parent_name and team_name should survive upsert -> load."""
-    backend_lead = TeamLead(
+    backend_lead = Vault(
         name="dev.backend",
-        team_name="backend",
-        maestro_name="dev",
     )
     await entity_store.upsert(backend_lead)
 
-    frontend_lead = TeamLead(
+    frontend_lead = Vault(
         name="dev.frontend",
-        team_name="frontend",
-        maestro_name="dev",
     )
     await entity_store.upsert(frontend_lead)
 
@@ -270,45 +232,6 @@ async def test_last_activity_at_null_roundtrip(entity_store: EntityStore) -> Non
 # -- awaiting_decision (Ticket 029: maestro→user decision channel) --
 
 
-async def test_awaiting_decision_roundtrip(entity_store: EntityStore) -> None:
-    """awaiting_decision should survive upsert -> load (Ticket 029).
-
-    The flag marks an entity parked on a request_decision to the user; it must
-    be durable so a Hive restart cannot make the entity forget it is waiting and
-    get poked into acting unconfirmed.
-    """
-    e = Entity(name="dev", role="maestro")
-    e.awaiting_decision = True
-    await entity_store.upsert(e)
-
-    loaded = await entity_store.load("dev")
-    assert loaded is not None
-    assert loaded.awaiting_decision is True
-
-
-async def test_awaiting_decision_defaults_false(entity_store: EntityStore) -> None:
-    """A fresh entity loads back with awaiting_decision False."""
-    await entity_store.upsert(Entity(name="dev", role="maestro"))
-
-    loaded = await entity_store.load("dev")
-    assert loaded is not None
-    assert loaded.awaiting_decision is False
-
-
-async def test_awaiting_decision_update(entity_store: EntityStore) -> None:
-    """Clearing the flag (a user reply landed) survives a re-upsert."""
-    e = Entity(name="dev", role="maestro")
-    e.awaiting_decision = True
-    await entity_store.upsert(e)
-
-    e.awaiting_decision = False
-    await entity_store.upsert(e)
-
-    loaded = await entity_store.load("dev")
-    assert loaded is not None
-    assert loaded.awaiting_decision is False
-
-
 # -- purge_role (Ticket 018: retire the Worker entity) --
 
 
@@ -340,28 +263,6 @@ async def test_purge_role_absent_returns_zero(entity_store: EntityStore) -> None
     assert len(await entity_store.all()) == 1
 
 
-async def test_phase_confirmation_fields_persist(entity_store: EntityStore) -> None:
-    """Ticket 019 (ADR 0019): confirmed_with_user + phase_confirm survive a round-trip."""
-    m = Maestro(name="dev", model="opus")
-    m.confirmed_with_user = True
-    m.phase_confirm = False
-    await entity_store.upsert(m)
-
-    loaded = await entity_store.load("dev")
-    assert loaded is not None
-    assert loaded.confirmed_with_user is True
-    assert loaded.phase_confirm is False
-
-
-async def test_phase_confirmation_defaults_on_restore(entity_store: EntityStore) -> None:
-    """A maestro stored with defaults restores unconfirmed with the gate armed."""
-    await entity_store.upsert(Maestro(name="fresh", model="opus"))
-    loaded = await entity_store.load("fresh")
-    assert loaded is not None
-    assert loaded.confirmed_with_user is False
-    assert loaded.phase_confirm is True
-
-
 async def test_codex_usage_round_trips(entity_store: EntityStore) -> None:
     entity = Entity(name="dev", role="lead", session_id="codex-thread")
     entity.codex_usage = {
@@ -375,3 +276,25 @@ async def test_codex_usage_round_trips(entity_store: EntityStore) -> None:
     loaded = await entity_store.load("dev")
     assert loaded is not None
     assert loaded.codex_usage == entity.codex_usage
+
+
+async def test_migration_035_retires_maestro_columns_and_projects(store) -> None:
+    """The cut-over migration (ADR 0033) drops the retired columns and the projects table."""
+    cols = {
+        r["column_name"]
+        for r in await store.pool.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'entities'"
+        )
+    }
+    retired = {
+        "parent_name",
+        "team_name",
+        "worktree_path",
+        "task_id",
+        "awaiting_decision",
+        "confirmed_with_user",
+        "phase_confirm",
+        "last_decision_question",
+    }
+    assert not retired & cols
+    assert await store.pool.fetchval("SELECT to_regclass('public.projects')") is None

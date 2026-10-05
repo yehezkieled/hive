@@ -65,9 +65,6 @@ class PersonalityConfig:
     disallowed_tools: list[str] = field(default_factory=list)
     constraints: str = ""
     advisor: str = ""
-    # Ticket 019 (ADR 0019): per-maestro opt-out for the phase-confirmation gate.
-    # Default on; ``**Phase Confirm**: off`` in the personality disables it.
-    phase_confirm: bool = True
 
 
 def parse_personality(path: Path) -> PersonalityConfig:
@@ -77,7 +74,7 @@ def parse_personality(path: Path) -> PersonalityConfig:
         # Entity: Name
         ## Identity
         - **Name**: Dev
-        - **Role**: maestro
+        - **Role**: vault
         - **Model**: sonnet
         ## System Prompt
         <prompt text>
@@ -94,9 +91,6 @@ def parse_personality(path: Path) -> PersonalityConfig:
     role = extract_field(r"\*\*Role\*\*:\s*(.+)")
     model = extract_field(r"\*\*Model\*\*:\s*(.+)")
     advisor = extract_field(r"\*\*Advisor\*\*:\s*(.+)")
-    # Ticket 019 (ADR 0019): phase-confirmation gate opt-out. Absent → on.
-    phase_confirm_field = extract_field(r"\*\*Phase Confirm\*\*:\s*(.+)")
-    phase_confirm = phase_confirm_field.strip().lower() not in ("off", "false", "no")
 
     # Extract system prompt: everything between ## System Prompt and the next ##
     prompt_match = re.search(
@@ -127,7 +121,6 @@ def parse_personality(path: Path) -> PersonalityConfig:
         disallowed_tools=disallowed_tools,
         constraints=constraints,
         advisor=advisor,
-        phase_confirm=phase_confirm,
     )
 
 
@@ -207,16 +200,7 @@ OFFERED_MODES: frozenset[str] = frozenset({"yolo", "yotree"})
 
 
 def default_permission_mode(role: str, is_git_repo: bool) -> str:
-    """The one source of truth for an entity's spawn permission mode (T007).
-
-    Maestros run ``yolo``. Leads run ``yotree`` (dangerous-skip inside their own
-    git worktree) — but ``yotree`` needs a git worktree, so a lead whose project
-    root is not a git repo falls back to ``yolo``. Any other role defaults to
-    ``yolo``. This replaces the old scattered policy (the Entity base default of
-    ``default`` plus a ``lifecycle_manager`` force-set of maestros to ``yolo``).
-    """
-    if role == "lead":
-        return "yotree" if is_git_repo else "yolo"
+    """The one source of truth for an entity's spawn permission mode (T007)."""
     return "yolo"
 
 
@@ -242,10 +226,10 @@ def billing_warning(model: str) -> str | None:
 
 @dataclass
 class Entity:
-    """Base class for all Hive entities (maestro, lead, vault)."""
+    """Base class for all Hive entities (vault)."""
 
     name: str
-    role: str  # "maestro", "lead", "vault"
+    role: str  # "vault"
     personality_path: Path | None = None
     model: str = ""
     advisor: str | None = None
@@ -264,30 +248,6 @@ class Entity:
     loop_mode: str = "ralph"
     current_priority: int = 3
     last_activity_at: datetime | None = None
-    # Ticket 029: set when the entity emits a request_decision to the user and
-    # is parked waiting for the human's reply. Durable (survives restart) so the
-    # scheduler keeps skipping it and it can't be poked into acting unconfirmed.
-    awaiting_decision: bool = False
-    # Ticket 038: the free-text question a maestro asked the user via
-    # request_decision, stored alongside ``awaiting_decision`` so the web can
-    # render the decision bubble and ``/api/decisions/pending`` can re-show it
-    # after a reload (SSE is best-effort). Durable; nulled on unpark. The
-    # channel is one-deep, so a single field (not a store) is the whole state.
-    last_decision_question: str | None = None
-    # Ticket 029 / #144: when the last decision-reminder was sent to the user
-    # while parked. In-memory only (NOT persisted) — the durable signal is
-    # ``awaiting_decision``; the nudge *clock* needn't survive a restart, the
-    # scheduler re-arms a baseline on first sight of a restored parked entity.
-    last_nudged_at: datetime | None = None
-    # Ticket 019 (ADR 0019): the phase-confirmation gate.
-    # ``confirmed_with_user`` is the durable floor — True once a user reply has
-    # cleared this maestro's ``awaiting_decision`` (≥1 decision round-trip). A
-    # maestro's ``spawn_team`` is denied until it is True, so a fresh maestro
-    # can't spend before a human is in the loop once. ``phase_confirm`` is the
-    # per-maestro opt-out (default on); False skips the gate for an unattended
-    # maestro no human will reply to. Both are persisted (survive restart).
-    confirmed_with_user: bool = False
-    phase_confirm: bool = True
 
     def transition_to(self, new_state: EntityState) -> None:
         """Transition to a new state, raising InvalidStateTransitionError if not allowed."""
@@ -321,9 +281,6 @@ class Entity:
         self.allowed_tools = config.allowed_tools or self.allowed_tools
         self.disallowed_tools = config.disallowed_tools or self.disallowed_tools
         self.system_prompt = config.system_prompt
-        # Ticket 019 (ADR 0019): apply the phase-confirmation opt-out (bool — a
-        # plain assign, not `or`, so an explicit ``off`` overrides the default).
-        self.phase_confirm = config.phase_confirm
         return config
 
     def build_cli_args(self) -> list[str]:
@@ -354,8 +311,6 @@ class Entity:
         elif self.permission_mode != "default":
             args.extend(["--permission-mode", self.permission_mode])
 
-        from hive.process.loops import load_role_jd
-
         # Identity preamble must be the first appended block so the model
         # reads its own name before any guidance that references it. The
         # role JD avoids placeholders the entity must substitute with its
@@ -370,12 +325,6 @@ class Entity:
         # T007: the loop framework (LOOP_PROMPTS) is retired in favour of
         # Claude Code's native /goal, which Hive seeds on the entity's first
         # turn (see message_dispatcher.send_to_entity). No loop prompt here.
-
-        # Role JD encodes the messaging protocol and any role-specific
-        # autonomy actions. Loaded from personalities/role-<role>.md so it
-        # can be edited without code changes.
-        if self.role in ("maestro", "lead"):
-            args.extend(["--append-system-prompt", load_role_jd(self.role)])
 
         from hive.mcp.config import mcp_servers_enabled
 

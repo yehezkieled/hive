@@ -36,7 +36,7 @@ class MessageRouter:
         self._queues: dict[str, asyncio.Queue[Message]] = {}
         # Optional sync hook fired after a message lands in a recipient's
         # queue. ProcessManager wires this to schedule an auto-wake so
-        # peer messages don't sit idle until the 120m scheduler tick.
+        # peer messages don't sit idle until the next wake.
         # Sync (not awaited) so route() returns immediately — the
         # callback's job is to spawn an asyncio.Task, nothing more.
         self.wake_callback: Callable[[str], None] | None = None

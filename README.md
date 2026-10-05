@@ -1,43 +1,48 @@
 # Hive
 
-Hive is a multi-agent orchestration platform: it runs and coordinates
-a fleet of AI coding agents that you control from Telegram. Each
-Entity (Maestro / Team Lead) runs on a Harness Hive picks per turn —
-Codex first (Claude Code first for Maestros and the Vault), each in headless mode by default with
-Claude's interactive PTY session as the fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
+Hive is the front door of [firstmate](docs/adr/0030-firstmate-implemented-in-hive.md):
+the **gateway** (`hive-gateway.service`) serves the owner's desk over Tailscale —
+read the first mate's backlog, say, decide. Since the cut-over
+([ADR 0033](docs/adr/0033-hive-cutover-retire-entity-runtime.md)) Hive no longer
+runs Maestros or Team Leads. What remains of the old Entity runtime is the
+**Vault** (the approval rail for payments; off by default, stub provider only),
+reached over Telegram as an optional backup channel and the legacy web app. The
+Vault runs on a Harness Hive picks per turn — Claude Code first, then Codex/Pi,
+each in headless mode by default with Claude's interactive PTY session as the
+fallback ([ADR 0029](docs/adr/0029-harness-pivot-headless-default-pty-fallback.md)).
 Model defaults and overrides are documented in the
 [deployment runbook](docs/DEPLOYMENT.md#harness-selection-adr-0029).
 OpenCode remains planned.
 
 See [`CONTEXT.md`](CONTEXT.md) for canonical terminology (Entity,
-Maestro, Harness, Plan-billed, …) and
+Vault, Harness, Plan-billed, …) and
 [`docs/roadmap.md`](docs/roadmap.md) for direction.
 
 ## How it works
 
 ```
-You (Telegram)
-    │
-    ▼
-Hive orchestrator (Python asyncio)
-    │
-    ▼
-One Harness per Entity  ←→  PostgreSQL (messages, tasks, usage)
-    │
-    ▼
-Telegram reply
+You (desk over Tailscale)  ──►  Gateway ──► firstmate scripts / records
+You (Telegram, optional)   ──►  Hive orchestrator (Python asyncio)
+                                    │
+                                    ▼
+                          Vault Entity on a Harness  ←→  PostgreSQL
+                                    │                    (messages, tasks,
+                                    ▼                     usage, vault_actions)
+                          Approval via Telegram or the legacy web app
 ```
 
-The orchestrator owns Entity lifecycle, message routing, and Telegram
-integration. Each Entity runs on the Harness it's assigned to via an
-Adapter — uniform turn-level interface, harness-specific internals.
+The gateway is self-contained and does not need the orchestrator. The
+orchestrator (`python -m hive`) owns the Vault Entity's lifecycle, the
+approval rail, notification fan-out (Telegram, SSE, Web Push, email digest)
+and the legacy web app.
 
 ## Prerequisites
 
 - Python 3.12+
 - Docker + Docker Compose
 - At least one signed-in Codex, Claude Code, or Pi CLI on the host
-- A Telegram bot token (from [@BotFather](https://t.me/BotFather))
+- A Telegram bot token (from [@BotFather](https://t.me/BotFather)) — optional;
+  Telegram is a backup channel and stays off without it
 - OpenAI API key (optional — for blueprint embeddings)
 
 ## Quick start
@@ -50,47 +55,43 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 cp .env.example .env
-$EDITOR .env       # TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, POSTGRES_*
+$EDITOR .env       # POSTGRES_*; optionally TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS
 
 docker compose up -d postgres
 python -m hive
 ```
 
-On first run, Hive applies all DB migrations and registers a default
-Maestro. You should see `Telegram bridge started, polling for updates`
-in the logs.
+On first run, Hive applies all DB migrations (migration 035 deletes any
+pre-cut-over Maestro/Lead rows and the `projects` table — see
+[ADR 0033](docs/adr/0033-hive-cutover-retire-entity-runtime.md); back up the
+database first on an existing install). With `TELEGRAM_BOT_TOKEN` set you
+should see `Telegram bridge started as a backup channel`; without it,
+`Telegram backup channel is off` and Hive keeps running.
 
 Full install + ops runbook in
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-## Telegram interface
+## Telegram interface (optional backup)
 
-Send `/m:<entity> <msg>` to talk to an Entity, e.g.
-`/m:dev what's the status of the auth refactor?`.
-
-Common commands:
+Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` to enable it.
+Telegram delivers pings and handles the typed vault/mode approvals; the desk is
+the primary surface.
 
 | Command | Purpose |
 |---|---|
-| `/status` | Overview of all active Entities |
+| `/status` | Overview of active Entities |
 | `/cost [24h\|7d\|30d]` | Token usage and estimated cost |
 | `/m:<name> <msg>` | Send a message to a named Entity |
+| `/approve` `/deny` `/vault` | Mode-elevation and vault approvals |
 | `/mode <plan\|edit\|auto\|yolo> [entity]` | Set Claude permission mode |
-| `/loop <ralph\|ship-it\|plan-act-observe\|build-test-refine> [entity]` | Set agent reasoning loop |
 | `/model <opus\|sonnet\|haiku> [entity]` | Switch Claude model |
 | `/runtime <entity> <harness> [model]` | Switch the Entity's Harness |
 | `/quota` | Plan-quota status (5h + 7d windows) |
 | `/task add "<title>"` | Add a task to the queue |
 | `/tasks` | List all tasks |
-| `/org` | Show entity hierarchy |
 | `/help` | Full command list |
 
-No `TELEGRAM_BOT_TOKEN`? Hive falls back to a local readline CLI —
-useful for debugging without a bot.
-
-## Modes and loops
-
-**Permission modes** control what Claude can do:
+## Permission modes
 
 | Mode | Use case |
 |---|---|
@@ -98,23 +99,13 @@ useful for debugging without a bot.
 | `edit` | Normal edits, no shell commands |
 | `auto` | Full autonomy (`--dangerously-skip-permissions`) |
 
-**Loops** are system-prompt strategies for how the Entity approaches
-a task:
-
-| Loop | Behaviour |
-|---|---|
-| `ralph` | Read → Ask → List → Plan → Halt (verbose, checkpoint-heavy) |
-| `ship-it` | Fast execution, minimal stopping |
-| `plan-act-observe` | Iterative, data-driven |
-| `build-test-refine` | Ship, test, iterate |
-
 ## Configuration
 
 Key variables in `.env` (full table in
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)):
 
 ```bash
-TELEGRAM_BOT_TOKEN=<from BotFather>
+TELEGRAM_BOT_TOKEN=<from BotFather>            # optional
 TELEGRAM_ALLOWED_USER_IDS=<your numeric Telegram user id>
 
 POSTGRES_HOST=127.0.0.1
@@ -144,19 +135,18 @@ src/hive/
 ├── __main__.py        # entry point
 ├── config.py
 ├── runtime/           # harness registry + adapters (Pi, Claude headless/PTY)
-├── process/           # Entity / session lifecycle
-├── models/            # Entity, Team, Task, Vault, …
+├── process/           # Vault session lifecycle, approvals, wake-on-inbound
+├── models/            # Entity, Task, Vault
 ├── bus/               # message routing + persistence
 ├── telegram/          # Telegram bridge + command parser
 ├── commands/          # /command handlers
-├── web/               # FastAPI dashboard
+├── web/               # legacy FastAPI app (vault/mode approvals)
 ├── gateway/           # owner desk over Tailscale: read + act (ADR 0030)
 ├── knowledge/         # blueprints + embeddings
 ├── vault/             # security-gated payment Entity
 ├── notifications/
 ├── observability/     # /status, /cost, daily summary, heartbeat
-├── mcp/               # MCP config + hive-knowledge server
-└── cli/               # local readline CLI fallback
+└── mcp/               # MCP config + hive-knowledge server
 ```
 
 ## Project documentation

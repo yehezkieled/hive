@@ -29,10 +29,6 @@ class AdapterConfig:
     # (Ticket 024, ADR 0017). Injected via --settings; None = no fence.
     # Claude-only: other harnesses have no equivalent hook.
     settings_path: Path | None = None
-    # Whether this maestro is the PA — Hive's default route (Ticket 033).
-    # Selects the PA vs. project-maestro identity block in the system prompt.
-    # Always False for non-maestro roles.
-    is_pa: bool = False
     codex_usage: dict = field(default_factory=dict)
 
 
@@ -47,15 +43,4 @@ def build_system_prompts(cfg: AdapterConfig) -> list[str]:
         "Do not narrate fictional success.",
     ]
     prompts.append("\n".join(identity_lines))
-    from hive.process.loops import MAESTRO_IDENTITY, load_role_jd
-
-    # T007: the loop framework is retired in favour of native /goal, seeded
-    # on the first turn by message_dispatcher — no loop prompt appended here.
-    if cfg.role in ("maestro", "lead"):
-        prompts.append(load_role_jd(cfg.role))
-    # State the maestro's structural role (PA vs. project) after the shared,
-    # ownership-neutral role JD (Ticket 033). Maestro-only — leads never own
-    # a project, so the distinction is meaningless for them.
-    if cfg.role == "maestro":
-        prompts.append(MAESTRO_IDENTITY["pa" if cfg.is_pa else "project"])
     return prompts

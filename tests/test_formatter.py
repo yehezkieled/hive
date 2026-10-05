@@ -39,11 +39,7 @@ async def test_formatter_constructs_with_process_manager_only(pm: MagicMock) -> 
     """Read views render with NO stores — no vault/approval machinery needed."""
     f = Formatter(pm)
     assert (await f.status(_cmd(), "user")).text == "No entities running."
-    assert (await f.org(_cmd(), "user")).text == "No entities running."
-    assert (await f.teams(_cmd(), "user")).text == "No maestros registered."
     assert (await f.health(_cmd(), "user")).text == "All entities healthy."
-    assert (await f.maestros(_cmd(), "user")).text == "No maestros running."
-    assert (await f.comms(_cmd(), "user")).text == "No messages yet."
     assert "quota" in (await f.quota(_cmd(), "user")).text.lower()
     assert (await f.help(_cmd(), "user")).text  # static help text, non-empty
 

@@ -13,18 +13,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hive.commands._helpers import _parse_task_id, _strip_quotes
 from hive.commands.datastore_commands import DataStoreCommands
 from hive.commands.formatter import Formatter
-from hive.commands.git_commands import GitCommands
 from hive.commands.result import CommandResult
 from hive.models.entity import OFFERED_MODES, EntityState
-from hive.models.project import Project, ProjectOwnershipError
 from hive.models.task import TaskStatus
 from hive.telegram.commands import Command, parse_command
 
@@ -37,30 +32,8 @@ if TYPE_CHECKING:
     from hive.bus.vault_store import VaultStore
     from hive.knowledge.blueprints import BlueprintStore
     from hive.process.manager import ProcessManager
-    from hive.process.scheduler import PriorityScheduler
 
 logger = logging.getLogger(__name__)
-
-
-# Interactive `/new maestro` flow — multi-turn Q&A keyed by actor.
-# Pending state lives in-memory on the dispatcher; expires after this
-# inactivity window so abandoned flows don't block the actor's plain
-# text from routing to the default maestro.
-_PENDING_NEW_TIMEOUT = timedelta(minutes=10)
-_NEW_MAESTRO_QUESTIONS: tuple[str, ...] = (
-    "What's this maestro for? (e.g., 'manage my personal-assistant project')",
-    "Communication style — terse, verbose, formal, casual?",
-)
-
-
-@dataclass
-class _PendingNewMaestro:
-    """In-flight `/new maestro` flow for one actor."""
-
-    name: str
-    model: str
-    answers: list[str] = field(default_factory=list)
-    last_active: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # ``KNOWN_COMMANDS`` (the set of commands the dispatcher executes) is now
@@ -88,9 +61,6 @@ class CommandDispatcher:
         "empty": (None, "_h_empty"),
         "status": ("formatter", "status"),
         "health": ("formatter", "health"),
-        "maestros": ("formatter", "maestros"),
-        "org": ("formatter", "org"),
-        "comms": ("formatter", "comms"),
         "kill": (None, "_h_kill"),
         "message": (None, "_h_message"),
         "cost": ("formatter", "cost"),
@@ -98,31 +68,21 @@ class CommandDispatcher:
         "task": (None, "_h_task"),
         "tasks": ("formatter", "tasks"),
         "audit": ("formatter", "audit"),
-        "team": (None, "_h_team"),
-        "teams": ("formatter", "teams"),
-        "project": (None, "_h_project"),
         "mode": (None, "_h_mode"),
-        "priority": (None, "_h_priority"),
         "compact": (None, "_h_compact"),
         "reset": (None, "_h_reset"),
-        "cancel": (None, "_h_cancel"),
-        "new": (None, "_h_new"),
-        "personality": (None, "_h_personality"),
         "model": (None, "_h_model"),
         "vault": ("datastore", "vault"),
         "blueprint": ("datastore", "blueprint"),
         "help": ("formatter", "help"),
         "approve": (None, "_h_approve"),
         "deny": (None, "_h_deny"),
-        "ship": ("git", "ship"),
         "files": ("formatter", "files"),
-        "eval": (None, "_h_eval"),
     }
 
     def __init__(
         self,
         process_manager: ProcessManager,
-        default_maestro: str = "otter",
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,
@@ -130,11 +90,8 @@ class CommandDispatcher:
         mode_request_store: ModeRequestStore | None = None,
         blueprint_store: BlueprintStore | None = None,
         attachment_store: AttachmentStore | None = None,
-        scheduler: PriorityScheduler | None = None,
-        personalities_dir: Path | None = None,
     ) -> None:
         self.process_manager = process_manager
-        self.default_maestro = default_maestro
         self.token_store = token_store
         self.task_store = task_store
         self.audit_log = audit_log
@@ -142,9 +99,6 @@ class CommandDispatcher:
         self.mode_request_store = mode_request_store
         self.blueprint_store = blueprint_store
         self.attachment_store = attachment_store
-        self.scheduler = scheduler
-        self.personalities_dir = personalities_dir or Path("personalities")
-        self._pending_new: dict[str, _PendingNewMaestro] = {}
 
         # Collaborator groups (ADR 0006). Read-only views go to the Formatter,
         # which takes only the read-only stores — no vault/mode_request/blueprint.
@@ -160,7 +114,6 @@ class CommandDispatcher:
             vault_store=self.vault_store,
             blueprint_store=self.blueprint_store,
         )
-        self.git = GitCommands(self.process_manager, audit_log=self.audit_log)
 
         # Bind the routing table to live handlers once, at construction.
         self._registry: dict[str, Callable[[Command, str], Awaitable[CommandResult]]] = {
@@ -169,33 +122,9 @@ class CommandDispatcher:
         }
 
     async def dispatch(self, text: str, actor: str = "system") -> CommandResult:
-        """Parse ``text`` then dispatch — convenience for callers without a Command.
-
-        Honors any pending `/new maestro` flow for the actor: plain text
-        advances the flow; a slash command cancels it and is then
-        executed normally (`/cancel` reports the abort and stops there).
-        """
-        pending = self._pending_new.get(actor)
-        if pending is not None and self._pending_expired(pending):
-            del self._pending_new[actor]
-            pending = None
-
-        if pending is not None:
-            stripped = text.strip()
-            if stripped.startswith("/"):
-                cancelled = self._pending_new.pop(actor)
-                cmd = parse_command(stripped, default_maestro=self.default_maestro)
-                if cmd.name == "cancel":
-                    return CommandResult(text=f"Cancelled /new maestro {cancelled.name}.")
-                return await self.dispatch_command(cmd, actor=actor)
-            return CommandResult(text=await self._advance_new_flow(actor, stripped))
-
-        cmd = parse_command(text, default_maestro=self.default_maestro)
+        """Parse ``text`` then dispatch — convenience for callers without a Command."""
+        cmd = parse_command(text)
         return await self.dispatch_command(cmd, actor=actor)
-
-    @staticmethod
-    def _pending_expired(pending: _PendingNewMaestro) -> bool:
-        return datetime.now(UTC) - pending.last_active > _PENDING_NEW_TIMEOUT
 
     async def dispatch_command(self, cmd: Command, actor: str = "system") -> CommandResult:
         """Execute a parsed command and return a :class:`CommandResult`."""
@@ -224,7 +153,9 @@ class CommandDispatcher:
 
     async def _h_message(self, cmd: Command, actor: str) -> CommandResult:
         if not cmd.target:
-            return CommandResult(text="No target specified.")
+            return CommandResult(
+                text="Hive no longer has a chat agent. Use the desk, or /m:<entity> <message>."
+            )
         return CommandResult(
             text=await self._send_to_entity(cmd.target, cmd.args),
             routed=True,
@@ -234,40 +165,14 @@ class CommandDispatcher:
     async def _h_task(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_task(cmd.target, cmd.args, actor=actor))
 
-    async def _h_team(self, cmd: Command, actor: str) -> CommandResult:
-        # /t:dev.backend <msg> routes to the lead entity directly;
-        # /team create|list|kill is a structural subcommand.
-        if cmd.target and "." in (cmd.target or ""):
-            return CommandResult(
-                text=await self._send_to_entity(cmd.target, cmd.args),
-                routed=True,
-                entity=cmd.target or "",
-            )
-        return CommandResult(text=await self._execute_team(cmd.target, cmd.args))
-
-    async def _h_project(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_project(cmd.target, cmd.args))
-
     async def _h_mode(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_mode(cmd.target, cmd.args))
-
-    async def _h_priority(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_priority(cmd.target, cmd.args, actor=actor))
 
     async def _h_compact(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_compact(cmd.target))
 
     async def _h_reset(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_reset(cmd.target))
-
-    async def _h_cancel(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text="Nothing to cancel.")
-
-    async def _h_new(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_new(cmd.target, cmd.args, actor=actor))
-
-    async def _h_personality(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_personality(cmd.target, cmd.args))
 
     async def _h_model(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_model(cmd.target, cmd.args))
@@ -277,9 +182,6 @@ class CommandDispatcher:
 
     async def _h_deny(self, cmd: Command, actor: str) -> CommandResult:
         return CommandResult(text=await self._execute_deny(cmd.target, cmd.args))
-
-    async def _h_eval(self, cmd: Command, actor: str) -> CommandResult:
-        return CommandResult(text=await self._execute_eval(cmd.target))
 
     # ------------------------------------------------------------------
     # Per-command execution helpers (extracted from TelegramBridge)
@@ -422,35 +324,12 @@ class CommandDispatcher:
 
         return f"Unknown task subcommand: {subcommand}"
 
-    async def _execute_eval(self, maestro_name: str | None) -> str:
-        """Handle /eval [maestro] — fire one scheduler tick for a single maestro.
-
-        Without a target, defaults to ``self.default_maestro``. Returns
-        the facts prompt the maestro just received so the user can see
-        what input drove the autonomous decisions.
-        """
-        if self.scheduler is None:
-            return "Scheduler not configured."
-        target = (maestro_name or self.default_maestro).strip()
-        if target not in self.process_manager.entities:
-            return f"Maestro {target!r} not found."
-        try:
-            facts = await self.scheduler.run_once_for(target)
-        except Exception as e:
-            logger.exception("eval failed for %s", target)
-            return f"Error: {e}"
-        return f"Eval fired for {target}.\n\nFacts sent:\n{facts}"
-
     async def _send_to_entity(self, entity_name: str, message: str) -> str:
         """Send a message to an entity and return its response."""
         if not message:
             return f"Send what to {entity_name}?"
 
         try:
-            # Ticket 029: this is the user-sourced path. If the entity was parked
-            # waiting on a decision from the user, this reply unparks it (cleared
-            # before the turn runs, so a re-ask within the turn can re-arm it).
-            await self.process_manager.clear_awaiting_decision(entity_name)
             # T007: this is the genuine user/command task path (Telegram and the
             # web decision/message channel both funnel here), so mark it for
             # /goal seeding — the entity's first task becomes its loop goal.
@@ -466,85 +345,10 @@ class CommandDispatcher:
 
             return response or "(no response)"
         except KeyError:
-            return f"Entity {entity_name!r} not found. Use /maestros to see available entities."
+            return f"Entity {entity_name!r} not found. Use /status to see available entities."
         except Exception as e:
             logger.exception("Error sending to %s", entity_name)
             return f"Error: {e}"
-
-    async def _execute_team(self, subcommand: str | None, args: str) -> str:
-        """Dispatch a /team subcommand (create | list | kill)."""
-        if not subcommand:
-            return "Usage: /team create <name> | /team list | /team kill <name>"
-
-        sub = subcommand.lower()
-
-        if sub == "create":
-            name = args.strip()
-            if not name:
-                return "Usage: /team create <name>"
-            try:
-                lead = await self.process_manager.create_team(self.default_maestro, name)
-                return f"Team {name!r} created. Lead: {lead.name}"
-            except (KeyError, TypeError, ValueError) as e:
-                return f"Error: {e}"
-
-        if sub == "list":
-            return self.formatter._format_teams()
-
-        if sub == "kill":
-            name = args.strip()
-            if not name:
-                return "Usage: /team kill <name>"
-            await self.process_manager.kill_team(self.default_maestro, name)
-            return f"Team {name!r} killed."
-
-        return f"Unknown team subcommand: {subcommand}"
-
-    async def _execute_project(self, subcommand: str | None, args: str) -> str:
-        """Handle /project new|assign|list — the ownership registry (Ticket 024)."""
-        store = self.process_manager.project_store
-        if store is None:
-            return "Project registry unavailable."
-        sub = (subcommand or "list").lower()
-
-        if sub == "list":
-            projects = await store.all()
-            if not projects:
-                return "No projects registered."
-            lines = [
-                f"- {p.name} → {p.root_path} "
-                f"({'owner: ' + p.owning_maestro if p.owning_maestro else 'ownerless'})"
-                for p in projects
-            ]
-            return "Projects:\n" + "\n".join(lines)
-
-        if sub == "new":
-            parts = args.split()
-            if len(parts) < 2:
-                return "Usage: /project new <name> <path> [maestro]"
-            name, path = parts[0], parts[1]
-            maestro = parts[2] if len(parts) > 2 else None
-            await store.upsert(Project(name=name, root_path=Path(path)))
-            if maestro:
-                try:
-                    await store.assign(name, maestro)
-                except ProjectOwnershipError as e:
-                    return f"Project {name!r} created, but assign failed: {e}"
-                return f"Project {name!r} created at {path}, assigned to {maestro!r}."
-            return f"Project {name!r} created at {path} (ownerless)."
-
-        if sub == "assign":
-            parts = args.split()
-            if len(parts) < 2:
-                return "Usage: /project assign <name> <maestro>"
-            name, maestro = parts[0], parts[1]
-            try:
-                await store.assign(name, maestro)
-            except ProjectOwnershipError as e:
-                return f"Error: {e}"
-            return f"Project {name!r} assigned to {maestro!r}."
-
-        return f"Unknown project subcommand: {subcommand}"
 
     async def _execute_mode(self, mode_name: str | None, entity_name: str) -> str:
         """Handle /mode <yolo|yotree> [entity] (T007).
@@ -560,7 +364,9 @@ class CommandDispatcher:
         if mode_name not in OFFERED_MODES:
             return f"Unknown mode {mode_name!r}. {usage}"
 
-        target = entity_name.strip() if entity_name else self.default_maestro
+        target = entity_name.strip()
+        if not target:
+            return "Name the entity: /mode|/model <value> <entity>."
         entity = self.process_manager.entities.get(target)
         if entity is None:
             return f"Entity {target!r} not found."
@@ -572,115 +378,6 @@ class CommandDispatcher:
 
         await self.process_manager._persist(entity)
         return f"Mode for {target} set to {mode_name!r} (CLI: --dangerously-skip-permissions)"
-
-    async def _execute_priority(
-        self, priority_str: str | None, args: str, actor: str = "system"
-    ) -> str:
-        """Handle /priority P0 'fix prod bug' — create a high-priority task."""
-        if self.task_store is None:
-            return "Task tracking not configured."
-
-        if not priority_str:
-            return "Usage: /priority <P0-P4> <task title>"
-
-        cleaned = priority_str.upper().lstrip("P")
-        try:
-            priority = int(cleaned)
-        except ValueError:
-            return f"Invalid priority: {priority_str!r}. Use P0-P4."
-        if priority < 0 or priority > 4:
-            return f"Priority must be P0-P4, got P{priority}."
-
-        title = _strip_quotes(args).strip()
-        if not title:
-            return 'Usage: /priority P0 "task title"'
-
-        task = await self.task_store.create(title=title, created_by=actor, priority=priority)
-        if self.audit_log is not None:
-            await self.audit_log.record(
-                actor=actor,
-                action="task.create",
-                target=str(task.id),
-                details={"title": title, "priority": priority},
-            )
-        return f"Task #{task.id} added at P{priority}: {title}"
-
-    async def _execute_new(self, entity_type: str | None, args: str, actor: str = "system") -> str:
-        """Handle /new maestro <name> [model].
-
-        With a personality file already at ``personalities_dir/<name>.md``,
-        register the maestro immediately. Otherwise kick off an
-        interactive Q&A keyed by ``actor`` — subsequent plain-text
-        messages from the same actor are interpreted as answers.
-        """
-        if not entity_type or entity_type.lower() != "maestro":
-            return "Usage: /new maestro <name> [model]"
-
-        parts = args.strip().split(None, 1)
-        if not parts:
-            return "Usage: /new maestro <name> [model]"
-
-        name = parts[0]
-        model = parts[1] if len(parts) > 1 else ""
-
-        path = self.personalities_dir / f"{name}.md"
-        if path.exists():
-            try:
-                maestro = await self.process_manager.register_maestro(
-                    name, model=model, personality_path=path
-                )
-                return f"Maestro {maestro.name!r} registered (model={maestro.model})."
-            except (ValueError, RuntimeError) as e:
-                return f"Error: {e}"
-
-        self._pending_new[actor] = _PendingNewMaestro(name=name, model=model)
-        return _NEW_MAESTRO_QUESTIONS[0]
-
-    async def _advance_new_flow(self, actor: str, answer: str) -> str:
-        """Record one answer; either ask the next question or finalize."""
-        pending = self._pending_new[actor]
-        pending.answers.append(answer)
-        pending.last_active = datetime.now(UTC)
-
-        if len(pending.answers) < len(_NEW_MAESTRO_QUESTIONS):
-            return _NEW_MAESTRO_QUESTIONS[len(pending.answers)]
-
-        del self._pending_new[actor]
-        return await self._finalize_new_maestro(pending)
-
-    async def _finalize_new_maestro(self, pending: _PendingNewMaestro) -> str:
-        """Render the personality MD, write it, and register the maestro."""
-        purpose, style = pending.answers
-        md = _render_personality_md(
-            name=pending.name, purpose=purpose, style=style, model=pending.model
-        )
-        self.personalities_dir.mkdir(parents=True, exist_ok=True)
-        path = self.personalities_dir / f"{pending.name}.md"
-        path.write_text(md)
-        try:
-            maestro = await self.process_manager.register_maestro(
-                pending.name, model=pending.model, personality_path=path
-            )
-        except (ValueError, RuntimeError) as e:
-            return f"Error: {e}"
-        return f"Maestro {maestro.name!r} registered (model={pending.model})."
-
-    async def _execute_personality(self, subcommand: str | None, args: str) -> str:
-        """Handle /personality reload <entity>."""
-        if not subcommand or subcommand.lower() != "reload":
-            return "Usage: /personality reload <entity>"
-
-        entity_name = args.strip() or self.default_maestro
-        entity = self.process_manager.entities.get(entity_name)
-        if entity is None:
-            return f"Entity {entity_name!r} not found."
-
-        config = entity.load_personality()
-        if config is None:
-            return f"No personality file for {entity_name!r}."
-
-        await self.process_manager._persist(entity)
-        return f"Reloaded personality for {entity_name}."
 
     async def _execute_model(self, model_name: str | None, entity_name: str) -> str:
         """Handle /model <opus|sonnet|haiku|opusplan|fable> [entity] (T007).
@@ -695,7 +392,9 @@ class CommandDispatcher:
         if not model_name or model_name not in VALID_MODELS:
             return f"Usage: /model <{'|'.join(sorted(VALID_MODELS))}> [entity]"
 
-        target = entity_name.strip() if entity_name else self.default_maestro
+        target = entity_name.strip()
+        if not target:
+            return "Name the entity: /mode|/model <value> <entity>."
         entity = self.process_manager.entities.get(target)
         if entity is None:
             return f"Entity {target!r} not found."
@@ -745,41 +444,3 @@ class CommandDispatcher:
 # it is excluded. The Telegram bridge re-exports this (plus surface-only
 # commands like /heartbeat) as ``BRIDGE_COMMANDS`` for the /help drift guard.
 KNOWN_COMMANDS: frozenset[str] = frozenset(CommandDispatcher._ROUTES) - {"empty"}
-
-
-# ---------------------------------------------------------------------- #
-# Module-level helpers                                                    #
-# ---------------------------------------------------------------------- #
-
-
-def _render_personality_md(name: str, purpose: str, style: str, model: str) -> str:
-    """Render a maestro personality markdown file from interactive answers.
-
-    Templated (deterministic) so the output is stable and testable; LLM
-    authoring is a Phase 2.5 follow-up. Format mirrors the existing
-    `personalities/_template.md` so :func:`parse_personality` reads it.
-    """
-    title = name[:1].upper() + name[1:] if name else name
-    model_line = f"- **Model**: {model}\n" if model else ""
-    return (
-        f"# Maestro: {title}\n\n"
-        "## Identity\n"
-        f"- **Name**: {name}\n"
-        "- **Role**: maestro\n"
-        f"{model_line}\n"
-        "## System Prompt\n"
-        f"{title} is a maestro for: {purpose}.\n"
-        f"Communication style: {style}.\n"
-        "Plain English, short sentences. Delegate eagerly and form\n"
-        "small focused teams rather than overloading one entity.\n"
-        "Report failures honestly — never narrate fictional success.\n\n"
-        "## Tools\n"
-        "- allowedTools: Bash Read Write Edit Grep Glob\n\n"
-        "## Constraints\n"
-        "- Ask for clarification rather than guessing on ambiguous requirements.\n"
-        "- Report errors honestly; do not hide failures.\n\n"
-        "## Permission modes\n"
-        "- Default mode is `edit` — safe for prompts and most code edits.\n"
-        "- Prefer `yotree` (elevated + sandboxed worktree) for code-heavy work.\n"
-        "- Use `yolo` only for trivial scripted tasks where a worktree is overhead.\n"
-    )

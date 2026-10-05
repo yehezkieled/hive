@@ -22,7 +22,6 @@ from hive.runtime.adapter_config import AdapterConfig, build_system_prompts
 from hive.runtime.base import Runtime
 from hive.runtime.gate_coordinator import GateCoordinator
 from hive.runtime.pty_session import PtySession
-from hive.runtime.workflow_progress import WorkflowProgress, parse_run_dir, run_active
 
 logger = logging.getLogger(__name__)
 
@@ -144,23 +143,10 @@ class ClaudeAdapter(Runtime):
     def is_busy(self) -> bool:
         """True while a turn is in flight (``send_turn`` holds the lock).
 
-        The idle reaper checks this so an entity mid-turn — e.g. a lead
-        blocked on a Workflow sync-wait (ADR 0010) — is never killed on a
+        The idle reaper checks this so an entity mid-turn is never killed on a
         stale ``last_activity_at``, which only updates at turn start.
         """
         return self._lock.locked()
-
-    def poll_workflow_progress(self) -> list[WorkflowProgress]:
-        """Read-only snapshot of this entity's in-flight Workflow runs (Ticket
-        017). Fail-soft: never raises; ``[]`` when there is no live session."""
-        session_dir = self._pty.session_dir if self._pty is not None else None
-        return parse_run_dir(session_dir)
-
-    def workflow_active(self, window: float) -> bool:
-        """True iff a Workflow run's files advanced within ``window`` s — the
-        no-hang liveness signal the transcript reader consults (Ticket 017)."""
-        session_dir = self._pty.session_dir if self._pty is not None else None
-        return run_active(session_dir, window)
 
     def describe_jam(self) -> dict | None:
         """Best-effort session-state for the Ticket 020 bounce reason-assembler.

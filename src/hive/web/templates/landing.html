@@ -165,9 +165,9 @@
           </div>
         </div>
 
-        {# Active maestros #}
+        {# Active entities #}
         <div class="section-head">
-          <h3 class="section-head__title">Active maestros</h3>
+          <h3 class="section-head__title">Active entities</h3>
           <span class="section-head__count section-head__count--active">{{ view.active|length }}</span>
           <span class="section-head__rule"></span>
           <span class="section-head__right">
@@ -1163,9 +1163,7 @@ const HIVE_COMMANDS = {{ commands|tojson }};
   if (!input || !dropdown) return;
 
   const ALIASES = [
-    {name:'m:', usage:'/m:<maestro> <text>',                  description:'Message a maestro'},
-    {name:'t:', usage:'/t:<maestro>.<team> <text>',           description:'Message a team'},
-    {name:'a:', usage:'/a:<maestro>.<team> <text>',           description:'Message a lead'},
+    {name:'m:', usage:'/m:<entity> <text>',                   description:'Message an entity'},
   ];
 
   // Hide entries that have an alias display form (e.g. `message`→`m:`); the

@@ -36,11 +36,14 @@ commands below use a venv at `.venv/`.
   stronger second opinion comes from Claude Code's native `/advisor`
   (Ticket 013): Hive enables it per-entity by passing `--advisor <model>` at
   spawn, with a model-aware default (off for Opus mains, `opus`
-  for a sub-Opus maestro/lead; override per entity with the `**Advisor**:`
+  for a sub-Opus entity; override per entity with the `**Advisor**:`
   field). **Remove any global `advisorModel` from `~/.claude/settings.json`** —
   otherwise it re-enables the advisor on entities Hive deliberately leaves off.
-- **Telegram bot token** — create a bot via BotFather, paste the token into
-  `.env` (see Section 2).
+- **Telegram bot token** (optional) — Telegram is a backup ping/approval channel
+  since the cut-over ([ADR 0033](adr/0033-hive-cutover-retire-entity-runtime.md)).
+  Create a bot via BotFather and paste the token into `.env` to enable it; with
+  no token Hive logs `Telegram backup channel is off` and keeps running. The
+  desk (`hive-gateway.service` over Tailscale) is the primary surface.
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
 
@@ -58,11 +61,11 @@ any one and the next turn works, no restart.
 | Variable | Default | Meaning |
 |---|---|---|
 | `HIVE_HARNESS_ORDER` | `codex,claude,pi` | Preference order. A harness not listed is tried after the listed ones. |
-| `HIVE_HARNESS_ORDER_<ROLE>` | maestro/vault: `claude,codex,pi`; others (leads): `HIVE_HARNESS_ORDER` | Per-role override, e.g. `HIVE_HARNESS_ORDER_VAULT=codex,claude,pi`. Maestros (Ownership guard) and the Vault (Bash/Write/Edit denylist) default to Claude first, since Codex and Pi do not enforce those controls. |
+| `HIVE_HARNESS_ORDER_<ROLE>` | vault: `claude,codex,pi` | Per-role override, e.g. `HIVE_HARNESS_ORDER_VAULT=codex,claude,pi`. The Vault (Bash/Write/Edit denylist) defaults to Claude first, since Codex and Pi do not enforce that control. |
 | `HIVE_RUN_MODE_ORDER` | `headless,pty` | Mode order within a harness; omit a mode to disable it (`headless` alone = never spawn a PTY). |
 | `HIVE_PI_BINARY` / `HIVE_PI_PROVIDER` / `HIVE_PI_MODEL` | `pi` / *(unset)* / *(unset)* | Pi launcher; optional provider/model (`--provider`/`--model`). Unset = Pi's own default model. With a provider set, sign-in is probed with `pi auth check --provider`. |
 | `HIVE_CODEX_BINARY` / `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | `codex` / `gpt-6.1-sol` / `medium` | Codex launcher, model, and reasoning effort. Login is probed with `codex login status`. |
-| `HIVE_CLAUDE_MODEL_<ROLE>` | maestro: `claude-opus-5-5`; lead/vault: `claude-sonnet-5-5` | Claude default per role, including PTY fallback; explicit entity/personality model choices take precedence. |
+| `HIVE_CLAUDE_MODEL_<ROLE>` | vault: `claude-sonnet-5-5` | Claude default per role, including PTY fallback; explicit entity/personality model choices take precedence. |
 | `HIVE_CODEX_MODEL_<ROLE>` / `HIVE_CODEX_EFFORT_<ROLE>` | `HIVE_CODEX_MODEL` / `HIVE_CODEX_EFFORT` | Per-role Codex model and reasoning effort overrides. |
 | `HIVE_PI_MODEL_<ROLE>` | `HIVE_PI_MODEL` | Per-role Pi model override. |
 | `HIVE_HEADLESS_TIMEOUT_S` | `3600` | Wall-clock cap on one headless turn. |
@@ -72,12 +75,11 @@ any one and the next turn works, no restart.
 New entities keep an omitted model unset so the serving harness applies its role default. Explicit entity and personality choices take precedence for Claude. Existing stored `opus` values are preserved: the roster does not distinguish an old implicit default from an explicit selection. `/model` selects the Claude model; Codex and Pi use their harness configuration in the table above.
 
 Pi caveats: no MCP (`search_knowledge` unavailable), no `/goal`, and the
-Ownership guard and the tool denylists do not apply to a Pi entity (cwd only).
-Codex also lacks Hive's Claude-only ownership hook and denylist. Maestros and
-the Vault therefore default to `claude,codex,pi`; when either runs on Codex or Pi,
-`/status` shows the lost guardrail
-("⚠️ ownership fence NOT enforced" / "⚠️ tool denylist NOT enforced") next to it and
-Telegram gets an alert. Leads run Codex first and are never flagged. The startup log
+tool denylists do not apply to a Pi entity (cwd only). Codex also lacks Hive's
+Claude-only denylist. The Vault therefore defaults to `claude,codex,pi`; when it
+runs on Codex or Pi, `/status` shows the lost guardrail
+("⚠️ tool denylist NOT enforced") next to it and the notification channels get an
+alert. The startup log
 prints one run order per distinct role order. Headless Claude strips
 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the subprocess so it can only use
 the subscription login, never per-token API billing.
@@ -235,12 +237,18 @@ Running migration 013_task_retries.sql
 Running migration 014_rename_loop_yolo.sql
 Running migration 015_advisor_calls.sql
 Running migration 016_embedding_dim_1024.sql
-Registered entity: otter
-Registered default maestro: otter
-Telegram bridge started, polling for updates
+Telegram bridge started as a backup channel     # only with TELEGRAM_BOT_TOKEN
+No TELEGRAM_BOT_TOKEN set: Telegram backup channel is off   # otherwise
 Idle checker started (timeout=30m)
-Running with Telegram bridge
 ```
+
+> **Cut-over upgrade (ADR 0033).** The first start after the cut-over applies
+> migration `035_retire_maestro_runtime.sql`, which **permanently deletes** every
+> persisted Maestro/Lead/Worker `entities` row, the `projects` table and the
+> retired `entities` columns. Take a database backup first
+> (`pg_dump hive > hive-pre-035.sql`). The Vault row, `tasks`, `token_usage`,
+> `audit_log`, `vault_actions`, `mode_requests` and `messages` are untouched.
+> The `worktrees/` directory is no longer managed; remove leftovers by hand.
 
 Migrations are idempotent and tracked in `schema_migrations` — subsequent
 startups skip already-applied ones silently.
@@ -381,12 +389,6 @@ Endpoints that accept input from the browser tab:
 - `GET /api/messages?limit=20` — recent message history. **Open**
   (Tailscale bind is the gate); read-only.
 
-**New-maestro permission default (2026-04-26).** `register_maestro`
-sets `permission_mode = "yolo"` on freshly created maestros so their
-tool calls aren't auto-denied. Existing maestros restored
-from postgres keep their persisted mode unchanged. Promote an existing
-maestro explicitly with `/m:<name> mode yolo` when needed.
-
 **Setup**:
 
 ```bash
@@ -447,7 +449,7 @@ the database `attachments` table records every upload as an audit row.
 - `/m:<entity> <text>` (e.g. `/m:dev summarize this`) → file is stored
   *and* the target entity receives a prompt with a prepended
   `[Attached file: /abs/path (mime, N bytes, original: name.ext)]`
-  block. Yolo permission mode (default for new maestros since Sprint 15)
+  block. Yolo permission mode
   lets Claude Code's `Read` tool open the absolute path with no
   per-file prompt.
 - Empty caption → file is stored only. Telegram replies with a
@@ -652,87 +654,6 @@ src/hive/web/static/dashboard/dashboard.css
 Edit any of these and refresh the browser — Babel transpiles in
 the page on every load. No server restart needed.
 
-### Maestro autonomy (Sprint 19)
-
-The maestro is the org's CEO. Every
-`HIVE_PRIORITY_EVAL_INTERVAL_MINUTES` the orchestrator builds a "facts"
-prompt — free session slots, pending tasks grouped by priority, an org
-snapshot with idle-time per entity, and 24h token cost — and sends it
-to each alive maestro via `send_to_entity`. The maestro decides whether
-to `spawn_team`, `kill_entity`, or do nothing, emitting
-its decision as a `<hive_actions>` block. The orchestrator is a dumb
-facts pipe; allocation policy lives in the maestro's prompt.
-(`spawn_worker` and the Worker entity are gone — Worker creation was
-retired on every path per ADR 0013 (Ticket 016) and the type deleted in
-Ticket 018; leaf work runs as Workflow runs inside a Lead's turn.)
-
-> **Sprint 22 Phase 3:** maestros and leads can include `display_name`
-> and `personality` fields on `spawn_team` actions.
-> When both are present, the orchestrator writes
-> `personalities/<dotted.name>.md` with `auto_generated: true` YAML
-> frontmatter so the freshly-spawned entity loads it on its next
-> eval. On `kill_entity`, only files carrying that frontmatter are
-> deleted — user-authored personality files are always preserved.
-
-Leads load their role JD from `personalities/role-lead.md` and emit
-`<hive_actions>` to message peers, report progress, or escalate.
-Permission gates restrict who each entity can address.
-
-> **Sprint 23 — Peer Messaging (2026-05-04):** every entity now sees a
-> live "Peers you can message" block at the head of its prompt and can
-> DM peers in scope (workers within the same maestro org, leads
-> globally, maestros globally). Cross-parent peer routes auto-CC each
-> peer's direct parent so leads/maestros retain visibility. A new
-> `request_decision` action routes only to the sender's direct parent
-> for explicit escalations. **No new env vars; no migration.** New
-> audit events: `peer_message_sent`, `peer_message_cc_inserted`,
-> `peer_message_blocked`, `request_decision_sent`,
-> `request_decision_blocked`. The legacy `message.autonomous` event is
-> replaced by `peer_message_sent` (only consumers were the test
-> suite).
->
-> *Ticket 023 (2026-06-11):* `peer_message_blocked` is replaced by
-> `action_rejected`, which also covers unknown recipients; every
-> rejection now additionally feeds a `system → sender` note back so
-> the sender can self-correct (see ADR 0011's sibling decisions in
-> `docs/archive/tickets/023-activate-worktree-floor/design.md`).
-
-**New env vars** (all optional — sensible defaults):
-
-```
-HIVE_PRIORITY_EVAL_INTERVAL_MINUTES=120   # how often the scheduler ticks
-HIVE_AUTONOMOUS_SPAWN_LIMIT=3             # max autonomous spawns per maestro per window
-HIVE_PRIORITY_PREEMPT_ENABLED=true        # allow preemption when at cap (false = hard-fail)
-```
-
-**New commands**:
-
-- `/eval [maestro]` — fire one scheduler tick on demand for a single
-  maestro (defaults to `dev`). The maestro receives the facts prompt
-  immediately and may emit autonomous spawn/kill actions in response.
-  Use this to nudge re-allocation between intervals.
-
-**Rate limit**: each maestro can autonomously spawn at most
-`HIVE_AUTONOMOUS_SPAWN_LIMIT` entities per eval window. The counter
-keys on the **root maestro** of the dotted name (so a chatty lead
-under `dev.backend` cannot dodge the cap by spawning under
-`dev.frontend`). Excess spawns are rejected and audited as
-`entity.spawn_rate_limited`. Counters reset each scheduler tick.
-
-**Preemption** (last-resort safety net): when `spawn_entity` is called
-at `MAX_CONCURRENT_SESSIONS` and `HIVE_PRIORITY_PREEMPT_ENABLED=true`,
-the orchestrator picks the lowest-priority **RUNNING** entity strictly
-worse than the new one's priority and kills it before retrying the
-spawn. The default maestro is exempt (killing the org root would
-cascade). Preempts audit as `entity.kill actor=system reason=preempt`.
-With `HIVE_PRIORITY_PREEMPT_ENABLED=false`, hitting the cap raises
-immediately and the user is surfaced the failure via the existing
-notification path.
-
-The intent is that preemption rarely fires — the scheduler's facts
-prompt makes idle/stale entities visible every interval so the maestro
-recycles them via `kill_entity` before the cap forces preemption.
-
 ### Find the actual python PID
 
 `$!` from `nohup … &` points at the shell wrapper, which often dies right
@@ -855,65 +776,41 @@ kill $(pgrep -f 'python -m hive' | tail -1)
 sleep 2 && pgrep -af 'python -m hive' | grep -v pgrep    # expect empty
 source .venv/bin/activate
 nohup python -m hive > data/hive.log 2>&1 &
-sleep 3 && grep -E 'Restored|Registered default|Running migration' data/hive.log
+sleep 3 && grep -E 'Restored|Running migration' data/hive.log
 ```
 
-After Sprint 2a, entities survive restart. Subsequent startup logs should
-show `Restored persisted entity: <name>` for each persisted entity and
-**skip** the `Registered default maestro` line (the first-run branch
-short-circuits when `otter` is already restored).
+Persisted entities (the Vault) survive restart. Subsequent startup logs show
+`Restored persisted entity: <name>`.
 
 ### Telegram commands (full list)
 
+Telegram is an optional backup channel (enabled by `TELEGRAM_BOT_TOKEN`). The
+typed approval commands stay until the desk covers vault and mode approvals.
+
 **Status & monitoring:**
-`/status`, `/health`, `/maestros`, `/org`, `/comms`, `/cost [24h|7d|30d]`,
-`/audit [entity|command|task]`, `/files [N]`
+`/status`, `/health`, `/cost [24h|7d|30d]`, `/quota`, `/audit [prefix]`, `/files [N]`
 
-**Organization:**
-`/m:<name> <msg>`, `/t:<maestro>.<team> <msg>`, `/a:<maestro>.<team> <msg>`,
-`/kill <entity>`, `/team create|list|kill <name>`, `/teams`,
-`/new maestro <name> [model]`
-
-> If `personalities/<name>.md` already exists, `/new maestro` registers the
-> maestro and is done. If the file is missing, the dispatcher walks you
-> through a short Q&A (purpose, communication style), writes a templated
-> personality file, then registers. Send `/cancel` mid-flow to abort.
+**Messaging:**
+`/m:<entity> <msg>`, `/kill <entity>`. Plain text with no `/m:` target is
+answered with a pointer to the desk (there is no default chat agent).
 
 **Tasks:**
-`/task add "<title>"`, `/task done|cancel <id>`, `/tasks`,
-`/priority <P0-P4> "<title>"`
+`/task add "<title>"`, `/task done|cancel <id>`, `/tasks`
 
 **Configuration:**
-`/mode <yolo|yotree> [entity]`, `/model <opus|sonnet|haiku|opusplan|fable> [entity]`,
-`/personality reload <entity>`
+`/mode <yolo|yotree> [entity]`, `/model <opus|sonnet|haiku|opusplan|fable> [entity]`
 
 > `opusplan` is a Claude Code alias: the planning phase uses Opus and execution
-> uses Sonnet. Pass it exactly as `opusplan` to `/model`.
->
-> `/mode` offers only `yolo` / `yotree` (T007). Plan mode is no longer a
-> per-entity toggle — it is reachable through the grill-me skill. Spawn
-> defaults come from one source of truth: a maestro spawns `yolo`; a lead
-> spawns `yotree` when its project root is a git repo, else `yolo` (yotree
-> needs a git worktree).
->
-> Hive's `/loop` was removed (T007) in favour of Claude Code's native
-> `/goal`: Hive seeds `/goal <completion condition>` into an entity's first
-> turn at spawn. There is no `LOOP_PROMPTS` machinery any more.
->
-> `/model fable` is accepted. Selecting an API-billed model prints a one-line
-> billing warning; the API-billed set lives in one place and is empty today
-> (every model, `fable` included, runs plan-billed on the Max plan).
+> uses Sonnet. Pass it exactly as `opusplan` to `/model`. Selecting an API-billed
+> model prints a one-line billing warning; the API-billed set lives in one place
+> and is empty today.
 
 **Heartbeat:**
-`/heartbeat on` — enable periodic status pings.
-`/heartbeat off` — disable.
-`/heartbeat status` — show current state and next scheduled ping time.
-`/heartbeat <minutes>` — set the ping interval (e.g. `/heartbeat 15`).
+`/heartbeat on|off|status|<minutes>` — periodic status pings.
 
 > `yolo` and `yotree` both pass `--dangerously-skip-permissions` to the
-> Claude CLI. Non-user-owned entities cannot elevate themselves — they
-> emit a `request_mode_change` hive action which routes to their
-> approver (lead → maestro → user via Telegram). The user
+> Claude CLI. Entities cannot elevate themselves — they emit a
+> `request_mode_change` hive action, which always routes to the user. The user
 > resolves with `/approve mode <id>` or `/deny mode <id> [reason]`.
 
 **Operations:**
@@ -923,23 +820,15 @@ short-circuits when `otter` is already restored).
 
 **Vault:** `/vault approve|deny|status|log <id>`
 
-> Sprint 25: `/vault approve <id>` no longer just flips a status flag —
-> it routes through `process_manager.approve_vault_action`, which runs
-> the daily/monthly spend-cap check and (on cap pass) executes the
-> action against the configured `PaymentProvider`. The reply tells you
-> the terminal status: `executed`, `failed`, `denied` (cap exceeded),
-> or `approved` (legacy generic actions from Sprint 6 that don't have
-> payment fields). `/vault deny <id> [reason]` records the optional
-> reason and audits `vault.denied`. The web chat surfaces a
-> `vault_action_pending` Allow/Deny bubble for every `vault.requested`
-> event, mirroring the Sprint 22 mode-request UX.
-
-**Git workflow (T007 — one verb):**
-`/ship <entity>` — commit + push + `gh pr create` in the entity's worktree.
-`/ship <entity> "<message>"` — same, with a custom commit message.
-`/ship <entity> merge` — additionally `gh pr merge --squash --delete-branch`,
-disabled unless `HIVE_ALLOW_AUTO_MERGE=1` is set in the environment.
-(`/ship` folds the former `/commit` `/pr` `/merge` into one verb.)
+> `/vault approve <id>` routes through `process_manager.approve_vault_action`,
+> which runs the daily/monthly spend-cap check and (on cap pass) executes the
+> action against the configured `PaymentProvider`. The reply tells you the
+> terminal status: `executed`, `failed`, `denied` (cap exceeded), or `approved`
+> (generic actions without payment fields). `/vault deny <id> [reason]` records
+> the optional reason and audits `vault.denied`. The legacy web app shows a
+> `vault_action_pending` Allow/Deny bubble for every `vault.requested` event.
+> The Vault is off by default (`HIVE_VAULT_ENABLED`) and only a stub provider
+> exists; no real provider, account or bank details are connected.
 
 **Blueprints:** `/blueprint save|search|list` — save a new blueprint, semantic search over past blueprints, list all
 
@@ -947,7 +836,7 @@ disabled unless `HIVE_ALLOW_AUTO_MERGE=1` is set in the environment.
 
 When `AUTO_RETRIEVE_ENABLED=true` (default), the top-K semantically-similar
 blueprints are also prepended as context to every prompt sent to any entity
-(maestro or team lead) — no role gating.
+(any entity) — no role gating.
 
 **Sprint 27 — knowledge as a skill.** Auto-retrieve is now a thin safety
 net: top_k=1, max_distance=0.5 (tighter than the prior 0.6), and (with
@@ -1206,15 +1095,14 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | *(none)* | Bot API token (from BotFather) — required for Telegram mode |
+| `TELEGRAM_BOT_TOKEN` | *(none)* | Bot API token (from BotFather) — optional; Telegram (backup channel) is off without it |
 | `TELEGRAM_ALLOWED_USER_IDS` | *(none)* | Comma-separated numeric Telegram user IDs |
 | `POSTGRES_HOST` | `127.0.0.1` | PG host |
 | `POSTGRES_PORT` | `5433` | PG port — matches `docker-compose.yml` |
 | `POSTGRES_DB` | `hive` | DB name |
 | `POSTGRES_USER` | `hive` | User |
 | `POSTGRES_PASSWORD` | `hive` | Password |
-| `HIVE_DEFAULT_MAESTRO` | `otter` | Auto-registered maestro name on first run |
-| `HIVE_DEFAULT_MODEL` | unset | Explicit model for startup Maestro and Vault; omitted values use serving harness role defaults |
+| `HIVE_DEFAULT_MODEL` | unset | Explicit model for the startup Vault; omitted values use serving harness role defaults |
 | `HIVE_MAX_SESSIONS` | `3` | Process manager concurrency cap |
 | `HIVE_WEB_PORT` | `0` | Web dashboard port (0 = disabled) |
 | `HIVE_WEB_HOST` | `127.0.0.1` | Web dashboard bind address. Set to the VPS's Tailscale IP (e.g. `100.79.194.84`) for tailnet-only access from other devices. Keep off `0.0.0.0` until auth lands (deferred past Sprint 14). |
@@ -1235,7 +1123,6 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `AUTO_RETRIEVE_MAX_DISTANCE` | `0.5` | Maximum cosine distance for an auto-retrieved blueprint. 0=identical, 1=orthogonal. Default tightened from 0.6 → 0.5 in Sprint 27. |
 | `AUTO_RETRIEVE_FIRST_TURN_ONLY` | `true` | When true (default), auto-retrieve only fires on the first prompt of a fresh entity activation (signalled by `entity.session_id is None`). Subsequent turns rely on the agent calling `search_knowledge` itself (Sprint 27). |
 | `HIVE_KNOWLEDGE_MCP_ENABLED` | `true` | When true (default), spawns the per-entity `hive-knowledge` MCP server, exposing `search_knowledge(query, kind, limit)` to entities (Sprint 27). Since Ticket 013 it is the *only* MCP server; when `false`, no `--mcp-config` is passed at all. |
-| `HIVE_ALLOW_AUTO_MERGE` | `0` | When `1`, enables `/merge <entity>`. Off by default so a fat-fingered Telegram message can't ship code. |
 | `HIVE_HEARTBEAT_ENABLED` | `false` | `true` to enable periodic status pings to Telegram. |
 | `HIVE_HEARTBEAT_INTERVAL_MINUTES` | `30` | Ping interval in minutes. |
 | `HIVE_WEB_TOKEN` | *(empty)* | Bearer token for the web write surface (Sprint 15). Empty disables `POST /api/command` and `/sse/notifications` entirely. |
@@ -1257,8 +1144,10 @@ All env vars are read in `src/hive/config.py`. Defaults in parentheses.
 | `HIVE_VAULT_MONTHLY_CAP_CENTS` | `50000` ($500) | Monthly spend cap (rolling 30d). Same per-currency-independent semantics as the daily cap. Set to `0` to disable. |
 | `HIVE_VAULT_PROVIDER` | `stub` | Payment provider name. Sprint 25 ships only `stub`. Unknown names fall back to stub with a warning. |
 
-If `TELEGRAM_BOT_TOKEN` is empty/unset, hive drops to a local readline
-CLI instead of starting the Telegram bridge — useful for debugging.
+If `TELEGRAM_BOT_TOKEN` is empty/unset, hive does not start the Telegram bridge;
+the Vault rail, notification channels and the legacy web app (`HIVE_WEB_PORT`)
+still run. There is no local readline CLI fallback any more (removed at the
+cut-over, ADR 0033).
 
 Daily summary and proactive notifications require `HIVE_SUMMARY_CHAT_ID`
 to be set. You can find your chat ID by sending a message to the bot and

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from hive.models.entity import EntityState
-from hive.models.maestro import Maestro
+from hive.models.vault import Vault
 from hive.web.app import create_app
 from hive.web.view_model import build_landing_view_model
 
@@ -102,7 +101,7 @@ class TestViewModelShape:
         assert view["approvals_count"] == 0
         assert view["hero"]["active_count"] == 0
         assert view["hero"]["mood"] == "asleep"
-        assert view["otter"]["state"] == "dormant"
+        assert view["otter"]["state"] == "idle"
         assert view["vault"]["pending_approvals"] == 0
         assert view["vault"]["highest"] is None
         assert view["active"] == []
@@ -111,7 +110,7 @@ class TestViewModelShape:
 
     @pytest.mark.asyncio
     async def test_registered_maestro_shows_in_active(self) -> None:
-        dev = Maestro(
+        dev = Vault(
             name="dev",
             model="sonnet",
             state=EntityState.RUNNING,
@@ -167,19 +166,3 @@ class TestViewModelShape:
         assert [m["text"] for m in msgs] == ["first", "second"]
         assert msgs[0]["from"] == "user"
         assert msgs[1]["from"] == "dev"
-
-    @pytest.mark.asyncio
-    async def test_dormant_lists_unregistered_personalities(self, tmp_path: Path) -> None:
-        (tmp_path / "otter.md").write_text("# Entity: Otter")
-        (tmp_path / "dev.md").write_text("# Entity: Dev")
-        (tmp_path / "_template.md").write_text("# template")
-        (tmp_path / "role-lead.md").write_text("# Role: Lead")
-
-        dev = Maestro(name="dev", state=EntityState.RUNNING)
-        pm = MagicMock()
-        pm.entities = {"dev": dev}
-
-        view = await build_landing_view_model(process_manager=pm, personalities_dir=tmp_path)
-
-        names = {d["name"] for d in view["dormant"]}
-        assert names == {"otter"}

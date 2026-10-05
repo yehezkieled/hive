@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from hive.models.maestro import Maestro
+from hive.models.vault import Vault
 from hive.process.message_dispatcher import MessageDispatcher
 from hive.runtime.harness import (
     HarnessSpec,
@@ -22,7 +22,7 @@ from tests.process.test_message_dispatcher import (
 @pytest.fixture
 def mgr() -> StubManager:
     m = StubManager()
-    m._entities["dev"] = Maestro(name="dev", model="sonnet")
+    m._entities["dev"] = Vault(name="dev", model="sonnet")
     return m
 
 

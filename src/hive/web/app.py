@@ -62,7 +62,6 @@ logger = logging.getLogger("hive.web")
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
-PERSONALITIES_DIR = Path(__file__).resolve().parents[3] / "personalities"
 
 
 def create_app(
@@ -72,8 +71,6 @@ def create_app(
     audit_log: AuditLog | None = None,
     vault_store: VaultStore | None = None,
     mode_request_store: ModeRequestStore | None = None,
-    default_maestro: str = "otter",
-    personalities_dir: Path | None = None,
     command_dispatcher: CommandDispatcher | None = None,
     message_store: MessageStore | None = None,
     sse_broker: SSEBroker | None = None,
@@ -90,31 +87,10 @@ def create_app(
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    pdir = personalities_dir if personalities_dir is not None else PERSONALITIES_DIR
-
     # ─── JSON API (preserved from v0.1) ─────────────────────────────────
     @app.get("/api/status")
     async def api_status():
         return process_manager.get_status()
-
-    @app.get("/api/org")
-    async def api_org():
-        from hive.models.maestro import Maestro
-
-        entities = process_manager.entities
-        maestros = [e for e in entities.values() if isinstance(e, Maestro)]
-        result: dict = {"maestros": []}
-        for m in sorted(maestros, key=lambda x: x.name):
-            maestro_data: dict = {
-                "name": m.name,
-                "state": m.state.value,
-                "model": m.model,
-                "teams": {},
-            }
-            for team_name, team in m.teams.items():
-                maestro_data["teams"][team_name] = {"lead": team.lead}
-            result["maestros"].append(maestro_data)
-        return result
 
     @app.get("/api/tasks")
     async def api_tasks():
@@ -262,8 +238,8 @@ def create_app(
         finally:
             await file.close()
 
-        cmd = parse_command(text or "", default_maestro=default_maestro)
-        routable = cmd.name in {"message", "team"} and cmd.target
+        cmd = parse_command(text or "")
+        routable = cmd.name == "message" and cmd.target
 
         forwarded_to = cmd.target if routable else None
         attachment_id = await attachment_store.save(
@@ -320,49 +296,8 @@ def create_app(
     async def api_mode_requests_pending(_: None = Depends(require_token)):
         if mode_request_store is None:
             return {"requests": []}
-        rows = await mode_request_store.list_pending(default_maestro)
+        rows = await mode_request_store.list_pending("user")
         return {"requests": rows}
-
-    # ─── Decision channel on the web (Ticket 038, ADR 0024) ────────────
-    @app.post("/api/decision/{entity}/reply")
-    async def api_decision_reply(
-        entity: str,
-        body: DecisionReplyRequest,
-        _: None = Depends(require_token),
-    ):
-        """Answer a maestro's 029 decision from the web.
-
-        A decision reply *is* a user message to the maestro, so this is a thin
-        wrapper over the command-dispatcher message path: the unpark+resume
-        sequence (clear_awaiting_decision → send_to_entity → route, including the
-        Ticket 019 phase-confirm side effect and the load-bearing clear-before-
-        send ordering) lives in ``_send_to_entity`` and is never re-implemented
-        here. Entity-keyed because the channel is one-deep per maestro.
-        """
-        if command_dispatcher is None:
-            raise HTTPException(status_code=503, detail="Command surface not configured")
-        if not body.reply.strip():
-            raise HTTPException(status_code=400, detail="Empty reply")
-        if entity not in process_manager.entities:
-            raise HTTPException(status_code=404, detail=f"Entity {entity!r} not found")
-        result = await command_dispatcher.dispatch_command(
-            Command(name="message", target=entity, args=body.reply), actor="web:user"
-        )
-        return {"ok": True, "entity": entity, "text": result.text}
-
-    @app.get("/api/decisions/pending")
-    async def api_decisions_pending(_: None = Depends(require_token)):
-        """Outstanding 029 decisions, so a fresh load re-shows them.
-
-        Scans entities for the durable ``awaiting_decision`` flag (the one source
-        of truth) + the stored question — no separate store (ADR 0024).
-        """
-        decisions = [
-            {"entity": e.name, "question": getattr(e, "last_decision_question", None)}
-            for e in process_manager.entities.values()
-            if getattr(e, "awaiting_decision", False)
-        ]
-        return {"decisions": decisions}
 
     @app.post("/api/mode-request/{request_id}/approve")
     async def api_mode_approve(
@@ -389,7 +324,7 @@ def create_app(
     async def api_gates_pending(_: None = Depends(require_token)):
         if mode_request_store is None:
             return {"gates": []}
-        rows = await mode_request_store.list_pending(default_maestro, kind="gate")
+        rows = await mode_request_store.list_pending("user", kind="gate")
         return {"gates": rows}
 
     @app.post("/api/gate/{request_id}/approve")
@@ -498,8 +433,6 @@ def create_app(
             token_store=token_store,
             vault_store=vault_store,
             mode_request_store=mode_request_store,
-            personalities_dir=pdir,
-            default_maestro=default_maestro,
             message_store=message_store,
         )
 

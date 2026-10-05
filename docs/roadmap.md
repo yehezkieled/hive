@@ -21,6 +21,8 @@ Goal: Tickets are editable from the terminal first mate, the website and a proje
 ## M4: Cut-over
 Goal: Telegram becomes an optional ping and Hive's own Entity runtime (Maestro, Lead, adapters, entity tables) is retired. The Codex adapter now serves Hive until that cut-over; OpenCode remains unbuilt, and firstmate dispatches harnesses afterward. (ADR 0030, ADR 0031)
 
+Status: the Maestro/Lead runtime, the Project registry and the Telegram requirement are retired (ADR 0033); the Vault rail, Telegram as an optional backup and the legacy web app stay until the desk gets vault and mode-approval buttons, after which the typed `/approve` `/deny` `/vault` commands (#293) and the legacy web app go.
+
 ## Backlog
 - Plan-quota chip fed by `quota-axi`.
 - Harness view — which Entity runs on which Harness, with each plan's remaining quota.
