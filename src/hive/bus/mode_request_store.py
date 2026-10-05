@@ -1,8 +1,7 @@
 """Persistent storage for yolo/yotree mode-elevation requests.
 
 Shape mirrors VaultStore. An entity asks to be elevated; the approver
-(user for maestro requests, parent maestro for lead requests, parent lead
-for worker requests) resolves via /approve mode or /deny mode.
+(always the user since the cut-over, ADR 0033) resolves via /approve mode or /deny mode.
 """
 
 from __future__ import annotations

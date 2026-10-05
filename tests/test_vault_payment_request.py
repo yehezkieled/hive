@@ -15,8 +15,7 @@ import pytest_asyncio
 from hive.bus.audit_log import AuditLog
 from hive.bus.router import MessageRouter
 from hive.bus.vault_store import VaultStore
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
+from hive.models.entity import Entity
 from hive.models.vault import Vault
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
@@ -51,9 +50,9 @@ async def manager(
 
 
 def _populate_org_with_vault(manager: ProcessManager) -> None:
-    """Register a minimal maestro/lead tree plus a Vault entity."""
-    maestro = Maestro(name="dev")
-    lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+    """Register a minimal non-Vault entities plus a Vault entity."""
+    maestro = Entity(name="dev", role="assistant")
+    lead = Entity(name="dev.backend", role="assistant")
     vault = Vault(name="vault")
     for e in (maestro, lead, vault):
         manager._entities[e.name] = e

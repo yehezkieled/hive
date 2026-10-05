@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from hive.bus.vault_store import VaultStore
     from hive.knowledge.blueprints import BlueprintStore
     from hive.process.manager import ProcessManager
-    from hive.process.scheduler import PriorityScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -61,31 +60,26 @@ class TelegramBridge:
         bot_token: str,
         allowed_user_ids: list[int],
         process_manager: ProcessManager,
-        default_maestro: str = "otter",
         token_store: TokenStore | None = None,
         task_store: TaskStore | None = None,
         audit_log: AuditLog | None = None,
         vault_store: VaultStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         attachment_store: AttachmentStore | None = None,
-        scheduler: PriorityScheduler | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
         self.process_manager = process_manager
-        self.default_maestro = default_maestro
         self.token_store = token_store
         self.task_store = task_store
         self.audit_log = audit_log
         self.vault_store = vault_store
         self.mode_request_store = mode_request_store
         self.attachment_store = attachment_store
-        self.scheduler = scheduler
         self._app: Application | None = None
 
         self.dispatcher = CommandDispatcher(
             process_manager=process_manager,
-            default_maestro=default_maestro,
             token_store=token_store,
             task_store=task_store,
             audit_log=audit_log,
@@ -93,7 +87,6 @@ class TelegramBridge:
             mode_request_store=mode_request_store,
             blueprint_store=None,
             attachment_store=attachment_store,
-            scheduler=scheduler,
         )
 
         # Heartbeat (Sprint 13) — in-memory state, resets on restart
@@ -229,7 +222,7 @@ class TelegramBridge:
         logger.info("Received from Telegram (user=%d): %s", user_id, text[:100])
 
         # Parse command
-        cmd = parse_command(text, default_maestro=self.default_maestro)
+        cmd = parse_command(text)
 
         # Handle command
         actor = f"user:{user_id}"
@@ -254,9 +247,9 @@ class TelegramBridge:
         """Handle PHOTO + DOCUMENT messages — Sprint 17 file transit.
 
         Downloads the file to ``UPLOADS_DIR``, persists metadata, and (if
-        the caption parses to a routable command — /m:, /t:, /a:, or plain
-        text) forwards the prompt to the target entity with the file's
-        absolute path injected as a context prefix. Captions that don't
+        the caption parses to a routable command — /m: or /a:) forwards the prompt
+        to the target entity with the file's absolute path injected as a context
+        prefix. Captions that don't
         route to an entity get a hint reply instead.
         """
         if update.message is None:
@@ -316,12 +309,12 @@ class TelegramBridge:
             return
 
         caption = update.message.caption or ""
-        cmd = parse_command(caption, default_maestro=self.default_maestro)
+        cmd = parse_command(caption)
 
         # Only route attachments through routable commands. Other commands
         # (/status, /task, etc.) ignore the file entirely so the file is at
         # least retrievable later via /files.
-        routable = cmd.name in {"message", "team"} and cmd.target
+        routable = cmd.name == "message" and cmd.target
 
         forwarded_to = cmd.target if routable else None
         attachment_id = await self.attachment_store.save(
@@ -344,7 +337,7 @@ class TelegramBridge:
         if not routable:
             await update.message.reply_text(
                 f"📎 File received and stored as attachment #{attachment_id}.\n"
-                f"Add a caption like `/m:{self.default_maestro} <text>` to forward "
+                f"Add a caption like `/m:<entity> <text>` to forward "
                 "the file to an agent."
             )
             return

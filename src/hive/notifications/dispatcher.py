@@ -34,11 +34,8 @@ class Notification:
 # can't drift.
 ALERT_KINDS = frozenset(
     {
-        "decision_request",
         "mode_request",
         "vault_action_pending",
-        "workflow_completed",
-        "workflow_failed",
     }
 )
 

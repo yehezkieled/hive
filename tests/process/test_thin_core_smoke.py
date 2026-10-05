@@ -116,7 +116,6 @@ def test_collaborators_dont_import_manager_at_module_load() -> None:
         "WakeScheduler",
         "ApprovalHandler",
         # Module-level symbols tests import directly from the facade.
-        "_render_auto_personality",
         "_WAKE_ON_INBOUND_TEXT",
         "_adapter_config_from_entity",
         "_PARSE_FAILURE_WINDOW_SECONDS",
@@ -133,7 +132,6 @@ def test_collaborators_dont_import_manager_at_module_load() -> None:
         "AUTO_RETRIEVE_MAX_DISTANCE",
         "AUTO_RETRIEVE_TOP_K",
         "generate_mcp_config",
-        "can_message",
         "ClaudeAdapter",
     ],
 )
@@ -161,12 +159,9 @@ _RETAINED_CORE_METHODS = [
     "_audit",
     "_notify",
     "_record_usage",
-    "_peer_directory_for",
-    "_parent_of",
     "get_status",
     "health_check",
     "restore",
-    "rebuild_hierarchy",
 ]
 
 
@@ -203,7 +198,6 @@ _EXTERNALLY_REFERENCED_PRIVATE = [
     "_gate_nudge",  # __main__ on_nudge=process_manager._gate_nudge
     "_handle_actions",  # asserted by tests
     "_get_or_create_adapter",  # patched in test_advisor_mcp
-    "_auto_kickoff",  # scheduled by the dispatcher as self._mgr._auto_kickoff
 ]
 
 

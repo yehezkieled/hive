@@ -34,7 +34,7 @@ def _bridge_with_recorder() -> tuple[TelegramBridge, list[str]]:
 async def test_alerts_off_suppresses_actionable_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TELEGRAM_ALERTS", False)
     bridge, sent = _bridge_with_recorder()
-    await bridge.send(Notification(text="otter needs you", kind="decision_request"))
+    await bridge.send(Notification(text="otter needs you", kind="mode_request"))
     assert sent == []
 
 
@@ -50,11 +50,8 @@ async def test_alerts_off_still_relays_non_actionable_kind(
 @pytest.mark.parametrize(
     "kind",
     [
-        "decision_request",
         "mode_request",
         "vault_action_pending",
-        "workflow_completed",
-        "workflow_failed",
     ],
 )
 async def test_alerts_off_suppresses_every_actionable_kind(
@@ -69,5 +66,5 @@ async def test_alerts_off_suppresses_every_actionable_kind(
 async def test_alerts_on_relays_actionable_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TELEGRAM_ALERTS", True)
     bridge, sent = _bridge_with_recorder()
-    await bridge.send(Notification(text="otter needs you", kind="decision_request"))
+    await bridge.send(Notification(text="otter needs you", kind="mode_request"))
     assert sent == ["otter needs you"]

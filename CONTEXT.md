@@ -8,91 +8,48 @@ of AI coding agents that you control from Telegram.
 ### Entities
 
 **Entity**:
-Any AI agent Hive runs and manages — always one of: Maestro or Team Lead.
+The only thing Hive still runs as an AI agent: the **Vault**. Since the
+cut-over ([ADR 0033](docs/adr/0033-hive-cutover-retire-entity-runtime.md)) Hive
+runs no Maestro or Team Lead; the `entities` table, `ProcessManager` and the
+adapters survive only to serve the Vault's approval rail. Day-to-day
+supervision of software work is the **First mate**'s (see below).
 _Avoid_: agent, bot
 
-**Maestro**:
-A top-level Entity that orchestrates — it owns Teams, spawns and kills other
-Entities, and is the Entity you address from Telegram.
-_Avoid_: orchestrator, boss, CEO
+**Vault**:
+The security-gated Entity behind payments. It cannot run Bash/Write/Edit, can
+only be killed by the user, and its `request_payment` actions become
+`vault_actions` rows that the user approves or denies (`/vault`, `/approve`,
+`/deny` on Telegram; the legacy web app's approval buttons). Off by default
+(`HIVE_VAULT_ENABLED`), stub payment provider only; no real provider is
+connected.
+_Avoid_: wallet, treasury
 
-**Team Lead**:
-A mid-tier Entity that runs a Team on behalf of a Maestro, fanning leaf
-work out through the Claude Code **Workflow** tool.
-_Avoid_: manager, supervisor
+**Retired at the cut-over**:
+**Maestro**, **Team Lead**, **Team**, **Worker**, **Leaf agent**, **Project**
+(and **Project ownership** / **Ownership guard**) are gone, with their code and
+database rows (migration 035). Their work is now done by the first mate, second
+mates and firstmate's crews.
 
-**Worker** _(retired)_:
-The former persistent leaf Entity. Worker creation was banned on every
-path (lead, maestro, user) per ADR 0013 (Ticket 016) and the entity type
-was deleted in Ticket 018. Leaf work now runs as ephemeral **[[Leaf
-agent]]s** inside a Lead's **Workflow run** — see **Leaf agent** below.
-_Avoid_: subagent, WorkerAgent
-
-**Leaf agent**:
-An ephemeral agent spawned inside a Lead's Workflow run to carry out one
-slice of leaf work. Not an Entity — it has no Hive lifecycle, org-tree
-presence, or mailbox; it exists only for the duration of the run and
-returns its result to the Lead.
-_Avoid_: worker, subagent, Workflow worker
-
-**Team**:
-A Team Lead and the leaf work it runs, created by a Maestro to pursue a
-goal.
-_Note_: with the Worker entity retired (ADR 0013) and deleted (Ticket
-018), a Team in practice is a Team Lead plus its Workflow runs.
-
-**Entity name**:
-An Entity's identifier, which doubles as its **address**. A **name
-component** — a Maestro's name or a Team's name (e.g. `otter`, `backend`) —
-never contains a dot. The dotted form `maestro.team` (e.g. `otter.backend`)
-is the **address**: Hive inserts the `.` as the hierarchy separator and
-reads identity by splitting on it (so `otter.backend` is Team `backend`
-under Maestro `otter`). Validated at creation (Ticket 032).
-_Avoid_: handle, slug.
-
-**Project**:
-A codebase a Maestro owns — a first-class registry record (name → root
-path → owning Maestro, nullable). **Not an Entity.** At most one Maestro
-owns a Project, and a Maestro owns at most one Project; the **PA Maestro**
-owns none. Distinct from the project-management sense of "project"
-(Milestones/Epics/Tickets) — see Flagged ambiguities.
-_Avoid_: repo (a Project is the ownership record, not the git repo),
-workspace.
-
-**Project ownership**:
-The 1-Project-↔-≤1-Maestro model plus the write-policy it drives: a
-project Maestro writes only its own Project; the **PA Maestro** reads any
-Project but writes only **ownerless** ones. Enforced by the **Ownership
-guard** (Ticket 024, [ADR 0017](docs/adr/0017-ownership-guard-pretooluse-hook.md)).
-
-**Ownership guard**:
-The enforcement layer behind **Project ownership**: a Claude Code
-`PreToolUse` hook, generated into a per-spawn settings file and injected
-with `--settings`, that blocks an Entity's file-edit tools
-(`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) on paths outside its writable
-set. It fires **even under bypass mode** (where permission `deny` rules do
-not), but fences only the file tools — a guardrail against accidental
-cross-project writes, **not** a `Bash`/subprocess-proof wall.
-_Avoid_: permission rule, sandbox, deny rule.
 
 ### Firstmate in Hive
 
-Direction per [ADR 0030](docs/adr/0030-firstmate-implemented-in-hive.md): Hive becomes
-the front door of firstmate. At the cut-over, **Entity**, **Maestro**, **Team
-Lead**, **Team**, **Leaf agent** and **Workflow run** (and the Execution terms
-that serve them: **Adapter**, **Turn**, **Auto-bounce**, …) retire with the
-Entity runtime; until then they describe the code as it runs.
+Direction per [ADR 0030](docs/adr/0030-firstmate-implemented-in-hive.md): Hive is
+the front door of firstmate. The cut-over
+([ADR 0033](docs/adr/0033-hive-cutover-retire-entity-runtime.md)) retired
+**Maestro**, **Team Lead**, **Team**, **Leaf agent** and **Workflow run**. The
+Execution terms below (**Adapter**, **Turn**, **Auto-bounce**, …) remain only as
+the machinery behind the **Vault**.
 
 **First mate**:
 The single supervisor across all projects: the owner's one point of contact for
 software work, and the owner of the backlog. Hive's website talks to it through
-the gateway; it replaces the PA Maestro.
+the gateway; it replaced the PA Maestro.
 _Avoid_: PA Maestro, orchestrator, boss.
 
 **Second mate**:
 A persistent firstmate with its own home, its own backlog and clones of one
 project, created for a project only when that project earns one (its own context
-or harness). Replaces the project Maestro. Hive is promoted to one after the
+or harness). Replaced the project Maestro. Hive is promoted to one after the
 ticket-sync pieces exist.
 _Avoid_: project Maestro, sub-agent.
 
@@ -142,13 +99,13 @@ subprocess per Turn: `codex exec`, `claude -p`, `pi -p`; the default) or **PTY**
 persistent interactive session; the fallback, entered only when headless is
 refused or out of quota, read from the Harness's own error). Chosen per Turn by
 `HarnessRuntime`, which also picks the Harness (a per-role order: Codex first by
-default, Claude Code first for Maestros and the Vault) from whichever are
+default, Claude Code first for the Vault) from whichever are
 installed and signed in. Surfaced as "harness (mode)" on `/status`
 and in Telegram. ADR 0029.
 _Avoid_: runtime (a Runtime is which Harness an Entity is on), transport.
 
 **Runtime**:
-The Harness a given Entity is currently assigned to run on. "Switch a Lead's
+The Harness a given Entity is currently assigned to run on. "Switch the Vault's
 runtime" means "move it to a different Harness."
 
 **Turn**:
@@ -169,44 +126,6 @@ which transcript is the Entity's from directory activity. Eliminates
 silent cross-Entity transcript mix-ups when sessions share a directory.
 _Avoid_: transcript guessing, session sniffing
 
-**Workflow run**:
-A Lead's single execution of the Claude Code **Workflow** tool — one
-deterministic fan-out of **Leaf agents**, carried out inside one of the
-Lead's **Turns**. It is the unit Hive surfaces as live progress (agent
-count / phase / completion) on the dashboard and Telegram.
-_Note_: observed **read-only** — Hive watches a run, it does not steer it
-(steering is later scope). A run is alive only while its Lead's Turn is in
-flight.
-_Avoid_: job, batch, "the Workflow" (the tool) vs. one run of it.
-
-**Interaction pattern**:
-A named, reusable coordination shape for a **[[Workflow run]]** — e.g.
-**debate**, blackboard, tournament. Delivered as a **recipe in the role files**
-(prose + a Workflow-script skeleton), pushed into an Entity's prompt at spawn,
-not as a skill or saved script (ADR 0020). Asymmetric depth: a **Team Lead**
-gets the full executable recipe and *runs* the pattern; a **Maestro** gets only
-a menu of names and *names* one in the contract it hands a Lead (it cannot drive
-a Workflow itself). Adds no engine capability — it makes free-form fan-out
-authoring a consistent, shared vocabulary.
-_Note_: `debate` shipped in Ticket 034 as the one Hive-native recipe. The
-further named patterns (`blackboard`/`tournament`, Tickets 035/036) were
-**superseded** ([ADR 0021](docs/adr/0021-further-patterns-as-global-skills.md)):
-further coordination shapes now ship as user-authored **global skills**
-(`~/.claude/skills`, inherited by Leads via Ticket 012 / ADR 0008), not JD
-recipes.
-_Avoid_: skill, template, macro, "the workflow" (one pattern is a *shape* a run
-takes, not the run).
-
-**debate**:
-The first **[[Interaction pattern]]**: N **[[Leaf agent]]s** each argue a
-different answer to one question, running in parallel and blind to each other;
-then one judge Leaf agent reads all the cases and returns a verdict with reasons.
-One round, one answer per agent. For decisions over a wide solution space or a
-claim needing adversarial scrutiny (the 2-side "true vs false" form is
-adversarial-verify). Distinct from blackboard (agents collaborate on a shared
-artifact) and tournament (candidates pruned in rounds).
-_Avoid_: vote, poll, ensemble.
-
 **hive_actions**:
 The protocol an Entity uses to act on the rest of Hive — message a peer,
 request a spawn, finish a task. The Entity emits a `<hive_actions>` block;
@@ -219,55 +138,15 @@ completing the Turn — plan-mode approval (`ExitPlanMode`), an
 blocks the Turn until answered and Hive bridges it (hold-and-inject).
 _Avoid_: prompt, menu, interrupt
 
-**Decision request**:
-A Maestro's free-text question to the user — emitted as
-`request_decision{to:"user"}` — that parks the Maestro on the durable
-`awaiting_decision` flag until the user replies. The conversational,
-maestro-facing replacement for the **[[Interactive gate]]** (Ticket 029,
-ADR 0018): the reply is prose the Maestro interprets, and Hive stays dumb about
-its content. **One-deep** — a Maestro has at most one open decision at a time
-(emitting one ends the Turn). Distinct from an **approval** (a `mode_request` or
-`vault_action`: a structured, row-id'd allow/deny backed by its own store) and
-from the vault's hard money-approval rail. Surfaced on the web — answerable from
-the iPad — in Ticket 038 ([ADR 0024](docs/adr/0024-decision-channel-entity-keyed.md)),
-where it stays **entity-keyed**, not row-id'd.
-_Avoid_: approval, gate, prompt, poll, vote.
-
 **Auto-bounce**:
 Hive automatically killing a jammed Entity's Harness session and respawning
 it — the conversation preserved via the Harness's own resume — when the
 Entity stalls past a threshold and is **not** legitimately waiting (at an
-**[[Interactive gate]]**, on a live **[[Workflow run]]**, or on a user
-decision via the Ticket 029 channel). The recovery
+**[[Interactive gate]]**). The recovery
 net for jams a transcript can't reveal: an un-bridgeable permission prompt
 (ADR 0005) or a wedged session. Repeated bounces in a short window stop and
 escalate to the user instead of flapping. Per Ticket 020 / ADR 0015.
 _Avoid_: restart, reboot, kill-and-retry.
-
-**Phase-confirmation gate**:
-A code-enforced floor (Ticket 019, [ADR 0019](docs/adr/0019-maestro-phase-confirmation-gate.md))
-that blocks a Maestro's **first** `spawn_team` until it has completed one
-user decision round-trip — tracked by the durable `confirmed_with_user` flag,
-set when a user reply clears `awaiting_decision`. It rides Ticket 029's
-conversational decision channel (the maestro-facing replacement for the
-**[[Interactive gate]]**, ADR 0018) fired at the planning→executing boundary.
-**Content-dumb**: it proves the Maestro *asked*, not that the user *approved* —
-obeying a "no" stays the Maestro's job. Per-Maestro opt-out via the
-`phase_confirm` flag (default on, including the PA Maestro); a user-typed
-`/team create` is exempt (the human is the confirmation).
-_Avoid_: approval gate (Hive reads nothing), native gate (not a TUI gate),
-plan-mode gate.
-
-**Thinking skill**:
-A Claude Code skill that pauses mid-Turn to involve a human — an
-interview/Q&A, an `AskUserQuestion` selection, or a STOP/approval
-checkpoint. Reachable only by a Maestro, whose gates bridge to the user on
-Telegram; a Team Lead would stall on one, since its gate escalates to a
-parent Entity that cannot answer. Contrast an *autonomous*
-skill, which runs to completion without a human. Per-role exposure is set
-by the skill-curation denylist (Ticket 012, ADR 0008).
-_Note_: the blocking test is liveness (does it wait for a human?), not
-side-effects or fan-out.
 
 **Advisor**:
 Claude Code's native `/advisor` tool — a stronger model (Opus) the
@@ -277,25 +156,6 @@ at spawn); model-driven and Plan-billed. _Note_: from Ticket 013 this is
 the **native** tool. The retired *custom advisor* (a Hive MCP server that
 spawned a `claude -p` subprocess) is gone — do not conflate them.
 _Avoid_: custom advisor, advisor MCP server, `claude -p` advisor.
-
-**Worktree reconciliation**:
-The startup pass that makes the worktree floor crash-safe (Ticket 025,
-ADR 0016). After entities are restored, it re-adopts each Lead's own
-worktree (path derived from the Lead's name, uncommitted edits intact) and
-sweeps **orphan worktrees**. The sweep is scoped strictly to
-`WORKTREES_DIR` — it can never touch the main checkout or the developer's
-`.claude/worktrees/` sessions — and never deletes a worktree holding
-uncommitted work.
-_Avoid_: orphan cleanup, worktree GC.
-
-**Orphan worktree**:
-A directory under `WORKTREES_DIR` with no owning Entity — left by a crash
-mid-spawn (worktree created before the Entity persisted) or a failed,
-swallowed removal mid-kill. Disposed by [[Worktree reconciliation]]:
-git-admin-stale → `prune`, clean → remove, dirty → quarantine (audit +
-warn, kept for a human). Not the same as a Claude Code leaf-agent worktree
-under `.claude/worktrees/`, which Hive does not sweep.
-_Avoid_: stale worktree, dead worktree.
 
 **Notification channel**:
 One outbound delivery target for Hive's notifications. All channels implement a
@@ -310,9 +170,8 @@ abstraction is a channel).
 **Web Push channel**:
 The **[[Notification channel]]** (Ticket 041) that delivers native push
 notifications to an installed PWA — the iPad's async-ping tier. It filters the
-dispatcher's events to the **actionable set** (the "Needs you" kinds —
-`decision_request`, `mode_request`, `vault_action_pending` — and the "Run
-ended" kinds — `workflow_completed`, `workflow_failed`), signs each with VAPID,
+dispatcher's events to the **actionable set** (`ALERT_KINDS` in
+`notifications/dispatcher.py`: `mode_request`, `vault_action_pending`), signs each with VAPID,
 and POSTs to every stored **[[Push subscription]]**, pruning any the push
 service reports `410 Gone`. Inert until VAPID keys are configured. Requires an
 installed PWA on iOS/iPadOS 16.4+ over HTTPS (ADR 0023).
@@ -394,26 +253,19 @@ Replaced by ordered **Milestones**.
 
 ## Relationships
 
-- A **Maestro** owns zero or more **Teams**
-- One Maestro is the **PA Maestro** (the default route — every chat
-  that doesn't name a Maestro goes to it; `HIVE_DEFAULT_MAESTRO`,
-  currently `otter`). It is not bound to a project. Every other
-  Maestro leads exactly one project; Maestros never share a project.
-- Maestro↔Maestro communication coordinates shared resources only
-  (e.g. Plan quota) — work never crosses Maestro orgs except via the
-  user. (A norm, not code-enforced.)
-- A **Team** is one **Team Lead** plus the leaf work it runs (its **Workflow runs**)
-- Every **Entity** runs on exactly one **Harness** at a time, through that
-  Harness's **Adapter**
-- Any **Entity** may be assigned to any **Harness** regardless of its role —
-  full capability parity (how *well* it runs still depends on the model)
+- The **Vault** is the only **Entity**; it runs on one **Harness** at a time,
+  through that Harness's **Adapter**
+- The **First mate** supervises all software work through the **Gateway**;
+  **Second mates** own projects that earn one
 - A **Harness** is either **Plan-billed** or **API-billed**, depending on how
   it authenticates
+- **Telegram** is an optional backup **Notification channel** (and typed
+  approval surface); it is off unless `TELEGRAM_BOT_TOKEN` is set
 
 ## Example dialogue
 
-> **Dev:** "If a Team Lead is running on the Codex Harness, is it still an Entity Hive manages?"
-> **Hezki:** "Yes. The Harness only executes its Turns — Hive still owns the Lead's lifecycle, its Team membership, and its goal. Swap the Harness and it's the same Entity."
+> **Dev:** "If the Vault is running on the Codex Harness, is it still an Entity Hive manages?"
+> **Hezki:** "Yes. The Harness only executes its Turns — Hive still owns the Vault's lifecycle and its approval rail. Swap the Harness and it's the same Entity."
 > **Dev:** "So 'runtime' is just the Harness it's on right now?"
 > **Hezki:** "Right. And the Adapter for that Harness is the code that actually drives it."
 
@@ -422,7 +274,6 @@ Replaced by ordered **Milestones**.
 - **"agent" vs "Entity"** — the README and older docs say "agent"; the code's base class is `Entity`. Resolved: **Entity** is canonical.
 - **"runtime" vs "Harness"** — a **Harness** is the external tool; a **Runtime** is which Harness an Entity is assigned to. Not synonyms.
 - **"subsidised"** — informal word for **Plan-billed**. Use Plan-billed.
-- **"project"** — two senses. A **Project** (capital P) is a codebase a
-  Maestro owns (Ticket 024 registry record). A lowercase "project" in
-  `docs/` means the project-management sense (Milestones/Epics/Tickets). Prefer
-  the capital-P term when ownership is meant.
+- **"project"** — the **Project** ownership record retired with the Maestro
+  (ADR 0033). "Project" now means a codebase the first mate or a second mate
+  supervises, or, in `docs/`, the project-management sense (Milestones/Epics/Tickets).

@@ -3,7 +3,6 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,8 +12,7 @@ from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.router import MessageRouter
 from hive.models.entity import Entity, EntityState
-from hive.models.maestro import Maestro
-from hive.models.team_lead import TeamLead
+from hive.models.vault import Vault
 from hive.notifications import Notification, NotificationDispatcher
 from hive.process.manager import ProcessManager
 from tests.fakes import TIMEOUT, FakeAdapter, using_adapter, using_adapter_sequence
@@ -76,14 +74,14 @@ async def test_get_status_empty(manager: ProcessManager) -> None:
 
 async def test_get_status_with_entity(manager: ProcessManager) -> None:
     """Test status formatting."""
-    entity = Maestro(name="dev", model="sonnet")
+    entity = Vault(name="dev", model="sonnet")
     manager._entities["dev"] = entity
     manager.router.register("dev")
 
     statuses = manager.get_status()
     assert len(statuses) == 1
     assert statuses[0]["name"] == "dev"
-    assert statuses[0]["role"] == "maestro"
+    assert statuses[0]["role"] == "vault"
     assert statuses[0]["state"] == "idle"
 
 
@@ -107,7 +105,7 @@ async def test_send_to_nonexistent_entity(manager: ProcessManager) -> None:
 async def test_kill_entity_writes_audit_event(router: MessageRouter, audit_log: AuditLog) -> None:
     """kill_entity should emit one ``entity.kill`` audit event."""
     mgr = ProcessManager(router=router, audit_log=audit_log)
-    entity = Maestro(name="dev", model="sonnet")
+    entity = Vault(name="dev", model="sonnet")
     mgr._entities["dev"] = entity
     mgr.router.register("dev")
 
@@ -126,7 +124,7 @@ async def test_health_check_writes_error_audit_event(
     """health_check should emit ``entity.error`` for each unexpectedly-dead entity."""
     mgr = ProcessManager(router=router, audit_log=audit_log)
     # Force a running entity with no session — health_check will flag it.
-    entity = Maestro(name="dev", model="sonnet")
+    entity = Vault(name="dev", model="sonnet")
     entity.transition_to(EntityState.STARTING)
     entity.transition_to(EntityState.RUNNING)
     mgr._entities["dev"] = entity
@@ -145,136 +143,9 @@ async def test_health_check_writes_error_audit_event(
 class TestTeamManagement:
     """Test team creation and lead/team lifecycle."""
 
-    async def test_create_team(self, manager: ProcessManager) -> None:
-        """create_team should register a TeamLead entity."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        lead = await manager.create_team("dev", "backend")
-        assert isinstance(lead, TeamLead)
-        assert lead.name == "dev.backend"
-        assert lead.team_name == "backend"
-        assert lead.maestro_name == "dev"
-        assert "dev.backend" in manager.entities
-        assert "backend" in maestro.teams
-
-    async def test_create_team_leaves_omitted_model_unset(self, manager: ProcessManager) -> None:
-        """An omitted lead model stays unset so harness role defaults apply."""
-        maestro = Maestro(name="dev", model="opus")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        lead = await manager.create_team("dev", "backend")
-        assert lead.model == ""
-
-    async def test_create_team_honours_explicit_model(self, manager: ProcessManager) -> None:
-        """A maestro may still pin a cheaper model explicitly."""
-        maestro = Maestro(name="dev", model="opus")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        lead = await manager.create_team("dev", "backend", model="sonnet")
-        assert lead.model == "sonnet"
-
-    async def test_create_team_missing_maestro_raises(self, manager: ProcessManager) -> None:
-        """create_team should raise if maestro doesn't exist."""
-        with pytest.raises(KeyError, match="not found"):
-            await manager.create_team("nope", "backend")
-
-    async def test_create_team_non_maestro_raises(self, manager: ProcessManager) -> None:
-        """create_team should raise if target entity is not a maestro."""
-        non_maestro = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        manager._entities["dev.backend"] = non_maestro
-        with pytest.raises(TypeError, match="not a maestro"):
-            await manager.create_team("dev.backend", "backend")
-
-    async def test_create_duplicate_team_raises(self, manager: ProcessManager) -> None:
-        """create_team should raise if team already exists."""
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        await manager.create_team("dev", "backend")
-        with pytest.raises(ValueError, match="already exists"):
-            await manager.create_team("dev", "backend")
-
-    async def test_kill_lead_frees_team_name(self, manager: ProcessManager) -> None:
-        """kill_entity on a lead must drop the Team so the name can be reused.
-
-        Regression: previously kill_entity left the Team object on the
-        maestro, so a subsequent create_team with the same name raised
-        "Team already exists".
-        """
-        maestro = Maestro(name="dev", model="sonnet")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        await manager.create_team("dev", "foo")
-        assert "foo" in maestro.teams
-
-        await manager.kill_entity("dev.foo")
-        assert "dev.foo" not in manager.entities
-        assert "foo" not in maestro.teams
-
-        # Re-creating the team with the same name must succeed.
-        new_lead = await manager.create_team("dev", "foo")
-        assert isinstance(new_lead, TeamLead)
-        assert new_lead.name == "dev.foo"
-        assert "dev.foo" in manager.entities
-        assert "foo" in maestro.teams
-
-    async def test_lead_inherits_maestro_permission_mode(self, manager: ProcessManager) -> None:
-        """Yolo on the maestro must propagate to a freshly spawned lead.
-
-        Otherwise the lead spawns in 'default' and can't run any tool that
-        Claude Code prompts for, breaking the maestro→lead→worker pipeline.
-        """
-        maestro = Maestro(name="dev", model="sonnet")
-        maestro.set_permission_mode("yolo")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        lead = await manager.create_team("dev", "backend")
-
-        assert lead.permission_mode == "yolo"
-
 
 class TestHierarchyRestore:
     """Test hierarchy rebuild from persisted entities on restart."""
-
-    async def test_rebuild_hierarchy_links_lead_to_maestro(
-        self,
-        router: MessageRouter,
-        entity_store: EntityStore,
-    ) -> None:
-        """rebuild_hierarchy should attach TeamLeads to their parent Maestro's teams."""
-        mgr = ProcessManager(router=router, entity_store=entity_store)
-
-        # Simulate persisted entities loaded from DB
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(
-            name="dev.backend",
-            team_name="backend",
-            maestro_name="dev",
-        )
-        mgr.restore(maestro)
-        mgr.restore(lead)
-
-        mgr.rebuild_hierarchy()
-
-        # Maestro should now have the team
-        restored_maestro = mgr.entities["dev"]
-        assert isinstance(restored_maestro, Maestro)
-        assert "backend" in restored_maestro.teams
-        team = restored_maestro.teams["backend"]
-        assert team.lead == "dev.backend"
-
-        await mgr.kill_all()
-
-    async def test_rebuild_hierarchy_empty(self, manager: ProcessManager) -> None:
-        """rebuild_hierarchy on empty manager should not raise."""
-        manager.rebuild_hierarchy()  # should not raise
 
 
 class _FakeGateStore:
@@ -408,8 +279,8 @@ class TestStopAll:
         """stop_all should leave entity rows + session_id intact in the DB."""
         mgr = ProcessManager(router=router, entity_store=entity_store)
 
-        dev = Maestro(name="dev", model="sonnet", session_id="sess-dev")
-        pa = Maestro(name="pa", model="sonnet", session_id="sess-pa")
+        dev = Vault(name="dev", model="sonnet", session_id="sess-dev")
+        pa = Vault(name="pa", model="sonnet", session_id="sess-pa")
         await entity_store.upsert(dev)
         await entity_store.upsert(pa)
         mgr._entities["dev"] = dev
@@ -434,7 +305,7 @@ class TestStopAll:
         """stop_all should call stop() on every active adapter and clear the dict."""
         mgr = ProcessManager(router=router, entity_store=entity_store)
 
-        entity = Maestro(name="dev", model="sonnet")
+        entity = Vault(name="dev", model="sonnet")
         mgr._entities["dev"] = entity
         mgr.router.register("dev")
 
@@ -454,7 +325,7 @@ class TestStopAll:
     ) -> None:
         """After stop_all, a fresh manager can restore the same entities with session_ids."""
         mgr1 = ProcessManager(router=router, entity_store=entity_store)
-        dev = Maestro(name="dev", model="sonnet", session_id="sess-dev")
+        dev = Vault(name="dev", model="sonnet", session_id="sess-dev")
         await entity_store.upsert(dev)
         mgr1._entities["dev"] = dev
         mgr1.router.register("dev")
@@ -474,34 +345,13 @@ class TestStopAll:
 class TestRegisterMaestro:
     """Test register_maestro method for /new maestro."""
 
-    async def test_register_maestro(self, manager: ProcessManager) -> None:
-        """register_maestro should create and register a new maestro."""
-        maestro = await manager.register_maestro("ops", model="sonnet")
-        assert isinstance(maestro, Maestro)
-        assert maestro.name == "ops"
-        assert "ops" in manager.entities
-
-    async def test_register_duplicate_maestro_raises(self, manager: ProcessManager) -> None:
-        """register_maestro should raise if name already exists."""
-        await manager.register_maestro("ops")
-        with pytest.raises(ValueError, match="already exists"):
-            await manager.register_maestro("ops")
-
-    async def test_register_maestro_with_personality(
-        self, manager: ProcessManager, personalities_dir: Path
-    ) -> None:
-        """register_maestro should load personality if file exists."""
-        personality_path = personalities_dir / "maestro-dev.md"
-        maestro = await manager.register_maestro("dev", personality_path=personality_path)
-        assert maestro.system_prompt != ""
-
 
 class TestPendingMessageInjection:
     """Test that pending inter-agent messages are prepended to prompts."""
 
     async def test_pending_messages_prepended(self, manager: ProcessManager) -> None:
         """Pending messages should be prepended to the prompt."""
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -520,7 +370,7 @@ class TestPendingMessageInjection:
         """Without pending messages, the user's prompt is preserved verbatim
         (Sprint 22 prepends a peer directory block — the user prompt itself
         is still passed through unchanged at the tail)."""
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -532,7 +382,7 @@ class TestPendingMessageInjection:
 
     async def test_multiple_pending_all_included(self, manager: ProcessManager) -> None:
         """Multiple pending messages should all appear in the prompt."""
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -551,38 +401,9 @@ class TestPendingMessageInjection:
 class TestActionRouting:
     """Test that <hive_actions> in entity responses are parsed and routed."""
 
-    async def test_message_routed_to_recipient(self, manager: ProcessManager) -> None:
-        """A valid message action should be routed to the recipient's queue."""
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        manager._entities["dev"] = maestro
-        manager._entities["dev.backend"] = lead
-        manager.router.register("dev")
-        manager.router.register("dev.backend")
-
-        response_text = (
-            "Analysis complete.\n\n"
-            "<hive_actions>\n"
-            '[{"type": "message", "to": "dev.backend", "text": "Start migration"}]\n'
-            "</hive_actions>"
-        )
-        with using_adapter(manager, FakeAdapter(response_text)):
-            result = await manager.send_to_entity("dev", "Review the project")
-
-        # Clean text returned (no hive_actions block)
-        assert "<hive_actions>" not in result
-        assert "Analysis complete." in result
-
-        # Message should be in dev.backend's queue
-        assert manager.router.has_pending("dev.backend")
-        msg = await manager.router.get_next("dev.backend", timeout=0.1)
-        assert msg is not None
-        assert msg.sender == "dev"
-        assert msg.content == "Start migration"
-
     async def test_unknown_recipient_handled(self, manager: ProcessManager) -> None:
         """Action targeting a non-existent entity should be skipped."""
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -600,8 +421,8 @@ class TestActionRouting:
 
     async def test_clean_text_returned(self, manager: ProcessManager) -> None:
         """Response should have <hive_actions> block stripped."""
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
+        maestro = Vault(name="dev", model="sonnet")
+        lead = Vault(name="dev.backend")
         manager._entities["dev"] = maestro
         manager._entities["dev.backend"] = lead
         manager.router.register("dev")
@@ -619,29 +440,9 @@ class TestActionRouting:
         assert result == "Here's my analysis."
         assert "<hive_actions>" not in result
 
-    async def test_routed_actions_tracked(self, manager: ProcessManager) -> None:
-        """_last_routed_actions should list recipients of successful routes."""
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        manager._entities["dev"] = maestro
-        manager._entities["dev.backend"] = lead
-        manager.router.register("dev")
-        manager.router.register("dev.backend")
-
-        response_text = (
-            "Done.\n\n"
-            "<hive_actions>\n"
-            '[{"type": "message", "to": "dev.backend", "text": "go"}]\n'
-            "</hive_actions>"
-        )
-        with using_adapter(manager, FakeAdapter(response_text)):
-            await manager.send_to_entity("dev", "Go")
-
-        assert manager._last_routed_actions == ["dev.backend"]
-
     async def test_no_actions_no_side_effects(self, manager: ProcessManager) -> None:
         """Response without actions should not route anything."""
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -651,277 +452,16 @@ class TestActionRouting:
         assert result == "Just a plain response."
         assert manager._last_routed_actions == []
 
-    async def test_action_routing_writes_audit_event(
-        self,
-        router: MessageRouter,
-        audit_log: AuditLog,
-    ) -> None:
-        """Routed messages should emit a peer_message_sent audit event."""
-        mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        mgr._entities["dev"] = maestro
-        mgr._entities["dev.backend"] = lead
-        mgr.router.register("dev")
-        mgr.router.register("dev.backend")
-
-        response_text = (
-            "Done.\n\n"
-            "<hive_actions>\n"
-            '[{"type": "message", "to": "dev.backend", "text": "migrate"}]\n'
-            "</hive_actions>"
-        )
-        with using_adapter(mgr, FakeAdapter(response_text)):
-            await mgr.send_to_entity("dev", "Go")
-
-        events = await audit_log.recent(action_prefix="peer_message_")
-        assert len(events) == 1
-        assert events[0]["action"] == "peer_message_sent"
-        assert events[0]["target"] == "dev.backend"
-        assert events[0]["actor"] == "dev"
-
-        await mgr.kill_all()
-
 
 # -- Sprint 19: autonomous spawn/kill dispatcher --
 
 
 class TestAutonomousDispatch:
-    """Maestro/lead emitting spawn_team/spawn_worker/kill_entity actions."""
+    """Vault/lead emitting spawn_team/spawn_worker/kill_entity actions."""
 
     async def _send(self, manager: ProcessManager, name: str, response: str) -> str:
         with using_adapter(manager, FakeAdapter(response)):
             return await manager.send_to_entity(name, "go")
-
-    async def test_maestro_spawn_team_creates_lead(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
-        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        response = (
-            "Done.\n\n"
-            "<hive_actions>\n"
-            '[{"type": "spawn_team", "team_name": "backend"}]\n'
-            "</hive_actions>"
-        )
-        await self._send(manager, "dev", response)
-
-        assert "dev.backend" in manager.entities
-        assert manager._last_spawned_teams == ["dev.backend"]
-        assert "backend" in maestro.teams
-        # Autonomous creation must also leave the model unset for role defaults,
-        # rather than inheriting the maestro's explicitly selected model.
-        assert manager.entities["dev.backend"].model == ""
-
-    async def test_lead_spawn_team_denied(self, manager: ProcessManager) -> None:
-        """Leads can't spawn teams — they should be rejected silently and audited."""
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        manager._entities["dev"] = maestro
-        manager._entities["dev.backend"] = lead
-        for n in ("dev", "dev.backend"):
-            manager.router.register(n)
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "frontend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev.backend", response)
-
-        assert manager._last_spawned_teams == []
-        assert "dev.frontend" not in manager.entities
-
-    async def test_spawn_worker_parses_as_unknown_action(self, manager: ProcessManager) -> None:
-        """Worker creation is retired (Ticket 018) — ``spawn_worker`` is no
-        longer a recognised action type. ``parse_actions`` treats it as a
-        generic unknown action: no Action is produced and the errors carry
-        ``Unknown action type 'spawn_worker'``. Nothing is spawned and the
-        sender receives parse-failure feedback (018's drainage proof).
-        """
-        from hive.bus.actions import parse_actions
-
-        text = '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
-        _clean, actions, errors = parse_actions(text)
-
-        # No Action object for the retired type.
-        assert actions == []
-        assert any("Unknown action type 'spawn_worker'" in e for e in errors)
-
-        # End-to-end through the dispatcher: nothing is registered, and the
-        # unknown-action error comes back to the sender as system feedback.
-        maestro = Maestro(name="dev", model="sonnet")
-        await manager.register_entity(maestro)
-        await manager.create_team("dev", "backend")
-
-        await self._send(manager, "dev", text)
-
-        assert "dev.backend.w1" not in manager.entities
-        assert manager._last_spawned_teams == []
-        feedback = await manager.router.store.get_messages("dev")
-        assert any(m["sender"] == "system" and "spawn_worker" in m["content"] for m in feedback)
-
-    async def test_maestro_kill_own_org_member(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
-        await manager.register_entity(maestro)
-        await manager.create_team("dev", "backend")
-        assert "dev.backend" in manager.entities
-
-        response = (
-            '<hive_actions>\n[{"type": "kill_entity", "target": "dev.backend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev", response)
-
-        assert manager._last_killed_entities == ["dev.backend"]
-        assert "dev.backend" not in manager.entities
-
-    async def test_kill_default_maestro_denied(self, manager: ProcessManager) -> None:
-        """Default maestro is sacred — never killable, even by another maestro."""
-        from hive.config import DEFAULT_MAESTRO
-
-        default = Maestro(name=DEFAULT_MAESTRO, model="sonnet")
-        other = Maestro(name="ops", model="sonnet")
-        manager._entities[DEFAULT_MAESTRO] = default
-        manager._entities["ops"] = other
-        manager.router.register(DEFAULT_MAESTRO)
-        manager.router.register("ops")
-
-        response = (
-            "<hive_actions>\n"
-            f'[{{"type": "kill_entity", "target": "{DEFAULT_MAESTRO}"}}]\n'
-            "</hive_actions>"
-        )
-        await self._send(manager, "ops", response)
-
-        assert manager._last_killed_entities == []
-        assert DEFAULT_MAESTRO in manager.entities
-
-    async def test_self_kill_denied(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="ops", model="sonnet")
-        manager._entities["ops"] = maestro
-        manager.router.register("ops")
-
-        response = '<hive_actions>\n[{"type": "kill_entity", "target": "ops"}]\n</hive_actions>'
-        await self._send(manager, "ops", response)
-
-        assert manager._last_killed_entities == []
-        assert "ops" in manager.entities
-
-    async def test_spawn_actions_audited_with_actor(
-        self,
-        router: MessageRouter,
-        audit_log: AuditLog,
-    ) -> None:
-        """Spawn actions write audit events tagged with the emitting entity."""
-        mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
-        maestro = Maestro(name="dev", model="sonnet")
-        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
-        await mgr.register_entity(maestro)
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        )
-        with using_adapter(mgr, FakeAdapter(response)):
-            await mgr.send_to_entity("dev", "go")
-
-        events = await audit_log.recent(action_prefix="entity.spawn_team")
-        # Either a "entity.spawn_team" or denial — should be the spawn one
-        spawn_events = [e for e in events if e["action"] == "entity.spawn_team"]
-        assert len(spawn_events) == 1
-        assert spawn_events[0]["actor"] == "dev"
-        assert spawn_events[0]["target"] == "dev.backend"
-
-        await mgr.kill_all()
-
-    async def test_kill_denied_audited(
-        self,
-        router: MessageRouter,
-        audit_log: AuditLog,
-    ) -> None:
-        """Denied kills emit entity.kill_denied with actor tag."""
-        from hive.config import DEFAULT_MAESTRO
-
-        mgr = ProcessManager(router=router, audit_log=audit_log, max_sessions=2)
-        default = Maestro(name=DEFAULT_MAESTRO, model="sonnet")
-        other = Maestro(name="ops", model="sonnet")
-        await mgr.register_entity(default)
-        await mgr.register_entity(other)
-
-        response = (
-            "<hive_actions>\n"
-            f'[{{"type": "kill_entity", "target": "{DEFAULT_MAESTRO}"}}]\n'
-            "</hive_actions>"
-        )
-        with using_adapter(mgr, FakeAdapter(response)):
-            await mgr.send_to_entity("ops", "go")
-
-        events = await audit_log.recent(action_prefix="entity.kill_denied")
-        assert len(events) == 1
-        assert events[0]["actor"] == "ops"
-        assert events[0]["target"] == DEFAULT_MAESTRO
-
-        await mgr.kill_all()
-
-    async def test_spawn_team_auto_kickoff(self, manager: ProcessManager) -> None:
-        """spawn_team schedules a kickoff message to the new lead.
-
-        Without auto-kickoff, the lead is registered in IDLE with no
-        session_id and never wakes — the maestro's ``spawn_team`` is a
-        dead-end. This test asserts the orchestrator both records intent
-        in ``_last_kickoffs`` and actually wakes the lead.
-        """
-        maestro = Maestro(name="dev", model="sonnet")
-        maestro.confirmed_with_user = True  # Ticket 019: past the phase gate
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        )
-        with using_adapter(manager, FakeAdapter(response)):
-            await manager.send_to_entity("dev", "go")
-            # Capture before draining — kickoff task itself dispatches and
-            # resets _last_kickoffs when it runs.
-            recorded = list(manager._last_kickoffs)
-            if manager._kickoff_tasks:
-                await asyncio.gather(*manager._kickoff_tasks)
-
-        assert recorded == ["dev.backend"]
-        assert manager.entities["dev.backend"].session_id == "sess-1"
-
-    async def test_spawn_worker_skips_kickoff(self, manager: ProcessManager) -> None:
-        """spawn_worker is a retired/unknown action (Ticket 018) → no worker,
-        no kickoff scheduled."""
-        maestro = Maestro(name="dev", model="sonnet")
-        await manager.register_entity(maestro)
-        await manager.create_team("dev", "backend")
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_worker", "lead": "dev.backend"}]\n</hive_actions>'
-        )
-        with using_adapter(manager, FakeAdapter(response)):
-            await manager.send_to_entity("dev", "go")
-            recorded = list(manager._last_kickoffs)
-            if manager._kickoff_tasks:
-                await asyncio.gather(*manager._kickoff_tasks)
-
-        assert recorded == []
-        assert "dev.backend.w1" not in manager.entities
-
-    async def test_spawn_team_denied_skips_kickoff(self, manager: ProcessManager) -> None:
-        """A lead emitting spawn_team is denied → no kickoff scheduled."""
-        maestro = Maestro(name="dev", model="sonnet")
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        manager._entities["dev"] = maestro
-        manager._entities["dev.backend"] = lead
-        for n in ("dev", "dev.backend"):
-            manager.router.register(n)
-
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "frontend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev.backend", response)
-
-        assert manager._last_kickoffs == []
 
 
 # -- Sprint 10: compact_entity tests --
@@ -935,7 +475,7 @@ class TestCompactEntity:
             await manager.compact_entity("nobody")
 
     async def test_compact_no_session_raises(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -943,7 +483,7 @@ class TestCompactEntity:
             await manager.compact_entity("dev")
 
     async def test_compact_returns_summary(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         maestro.session_id = "sess-old"
         manager._entities["dev"] = maestro
         manager.router.register("dev")
@@ -960,7 +500,7 @@ class TestAutoCompact:
     """Test auto-compact triggered by high token count in send_to_entity."""
 
     async def test_auto_compact_triggers_above_threshold(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         maestro.session_id = "sess-existing"
         manager._entities["dev"] = maestro
         manager.router.register("dev")
@@ -984,7 +524,7 @@ class TestAutoCompact:
         assert len(adapter.prompts) == 3
 
     async def test_auto_compact_skips_when_disabled(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         maestro.session_id = "sess-existing"
         manager._entities["dev"] = maestro
         manager.router.register("dev")
@@ -1005,7 +545,7 @@ class TestAutoCompact:
         assert len(adapter.prompts) == 1
 
     async def test_auto_compact_skips_below_threshold(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         maestro.session_id = "sess-existing"
         manager._entities["dev"] = maestro
         manager.router.register("dev")
@@ -1030,7 +570,7 @@ class TestSendToEntityActivityTracking:
     """Test that send_to_entity updates last_activity_at."""
 
     async def test_send_updates_last_activity_at(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
         assert maestro.last_activity_at is None
@@ -1046,7 +586,7 @@ class TestIdleKill:
     """Test kill_idle_entities."""
 
     async def test_kills_idle_entity(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         manager._entities["dev"] = maestro
         manager.router.register("dev")
 
@@ -1060,7 +600,7 @@ class TestIdleKill:
         assert "dev" in manager.entities
 
     async def test_exempt_entity_not_killed(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="dev", model="sonnet")
+        maestro = Vault(name="dev", model="sonnet")
         maestro.last_activity_at = datetime.now(UTC) - timedelta(minutes=60)
         manager._entities["dev"] = maestro
         manager.router.register("dev")
@@ -1124,59 +664,6 @@ class TestIdleCheckerExemptsAllMaestros:
     get reaped after 30 minutes idle even though the user has not asked.
     """
 
-    async def test_all_maestros_in_exempt_set(self, manager: ProcessManager) -> None:
-        """Run one tick of idle_checker and assert every Maestro is exempt while
-        non-maestro entities are eligible for killing.
-        """
-        import asyncio as _asyncio
-
-        from hive.__main__ import idle_checker
-
-        idle_ts = datetime.now(UTC) - timedelta(minutes=60)
-
-        default_maestro = Maestro(name="dev", model="opus")
-        default_maestro.last_activity_at = idle_ts
-        manager._entities["dev"] = default_maestro
-        manager.router.register("dev")
-
-        new_maestro = Maestro(name="hive_dev", model="opus")
-        new_maestro.last_activity_at = idle_ts
-        manager._entities["hive_dev"] = new_maestro
-        manager.router.register("hive_dev")
-
-        worker = Entity(name="worker_1", role="worker")
-        worker.last_activity_at = idle_ts
-        manager._entities["worker_1"] = worker
-        manager.router.register("worker_1")
-
-        captured: dict[str, set[str]] = {}
-        stop_event = _asyncio.Event()
-
-        async def spy_kill(timeout, exempt_names=None):
-            captured["exempt"] = set(exempt_names or set())
-            stop_event.set()  # break out of the loop after one pass
-            return []
-
-        # Skip the 5-minute sleep — first wait_for raises TimeoutError so the kill
-        # branch fires, the spy stops the loop, and the second wait_for sees
-        # stop_event already set and returns normally so the loop exits cleanly.
-        async def fake_wait_for(coro, timeout):
-            t = _asyncio.create_task(coro)
-            t.cancel()
-            try:
-                await t
-            except _asyncio.CancelledError:
-                pass
-            if not stop_event.is_set():
-                raise TimeoutError
-            return True
-
-        with patch.object(manager, "kill_idle_entities", side_effect=spy_kill):
-            with patch("hive.__main__.asyncio.wait_for", side_effect=fake_wait_for):
-                await idle_checker(manager, "dev", stop_event)
-
-        assert captured["exempt"] == {"dev", "hive_dev"}
-
 
 # -----------------------------------------------------------------------------
 # Wake-on-inbound: peer messages auto-spawn a session for the recipient
@@ -1208,8 +695,8 @@ async def _drain_wake_tasks(manager: ProcessManager) -> None:
 async def test_inbound_wake_spawns_session(manager: ProcessManager) -> None:
     """Peer message → recipient gets a wake send."""
     manager.enable_wake_on_inbound()
-    sender = Maestro(name="alice", model="sonnet")
-    recipient = TeamLead(name="alice.bob", model="sonnet")
+    sender = Vault(name="alice", model="sonnet")
+    recipient = Vault(name="alice.bob", model="sonnet")
     manager._entities["alice"] = sender
     manager._entities["alice.bob"] = recipient
     manager.router.register("alice")
@@ -1236,7 +723,7 @@ async def test_inbound_wake_throttled_after_budget(
     """7 rapid wakes → 6 sends + 1 throttled audit event."""
     manager.audit_log = audit_log
     manager.enable_wake_on_inbound()
-    recipient = TeamLead(name="alice.bob", model="sonnet")
+    recipient = Vault(name="alice.bob", model="sonnet")
     manager._entities["alice.bob"] = recipient
     manager.router.register("alice.bob")
 
@@ -1264,7 +751,7 @@ async def test_inbound_wake_silent_when_recipient_running(
     """'already running' RuntimeError from send_to_entity is swallowed."""
     manager.audit_log = audit_log
     manager.enable_wake_on_inbound()
-    recipient = TeamLead(name="alice.bob", model="sonnet")
+    recipient = Vault(name="alice.bob", model="sonnet")
     manager._entities["alice.bob"] = recipient
     manager.router.register("alice.bob")
 
@@ -1284,7 +771,7 @@ async def test_inbound_wake_skipped_for_user_recipient(
 ) -> None:
     """Routing to 'user' (no entity row) must not schedule a wake."""
     manager.enable_wake_on_inbound()
-    sender = Maestro(name="alice", model="sonnet")
+    sender = Vault(name="alice", model="sonnet")
     manager._entities["alice"] = sender
     manager.router.register("alice")
     manager.router.register("user")  # queue exists but no entity row
@@ -1314,7 +801,7 @@ async def test_parse_errors_route_system_feedback_to_sender(
 ) -> None:
     """Malformed block → one `system → entity` message + audit event."""
     manager.audit_log = audit_log
-    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    lead = Vault(name="alice.bob", model="sonnet")
     manager._entities["alice.bob"] = lead
     manager.router.register("alice.bob")
 
@@ -1335,49 +822,15 @@ async def test_parse_errors_route_system_feedback_to_sender(
     assert len(events) == 1
 
 
-async def test_parse_errors_at_cap_escalate_to_parent(
-    manager: ProcessManager,
-    audit_log: AuditLog,
-) -> None:
-    """4th failure in window → escalation to parent, no feedback to sender."""
-    manager.audit_log = audit_log
-    maestro = Maestro(name="alice", model="sonnet")
-    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
-    manager._entities["alice"] = maestro
-    manager._entities["alice.bob"] = lead
-    manager.router.register("alice")
-    manager.router.register("alice.bob")
-
-    for _ in range(4):
-        await manager._handle_actions(
-            "alice.bob",
-            clean_text="",
-            actions=[],
-            parse_errors=["Malformed JSON"],
-        )
-
-    lead_msgs = await manager.router.store.get_messages("alice.bob")
-    maestro_msgs = await manager.router.store.get_messages("alice")
-    # First 3 sent feedback to the lead; 4th went to maestro.
-    assert len(lead_msgs) == 3
-    assert len(maestro_msgs) == 1
-    assert "Suppressing parse-feedback" in maestro_msgs[0]["content"]
-    assert maestro_msgs[0]["sender"] == "system"
-
-    capped = await audit_log.recent(action_prefix="entity.parse_failure_capped")
-    assert len(capped) == 1
-    assert capped[0]["target"] == "alice.bob"
-
-
 async def test_parse_errors_maestro_at_cap_notifies_user(
     manager: ProcessManager,
 ) -> None:
-    """Maestro has no Hive parent → cap overflow surfaces to the user."""
+    """Vault has no Hive parent → cap overflow surfaces to the user."""
     channel = _CapturingChannel()
     dispatcher = NotificationDispatcher()
     dispatcher.register(channel)
     manager.notification_dispatcher = dispatcher
-    maestro = Maestro(name="alice", model="sonnet")
+    maestro = Vault(name="alice", model="sonnet")
     manager._entities["alice"] = maestro
     manager.router.register("alice")
 
@@ -1400,7 +853,7 @@ async def test_parse_errors_window_resets_after_5min(
     manager: ProcessManager,
 ) -> None:
     """Stale entries are pruned before counting against the cap."""
-    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    lead = Vault(name="alice.bob", model="sonnet")
     manager._entities["alice.bob"] = lead
     manager.router.register("alice.bob")
 
@@ -1426,7 +879,7 @@ async def test_parse_errors_skip_when_no_errors(
     manager: ProcessManager,
 ) -> None:
     """No parse errors → no feedback message, no budget entry."""
-    lead = TeamLead(name="alice.bob", model="sonnet", maestro_name="alice")
+    lead = Vault(name="alice.bob", model="sonnet")
     manager._entities["alice.bob"] = lead
     manager.router.register("alice.bob")
 
@@ -1455,7 +908,7 @@ async def test_parse_errors_skip_when_no_errors(
 
 async def test_kill_entity_stops_adapter(manager: ProcessManager) -> None:
     """kill_entity must call stop() on any cached adapter for the entity."""
-    entity = Maestro(name="dev", model="sonnet")
+    entity = Vault(name="dev", model="sonnet")
     manager._entities["dev"] = entity
     manager.router.register("dev")
 
@@ -1472,7 +925,7 @@ async def test_kill_entity_stops_adapter(manager: ProcessManager) -> None:
 async def test_stop_all_stops_adapters(manager: ProcessManager) -> None:
     """stop_all must call stop() on all cached adapters."""
     for name in ("alpha", "beta"):
-        entity = Maestro(name=name, model="sonnet")
+        entity = Vault(name=name, model="sonnet")
         manager._entities[name] = entity
         manager.router.register(name)
         mock = AsyncMock()
@@ -1602,7 +1055,7 @@ class TestAutoBounce:
     async def test_bounce_on_threshold_then_retry_succeeds(self, manager: ProcessManager) -> None:
         channel = _KindChannel()
         manager.notification_dispatcher.register(channel)
-        maestro = Maestro(name="otter", model="opus")
+        maestro = Vault(name="otter", model="opus")
         manager._entities["otter"] = maestro
         manager.router.register("otter")
 
@@ -1632,7 +1085,7 @@ class TestAutoBounce:
         assert kinds.count("auto_bounce") == 1
 
     async def test_success_resets_stall_counter(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="otter", model="opus")
+        maestro = Vault(name="otter", model="opus")
         manager._entities["otter"] = maestro
         manager.router.register("otter")
 
@@ -1657,39 +1110,9 @@ class TestAutoBounce:
     async def test_gate_holds_off_bounce(self, manager: ProcessManager) -> None:
         # A maestro parked at a plan/ask gate is legitimately waiting — even if
         # the turn timed out, it must NOT be bounced and the stall must not count.
-        maestro = Maestro(name="otter", model="opus")
+        maestro = Vault(name="otter", model="opus")
         manager._entities["otter"] = maestro
         manager.gate_coordinator = _FakeGateCoordinator(live={"otter"})  # type: ignore[assignment]
-        adapter = FakeAdapter([TIMEOUT])
-        manager._adapters["otter"] = adapter
-        adapter.started = True
-
-        retry = await manager._maybe_bounce_on_timeout(maestro, adapter)
-
-        assert retry is False
-        assert not adapter.stopped
-        assert manager._liveness.get("otter", {"stalls": 0})["stalls"] == 0
-
-    async def test_workflow_active_holds_off_bounce(self, manager: ProcessManager) -> None:
-        # A lead mid-Workflow is the 030 false-timeout class — hold off.
-        lead = TeamLead(name="otter.web", maestro_name="otter", model="opus")
-        manager._entities["otter.web"] = lead
-        adapter = FakeAdapter([TIMEOUT], workflow_active=True)
-        manager._adapters["otter.web"] = adapter
-        adapter.started = True
-
-        retry = await manager._maybe_bounce_on_timeout(lead, adapter)
-
-        assert retry is False
-        assert not adapter.stopped
-        assert manager._liveness.get("otter.web", {"stalls": 0})["stalls"] == 0
-
-    async def test_awaiting_decision_holds_off_bounce(self, manager: ProcessManager) -> None:
-        # 029 defense-in-depth: a maestro parked on a user decision is waiting,
-        # not jammed.
-        maestro = Maestro(name="otter", model="opus")
-        maestro.awaiting_decision = True
-        manager._entities["otter"] = maestro
         adapter = FakeAdapter([TIMEOUT])
         manager._adapters["otter"] = adapter
         adapter.started = True
@@ -1703,7 +1126,7 @@ class TestAutoBounce:
     async def test_flap_guard_gives_up(self, manager: ProcessManager) -> None:
         channel = _KindChannel()
         manager.notification_dispatcher.register(channel)
-        maestro = Maestro(name="otter", model="opus")
+        maestro = Vault(name="otter", model="opus")
         maestro.state = EntityState.RUNNING  # legal RUNNING → ERROR on give-up
         manager._entities["otter"] = maestro
         manager.router.register("otter")
@@ -1729,7 +1152,7 @@ class TestAutoBounce:
         assert any(k == "auto_bounce_failed" for _, k in channel.events)
 
     async def test_flap_window_resets(self, manager: ProcessManager) -> None:
-        maestro = Maestro(name="otter", model="opus")
+        maestro = Vault(name="otter", model="opus")
         maestro.state = EntityState.RUNNING
         manager._entities["otter"] = maestro
         manager.router.register("otter")
@@ -1761,7 +1184,7 @@ class TestAutoBounce:
         manager.notification_dispatcher.register(channel)
 
         # waitingFor present → its text rides the bounce notification.
-        maestro = Maestro(name="otter", model="opus")
+        maestro = Vault(name="otter", model="opus")
         manager._entities["otter"] = maestro
         manager.router.register("otter")
         jammed = FakeAdapter([TIMEOUT], jam_state={"waitingFor": "a permission prompt"})
@@ -1777,7 +1200,7 @@ class TestAutoBounce:
 
         # waitingFor absent → "cause unknown", and the bounce still fires.
         channel.events.clear()
-        lynx = Maestro(name="lynx", model="opus")
+        lynx = Vault(name="lynx", model="opus")
         manager._entities["lynx"] = lynx
         manager.router.register("lynx")
         jammed2 = FakeAdapter([TIMEOUT])  # describe_jam() → None
@@ -1798,87 +1221,3 @@ class TestPhaseConfirmationGate:
     async def _send(self, manager: ProcessManager, name: str, response: str) -> str:
         with using_adapter(manager, FakeAdapter(response)):
             return await manager.send_to_entity(name, "go")
-
-    async def test_unconfirmed_maestro_spawn_team_denied(self, manager: ProcessManager) -> None:
-        """Fresh maestro (confirmed_with_user=False, phase_confirm=True) is gated."""
-        maestro = Maestro(name="dev", model="opus")
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev", response)
-
-        assert manager._last_spawned_teams == []
-        assert "dev.backend" not in manager.entities
-        feedback = await manager.router.store.get_messages("dev")
-        assert any(m["sender"] == "system" and "request_decision" in m["content"] for m in feedback)
-
-    async def test_confirmed_maestro_spawn_team_succeeds(self, manager: ProcessManager) -> None:
-        """A maestro that round-tripped a decision (confirmed_with_user) spawns freely."""
-        maestro = Maestro(name="dev", model="opus")
-        maestro.confirmed_with_user = True
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev", response)
-
-        assert manager._last_spawned_teams == ["dev.backend"]
-        assert "dev.backend" in manager.entities
-
-    async def test_opt_out_maestro_spawn_team_succeeds(self, manager: ProcessManager) -> None:
-        """phase_confirm=False (unattended) skips the gate even when unconfirmed."""
-        maestro = Maestro(name="dev", model="opus")
-        maestro.phase_confirm = False
-        manager._entities["dev"] = maestro
-        manager.router.register("dev")
-        response = (
-            '<hive_actions>\n[{"type": "spawn_team", "team_name": "backend"}]\n</hive_actions>'
-        )
-        await self._send(manager, "dev", response)
-
-        assert manager._last_spawned_teams == ["dev.backend"]
-
-    async def test_clear_awaiting_decision_confirms_maestro(self, manager: ProcessManager) -> None:
-        """A user reply that unparks a maestro lifts the phase-confirmation floor."""
-        maestro = Maestro(name="dev", model="opus")
-        maestro.awaiting_decision = True
-        manager._entities["dev"] = maestro
-        await manager.clear_awaiting_decision("dev")
-
-        assert maestro.awaiting_decision is False
-        assert maestro.confirmed_with_user is True
-
-    async def test_clear_awaiting_decision_noop_when_not_parked(
-        self, manager: ProcessManager
-    ) -> None:
-        """No round-trip happened (not parked) → the floor is not lifted."""
-        maestro = Maestro(name="dev", model="opus")
-        manager._entities["dev"] = maestro
-        await manager.clear_awaiting_decision("dev")
-
-        assert maestro.confirmed_with_user is False
-
-    async def test_clear_awaiting_decision_does_not_confirm_lead(
-        self, manager: ProcessManager
-    ) -> None:
-        """Only maestros gate, so clearing a lead's wait never sets the floor."""
-        lead = TeamLead(name="dev.backend", team_name="backend", maestro_name="dev")
-        lead.awaiting_decision = True
-        manager._entities["dev.backend"] = lead
-        await manager.clear_awaiting_decision("dev.backend")
-
-        assert lead.awaiting_decision is False
-        assert lead.confirmed_with_user is False
-
-    async def test_clear_awaiting_decision_nulls_question(self, manager: ProcessManager) -> None:
-        """Ticket 038: unparking clears the stored decision question."""
-        maestro = Maestro(name="dev", model="opus")
-        maestro.awaiting_decision = True
-        maestro.last_decision_question = "auth or sessions?"
-        manager._entities["dev"] = maestro
-        await manager.clear_awaiting_decision("dev")
-
-        assert maestro.last_decision_question is None

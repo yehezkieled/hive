@@ -24,31 +24,23 @@ class HelpEntry:
 # Category ordering for /help listing output
 CATEGORIES = (
     "Status",
-    "Organization",
     "Messaging",
     "Tasks",
     "Session",
     "Resources",
     "Security",
     "Knowledge",
-    "Git",
     "Admin",
 )
 
 
 HELP_TEXT: dict[str, HelpEntry] = {
-    # Status — alphabetical: audit, comms, health, status
+    # Status — alphabetical: audit, health, heartbeat, status
     "audit": HelpEntry(
         category="Status",
         usage="/audit [prefix]",
         description="Show the last 20 audit events, filtered by action prefix.",
         examples=("/audit", "/audit task"),
-    ),
-    "comms": HelpEntry(
-        category="Status",
-        usage="/comms",
-        description="Show the last 10 inter-entity messages.",
-        examples=("/comms",),
     ),
     "health": HelpEntry(
         category="Status",
@@ -73,72 +65,18 @@ HELP_TEXT: dict[str, HelpEntry] = {
         description="Show each entity's role, state, and PID.",
         examples=("/status",),
     ),
-    # Organization — alphabetical: maestros, new, org, team, teams
-    "maestros": HelpEntry(
-        category="Organization",
-        usage="/maestros",
-        description="List registered maestros with their model and state.",
-        examples=("/maestros",),
-    ),
-    "new": HelpEntry(
-        category="Organization",
-        usage="/new maestro <name>",
-        description="Register a new maestro from personalities/<name>.md.",
-        examples=("/new maestro pa",),
-    ),
-    "org": HelpEntry(
-        category="Organization",
-        usage="/org",
-        description="Show the full org tree (maestros -> teams -> leads).",
-        examples=("/org",),
-    ),
-    "project": HelpEntry(
-        category="Organization",
-        usage="/project new|assign|list [args]",
-        description="Manage the project registry; owned projects are read-only to the PA maestro.",
-        examples=(
-            "/project list",
-            "/project new acme /home/hezki/projects/acme acme-lead",
-            "/project assign acme acme-lead",
-        ),
-    ),
-    "team": HelpEntry(
-        category="Organization",
-        usage="/team create|list|kill [args]",
-        description=(
-            "Create/list/kill a team. Autonomous spawn_team takes display_name+personality."
-        ),
-        examples=(
-            "/team create dev.backend",
-            "/team list dev",
-            "/team kill dev.backend",
-        ),
-    ),
-    "teams": HelpEntry(
-        category="Organization",
-        usage="/teams",
-        description="List all teams across all maestros.",
-        examples=("/teams",),
-    ),
     # Messaging — message (the /a: addressing form folds in here)
     "message": HelpEntry(
         category="Messaging",
-        usage="/m:<maestro> <text> | /a:<entity> <text> | <text>",
-        description="Send a message to a maestro, team lead, or other entity.",
+        usage="/m:<entity> <text> | /a:<entity> <text>",
+        description="Send a message to an entity (e.g. the vault). Plain text has no recipient.",
         display="m:",
         examples=(
-            "/m:dev please audit the token usage",
-            "/a:dev.backend run pytest",
-            "hello dev",
+            "/m:vault status of pending payments",
+            "/a:vault status",
         ),
     ),
-    # Tasks — alphabetical: priority, task, tasks
-    "priority": HelpEntry(
-        category="Tasks",
-        usage='/priority P0|P1|P2|P3|P4 "<title>"',
-        description="Create a task at the given priority (P0 = urgent, P4 = backlog).",
-        examples=('/priority P0 "fix prod outage"',),
-    ),
+    # Tasks — alphabetical: task, tasks
     "task": HelpEntry(
         category="Tasks",
         usage="/task add|done|cancel <args>",
@@ -160,28 +98,25 @@ HELP_TEXT: dict[str, HelpEntry] = {
         category="Session",
         usage="/compact <entity>",
         description="Summarize an entity's context to free tokens without losing progress.",
-        examples=("/compact dev", "/compact dev.backend.w1"),
+        examples=("/compact vault",),
     ),
     "kill": HelpEntry(
         category="Session",
         usage="/kill <entity>",
         description="Stop an entity's subprocess, which can be respawned by sending a message.",
-        examples=("/kill dev", "/kill dev.backend.w1"),
+        examples=("/kill vault",),
     ),
     "mode": HelpEntry(
         category="Session",
         usage="/mode yolo|yotree <entity>",
         description="Set an entity's permission mode (plan mode is via the grill-me skill).",
-        examples=(
-            "/mode yolo dev",
-            "/mode yotree dev.backend",
-        ),
+        examples=("/mode yolo vault",),
     ),
     "reset": HelpEntry(
         category="Session",
         usage="/reset <entity>",
         description="Kill an entity and clear its session, starting fresh on next message.",
-        examples=("/reset dev.backend.w1",),
+        examples=("/reset vault",),
     ),
     # Resources — alphabetical: cost, files, model
     "cost": HelpEntry(
@@ -201,10 +136,8 @@ HELP_TEXT: dict[str, HelpEntry] = {
         usage="/model opus|sonnet|haiku|opusplan|fable [entity]",
         description="Change entity model; an API-billed model prints a billing warning.",
         examples=(
-            "/model opus dev",
-            "/model sonnet dev.backend",
-            "/model fable dev.backend",
-            "/model opusplan dev.backend",
+            "/model opus vault",
+            "/model sonnet vault",
         ),
     ),
     "quota": HelpEntry(
@@ -247,43 +180,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
             "/blueprint list",
         ),
     ),
-    # Git — single verb
-    "ship": HelpEntry(
-        category="Git",
-        usage='/ship <entity> [merge|"msg"]',
-        description="Commit, push and open a PR in one step; add merge to squash-merge too.",
-        examples=(
-            "/ship dev.backend.w1",
-            '/ship dev.backend.w1 "add retry logic"',
-            "/ship dev.backend.w1 merge",
-        ),
-    ),
-    # Admin — alphabetical: cancel, eval, help, personality
-    "cancel": HelpEntry(
-        category="Admin",
-        usage="/cancel",
-        description=(
-            "Abort an in-flight /new maestro question flow. Outside a flow this is a no-op."
-        ),
-        examples=("/cancel",),
-    ),
-    "eval": HelpEntry(
-        category="Admin",
-        usage="/eval [maestro]",
-        description="Fire one scheduler tick now so the maestro re-allocates capacity.",
-        examples=("/eval", "/eval dev"),
-    ),
+    # Admin — help
     "help": HelpEntry(
         category="Admin",
         usage="/help [command]",
         description="Show this help. `/help <command>` shows detail for one command.",
         examples=("/help", "/help vault"),
-    ),
-    "personality": HelpEntry(
-        category="Admin",
-        usage="/personality reload <entity>",
-        description="Re-read a personality .md file and apply it to the entity.",
-        examples=("/personality reload dev",),
     ),
 }
 

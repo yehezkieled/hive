@@ -4,21 +4,12 @@ Entities can include a <hive_actions> block in their text response
 containing a JSON array of actions. The orchestrator extracts these,
 validates permissions, and routes messages accordingly.
 
-Supported action types:
-- ``message``: send text to another entity. Fields: ``to``, ``text``.
-  Peer routing applies (see ``hive.bus.permissions.can_message``).
-- ``request_decision``: escalate a directional decision to the direct
-  parent (lead → own maestro). Fields: ``to``,
-  ``text``. Strict parent-only routing.
+Supported action types (the Vault entity is the only one left that runs; the
+Maestro/Lead actions ``message``, ``request_decision``, ``spawn_team``,
+``kill_entity`` and ``report_failure`` retired with the cut-over, ADR 0033):
+
 - ``request_mode_change``: ask for an elevated permission mode. Fields:
   ``requested_mode`` (yolo|yotree), ``reason`` (optional).
-- ``report_failure``: a task-bound entity tells the orchestrator the
-  current task is failing. Fields: ``reason``; optional ``task_id``
-  override (defaults to the entity's current task_id).
-- ``spawn_team``: maestro creates a new team in its own org. Fields:
-  ``team_name``; optional ``model`` (serving harness role default when omitted).
-- ``kill_entity``: maestro or lead kills an entity in its scope.
-  Fields: ``target``.
 - ``request_payment``: vault entity requests a structured payment.
   Fields: ``amount_cents`` (positive int), ``currency`` (e.g. "USD"),
   ``recipient``, ``idempotency_key`` (unique per request), ``reason``.
@@ -72,12 +63,7 @@ def neutralize_action_tags(text: str) -> str:
     )
 
 
-_MESSAGE_REQUIRED = {"to", "text"}
 _MODE_REQUEST_REQUIRED = {"requested_mode"}
-_FAILURE_REQUIRED = {"reason"}
-_SPAWN_TEAM_REQUIRED = {"team_name"}
-_KILL_ENTITY_REQUIRED = {"target"}
-_REQUEST_DECISION_REQUIRED = {"to", "text"}
 _REQUEST_PAYMENT_REQUIRED = {
     "amount_cents",
     "currency",
@@ -91,29 +77,14 @@ _REQUEST_PAYMENT_REQUIRED = {
 class Action:
     """A structured action extracted from an entity response.
 
-    Only the fields relevant to ``type`` are populated. ``to``/``text``
-    are set for ``message`` actions; ``requested_mode``/``reason`` for
-    ``request_mode_change``; ``reason``/``task_id`` for ``report_failure``;
-    ``team_name``/``model`` for ``spawn_team``; ``target`` for
-    ``kill_entity``.
+    Only the fields relevant to ``type`` are populated: ``requested_mode``/
+    ``reason`` for ``request_mode_change``; the payment fields for
+    ``request_payment``.
     """
 
     type: str
-    to: str | None = None
-    text: str | None = None
     requested_mode: str | None = None
     reason: str | None = None
-    task_id: int | None = None
-    team_name: str | None = None
-    model: str | None = None
-    target: str | None = None
-    # Phase 3 (autonomous personality generation): parents may include a
-    # human-readable label and free-text personality blurb when spawning
-    # a team. Only used to write the auto-generated personality
-    # file — both fields must be present together for the file to be
-    # written (pair-or-nothing).
-    display_name: str | None = None
-    personality: str | None = None
     # request_payment fields (Sprint 25)
     amount_cents: int | None = None
     currency: str | None = None
@@ -177,9 +148,7 @@ def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
             errors.append(
                 f"Malformed JSON in {_OPEN_TAG_ALIAS} block: {exc.msg} "
                 f"(line {exc.lineno}, col {exc.colno}). "
-                f"Snippet: {safe_snippet}. Tip: escape newlines as \\n "
-                f'and \\" for quotes inside multi-line string fields '
-                f"like `personality`."
+                f"Snippet: {safe_snippet}."
             )
             logger.warning("Malformed JSON in <hive_actions> block: %s", snippet)
             continue
@@ -200,17 +169,6 @@ def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
             continue
         atype = item["type"]
 
-        if atype == "message":
-            missing = _MESSAGE_REQUIRED - item.keys()
-            if missing:
-                errors.append(
-                    f"`message` action missing required fields {sorted(missing)}: {item!r}"
-                )
-                logger.warning("message action missing fields %s: %s", missing, item)
-                continue
-            actions.append(Action(type=atype, to=item["to"], text=item["text"]))
-            continue
-
         if atype == "request_mode_change":
             missing = _MODE_REQUEST_REQUIRED - item.keys()
             if missing:
@@ -226,67 +184,6 @@ def parse_actions(response: str) -> tuple[str, list[Action], list[str]]:
                     reason=item.get("reason"),
                 )
             )
-            continue
-
-        if atype == "report_failure":
-            missing = _FAILURE_REQUIRED - item.keys()
-            if missing:
-                errors.append(
-                    f"`report_failure` missing required fields {sorted(missing)}: {item!r}"
-                )
-                logger.warning("report_failure missing fields %s: %s", missing, item)
-                continue
-            raw_task_id = item.get("task_id")
-            try:
-                task_id_val = int(raw_task_id) if raw_task_id is not None else None
-            except (TypeError, ValueError):
-                errors.append(f"`report_failure` has non-integer task_id: {raw_task_id!r}")
-                logger.warning("report_failure has non-integer task_id: %r", raw_task_id)
-                task_id_val = None
-            actions.append(
-                Action(
-                    type=atype,
-                    reason=item["reason"],
-                    task_id=task_id_val,
-                )
-            )
-            continue
-
-        if atype == "spawn_team":
-            missing = _SPAWN_TEAM_REQUIRED - item.keys()
-            if missing:
-                errors.append(f"`spawn_team` missing required fields {sorted(missing)}: {item!r}")
-                logger.warning("spawn_team missing fields %s: %s", missing, item)
-                continue
-            actions.append(
-                Action(
-                    type=atype,
-                    team_name=item["team_name"],
-                    model=item.get("model"),
-                    display_name=item.get("display_name"),
-                    personality=item.get("personality"),
-                )
-            )
-            continue
-
-        if atype == "kill_entity":
-            missing = _KILL_ENTITY_REQUIRED - item.keys()
-            if missing:
-                errors.append(f"`kill_entity` missing required fields {sorted(missing)}: {item!r}")
-                logger.warning("kill_entity missing fields %s: %s", missing, item)
-                continue
-            actions.append(Action(type=atype, target=item["target"]))
-            continue
-
-        if atype == "request_decision":
-            missing = _REQUEST_DECISION_REQUIRED - item.keys()
-            if missing:
-                errors.append(
-                    f"`request_decision` missing required fields {sorted(missing)}: {item!r}"
-                )
-                logger.warning("request_decision missing fields %s: %s", missing, item)
-                continue
-            actions.append(Action(type=atype, to=item["to"], text=item["text"]))
             continue
 
         if atype == "request_payment":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -13,7 +14,6 @@ from hive.bus.attachment_store import AttachmentStore
 from hive.bus.audit_log import AuditLog
 from hive.bus.entity_store import EntityStore
 from hive.bus.mode_request_store import ModeRequestStore
-from hive.bus.project_store import ProjectStore
 from hive.bus.router import MessageRouter
 from hive.bus.store import MessageStore
 from hive.bus.task_store import TaskStore
@@ -48,7 +48,7 @@ def _isolated_spawn_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     Every spawn writes ``<tempdir>/hive-spawn-settings/<entity>.settings.json``
     (Ticket 067). On this host the tests share ``/tmp`` with the running
-    ``hive.service``, so an un-isolated test would overwrite a live maestro's
+    ``hive.service``, so an un-isolated test would overwrite a live entity's
     file with fixture data (e.g. a fake ownership fence for ``otter``).
     """
     monkeypatch.setattr(
@@ -69,18 +69,17 @@ def personalities_dir(tmp_path: Path) -> Path:
     d = tmp_path / "personalities"
     d.mkdir()
 
-    template = d / "maestro-dev.md"
+    template = d / "dev.md"
     template.write_text(
-        """# Maestro: Dev
+        """# Entity: Dev
 
 ## Identity
 - **Name**: Dev
-- **Role**: maestro
+- **Role**: vault
 - **Model**: sonnet
 
 ## System Prompt
-You are Dev, a software engineering maestro. You lead development teams
-and coordinate technical work.
+You are Dev, a locked-down entity.
 
 ## Tools
 - allowedTools: Bash Read Write Edit Grep Glob
@@ -98,7 +97,15 @@ and coordinate technical work.
 
 @pytest.fixture(scope="session")
 def pg_dsn() -> Iterator[str]:
-    """Session-scoped PostgreSQL container. Yields an asyncpg-compatible DSN."""
+    """Session-scoped PostgreSQL. Yields an asyncpg-compatible DSN.
+
+    ``HIVE_TEST_PG_DSN`` points the suite at an existing pgvector-enabled
+    Postgres (for hosts without Docker); otherwise a container is started.
+    """
+    external = os.environ.get("HIVE_TEST_PG_DSN")
+    if external:
+        yield external
+        return
     with PostgresContainer("pgvector/pgvector:pg16") as container:
         # testcontainers returns a SQLAlchemy-style URL (postgresql+psycopg2://...);
         # strip the driver part to get a plain DSN asyncpg accepts.
@@ -126,8 +133,8 @@ async def store(pg_dsn: str) -> AsyncIterator[MessageStore]:
         await conn.execute("TRUNCATE TABLE blueprints RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE mode_requests RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE attachments RESTART IDENTITY CASCADE")
-        await conn.execute("TRUNCATE TABLE projects RESTART IDENTITY CASCADE")
         await conn.execute("TRUNCATE TABLE push_subscriptions RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE TABLE health_log RESTART IDENTITY CASCADE")
     try:
         yield s
     finally:
@@ -186,9 +193,3 @@ async def mode_request_store(store: MessageStore) -> AsyncIterator[ModeRequestSt
 async def attachment_store(store: MessageStore) -> AsyncIterator[AttachmentStore]:
     """Function-scoped AttachmentStore sharing the test pool."""
     yield AttachmentStore(store.pool)
-
-
-@pytest_asyncio.fixture
-async def project_store(store: MessageStore) -> AsyncIterator[ProjectStore]:
-    """Function-scoped ProjectStore sharing the test pool."""
-    yield ProjectStore(store.pool)

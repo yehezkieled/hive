@@ -36,29 +36,14 @@ class WebPushChannel:
 
         d = n.data or {}
         entity = d.get("entity", "")
-        # "Needs you" kinds deep-link to ?reply=<entity> (opens the chat aimed at
-        # the maestro, ready to reply); "Run ended" kinds use ?focus=<entity>
-        # (scrolls to + highlights that entity's card). Ticket 048.
-        if n.kind == "decision_request":
-            title = f"{entity} needs your decision"
-            body = d.get("question", "")
-            url = f"/?reply={entity}"
-        elif n.kind == "mode_request":
+        # Both kinds deep-link to ?reply=<entity> (opens the chat aimed at the
+        # entity, ready to reply). Ticket 048.
+        if n.kind == "mode_request":
             title = f"{entity} — approval needed"
-            body = n.text
-            url = f"/?reply={entity}"
-        elif n.kind == "vault_action_pending":
+        else:  # vault_action_pending
             title = f"{entity} — vault approval"
-            body = n.text
-            url = f"/?reply={entity}"
-        elif n.kind == "workflow_completed":
-            title = f"✅ {entity} — run finished"
-            body = d.get("name", "")
-            url = f"/?focus={entity}&run={d.get('run_id', '')}"
-        elif n.kind == "workflow_failed":
-            title = f"❌ {entity} — run ended"
-            body = f"{d.get('name', '')} ({d.get('status', '')})"
-            url = f"/?focus={entity}&run={d.get('run_id', '')}"
+        body = n.text
+        url = f"/?reply={entity}"
 
         payload = json.dumps({"title": title, "body": body, "url": url})
         for sub in await self._store.all():

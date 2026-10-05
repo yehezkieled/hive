@@ -8,7 +8,6 @@ that future surfaces (web endpoints, MCP tools) can use it directly.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest_asyncio
@@ -22,6 +21,7 @@ from hive.bus.token_store import TokenStore
 from hive.bus.vault_store import VaultStore
 from hive.commands import KNOWN_COMMANDS, CommandDispatcher, CommandResult
 from hive.knowledge.blueprints import BlueprintStore
+from hive.models.vault import Vault
 from hive.process.manager import ProcessManager
 from tests.fakes import FakeAdapter, using_adapter
 
@@ -49,7 +49,6 @@ async def dispatcher(
 ) -> CommandDispatcher:
     return CommandDispatcher(
         process_manager=manager,
-        default_maestro="dev",
         token_store=token_store,
         task_store=task_store,
         audit_log=audit_log,
@@ -57,7 +56,6 @@ async def dispatcher(
         mode_request_store=mode_request_store,
         blueprint_store=blueprint_store,
         attachment_store=attachment_store,
-        personalities_dir=tmp_path,
     )
 
 
@@ -69,7 +67,7 @@ async def dispatcher(
 def test_known_commands_is_frozenset() -> None:
     assert isinstance(KNOWN_COMMANDS, frozenset)
     # Spot-check a few commands across categories
-    assert {"status", "help", "task", "ship", "eval"} <= KNOWN_COMMANDS
+    assert {"status", "help", "task"} <= KNOWN_COMMANDS
     # Heartbeat is bridge-only — must NOT be in the dispatcher's surface
     assert "heartbeat" not in KNOWN_COMMANDS
 
@@ -383,33 +381,6 @@ def _write_min_personality(dir_path: Path, name: str, model: str = "opus") -> Pa
     return path
 
 
-async def test_new_maestro_defaults_to_opus(
-    dispatcher: CommandDispatcher, manager: ProcessManager, tmp_path: Path
-) -> None:
-    """`/new maestro <name>` with personality file present registers the maestro at model=opus."""
-    _write_min_personality(tmp_path, "testbot")
-    result = await dispatcher.dispatch("/new maestro testbot", actor="test")
-    assert "registered" in result.text.lower()
-    assert "model=opus" in result.text
-    assert manager.entities["testbot"].model == "opus"
-
-
-async def test_new_maestro_file_model_overrides_cli_arg(
-    dispatcher: CommandDispatcher, manager: ProcessManager, tmp_path: Path
-) -> None:
-    """When a personality file is present, its `**Model**` field is authoritative.
-
-    The CLI model arg is only honored when no file exists yet (the
-    interactive flow uses it for the freshly-written file). Documents
-    the behavior change introduced with the Phase 2 flow.
-    """
-    _write_min_personality(tmp_path, "otherbot", model="haiku")
-    result = await dispatcher.dispatch("/new maestro otherbot opus", actor="test")
-    # File says haiku; arg said opus — file wins.
-    assert "model=haiku" in result.text
-    assert manager.entities["otherbot"].model == "haiku"
-
-
 # ---------------------------------------------------------------------------
 # /new maestro — Phase 2 interactive flow (no personality file present)
 # ---------------------------------------------------------------------------
@@ -424,60 +395,6 @@ class TestNewMaestroInteractiveFlow:
     personality file and registers the maestro.
     """
 
-    async def test_no_personality_starts_flow_with_first_question(
-        self, dispatcher: CommandDispatcher, manager: ProcessManager
-    ) -> None:
-        result = await dispatcher.dispatch("/new maestro otter", actor="user:42")
-        # Question text — purpose / "for?" — case-insensitive match
-        text = result.text.lower()
-        assert "for?" in text or "purpose" in text
-        # Maestro is NOT yet registered — flow must collect answers first
-        assert "otter" not in manager.entities
-
-    async def test_plain_text_advances_flow(
-        self, dispatcher: CommandDispatcher, manager: ProcessManager
-    ) -> None:
-        await dispatcher.dispatch("/new maestro otter", actor="user:42")
-        result = await dispatcher.dispatch("manage my projects", actor="user:42")
-        # Second question asks about communication style
-        text = result.text.lower()
-        assert "style" in text or "communicate" in text or "tone" in text
-        assert "otter" not in manager.entities
-
-    async def test_full_flow_writes_file_and_registers(
-        self,
-        dispatcher: CommandDispatcher,
-        manager: ProcessManager,
-        tmp_path: Path,
-    ) -> None:
-        await dispatcher.dispatch("/new maestro otter", actor="user:42")
-        await dispatcher.dispatch("manage my projects", actor="user:42")
-        result = await dispatcher.dispatch("terse and direct", actor="user:42")
-        assert "registered" in result.text.lower()
-        # File written with the user's answers embedded
-        target = tmp_path / "otter.md"
-        assert target.exists()
-        content = target.read_text()
-        assert "**Name**: otter" in content
-        assert "manage my projects" in content
-        assert "terse and direct" in content
-        # Maestro registered in process manager
-        assert "otter" in manager.entities
-
-    async def test_full_flow_honors_explicit_model_arg(
-        self,
-        dispatcher: CommandDispatcher,
-        manager: ProcessManager,
-        tmp_path: Path,
-    ) -> None:
-        """Model passed via `/new maestro <name> <model>` carries through the flow."""
-        await dispatcher.dispatch("/new maestro otter haiku", actor="user:42")
-        await dispatcher.dispatch("a purpose", actor="user:42")
-        result = await dispatcher.dispatch("casual", actor="user:42")
-        assert "model=haiku" in result.text
-        assert manager.entities["otter"].model == "haiku"
-        assert "**Model**: haiku" in (tmp_path / "otter.md").read_text()
-
     async def test_cancel_command_aborts_flow(
         self, dispatcher: CommandDispatcher, manager: ProcessManager
     ) -> None:
@@ -486,15 +403,6 @@ class TestNewMaestroInteractiveFlow:
         assert "cancel" in result.text.lower()
         # No file written, no registration
         assert "otter" not in manager.entities
-
-    async def test_cancel_command_outside_flow_returns_friendly_message(
-        self, dispatcher: CommandDispatcher
-    ) -> None:
-        """`/cancel` with no pending flow should not return 'Unknown command'."""
-        result = await dispatcher.dispatch("/cancel", actor="user:42")
-        text = result.text.lower()
-        assert "unknown command" not in text
-        assert "nothing to cancel" in text
 
     async def test_other_command_cancels_pending_flow(self, dispatcher: CommandDispatcher) -> None:
         """A different /command (not /cancel) interrupts the flow."""
@@ -508,65 +416,10 @@ class TestNewMaestroInteractiveFlow:
         followup = await dispatcher.dispatch("manage projects", actor="user:42")
         assert "style" not in followup.text.lower()
 
-    async def test_pending_state_isolated_per_actor(self, dispatcher: CommandDispatcher) -> None:
-        """Two actors can run /new maestro concurrently without crosstalk."""
-        await dispatcher.dispatch("/new maestro alpha", actor="user:1")
-        await dispatcher.dispatch("/new maestro beta", actor="user:2")
-        result_a = await dispatcher.dispatch("alpha purpose", actor="user:1")
-        result_b = await dispatcher.dispatch("beta purpose", actor="user:2")
-        # Each actor sees their own next-question advance
-        assert "style" in result_a.text.lower() or "communicate" in result_a.text.lower()
-        assert "style" in result_b.text.lower() or "communicate" in result_b.text.lower()
-
-    async def test_pending_state_times_out(self, dispatcher: CommandDispatcher) -> None:
-        """Pending flow expires after 10 minutes of inactivity."""
-        await dispatcher.dispatch("/new maestro otter", actor="user:42")
-        # Backdate the actor's pending state
-        pending = dispatcher._pending_new["user:42"]  # type: ignore[attr-defined]
-        pending.last_active = datetime.now(UTC) - timedelta(minutes=11)
-        # Plain text should NOT be interpreted as the answer anymore
-        result = await dispatcher.dispatch("an answer", actor="user:42")
-        assert "style" not in result.text.lower()
-        assert "communicate" not in result.text.lower()
-
-    async def test_flow_does_not_register_if_name_taken(
-        self,
-        dispatcher: CommandDispatcher,
-        manager: ProcessManager,
-        tmp_path: Path,
-    ) -> None:
-        """If a maestro is registered mid-flow, finalization reports the error gracefully."""
-        # Register otter via another path before the flow finishes
-        await manager.register_maestro("otter", model="opus")
-        await dispatcher.dispatch("/new maestro otter", actor="user:42")
-        await dispatcher.dispatch("a purpose", actor="user:42")
-        result = await dispatcher.dispatch("a style", actor="user:42")
-        # Final step surfaces the duplicate-name error from register_maestro
-        assert "error" in result.text.lower() or "already" in result.text.lower()
-
 
 # ---------------------------------------------------------------------------
 # Ticket 029: awaiting_decision clears on a USER reply, not a peer message
 # ---------------------------------------------------------------------------
-
-
-async def test_user_reply_clears_awaiting_decision(
-    dispatcher: CommandDispatcher, manager: ProcessManager
-) -> None:
-    """A user message routed through the command path unparks a maestro that
-    was waiting on a decision."""
-    await manager.register_maestro("dev")
-    manager._entities["dev"].awaiting_decision = True
-
-    manager._entities["dev"].last_nudged_at = datetime.now(UTC)
-
-    adapter = FakeAdapter(responses="acknowledged")
-    with using_adapter(manager, adapter):
-        await dispatcher._send_to_entity("dev", "go ahead")
-
-    assert manager._entities["dev"].awaiting_decision is False
-    # #144: unparking also disarms the nudge clock — no stray reminders
-    assert manager._entities["dev"].last_nudged_at is None
 
 
 async def test_peer_triggered_send_does_not_clear_awaiting_decision(
@@ -574,7 +427,7 @@ async def test_peer_triggered_send_does_not_clear_awaiting_decision(
 ) -> None:
     """The shared orchestration path (scheduler poke / peer wake) must NOT
     clear the flag — only a user-sourced reply does."""
-    await manager.register_maestro("dev")
+    await manager.register_entity(Vault(name="dev"))
     manager._entities["dev"].awaiting_decision = True
 
     adapter = FakeAdapter(responses="working")
@@ -593,7 +446,7 @@ class TestModelCommandV2:
     """/model gains `fable` and a billing warning driven by one API-billed set."""
 
     async def test_model_fable_is_accepted(self, dispatcher: CommandDispatcher) -> None:
-        await dispatcher.process_manager.register_maestro("dev")
+        await dispatcher.process_manager.register_entity(Vault(name="dev"))
         result = await dispatcher.dispatch("/model fable dev")
         assert "set to 'fable'" in result.text
         assert dispatcher.process_manager._entities["dev"].model == "fable"
@@ -601,7 +454,7 @@ class TestModelCommandV2:
     async def test_plan_billed_model_has_no_billing_warning(
         self, dispatcher: CommandDispatcher
     ) -> None:
-        await dispatcher.process_manager.register_maestro("dev")
+        await dispatcher.process_manager.register_entity(Vault(name="dev"))
         result = await dispatcher.dispatch("/model fable dev")
         # fable is plan-billed under the Max plan today — no warning.
         assert "API-billed" not in result.text
@@ -614,7 +467,7 @@ class TestModelCommandV2:
         import hive.models.entity as entity_mod
 
         monkeypatch.setattr(entity_mod, "API_BILLED_MODELS", frozenset({"sonnet"}))
-        await dispatcher.process_manager.register_maestro("dev")
+        await dispatcher.process_manager.register_entity(Vault(name="dev"))
         result = await dispatcher.dispatch("/model sonnet dev")
         assert "API-billed" in result.text
         assert "real money" in result.text.lower()
@@ -624,29 +477,20 @@ class TestModeCommandV2:
     """/mode offers only yolo / yotree."""
 
     async def test_mode_rejects_edit_auto_plan(self, dispatcher: CommandDispatcher) -> None:
-        await dispatcher.process_manager.register_maestro("dev")
+        await dispatcher.process_manager.register_entity(Vault(name="dev"))
         for dropped in ("edit", "auto", "plan"):
             result = await dispatcher.dispatch(f"/mode {dropped} dev")
             assert "yolo" in result.text and "yotree" in result.text
             assert "set to" not in result.text  # rejected, not applied
 
     async def test_mode_accepts_yolo_and_yotree(self, dispatcher: CommandDispatcher) -> None:
-        await dispatcher.process_manager.register_maestro("dev")
+        await dispatcher.process_manager.register_entity(Vault(name="dev"))
         result = await dispatcher.dispatch("/mode yolo dev")
         assert "set to 'yolo'" in result.text
 
 
 class TestShipCommand:
     """/ship folds /commit /pr /merge."""
-
-    def test_commit_pr_merge_removed_from_surface(self) -> None:
-        assert "ship" in KNOWN_COMMANDS
-        for gone in ("commit", "pr", "merge"):
-            assert gone not in KNOWN_COMMANDS
-
-    async def test_ship_unknown_entity(self, dispatcher: CommandDispatcher) -> None:
-        result = await dispatcher.dispatch("/ship nobody")
-        assert "not found" in result.text.lower()
 
 
 class TestGoalSeedingAtSpawn:
@@ -656,7 +500,7 @@ class TestGoalSeedingAtSpawn:
         assert "loop" not in KNOWN_COMMANDS
 
     async def test_first_task_turn_is_seeded_with_goal(self, manager: ProcessManager) -> None:
-        await manager.register_maestro("dev")
+        await manager.register_entity(Vault(name="dev"))
         adapter = FakeAdapter(responses="ok")
         with using_adapter(manager, adapter):
             # A genuine task delivery marks seed_goal.
@@ -665,7 +509,7 @@ class TestGoalSeedingAtSpawn:
         assert "build the widget" in adapter.prompts[-1]
 
     async def test_second_turn_is_not_seeded(self, manager: ProcessManager) -> None:
-        await manager.register_maestro("dev")
+        await manager.register_entity(Vault(name="dev"))
         first = FakeAdapter(responses="ok")
         with using_adapter(manager, first):
             await manager.send_to_entity("dev", "build the widget", seed_goal=True)
@@ -678,7 +522,7 @@ class TestGoalSeedingAtSpawn:
     async def test_internal_first_turn_send_is_not_seeded(self, manager: ProcessManager) -> None:
         """A poke / peer mail / compact reseed that lands as the first send must
         NOT be wrapped in /goal — only a genuine task (seed_goal) is."""
-        await manager.register_maestro("dev")
+        await manager.register_entity(Vault(name="dev"))
         adapter = FakeAdapter(responses="working")
         with using_adapter(manager, adapter):
             # Default seed_goal=False: the shared-chokepoint machine path.
@@ -691,7 +535,7 @@ class TestGoalSeedingAtSpawn:
     ) -> None:
         """The user/command entrypoint (dispatch._send_to_entity) marks the
         first task for /goal seeding end to end."""
-        await manager.register_maestro("dev")
+        await manager.register_entity(Vault(name="dev"))
         adapter = FakeAdapter(responses="ok")
         with using_adapter(manager, adapter):
             await dispatcher._send_to_entity("dev", "build the widget")

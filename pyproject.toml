@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hive"
 version = "0.1.0"
-description = "Multi-maestro AI agent orchestration platform built on Claude Code"
+description = "Multi-agent AI agent orchestration platform built on Claude Code"
 requires-python = ">=3.12"
 dependencies = [
     "asyncpg>=0.29",

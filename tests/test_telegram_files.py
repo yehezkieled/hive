@@ -21,7 +21,6 @@ def _make_bridge(
     """Build a minimal TelegramBridge stub for unit tests."""
     bridge = TelegramBridge.__new__(TelegramBridge)
     bridge.allowed_user_ids = allowed_user_ids or [42]
-    bridge.default_maestro = "dev"
     bridge.attachment_store = attachment_store or AsyncMock(save=AsyncMock(return_value=99))
     bridge.audit_log = audit_log
     bridge._execute_command = AsyncMock(return_value="OK from dev")
@@ -187,20 +186,6 @@ async def test_unauthorized_user_dropped(uploads_dir: Path) -> None:
 
     bridge.attachment_store.save.assert_not_awaited()
     update.message.reply_text.assert_not_awaited()
-
-
-async def test_plain_caption_routes_to_default_maestro(uploads_dir: Path) -> None:
-    bridge = _make_bridge(uploads_dir=uploads_dir)
-    update, context = _make_photo_update(caption="what is in this photo?")
-
-    await bridge._handle_attachment(update, context)
-
-    save_kwargs = bridge.attachment_store.save.await_args.kwargs
-    assert save_kwargs["forwarded_to"] == "dev"
-
-    cmd_arg = bridge._execute_command.await_args.args[0]
-    assert cmd_arg.target == "dev"
-    assert "what is in this photo?" in cmd_arg.args
 
 
 async def test_command_caption_does_not_route_attachment(uploads_dir: Path) -> None:

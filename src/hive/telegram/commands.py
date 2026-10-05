@@ -15,17 +15,13 @@ class Command:
     args: str = ""
 
 
-def parse_command(text: str, default_maestro: str = "otter") -> Command:
+def parse_command(text: str) -> Command:
     """Parse a Telegram message into a Command.
 
     Examples:
         /status          -> Command("status")
         /health          -> Command("health")
-        /maestros        -> Command("maestros")
-        /org             -> Command("org")
-        /comms           -> Command("comms")
         /m:dev do X      -> Command("message", "dev", "do X")
-        /t:dev.backend   -> Command("team", "dev.backend")
         /kill dev        -> Command("kill", "dev")
         /compact dev     -> Command("compact", "dev")
         /reset dev       -> Command("reset", "dev")
@@ -34,29 +30,25 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         /tasks           -> Command("tasks")
         /cost 7d         -> Command("cost", args="7d")
         /audit entity    -> Command("audit", args="entity")
-        plain text       -> Command("message", default_maestro, "plain text")
+        plain text       -> Command("message", None, "plain text")
     """
     text = text.strip()
 
     if not text:
         return Command(name="empty")
 
-    # Not a command — plain message to default maestro
+    # Not a command — plain text has no default recipient since the cut-over
+    # (ADR 0033); the dispatcher answers with a pointer to the desk.
     if not text.startswith("/"):
-        return Command(name="message", target=default_maestro, args=text)
+        return Command(name="message", target=None, args=text)
 
-    # /m:<name> <message> — message a specific maestro
+    # /m:<name> <message> — message a specific entity
     # Entity names allow hyphens (e.g. hive_dev.state-rules), so include `-`.
     m_match = re.match(r"^/m:([\w.-]+)\s*(.*)", text, re.DOTALL)
     if m_match:
         return Command(name="message", target=m_match.group(1), args=m_match.group(2).strip())
 
-    # /t:<maestro>.<team> <message> — message a specific team
-    t_match = re.match(r"^/t:([\w.-]+)\s*(.*)", text, re.DOTALL)
-    if t_match:
-        return Command(name="team", target=t_match.group(1), args=t_match.group(2).strip())
-
-    # /a:<maestro>.<team> <message> — address a lead (or any entity) directly.
+    # /a:<name> <message> — address an entity directly.
     # Ticket 050: /agent was consolidated into /message, so the /a: addressing
     # form now routes to the `message` command (empty target → message's guard).
     a_match = re.match(r"^/a:([\w.-]+)\s*(.*)", text, re.DOTALL)
@@ -71,21 +63,14 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         "compact",
         "reset",
         "mode",
-        "priority",
         "task",
-        "team",
-        "project",
-        "new",
-        "personality",
         "model",
         "vault",
         "blueprint",
         "help",
         "approve",
         "deny",
-        "ship",
         "heartbeat",
-        "eval",
     }
     cmd_match = re.match(r"^/(\w+)\s+(.*)", text, re.DOTALL)
     if cmd_match:
@@ -100,7 +85,7 @@ def parse_command(text: str, default_maestro: str = "otter") -> Command:
         # Other commands with args
         return Command(name=cmd_name, args=cmd_args)
 
-    # Simple commands: /status, /health, /maestros, /org, /comms
+    # Simple commands: /status, /health
     simple_match = re.match(r"^/(\w+)$", text)
     if simple_match:
         return Command(name=simple_match.group(1).lower())

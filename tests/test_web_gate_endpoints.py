@@ -66,7 +66,6 @@ class TestPendingList:
             create_app(
                 process_manager=_pm_with(),
                 mode_request_store=store,
-                default_maestro="otter",
             )
         )
         resp = client.get(
@@ -75,8 +74,8 @@ class TestPendingList:
         )
         assert resp.status_code == 200
         assert resp.json() == {"gates": rows}
-        # Scoped to gate rows for the default maestro.
-        store.list_pending.assert_awaited_once_with("otter", kind="gate")
+        # Scoped to gate rows for the user.
+        store.list_pending.assert_awaited_once_with("user", kind="gate")
 
 
 class TestApprove:

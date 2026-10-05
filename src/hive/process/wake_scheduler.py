@@ -1,5 +1,4 @@
-"""Wake scheduler — auto-wake on inbound peer messages and spawn-kickoff
-flows lifted out of ProcessManager.
+"""Wake scheduler — auto-wake on inbound messages lifted out of ProcessManager.
 
 Collaborator object (Ticket 004): holds a back-reference to the owning
 ProcessManager (``self._mgr``) and reaches all shared state and sibling
@@ -22,12 +21,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SPAWN_KICKOFF_TEXT = (
-    "You've been spawned. Your contract is your system prompt — "
-    "read it, plan, and begin executing. Report back when validation "
-    "passes or you hit a blocker."
-)
-
 _WAKE_ON_INBOUND_TEXT = (
     "Auto-wake: you have new messages in your inbox. Read them, "
     "decide what (if anything) to do, and respond accordingly."
@@ -36,14 +29,13 @@ _WAKE_ON_INBOUND_TEXT = (
 # Bounded wake rate per recipient — guards against runaway A↔B
 # ping-pong. The drain phase prepends every queued message into the
 # next session's prompt, so throttled wakes never lose data: the
-# message stays in the queue and is read by the next wake or the
-# 120m PriorityScheduler tick.
+# message stays in the queue and is read by the next wake.
 _WAKE_BUDGET_WINDOW_SECONDS = 60
 _WAKE_BUDGET_MAX_PER_WINDOW = 6
 
 
 class WakeScheduler:
-    """Auto-wake-on-inbound and spawn-kickoff flows.
+    """Auto-wake-on-inbound flow.
 
     One responsibility cluster lifted out of ProcessManager. All shared
     state lives on the facade and is reached via ``self._mgr``.
@@ -52,52 +44,11 @@ class WakeScheduler:
     def __init__(self, mgr: ProcessManager) -> None:
         self._mgr = mgr
 
-    async def _auto_kickoff(self, target: str) -> None:
-        """Wake a freshly spawned lead by sending the generic kickoff prompt.
-
-        Runs as a detached task after ``_handle_actions`` returns so the
-        parent dispatch's ``_last_*`` tracking isn't reset by the recursive
-        send. Failures are logged + audited but never propagate. The owning
-        maestro (the org root, first dotted segment of the target's name)
-        additionally gets a queued system note (Ticket 023, design D3 —
-        failure F1 left a stillborn lead on the org chart with only a log
-        line). Notifying is this method's whole job; auto-bounce/healing
-        stays Ticket 020.
-        """
-        try:
-            await self._mgr.send_to_entity(target, _SPAWN_KICKOFF_TEXT)
-        except Exception as exc:
-            logger.warning("auto-kickoff for %s failed: %s", target, exc)
-            try:
-                await self._mgr._audit(
-                    "entity.kickoff_failed",
-                    target=target,
-                    details={"reason": str(exc)},
-                    actor="system",
-                )
-            except Exception:
-                logger.exception("audit of kickoff_failed for %s also failed", target)
-            maestro_name = target.split(".")[0]
-            if maestro_name == target:
-                # The target IS an org root — there is no maestro above it
-                # to notify (kickoffs only target leads today).
-                return
-            entity = self._mgr._entities.get(target)
-            role = getattr(entity, "role", "entity")
-            try:
-                await self._mgr.router.route(
-                    "system",
-                    maestro_name,
-                    f"your {role} {target} failed to start: {exc}",
-                )
-            except Exception:
-                logger.exception("spawn-failure note to %s also failed", maestro_name)
-
     def enable_wake_on_inbound(self) -> None:
         """Wire the router so peer messages auto-spawn a session for the recipient.
 
         Called once at startup from ``__main__``. Without this, queued
-        messages sit idle until the 120m ``PriorityScheduler`` tick or
+        messages sit idle until
         a user poke. Opt-in (rather than wired in ``__init__``) so unit
         tests that seed queue state via ``router.route`` aren't
         disturbed by the auto-spawn.
@@ -110,11 +61,11 @@ class WakeScheduler:
         Wake-on-inbound is single-shot: a wake landing while the
         recipient is mid-turn is swallowed by the "already running"
         guard in ``_wake_entity`` and nothing retries — queued mail
-        parks until the 120m scheduler tick. The dispatcher calls this
+        parks until the next wake. The dispatcher calls this
         when a turn completes; if mail arrived DURING the turn (the
         drain phase at turn start emptied everything older), schedule a
         wake through the same budget machinery as inbound wakes. An
-        exhausted budget throttles (no spin) — the 120m tick remains
+        exhausted budget throttles (no spin) — the next wake remains
         the backstop. An empty queue is a free no-op.
         """
         if not self._mgr.router.has_pending(recipient):
@@ -129,7 +80,7 @@ class WakeScheduler:
         recipients (e.g. ``user``) and applies a per-recipient rolling
         rate limit so a chatty A↔B pair can't burn through the API
         budget. Throttled wakes don't lose data: queued messages are
-        still drained on the next wake or the 120m scheduler tick.
+        still drained on the next wake.
         """
         if recipient not in self._mgr._entities:
             return

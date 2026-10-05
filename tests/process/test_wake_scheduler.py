@@ -21,7 +21,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from hive.process.wake_scheduler import (
-    _SPAWN_KICKOFF_TEXT,
     _WAKE_BUDGET_MAX_PER_WINDOW,
     _WAKE_BUDGET_WINDOW_SECONDS,
     _WAKE_ON_INBOUND_TEXT,
@@ -246,55 +245,6 @@ async def test_wake_entity_audits_other_failures(wake: WakeScheduler, mgr: StubM
 # ---------------------------------------------------------------------------
 # _auto_kickoff — spawn kickoff send + failure handling
 # ---------------------------------------------------------------------------
-
-
-async def test_auto_kickoff_sends_spawn_text(wake: WakeScheduler, mgr: StubManager) -> None:
-    """auto_kickoff nudges the freshly spawned target with the kickoff prompt."""
-    await wake._auto_kickoff("dev.backend")
-    assert mgr.sent == [("dev.backend", _SPAWN_KICKOFF_TEXT)]
-
-
-async def test_auto_kickoff_audits_failure_without_raising(
-    wake: WakeScheduler, mgr: StubManager
-) -> None:
-    """A failed kickoff send is audited as ``entity.kickoff_failed``, swallowed."""
-
-    async def boom(name: str, text: str) -> None:
-        raise RuntimeError("spawn race")
-
-    mgr.send_to_entity = boom  # type: ignore[method-assign]
-    await wake._auto_kickoff("dev.backend")  # must not raise
-    actions = [a for (a, _t, _d) in mgr.audit_calls]
-    assert actions.count("entity.kickoff_failed") == 1
-
-
-async def test_auto_kickoff_failure_notes_owning_maestro(
-    wake: WakeScheduler, mgr: StubManager
-) -> None:
-    """A failed kickoff routes a system note to the owning maestro.
-
-    Failure F1 (Ticket 023): a stillborn lead left a corpse on the org
-    chart and a warning in a log nobody reads. The org root (first dotted
-    segment of the target's name) now gets a queued note so wake-on-inbound
-    surfaces the failure.
-    """
-    from types import SimpleNamespace
-
-    mgr._entities["dev.backend"] = SimpleNamespace(role="lead")
-
-    async def boom(name: str, text: str) -> None:
-        raise RuntimeError("failed to recover after 3 attempts")
-
-    mgr.send_to_entity = boom  # type: ignore[method-assign]
-    await wake._auto_kickoff("dev.backend")  # must not raise
-
-    notes = [r for r in mgr.router.routed if r[0] == "system" and r[1] == "dev"]
-    assert len(notes) == 1
-    note_body = notes[0][2]
-    assert "dev.backend" in note_body
-    assert "lead" in note_body
-    assert "failed to start" in note_body
-    assert "failed to recover after 3 attempts" in note_body
 
 
 # ---------------------------------------------------------------------------
