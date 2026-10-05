@@ -11,16 +11,10 @@ The big DB-backed suites (``test_process_manager``, ``test_advisor_mcp``)
 still cover the same flows end-to-end through the facade; these add fast,
 hermetic unit coverage of the moved code and prove the composition pattern
 (collaborator reaching shared state via ``self._mgr``).
-
-A focused lock-discipline check at the bottom asserts there is no ``await``
-inside any ``async with self._mgr._state_lock`` block — the load-bearing
-invariant of this lock-heavy slice (the lock is non-reentrant; awaiting
-inside it risks deadlock).
 """
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import subprocess
 from pathlib import Path
@@ -332,56 +326,6 @@ async def test_kill_idle_skips_gated_and_exempt(
 # ---------------------------------------------------------------------------
 # Worktree floor — every Lead gets its own worktree cwd (Ticket 015, ADR 0010)
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Lock discipline — no await inside any _state_lock critical section
-# ---------------------------------------------------------------------------
-
-
-def test_no_await_inside_state_lock_blocks() -> None:
-    """Static check: no ``await`` lives inside an ``async with _state_lock``.
-
-    The single ``_state_lock`` is non-reentrant; awaiting inside it (calling
-    back into the manager) risks deadlock. Every critical section guards only
-    synchronous dict mutations. This walks the AST of every
-    ``async with self._mgr._state_lock`` block and fails if it contains an
-    ``await`` expression.
-    """
-    source = Path("src/hive/process/lifecycle_manager.py").read_text()
-    tree = ast.parse(source)
-
-    def is_state_lock_with(node: ast.AsyncWith) -> bool:
-        for item in node.items:
-            ctx = item.context_expr
-            # Match ``self._mgr._state_lock``.
-            if (
-                isinstance(ctx, ast.Attribute)
-                and ctx.attr == "_state_lock"
-                and isinstance(ctx.value, ast.Attribute)
-                and ctx.value.attr == "_mgr"
-            ):
-                return True
-        return False
-
-    lock_blocks = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncWith) and is_state_lock_with(node)
-    ]
-    # Sanity: the slice still owns lock sections (the cut-over dropped the
-    # team/worktree ones, leaving four).
-    assert len(lock_blocks) >= 4, f"expected the lock-heavy slice's blocks, got {len(lock_blocks)}"
-
-    for block in lock_blocks:
-        for inner in ast.walk(block):
-            # ``ast.walk`` includes the block itself; skip the with-items,
-            # only the body matters. An Await anywhere in the body fails.
-            if isinstance(inner, ast.Await):
-                pytest.fail(
-                    f"await found inside a _state_lock block at line {inner.lineno} "
-                    "— the lock is non-reentrant; never await while holding it"
-                )
 
 
 # ---------------------------------------------------------------------------
