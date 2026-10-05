@@ -105,7 +105,7 @@ and in Telegram. ADR 0029.
 _Avoid_: runtime (a Runtime is which Harness an Entity is on), transport.
 
 **Runtime**:
-The Harness a given Entity is currently assigned to run on. "Switch a Lead's
+The Harness a given Entity is currently assigned to run on. "Switch the Vault's
 runtime" means "move it to a different Harness."
 
 **Turn**:
@@ -170,9 +170,8 @@ abstraction is a channel).
 **Web Push channel**:
 The **[[Notification channel]]** (Ticket 041) that delivers native push
 notifications to an installed PWA — the iPad's async-ping tier. It filters the
-dispatcher's events to the **actionable set** (the "Needs you" kinds —
-`decision_request`, `mode_request`, `vault_action_pending` — and the "Run
-ended" kinds — `workflow_completed`, `workflow_failed`), signs each with VAPID,
+dispatcher's events to the **actionable set** (`ALERT_KINDS` in
+`notifications/dispatcher.py`: `mode_request`, `vault_action_pending`), signs each with VAPID,
 and POSTs to every stored **[[Push subscription]]**, pruning any the push
 service reports `410 Gone`. Inert until VAPID keys are configured. Requires an
 installed PWA on iOS/iPadOS 16.4+ over HTTPS (ADR 0023).

@@ -83,9 +83,8 @@ the primary surface.
 | `/cost [24h\|7d\|30d]` | Token usage and estimated cost |
 | `/m:<name> <msg>` | Send a message to a named Entity |
 | `/approve` `/deny` `/vault` | Mode-elevation and vault approvals |
-| `/mode <plan\|edit\|auto\|yolo> [entity]` | Set Claude permission mode |
+| `/mode <yolo\|yotree> [entity]` | Set Claude permission mode |
 | `/model <opus\|sonnet\|haiku> [entity]` | Switch Claude model |
-| `/runtime <entity> <harness> [model]` | Switch the Entity's Harness |
 | `/quota` | Plan-quota status (5h + 7d windows) |
 | `/task add "<title>"` | Add a task to the queue |
 | `/tasks` | List all tasks |
