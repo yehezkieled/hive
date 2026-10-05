@@ -26,7 +26,7 @@ Status: the Maestro/Lead runtime, the Project registry and the Telegram requirem
 ## Backlog
 - Plan-quota chip fed by `quota-axi`.
 - Harness view — which Entity runs on which Harness, with each plan's remaining quota.
-- Quota-aware planning — Maestros treat plan quota as a shared, finite budget, a planning input rather than a wall.
+- Quota-aware planning — the first mate treats plan quota as a shared, finite budget, a planning input rather than a wall. (Re-pointed from the retired Maestros by the cut-over, ADR 0033.)
 - The 8 deferred spec features in `docs/archive/AUDIT_2026-05-05.md` § 7 — review and pick any worth doing.
-- Architecture deepening (2026-06-25 audit, each a backend ticket following ADR 0006): ActionRouter split of `message_dispatcher._handle_actions`; turn-coordination collapse into `TranscriptReader.await_turn()`; PhaseConfirmationGate as one owner; EscalationChain unifying ApprovalHandler's four chains; DecisionChannel consolidating the `request_decision` → user flow.
+- Architecture deepening (2026-06-25 audit, each a backend ticket following ADR 0006): ActionRouter split of `message_dispatcher._handle_actions`; turn-coordination collapse into `TranscriptReader.await_turn()`; PhaseConfirmationGate as one owner; EscalationChain unifying ApprovalHandler's four chains; DecisionChannel consolidating the decision → user flow. (Re-pointed from the retired Maestro `request_decision` flow by the cut-over, ADR 0033.)
 - Mid-run Workflow steering (ADR 0014) and new observability widgets.

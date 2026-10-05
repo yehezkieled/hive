@@ -94,9 +94,10 @@ the primary surface.
 
 | Mode | Use case |
 |---|---|
-| `plan` | Read-only — explore and plan, no writes |
-| `edit` | Normal edits, no shell commands |
-| `auto` | Full autonomy (`--dangerously-skip-permissions`) |
+| `yolo` | Full autonomy (`--dangerously-skip-permissions`) |
+| `yotree` | Same as `yolo`; its worktree sandbox retired at the cut-over (ADR 0033) |
+
+`/mode` offers only these two; `plan` mode is reached via the grill-me skill.
 
 ## Configuration
 

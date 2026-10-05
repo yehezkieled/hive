@@ -386,8 +386,7 @@ class ApprovalHandler:
     async def approve_mode_request(self, request_id: int) -> dict | None:
         """Approve a pending mode request and update the requester's mode.
 
-        For ``yotree``, caller is responsible for ensuring a worktree is
-        attached before the next spawn.
+        ``yotree`` is equivalent to ``yolo``; no worktree is attached.
         """
         if self._mgr.mode_request_store is None:
             return None

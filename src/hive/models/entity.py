@@ -183,8 +183,9 @@ PERMISSION_MODES: dict[str, str] = {
     "edit": "default",
     "auto": "bypassPermissions",
     # `yolo` and `yotree` are sentinels — they map to `--dangerously-skip-permissions`
-    # in build_cli_args rather than a `--permission-mode <value>`. yotree additionally
-    # requires a worktree to be attached (enforced at the ProcessManager level).
+    # in build_cli_args rather than a `--permission-mode <value>`. yotree once also
+    # attached a worktree; that machinery retired at the cut-over (ADR 0033), so
+    # yotree now behaves exactly like yolo and survives only as an accepted value.
     "yolo": "yolo",
     "yotree": "yotree",
 }

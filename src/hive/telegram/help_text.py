@@ -98,28 +98,25 @@ HELP_TEXT: dict[str, HelpEntry] = {
         category="Session",
         usage="/compact <entity>",
         description="Summarize an entity's context to free tokens without losing progress.",
-        examples=("/compact dev", "/compact dev.backend.w1"),
+        examples=("/compact vault",),
     ),
     "kill": HelpEntry(
         category="Session",
         usage="/kill <entity>",
         description="Stop an entity's subprocess, which can be respawned by sending a message.",
-        examples=("/kill dev", "/kill dev.backend.w1"),
+        examples=("/kill vault",),
     ),
     "mode": HelpEntry(
         category="Session",
         usage="/mode yolo|yotree <entity>",
         description="Set an entity's permission mode (plan mode is via the grill-me skill).",
-        examples=(
-            "/mode yolo dev",
-            "/mode yotree dev.backend",
-        ),
+        examples=("/mode yolo vault",),
     ),
     "reset": HelpEntry(
         category="Session",
         usage="/reset <entity>",
         description="Kill an entity and clear its session, starting fresh on next message.",
-        examples=("/reset dev.backend.w1",),
+        examples=("/reset vault",),
     ),
     # Resources — alphabetical: cost, files, model
     "cost": HelpEntry(
@@ -139,10 +136,8 @@ HELP_TEXT: dict[str, HelpEntry] = {
         usage="/model opus|sonnet|haiku|opusplan|fable [entity]",
         description="Change entity model; an API-billed model prints a billing warning.",
         examples=(
-            "/model opus dev",
-            "/model sonnet dev.backend",
-            "/model fable dev.backend",
-            "/model opusplan dev.backend",
+            "/model opus vault",
+            "/model sonnet vault",
         ),
     ),
     "quota": HelpEntry(

@@ -22,7 +22,7 @@
 
 ## Permission modes
 - Default is `edit` — safe, with per-tool prompts for dangerous ops.
-- Prefer `yotree` (elevated + sandboxed worktree) for code-heavy work.
-- Use `yolo` only for trivial tasks where a worktree is overhead.
+- `yolo` elevates (`--dangerously-skip-permissions`); `yotree` is now the same
+  as `yolo` — its worktree sandbox retired at the cut-over (ADR 0033).
 - Non-user-owned entities request elevation via
   `request_mode_change` in a hive_actions block with a concrete reason.
