@@ -389,12 +389,13 @@ landscape frame shows the same components reflowing. Everything below is interac
 <section class="sect"><div class="sect__head"><span class="sect__n">4</span><h2 class="sect__title">On-load default</h2>
 <span class="sect__note">No card selected · the bar targets the first mate</span></div>
 <p class="frame__cap">Delegate bar · on load, before any card is tapped <span class="cap-note">— with several projects no card is selected; with a sole project it is selected and targeted.</span></p>
-<div class="ipad ipad--portrait"><div class="screen">
+<div class="ipad ipad--portrait"><div class="screen" data-scope>
 <div class="dbar-wrap"><div class="dbar">
-  <span class="dbar__target">→ first mate</span>
-  <input class="dbar__in" placeholder="Describe a goal…" aria-label="Delegate a goal">
-  <button class="dbar__go">Delegate</button></div>
-  <p class="dbar-note">Delegate to <b>first mate</b> · no project focus · tapping a project card retargets this bar</p></div>
+  <span class="dbar__target" data-target>→ first mate</span>
+  <input class="dbar__in" data-dinput placeholder="Describe a goal…" aria-label="Delegate a goal">
+  <button class="dbar__go" data-dgo>Delegate</button></div>
+  <p class="dbar-note">Delegate to <b data-tname>first mate</b> · no project focus · tapping a project card retargets this bar</p>
+  <p class="toast" data-toast></p></div>
 </div></div></section>
 
 <section class="sect"><div class="sect__head"><span class="sect__n">5</span><h2 class="sect__title">Rules for T004</h2></div>
@@ -418,6 +419,6 @@ document.querySelectorAll('[data-scope]').forEach(function(s){
   s.querySelector('[data-dgo]').addEventListener('click',function(){
     toast.textContent=i.value?('Sent to '+n.textContent+': “'+i.value+'”'):'Type a goal first';i.value='';});
   var q=s.querySelector('[data-qchip]'),p=s.querySelector('.qpop');
-  q.addEventListener('click',function(){p.classList.toggle('is-open')});
+  if(q)q.addEventListener('click',function(){p.classList.toggle('is-open')});
 });
 </script></body></html>
