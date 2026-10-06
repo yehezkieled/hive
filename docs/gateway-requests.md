@@ -61,4 +61,20 @@ Answers a worker's open `needs-decision` (a status-file decision, not a
 captain hold). Captain holds are answered directly with
 the owner-aware `fm-captain-hold.sh answers` intake (web provenance goes in `--source`).
 
+## `HIVE-WEB DELEGATE v1`
+
+```
+HIVE-WEB DELEGATE v1
+project: <project name as shown on the desk>
+to: first mate | second mate
+from: hive web (<owner login>)
+---
+<the goal, in the owner's words>
+```
+
+A goal typed into the Stack home's delegate bar while a project card is
+selected. `to:` names who answers for that project on the desk: `second mate`
+when one owns it (route the goal to that home), else `first mate`. With no
+project selected the bar sends a plain chat note instead.
+
 Plain chat messages are unstructured notes with no marker.

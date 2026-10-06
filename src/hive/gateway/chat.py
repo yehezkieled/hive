@@ -11,13 +11,14 @@ RECEIPTS_SCHEMA = "fm-inbox-receipts.v1"
 TICKET_MARK = "HIVE-WEB TICKET REQUEST"
 MERGE_MARK = "HIVE-WEB MERGE WORD"
 DECISION_MARK = "HIVE-WEB DECISION ANSWER"
+DELEGATE_MARK = "HIVE-WEB DELEGATE"
 
 
 @dataclass
 class Receipt:
     id: str
     at: str
-    kind: str  # chat | ticket | merge | decision
+    kind: str  # chat | ticket | merge | decision | delegate
     body: str
     state: str  # pending | seen | replied
     reply: str | None
@@ -41,6 +42,7 @@ def _kind(body: str) -> str:
         (TICKET_MARK, "ticket"),
         (MERGE_MARK, "merge"),
         (DECISION_MARK, "decision"),
+        (DELEGATE_MARK, "delegate"),
     ):
         if body.startswith(mark):
             return kind

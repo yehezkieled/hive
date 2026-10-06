@@ -8,7 +8,7 @@ import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 from fastapi import FastAPI
 from starlette.requests import Request
@@ -27,6 +27,7 @@ from hive.gateway.chat import load_chat
 from hive.gateway.desk import Desk, build_desk
 from hive.gateway.live import LiveHub
 from hive.gateway.push import PushService, valid_subscription
+from hive.gateway.quota import QuotaProvider
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
 from hive.gateway.tail import peek
@@ -38,13 +39,24 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'none'; style-src 'unsafe-inline'; "
         f"script-src '{pages.SCRIPT_CSP_HASH}'; connect-src 'self'; "
-        "manifest-src 'self'; img-src 'self'; worker-src 'self'; "
+        "manifest-src 'self'; img-src 'self'; worker-src 'self'; font-src 'self'; "
         "base-uri 'none'; form-action 'self'"
     ),
 }
 MAX_BODY = 64 * 1024
 PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
 ICONS_DIR = Path(__file__).resolve().parents[1] / "web" / "static" / "icons"
+FONTS_DIR = Path(__file__).resolve().parent / "static" / "fonts"
+FONT_FILES = frozenset(
+    {
+        "ibm-plex-mono-400.woff2",
+        "ibm-plex-mono-500.woff2",
+        "ibm-plex-mono-600.woff2",
+        "ibm-plex-mono-700.woff2",
+        "nunito.woff2",
+        "nunito-sans.woff2",
+    }
+)
 ICON_FILES = {
     "icon-192.png": "icon-192.png",
     "icon-512.png": "icon-512.png",
@@ -87,7 +99,7 @@ self.addEventListener('notificationclick', function(e){
   }));
 });
 """
-NEXT_RE = re.compile(r"^/(chat|p/[A-Za-z0-9%._~-]{1,200})?$")
+NEXT_RE = re.compile(r"^/(chat|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$")
 
 
 def _safe_next(value: str) -> str:
@@ -95,8 +107,6 @@ def _safe_next(value: str) -> str:
 
 
 def _quote_project(name: str) -> str:
-    from urllib.parse import quote
-
     return "/p/" + quote(name, safe="")
 
 
@@ -107,6 +117,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
+    quota = QuotaProvider(settings)
     tokens = tokens or Tokens()
     runs = RunOnce()
     push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
@@ -137,22 +148,28 @@ def create_app(
             return method_not_allowed()
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        if request.url.path.startswith("/fonts/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "private, max-age=604800"
         return response
 
-    def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
+    async def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
         return pages.Ctx(
             tokens.csrf(),
             writable=snap.ok,
             nxt=nxt,
             board_url=settings.board_url,
             tz=settings.default_tz,
+            quota=await quota.get(),
         )
 
     @app.get("/", response_class=HTMLResponse)
-    async def home() -> HTMLResponse:
-        snap = await provider.get()
+    async def home(focus: str = "") -> HTMLResponse:
+        snap, _ = await asyncio.gather(provider.get(), quota.get())
         desk = build_desk(snap.data) if snap.data is not None else None
-        return HTMLResponse(pages.render_home(snap, desk, ctx_for(snap, "/")))
+        selected = focus if desk is not None and focus in desk.projects else None
+        nxt = "/?focus=" + quote(selected, safe="") if selected else "/"
+        ctx = await ctx_for(snap, nxt)
+        return HTMLResponse(pages.render_home(snap, desk, ctx, selected))
 
     @app.get("/p/{name}", response_class=HTMLResponse)
     async def project(name: str) -> HTMLResponse:
@@ -160,14 +177,14 @@ def create_app(
         desk = build_desk(snap.data) if snap.data is not None else None
         proj = desk.projects.get(name) if desk else None
         status = 200 if (proj or desk is None) else 404
-        ctx = ctx_for(snap, _quote_project(name))
+        ctx = await ctx_for(snap, _quote_project(name))
         return HTMLResponse(pages.render_project(name, snap, proj, ctx), status_code=status)
 
     @app.get("/chat", response_class=HTMLResponse)
     async def chat() -> HTMLResponse:
         snap = await provider.get()
         view = await load_chat(settings)
-        return HTMLResponse(pages.render_chat(view, ctx_for(snap, "/chat")))
+        return HTMLResponse(pages.render_chat(view, await ctx_for(snap, "/chat")))
 
     @app.get("/w/{task}", response_class=HTMLResponse)
     async def watch(task: str) -> HTMLResponse:
@@ -175,7 +192,7 @@ def create_app(
         crew = _find_crew(snap, task)
         if crew is None:
             return pages_error("Not found", "That worker is not listed.", "/", 404)
-        return HTMLResponse(pages.render_watch(crew, ctx_for(snap, "/")))
+        return HTMLResponse(pages.render_watch(crew, await ctx_for(snap, "/")))
 
     @app.get("/w/{task}/out")
     async def watch_out(task: str) -> Response:
@@ -269,6 +286,12 @@ def create_app(
             return PlainTextResponse("not found", status_code=404)
         return Response((ICONS_DIR / fname).read_bytes(), media_type="image/png")
 
+    @app.get("/fonts/{name}")
+    async def font(name: str) -> Response:
+        if name not in FONT_FILES or not (FONTS_DIR / name).is_file():
+            return PlainTextResponse("not found", status_code=404)
+        return Response((FONTS_DIR / name).read_bytes(), media_type="font/woff2")
+
     @app.post("/act/{name}")
     async def act(name: str, request: Request) -> Response:
         body = await request.body()
@@ -357,6 +380,18 @@ async def _dispatch(
     if name == "chat":
         text = actions.check_text(form.get("text", ""), "message")
         return await actions.send_note(settings, text, rid, "chat", "-")
+
+    if name == "delegate":
+        text = actions.check_text(form.get("text", ""), "goal")
+        focus = form.get("project", "")
+        if not focus:  # no project focus: a plain message to the first mate
+            return await actions.send_note(settings, text, rid, "delegate", "-")
+        project = desk.projects.get(focus)
+        if project is None:
+            raise ActionError("Unknown project. Refresh the desk.", 404)
+        to = "second mate" if project.mate else "first mate"
+        body = actions.delegate_body(project.name, to, text, owner)
+        return await actions.send_note(settings, body, rid, "delegate", project.name)
 
     if name == "ticket":
         return await _ticket(form, desk, settings)

@@ -218,6 +218,17 @@ def merge_word_body(task: str, pr_url: str, owner: str) -> str:
     )
 
 
+def delegate_body(project: str, to: str, text: str, owner: str) -> str:
+    return (
+        "HIVE-WEB DELEGATE v1\n"
+        f"project: {project}\n"
+        f"to: {to}\n"
+        f"from: hive web ({owner})\n"
+        "---\n"
+        f"{text}\n"
+    )
+
+
 def decision_note_body(task: str, key: str, text: str, owner: str) -> str:
     return (
         "HIVE-WEB DECISION ANSWER v1\n"

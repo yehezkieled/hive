@@ -485,3 +485,47 @@ def test_audit_line_per_action(client: TestClient, caplog: pytest.LogCaptureFixt
 
 def test_unknown_action_404(client: TestClient) -> None:
     assert post(client, "teardown", task="alpha-build").status_code == 404
+
+
+# ---- delegate bar -----------------------------------------------------------------
+
+
+def test_delegate_without_focus_is_a_plain_note_to_the_first_mate(
+    client: TestClient, home: Path
+) -> None:
+    res = post(client, "delegate", text="Ship the alpha docs", project="")
+    assert res.status_code == 200 and "Sent to the first mate." in res.text
+    (call,) = _calls(home)
+    assert call["argv"] == ["note", "--request-id", RID, "--json", "-"]
+    assert call["stdin"] == "Ship the alpha docs"
+
+
+def test_delegate_to_a_project_names_it_and_who_answers(client: TestClient, home: Path) -> None:
+    res = post(
+        client, "delegate", text="Ship the alpha docs", project="alpha", next="/?focus=alpha"
+    )
+    assert res.status_code == 200 and "href='/?focus=alpha'" in res.text
+    (call,) = _calls(home)
+    assert call["stdin"] == (
+        "HIVE-WEB DELEGATE v1\nproject: alpha\nto: first mate\n"
+        f"from: hive web ({OWNER})\n---\nShip the alpha docs\n"
+    )
+
+
+def test_delegate_to_a_second_mates_project(home: Path) -> None:
+    data = json.loads(FIXTURE.read_text())
+    data["tasks"].append({"id": "beta-mate", "kind": "secondmate", "secondmate_projects": ["beta"]})
+    snap = home / "mate.json"
+    snap.write_text(json.dumps(data))
+    _script(home, "fm-fleet-snapshot.sh", f"cat '{snap}'")
+    settings = GatewaySettings(owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home)
+    c = TestClient(create_app(settings, tokens=CSRF), client=("127.0.0.1", 5000))
+    assert post(c, "delegate", text="Polish beta", project="beta").status_code == 200
+    (call,) = _calls(home)
+    assert "project: beta\nto: second mate\n" in call["stdin"]
+
+
+def test_delegate_refusals(client: TestClient, home: Path) -> None:
+    assert post(client, "delegate", text="x", project="nope").status_code == 404
+    assert post(client, "delegate", text="  ", project="alpha").status_code == 400
+    assert _calls(home) == []
