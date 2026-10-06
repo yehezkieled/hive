@@ -24,7 +24,6 @@ Goal: Telegram becomes an optional ping and Hive's own Entity runtime (Maestro, 
 Status: the Maestro/Lead runtime, the Project registry and the Telegram requirement are retired (ADR 0033); the Vault rail, Telegram as an optional backup and the legacy web app stay until the desk gets vault and mode-approval buttons, after which the typed `/approve` `/deny` `/vault` commands (#293) and the legacy web app go.
 
 ## Backlog
-- Plan-quota chip fed by `quota-axi`.
 - Harness view — which Entity runs on which Harness, with each plan's remaining quota.
 - Quota-aware planning — the first mate treats plan quota as a shared, finite budget, a planning input rather than a wall. (Re-pointed from the retired Maestros by the cut-over, ADR 0033.)
 - The 8 deferred spec features in `docs/archive/AUDIT_2026-05-05.md` § 7 — review and pick any worth doing.
