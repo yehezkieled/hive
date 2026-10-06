@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>T002 · Stack home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Nunito+Sans:wght@400;600;700;800&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Design source: Hive's own design system.
+   Tokens copied verbatim from src/hive/web/static/landing.css
+   ("A.2 Paper Ops") so the mockup shows the real product.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --paper:#faf7ed; --paper-2:#f2ecd8; --paper-soft:#f6f1de; --paper-shadow:rgba(60,45,25,.08);
+  --ink:#1f1812; --ink-2:#3d332a; --ink-3:#6f6356; --ink-4:#a79a89;
+  --rule:#1f1812; --rule-soft:#d9cfb6; --rule-faint:#e8dfc8;
+  --accent:#c8382a; --accent-soft:#f6dcd6;
+  --amber:#b7741a; --amber-soft:#f4e4c8;
+  --honey:#e0a726; --honey-soft:#f9ecc6; --ochre:#8a6a1a;
+  --sage:#4d8a3a; --sage-soft:#d7e6c5;
+  --vault:#1f6a5c; --vault-soft:#cfe3de; --vault-softer:#e5f0ec;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
+  --font-display:"Nunito","Inter",system-ui,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+:where(.grid,.flex)>*{min-width:0}
+/* real flex rows in this file — keep long content wrapping, not overflowing */
+.nyi__head>*,.nyi__actions>*,.nyl__head>*,.work-head>*,.legend>*,.frames>*,.pc__top>*,.dbar>*,.chrome>*{min-width:0}
+:where(p,h1,h2,h3,li,td,th,dd,span,code){overflow-wrap:anywhere}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper-2);color:var(--ink);
+  font-family:var(--font-sans);font-size:13px;line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  padding:22px 16px 72px;
+}
+button,input,label,summary{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+
+.wrap{max-width:1080px;margin:0 auto}
+
+/* ── page chrome ─────────────────────────────────────────── */
+.page-head{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.page-head h1{font-family:var(--font-display);font-weight:900;font-size:22px;letter-spacing:-.4px;margin:0}
+.page-head .kicker{font-family:var(--font-mono);font-size:9.5px;font-weight:600;letter-spacing:1.4px;
+  text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:4px}
+.page-sub{color:var(--ink-3);font-size:12.5px;max-width:70ch;margin:6px 0 20px;line-height:1.6}
+.page-sub code{font-family:var(--font-mono);font-size:11px;background:var(--paper);
+  border:1px solid var(--rule-faint);border-radius:4px;padding:1px 4px}
+
+.sect{margin:0 0 30px}
+.sect__head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  border-bottom:1.5px solid var(--rule);padding-bottom:7px;margin-bottom:14px}
+.sect__n{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:1.4px;
+  color:var(--paper);background:var(--ink);border-radius:999px;padding:3px 9px}
+.sect__title{font-family:var(--font-display);font-weight:800;font-size:15.5px;margin:0}
+.sect__note{font-size:11.5px;color:var(--ink-3);margin-left:auto}
+
+/* ── the lane (one component, two sizes) ─────────────────── */
+.nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
+  box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
+.nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
+.nyl__glyph{color:var(--accent);font-size:14px;line-height:1}
+.nyl__title{font-family:var(--font-display);font-weight:800;font-size:14px}
+.nyl__count{margin-left:auto;font-family:var(--font-mono);font-size:10px;font-weight:700;
+  letter-spacing:1px;background:var(--accent);color:#fff;padding:2px 9px;border-radius:999px}
+.nyl__body{padding:12px;display:flex;flex-direction:column;gap:10px}
+
+/* one item */
+.nyi{background:var(--paper);border:1px solid var(--rule-soft);border-left-width:4px;
+  border-radius:12px;padding:11px 12px 12px}
+.nyi--errored{border-left-color:var(--accent)}
+.nyi--decision{border-left-color:var(--honey)}
+.nyi--gate{border-left-color:var(--ochre)}
+.nyi--mode{border-left-color:var(--amber)}
+.nyi--vault{border-left-color:var(--vault)}
+
+.nyi__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  border-radius:7px;padding:2px 4px;margin:-2px -4px 8px;cursor:pointer}
+.nyi__head:hover{background:var(--paper-soft)}
+.state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.state-dot--active{background:var(--sage)}
+.state-dot--idle{background:var(--ink-4)}
+.state-dot--error{background:var(--accent)}
+.state-dot--gated{background:var(--honey)}
+.nyi__entity{font-family:var(--font-mono);font-weight:600;font-size:12px;color:var(--ink)}
+.nyi__kind{font-family:var(--font-mono);font-size:8.5px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule-faint);
+  border-radius:999px;padding:1px 7px;background:var(--paper-soft);white-space:nowrap}
+.nyi--errored .nyi__kind{color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft)}
+.nyi--gate .nyi__kind{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
+.nyi--vault .nyi__kind{color:var(--vault);border-color:var(--vault-soft);background:var(--vault-softer)}
+.nyi__sub{font-family:var(--font-mono);font-size:8.5px;font-weight:600;letter-spacing:.8px;
+  text-transform:uppercase;color:var(--ink-4)}
+.nyi__open{margin-left:auto;font-family:var(--font-mono);font-size:9px;color:var(--ink-4);white-space:nowrap}
+.nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
+.nyi__summary b{color:var(--ink);font-weight:700}
+.nyi__summary code{font-family:var(--font-mono);font-size:11px;background:var(--paper-soft);
+  border:1px solid var(--rule-faint);border-radius:4px;padding:0 4px}
+
+/* the collapsed plan body a plan-mode gate carries */
+.nyi__plan{margin:0 0 9px;border:1px solid var(--rule-faint);border-radius:8px;background:var(--paper-soft)}
+.nyi__plan>summary{list-style:none;cursor:pointer;padding:6px 10px;font-family:var(--font-mono);
+  font-size:10px;font-weight:600;letter-spacing:.4px;color:var(--ink-3);display:flex;gap:6px;align-items:center}
+.nyi__plan>summary::-webkit-details-marker{display:none}
+.nyi__plan>summary::before{content:"▸";font-size:9px}
+.nyi__plan[open]>summary::before{content:"▾"}
+.nyi__plan-body{padding:0 12px 10px;font-size:11.5px;color:var(--ink-2);line-height:1.55}
+.nyi__plan-body ol{margin:0;padding-left:17px}
+.nyi__plan-body li{margin-bottom:3px}
+
+.nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.nyi__reply{flex:1 1 140px;min-width:0;font-family:var(--font-mono);font-size:11px;
+  padding:6px 9px;border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
+.nyi__reply::placeholder{color:var(--ink-4)}
+.btn{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.4px;
+  padding:6px 12px;border:1.5px solid var(--rule);border-radius:7px;
+  background:var(--paper);color:var(--ink);cursor:pointer;white-space:nowrap}
+.btn:active{transform:translateY(1px)}
+.btn--go{background:var(--ink);color:var(--paper)}
+.btn--allow{border-color:var(--sage);color:var(--sage)}
+.btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
+.btn--vault{border-color:var(--vault);color:var(--vault)}
+.btn--reset{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.btn--opt{border-color:var(--ochre);color:var(--ochre);background:var(--honey-soft)}
+.nyi__hint{font-family:var(--font-mono);font-size:9px;color:var(--ink-4);
+  margin:7px 0 0;display:flex;align-items:center;gap:5px}
+
+/* ── compact size: the Work-view strip ───────────────────── */
+.nyl--compact{border-radius:12px;box-shadow:none}
+.nyl--compact .nyl__head{padding:9px 12px}
+.nyl--compact .nyl__title{font-size:12.5px}
+.nyl--compact .nyl__body{padding:8px;gap:7px}
+.nyl--compact .nyi{padding:8px 9px 9px;border-radius:9px;border-left-width:3px}
+.nyl--compact .nyi__head{margin-bottom:6px}
+.nyl--compact .nyi__summary{font-size:11.5px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nyl--compact .nyi__plan,.nyl--compact .nyi__hint{display:none}
+.nyl--compact .btn{font-size:9px;padding:5px 9px}
+.nyl--compact .nyi__open{display:none}
+
+/* ── calm empty state ────────────────────────────────────── */
+.calm{text-align:center;padding:34px 16px}
+.calm__check{font-size:26px;color:var(--sage);line-height:1}
+.calm__line{font-family:var(--font-display);font-weight:800;font-size:15px;margin:8px 0 2px}
+.calm__sub{font-family:var(--font-mono);font-size:10px;color:var(--ink-3);letter-spacing:.5px}
+.nyl--calm .nyl__head{border-bottom-color:var(--rule-faint)}
+.nyl--calm .nyl__glyph{color:var(--sage)}
+.nyl--calm .nyl__count{background:var(--sage-soft);color:var(--ochre)}
+
+/* ── T002 additions ─────────────────────────────────────── */
+.frames{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.frame__cap{font-family:var(--font-mono);font-size:9.5px;font-weight:600;letter-spacing:1.1px;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.cap-note{font-family:var(--font-sans);text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink-3);font-size:11.5px}
+.ipad{border:1.5px solid var(--rule);border-radius:22px;background:var(--paper-2);padding:12px;
+  box-shadow:0 8px 24px var(--paper-shadow);margin:0 auto}
+.ipad--portrait{max-width:520px}
+.ipad--landscape{max-width:860px}
+.screen{display:flex;flex-direction:column;gap:12px;min-height:0}
+/* touch targets: every tappable control >= 44px (carried from T001) */
+.screen .btn,.screen .nyi__reply,.screen .nyi__head,.screen .dbar__go,.screen .qchip,.screen .pc{min-height:44px}
+.screen .btn{padding:0 14px;display:inline-flex;align-items:center;font-size:11px}
+.screen .nyi__reply{font-size:12px}
+.screen .nyi__head{align-items:center}
+
+.chrome{display:flex;align-items:center;gap:10px;padding:2px 2px 0}
+.chrome__brand{font-family:var(--font-display);font-weight:900;font-size:17px;letter-spacing:-.3px}
+.chrome__brand span{color:var(--accent)}
+.chrome__sp{margin-left:auto}
+.qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
+  background:var(--paper);padding:0 12px;font-family:var(--font-mono);font-size:11px;font-weight:700;
+  cursor:pointer;color:var(--ink)}
+.qchip__bar{width:30px;height:5px;border-radius:3px;background:var(--rule-faint);overflow:hidden;display:inline-block}
+.qchip__bar i{display:block;height:100%;background:var(--sage)}
+.qchip--warn{border-color:var(--amber)}.qchip--warn .qchip__bar i{background:var(--amber)}
+.qchip--hot{border-color:var(--accent);background:var(--accent-soft)}.qchip--hot .qchip__bar i{background:var(--accent)}
+.qpop{display:none;position:absolute;right:0;top:50px;z-index:5;background:var(--paper);border:1.5px solid var(--rule);
+  border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px var(--paper-shadow);font-family:var(--font-mono);
+  font-size:10.5px;min-width:210px;color:var(--ink-2)}
+.qpop.is-open{display:block}
+.qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
+.qpop b{color:var(--ink)}
+.qwrap{position:relative}
+
+/* hero calm variant: quiet, short */
+.nyl--calm .calm{padding:16px 16px 18px}
+.nyl--calm .calm__check{font-size:20px}
+
+/* project glance cards */
+.sec-label{font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;
+  color:var(--ink-3);margin:2px 2px -4px}
+.pcs{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.pcs--cols{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pc{display:flex;flex-direction:column;gap:7px;text-align:left;width:100%;font:inherit;color:inherit;
+  background:var(--paper);border:1.5px solid var(--rule-soft);border-left-width:4px;border-radius:12px;
+  padding:11px 12px;cursor:pointer}
+.pc:hover{background:var(--paper-soft)}
+.pc--running{border-left-color:var(--sage)}
+.pc--idle{border-left-color:var(--ink-4)}
+.pc--blocked{border-left-color:var(--accent)}
+.pc.is-selected{border-color:var(--rule);border-left-width:4px;background:var(--honey-soft);
+  box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
+.pc__top{display:flex;align-items:center;gap:8px}
+.pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
+.pc__status{margin-left:auto;font-family:var(--font-mono);font-size:8.5px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);background:var(--paper-soft);color:var(--ink-3)}
+.pc--running .pc__status{background:var(--sage-soft);color:var(--sage);border-color:var(--sage-soft)}
+.pc--blocked .pc__status{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-soft)}
+.pc__now{font-size:12px;color:var(--ink-2);margin:0}
+.pc__now b{color:var(--ink)}
+.pc__prog{display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:10px;color:var(--ink-3)}
+.pc__track{flex:1;height:6px;border-radius:3px;background:var(--rule-faint);overflow:hidden}
+.pc__track i{display:block;height:100%;background:var(--sage)}
+.pc--blocked .pc__track i{background:var(--accent)}
+.pc--idle .pc__track i{background:var(--ink-4)}
+.pc__open{font-family:var(--font-mono);font-size:9px;color:var(--ink-4);display:none}
+.pc.is-selected .pc__open{display:inline;color:var(--ink-2);font-weight:600}
+.pc__mae{font-family:var(--font-mono);font-size:10px;color:var(--ink-3)}
+
+/* delegate bar */
+.dbar{display:flex;align-items:center;gap:8px;background:var(--ink);color:var(--paper);border-radius:16px;padding:8px 8px 8px 12px}
+.dbar__target{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.6px;white-space:nowrap;
+  background:var(--honey);color:var(--ink);border-radius:999px;padding:4px 10px}
+.dbar__in{flex:1;min-width:0;min-height:44px;background:transparent;border:0;color:var(--paper);font:13px var(--font-sans);outline:none}
+.dbar__in::placeholder{color:#a79a89}
+.dbar__go{font-family:var(--font-mono);font-size:11px;font-weight:700;border:0;border-radius:10px;padding:0 16px;
+  background:var(--paper);color:var(--ink);cursor:pointer}
+.dbar-wrap{position:relative}
+.dbar-note{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);margin:6px 4px 0}
+
+/* landscape reflow */
+.land{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:start}
+.land__col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.land .pcs{grid-template-columns:repeat(1,minmax(0,1fr))}
+.land .pcs--cols{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:760px){.land{grid-template-columns:minmax(0,1fr)}}
+.note{background:var(--paper);border:1.5px solid var(--rule-soft);border-radius:12px;padding:14px 16px}
+.note h3{font-family:var(--font-display);font-weight:800;font-size:13.5px;margin:0 0 6px}
+.note ul{margin:0;padding-left:18px;font-size:12px;color:var(--ink-2);line-height:1.6}
+.note code{font-family:var(--font-mono);font-size:11px;background:var(--paper-soft);border:1px solid var(--rule-faint);border-radius:4px;padding:0 4px}
+.toast{font-family:var(--font-mono);font-size:10px;color:var(--ink-3);margin:6px 4px 0;min-height:14px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="page-head"><div><span class="kicker">Ticket T002 · epic E01 · milestone M1</span><h1>The Stack home</h1></div></header>
+<p class="page-sub">The Delegator's Desk landing: <b>default calm, exceptions loud</b>. Hero = the T001 needs-you lane
+(reused verbatim: <code>.nyl</code> / <code>.nyi</code>, same tokens from <code>landing.css</code>), then project-glance cards,
+a delegate bar that is always present, and one ambient quota chip in the chrome. Portrait iPad is the real layout; the
+landscape frame shows the same components reflowing. Everything below is interactive: tap a card, tap the quota chip, type in the bar.</p>
+
+<section class="sect"><div class="sect__head"><span class="sect__n">1</span><h2 class="sect__title">Portrait · loud</h2>
+<span class="sect__note">Hero populated · every project with a needs-you item is blocked · quota at 71% (warn)</span></div>
+<p class="frame__cap">Stack home · portrait iPad · the real layout · after the captain selected hive <span class="cap-note">— tapping a card selects it, retargets the delegate bar, and (in the app) opens/focuses that project's Work-view tab (T003).</span></p>
+<div class="ipad ipad--portrait"><div class="screen" data-scope>
+<div class="chrome">
+  <span class="chrome__brand">hive<span>.</span></span>
+  <span class="chrome__sp"></span>
+  <div class="qwrap">
+    <button class="qchip qchip--warn" data-qchip aria-label="Plan quota, worst window 71 percent">
+      <span class="qchip__bar"><i style="width:71%"></i></span>71%</button>
+    <div class="qpop"><div><span>5-hour window</span><b>71% · resets 2h 10m</b></div><div><span>7-day window</span><b>38% · resets Tue</b></div>
+      <div style="color:var(--ink-4)"><span>account-wide · shared with your own use</span></div></div>
+  </div>
+</div>
+<section class="nyl"><div class="nyl__head"><span class="nyl__glyph" aria-hidden="true">◆</span><span class="nyl__title">Needs you</span><span class="nyl__count">3</span></div>
+<div class="nyl__body"><article class="nyi nyi--errored"><header class="nyi__head" title="open blog · crew 3's Work tab">
+ <span class="state-dot state-dot--error"></span><span class="nyi__entity">blog · crew 3</span><span class="nyi__kind">errored</span><span class="nyi__open">open tab ↗</span>
+ <p class="nyi__summary">Loop <b>errored</b> after 3 bounces in 10 min — session wedged.</p></header><div class="nyi__actions"><button class="btn btn--reset">↻ Reset session</button><button class="btn btn--deny">Dismiss</button></div></article><article class="nyi nyi--decision"><header class="nyi__head" title="open finance-app · crew 1's Work tab">
+ <span class="state-dot state-dot--idle"></span><span class="nyi__entity">finance-app · crew 1</span><span class="nyi__kind">decision</span><span class="nyi__open">open tab ↗</span>
+ <p class="nyi__summary">Which CSV dialect should import assume — <b>US</b> or <b>EU</b> decimals?</p></header><div class="nyi__actions"><input class="nyi__reply" placeholder="Reply to finance-app · crew 1…" aria-label="Reply to finance-app · crew 1"><button class="btn btn--go">Send</button></div></article><article class="nyi nyi--gate"><header class="nyi__head" title="open hive · crew 2's Work tab">
+ <span class="state-dot state-dot--gated"></span><span class="nyi__entity">hive · crew 2</span><span class="nyi__kind">gate</span><span class="nyi__sub">plan</span><span class="nyi__open">open tab ↗</span>
+ <p class="nyi__summary">Waiting at <b>plan approval</b> — “Migrate the session store to Postgres”.</p></header><div class="nyi__actions"><button class="btn btn--allow">Approve plan</button><button class="btn btn--deny">Reject</button></div></article></div></section>
+<p class="sec-label">Projects · tap to focus</p>
+<div class="pcs"><button class="pc pc--blocked" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — CSV dialect decision (see Needs you)</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:62%"></i></span>5 / 8 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--blocked is-selected" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="true">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">hive</span><span class="pc__mae">second mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — plan approval (see Needs you)</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:40%"></i></span>2 / 5 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--blocked" data-card data-maestro="first mate · blog" data-name="blog" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">blog</span><span class="pc__mae">first mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — crew 3 errored (see Needs you)</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:50%"></i></span>3 / 6 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button></div>
+<div class="dbar-wrap"><div class="dbar">
+  <span class="dbar__target" data-target>→ second mate · hive</span>
+  <input class="dbar__in" data-dinput placeholder="Describe a goal…" aria-label="Delegate a goal">
+  <button class="dbar__go" data-dgo>Delegate</button></div>
+  <p class="dbar-note">Delegate to <b data-tname>second mate · hive</b> · tapping a project card retargets this bar</p>
+  <p class="toast" data-toast></p></div>
+</div></div></section>
+
+<section class="sect"><div class="sect__head"><span class="sect__n">2</span><h2 class="sect__title">Portrait · calm</h2>
+<span class="sect__note">Empty hero collapses to a quiet line · quota 18% (calm)</span></div>
+<p class="frame__cap">Stack home · portrait iPad · nothing needs you · after the captain selected finance-app</p>
+<div class="ipad ipad--portrait"><div class="screen" data-scope>
+<div class="chrome">
+  <span class="chrome__brand">hive<span>.</span></span>
+  <span class="chrome__sp"></span>
+  <div class="qwrap">
+    <button class="qchip qchip--ok" data-qchip aria-label="Plan quota, worst window 18 percent">
+      <span class="qchip__bar"><i style="width:18%"></i></span>18%</button>
+    <div class="qpop"><div><span>5-hour window</span><b>18% · resets 4h 02m</b></div><div><span>7-day window</span><b>12% · resets Tue</b></div>
+      <div style="color:var(--ink-4)"><span>account-wide · shared with your own use</span></div></div>
+  </div>
+</div>
+<section class="nyl nyl--calm"><div class="nyl__head"><span class="nyl__glyph" aria-hidden="true">◆</span><span class="nyl__title">Needs you</span><span class="nyl__count">0</span></div>
+<div class="calm"><div class="calm__check">✓</div><p class="calm__line">✓ all clear · 2 loops running</p><p class="calm__sub">nothing needs you</p></div></section>
+<p class="sec-label">Projects · tap to focus</p>
+<div class="pcs"><button class="pc pc--running is-selected" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="true">
+  <span class="pc__top"><span class="state-dot state-dot--active"></span>
+    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">running</span></span>
+  <p class="pc__now"><b>Building</b> the CSV import · 3 leaf agents in flight</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:62%"></i></span>5 / 8 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--running" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--active"></span>
+    <span class="pc__name">hive</span><span class="pc__mae">second mate</span><span class="pc__status">running</span></span>
+  <p class="pc__now"><b>Building</b> the session-store migration · plan approved</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:40%"></i></span>2 / 5 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--idle" data-card data-maestro="first mate · blog" data-name="blog" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--idle"></span>
+    <span class="pc__name">blog</span><span class="pc__mae">first mate</span><span class="pc__status">idle</span></span>
+  <p class="pc__now">Idle · last run finished 2h ago, 4 posts drafted</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:100%"></i></span>done<span class="pc__open">· opens Work tab ↗</span></span>
+</button></div>
+<div class="dbar-wrap"><div class="dbar">
+  <span class="dbar__target" data-target>→ first mate · finance-app</span>
+  <input class="dbar__in" data-dinput placeholder="Describe a goal…" aria-label="Delegate a goal">
+  <button class="dbar__go" data-dgo>Delegate</button></div>
+  <p class="dbar-note">Delegate to <b data-tname>first mate · finance-app</b> · tapping a project card retargets this bar</p>
+  <p class="toast" data-toast></p></div>
+</div></div></section>
+
+<section class="sect"><div class="sect__head"><span class="sect__n">3</span><h2 class="sect__title">Landscape reflow</h2>
+<span class="sect__note">Same components, two columns · lane stays the hero · quota hot (93%)</span></div>
+<p class="frame__cap">Stack home · landscape iPad · not a separate design · after the captain selected finance-app</p>
+<div class="ipad ipad--landscape"><div class="screen" data-scope>
+<div class="chrome">
+  <span class="chrome__brand">hive<span>.</span></span>
+  <span class="chrome__sp"></span>
+  <div class="qwrap">
+    <button class="qchip qchip--hot" data-qchip aria-label="Plan quota, worst window 93 percent">
+      <span class="qchip__bar"><i style="width:93%"></i></span>93%</button>
+    <div class="qpop"><div><span>5-hour window</span><b>93% · resets 25m</b></div><div><span>7-day window</span><b>61% · resets Tue</b></div>
+      <div style="color:var(--ink-4)"><span>account-wide · shared with your own use</span></div></div>
+  </div>
+</div>
+<div class="land">
+ <div class="land__col"><section class="nyl"><div class="nyl__head"><span class="nyl__glyph" aria-hidden="true">◆</span><span class="nyl__title">Needs you</span><span class="nyl__count">2</span></div>
+<div class="nyl__body"><article class="nyi nyi--decision"><header class="nyi__head" title="open finance-app · crew 1's Work tab">
+ <span class="state-dot state-dot--idle"></span><span class="nyi__entity">finance-app · crew 1</span><span class="nyi__kind">decision</span><span class="nyi__open">open tab ↗</span>
+ <p class="nyi__summary">Which CSV dialect should import assume — <b>US</b> or <b>EU</b> decimals?</p></header><div class="nyi__actions"><input class="nyi__reply" placeholder="Reply to finance-app · crew 1…" aria-label="Reply to finance-app · crew 1"><button class="btn btn--go">Send</button></div></article><article class="nyi nyi--gate"><header class="nyi__head" title="open hive · crew 2's Work tab">
+ <span class="state-dot state-dot--gated"></span><span class="nyi__entity">hive · crew 2</span><span class="nyi__kind">gate</span><span class="nyi__sub">plan</span><span class="nyi__open">open tab ↗</span>
+ <p class="nyi__summary">Waiting at <b>plan approval</b> — “Migrate the session store to Postgres”.</p></header><div class="nyi__actions"><button class="btn btn--allow">Approve plan</button><button class="btn btn--deny">Reject</button></div></article></div></section></div>
+ <div class="land__col"><p class="sec-label">Projects · tap to focus</p><div class="pcs"><button class="pc pc--blocked is-selected" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="true">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — CSV dialect decision (see Needs you)</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:62%"></i></span>5 / 8 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--blocked" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">hive</span><span class="pc__mae">second mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — plan approval (see Needs you)</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:40%"></i></span>2 / 5 tasks<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--idle" data-card data-maestro="first mate · blog" data-name="blog" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--idle"></span>
+    <span class="pc__name">blog</span><span class="pc__mae">first mate</span><span class="pc__status">idle</span></span>
+  <p class="pc__now">Idle · last run finished 2h ago, 4 posts drafted</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:100%"></i></span>done<span class="pc__open">· opens Work tab ↗</span></span>
+</button></div></div>
+</div>
+<div class="dbar-wrap"><div class="dbar">
+  <span class="dbar__target" data-target>→ first mate · finance-app</span>
+  <input class="dbar__in" data-dinput placeholder="Describe a goal…" aria-label="Delegate a goal">
+  <button class="dbar__go" data-dgo>Delegate</button></div>
+  <p class="dbar-note">Delegate to <b data-tname>first mate · finance-app</b> · tapping a project card retargets this bar</p>
+  <p class="toast" data-toast></p></div>
+</div></div></section>
+
+<section class="sect"><div class="sect__head"><span class="sect__n">4</span><h2 class="sect__title">On-load default</h2>
+<span class="sect__note">No card selected · the bar targets the first mate</span></div>
+<p class="frame__cap">Delegate bar · on load, before any card is tapped <span class="cap-note">— with several projects no card is selected; with a sole project it is selected and targeted.</span></p>
+<div class="ipad ipad--portrait"><div class="screen" data-scope>
+<div class="dbar-wrap"><div class="dbar">
+  <span class="dbar__target" data-target>→ first mate</span>
+  <input class="dbar__in" data-dinput placeholder="Describe a goal…" aria-label="Delegate a goal">
+  <button class="dbar__go" data-dgo>Delegate</button></div>
+  <p class="dbar-note">Delegate to <b data-tname>first mate</b> · no project focus · tapping a project card retargets this bar</p>
+  <p class="toast" data-toast></p></div>
+</div></div></section>
+
+<section class="sect"><div class="sect__head"><span class="sect__n">5</span><h2 class="sect__title">Rules for T004</h2></div>
+<div class="note"><h3>Settled in grilling (2026-09-14)</h3><ul>
+<li><b>Delegate target = card selects it.</b> One target, no picker. Default on load: the first mate with no project focus, or the sole project.</li>
+<li><b>Quota chip = worst of the two windows</b> (5-hour vs 7-day), as a percent; calm (&lt;60) → warn (60–85) → hot (&gt;85). Tap reveals both.</li>
+<li><b>Card states:</b> running (sage) · idle (grey) · blocked (red, i.e. a needs-you item exists). Each shows current activity and progress. The chip names the answering agent (first mate or a project's second mate), per ADR 0030/0033.</li>
+<li><b>Touch:</b> every tappable control ≥ 44px tall.</li>
+<li><b>Approved</b> by the captain 2026-10-06. Re-pointed after the Maestro retirement (ADR 0033): the delegate target is the first mate or a project's second mate, not a Maestro.</li>
+<li>Out of scope: Work view internals (T003), project create/manage (T011).</li></ul></div></section>
+</div>
+<script>
+document.querySelectorAll('[data-scope]').forEach(function(s){
+  var t=s.querySelector('[data-target]'),n=s.querySelector('[data-tname]'),i=s.querySelector('[data-dinput]'),toast=s.querySelector('[data-toast]');
+  s.querySelectorAll('[data-card]').forEach(function(c){c.addEventListener('click',function(){
+    s.querySelectorAll('[data-card]').forEach(function(o){o.classList.remove('is-selected');o.setAttribute('aria-pressed','false')});
+    c.classList.add('is-selected');c.setAttribute('aria-pressed','true');
+    var m=c.dataset.maestro;t.textContent='→ '+m;n.textContent=m;
+    toast.textContent='Focused '+c.dataset.name+' — opens its Work-view tab (T003)';
+  })});
+  s.querySelector('[data-dgo]').addEventListener('click',function(){
+    toast.textContent=i.value?('Sent to '+n.textContent+': “'+i.value+'”'):'Type a goal first';i.value='';});
+  var q=s.querySelector('[data-qchip]'),p=s.querySelector('.qpop');
+  if(q)q.addEventListener('click',function(){p.classList.toggle('is-open')});
+});
+</script></body></html>
