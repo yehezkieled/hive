@@ -53,6 +53,7 @@ class GatewaySettings:
     quota_axi: Path | None = None
     quota_ttl_s: float = 60.0
     quota_timeout_s: float = 15.0
+    quota_first_wait_s: float = 1.0
 
     @property
     def state_dir(self) -> Path:

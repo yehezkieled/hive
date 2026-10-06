@@ -3,9 +3,11 @@ bar and quota chip, rendered from synthetic snapshots and a fake ``quota-axi``."
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import stat
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -277,6 +279,19 @@ async def test_quota_provider_serves_stale_while_refreshing(tmp_path: Path) -> N
     assert (await provider.get()).worst.used == 50
     assert len(counter.read_text().splitlines()) == 1
     assert await QuotaProvider(GatewaySettings()).get() is None
+
+
+async def test_quota_provider_does_not_hold_a_cold_page(tmp_path: Path) -> None:
+    fake = _exe(tmp_path / "quota-axi", f"sleep 0.5; echo '{_quota_json(20, 30)}'")
+    provider = QuotaProvider(GatewaySettings(quota_axi=fake, quota_first_wait_s=0.05))
+    start = time.monotonic()
+    assert await provider.get() is None
+    assert time.monotonic() - start < 0.4
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        if (q := await provider.get()) is not None:
+            break
+    assert q is not None and q.worst.used == 80
 
 
 def test_quota_axi_setting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -3,8 +3,9 @@
 The chip shows the worse of the Claude plan's two account-wide windows (5-hour and
 7-day) as a percent used; tapping it shows both. ``quota-axi`` runs with
 ``--no-credential-refresh`` so a page load never renews a login. Reads are cached and
-refreshed in the background, so a slow or missing ``quota-axi`` never holds a page up:
-the chip then says the quota is unknown.
+refreshed in the background; a page waits at most ``quota_first_wait_s`` on a cold
+cache, so a slow or missing ``quota-axi`` never holds a page up: the chip then says the
+quota is unknown until the refresh lands.
 """
 
 from __future__ import annotations
@@ -112,7 +113,7 @@ async def read_quota(settings: GatewaySettings) -> Quota | None:
 
 
 class QuotaProvider:
-    """Stale-while-revalidate cache: only the very first read waits for ``quota-axi``."""
+    """Stale-while-revalidate cache: only a cold read waits, and only briefly."""
 
     def __init__(self, settings: GatewaySettings) -> None:
         self._settings = settings
@@ -130,7 +131,12 @@ class QuotaProvider:
         if self._at is None:
             if self._task is None or self._task.done():
                 self._task = asyncio.ensure_future(self._refresh())
-            await asyncio.shield(self._task)
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(self._task), self._settings.quota_first_wait_s
+                )
+            except TimeoutError:
+                return None
         elif time.monotonic() - self._at > self._settings.quota_ttl_s and (
             self._task is None or self._task.done()
         ):
