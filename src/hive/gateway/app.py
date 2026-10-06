@@ -27,7 +27,7 @@ from hive.gateway.chat import load_chat
 from hive.gateway.desk import Desk, build_desk
 from hive.gateway.live import LiveHub
 from hive.gateway.push import PushService, valid_subscription
-from hive.gateway.quota import QuotaProvider
+from hive.gateway.quota import Quota, QuotaProvider
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
 from hive.gateway.tail import peek
@@ -152,23 +152,26 @@ def create_app(
             response.headers["Cache-Control"] = "private, max-age=604800"
         return response
 
-    async def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
+    def make_ctx(snap: Snapshot, nxt: str, q: Quota | None) -> pages.Ctx:
         return pages.Ctx(
             tokens.csrf(),
             writable=snap.ok,
             nxt=nxt,
             board_url=settings.board_url,
             tz=settings.default_tz,
-            quota=await quota.get(),
+            quota=q,
         )
+
+    async def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
+        return make_ctx(snap, nxt, await quota.get())
 
     @app.get("/", response_class=HTMLResponse)
     async def home(focus: str = "") -> HTMLResponse:
-        snap, _ = await asyncio.gather(provider.get(), quota.get())
+        snap, q = await asyncio.gather(provider.get(), quota.get())
         desk = build_desk(snap.data) if snap.data is not None else None
         selected = focus if desk is not None and focus in desk.projects else None
         nxt = "/?focus=" + quote(selected, safe="") if selected else "/"
-        ctx = await ctx_for(snap, nxt)
+        ctx = make_ctx(snap, nxt, q)
         return HTMLResponse(pages.render_home(snap, desk, ctx, selected))
 
     @app.get("/p/{name}", response_class=HTMLResponse)

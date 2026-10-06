@@ -294,6 +294,26 @@ async def test_quota_provider_does_not_hold_a_cold_page(tmp_path: Path) -> None:
     assert q is not None and q.worst.used == 80
 
 
+def test_home_waits_once_on_a_cold_slow_quota(tmp_path: Path) -> None:
+    snap = tmp_path / "snap.json"
+    snap.write_text(json.dumps(_calm()))
+    _exe(tmp_path / "bin" / "fm-fleet-snapshot.sh", f"cat '{snap}'")
+    fake = _exe(tmp_path / "q" / "quota-axi", f"sleep 5; echo '{_quota_json(20, 30)}'")
+    settings = GatewaySettings(
+        owner_login=OWNER,
+        allowed_hosts=(HOST,),
+        fm_home=tmp_path,
+        snapshot_ttl_s=0,
+        quota_axi=fake,
+        quota_first_wait_s=0.5,
+    )
+    client = TestClient(create_app(settings), client=("127.0.0.1", 5000))
+    start = time.monotonic()
+    html = client.get("/", headers=GOOD).text
+    assert time.monotonic() - start < 0.9
+    assert "qchip--unknown" in html
+
+
 def test_quota_axi_setting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HIVE_GATEWAY_QUOTA_AXI", "off")
     assert GatewaySettings.from_env().quota_axi is None
