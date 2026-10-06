@@ -178,6 +178,14 @@ def test_focus_selects_a_card_and_retargets_the_bar(tmp_path: Path) -> None:
     assert "is-selected' href" not in c.get("/?focus=nope", headers=GOOD).text
 
 
+def test_delegate_and_reply_inputs_are_text_entries(tmp_path: Path) -> None:
+    html = _client(tmp_path, json.loads(FIXTURE.read_text())).get("/", headers=GOOD).text
+    inputs = re.findall(r"<input [^>]*class=(dbar__in|nyi__reply)[^>]*>", html)
+    assert "dbar__in" in inputs and "nyi__reply" in inputs
+    for tag in re.findall(r"<input [^>]*class=(?:dbar__in|nyi__reply)[^>]*>", html):
+        assert tag.startswith("<input type=text "), tag
+
+
 def test_safe_next_allows_a_focused_home_only() -> None:
     assert _safe_next("/?focus=finance-app") == "/?focus=finance-app"
     assert _safe_next("/?focus=a&x=1") == "/"
@@ -196,7 +204,7 @@ def test_touch_targets_and_fonts_are_self_hosted(tmp_path: Path) -> None:
     assert c.get("/fonts/../app.py", headers=GOOD).status_code == 404
     assert c.get("/fonts/x.woff2", headers=GOOD).status_code == 404
     css = res.text.split("<style>", 1)[1].split("</style>", 1)[0]
-    for cls in (".pc{", ".btn{", ".nyi__reply{", ".dbar__in{", ".dbar__go{", ".qchip{"):
+    for cls in (".pc{", ".btn{", "input.nyi__reply{", "input.dbar__in{", ".dbar__go{", ".qchip{"):
         rule = css.split("\n" + cls, 1)[1].split("}", 1)[0]
         assert "min-height:44px" in rule, cls
 

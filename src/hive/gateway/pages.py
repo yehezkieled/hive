@@ -147,7 +147,7 @@ border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;backgroun
 .nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .nyi__actions>*{min-width:0}
 .nyi__btns{display:flex;gap:7px;flex-wrap:wrap}
-.nyi__reply{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:12px var(--font-mono);padding:6px 9px;
+input.nyi__reply{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:12px var(--font-mono);padding:6px 9px;
 border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
 .nyi__reply::placeholder{color:var(--ink-4)}
 .btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
@@ -193,7 +193,7 @@ border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);backgroun
 .dbar>*{min-width:0}
 .dbar__target{font:700 10px var(--font-mono);letter-spacing:.6px;white-space:nowrap;background:var(--honey);
 color:#1f1812;border-radius:999px;padding:4px 10px;overflow:hidden;text-overflow:ellipsis;max-width:45%}
-.dbar__in{flex:1;min-width:0;min-height:44px;background:transparent;border:0;color:var(--bar-ink);
+input.dbar__in{flex:1;min-width:0;width:auto;min-height:44px;background:transparent;border:0;color:var(--bar-ink);
 font:13px var(--font-sans);outline:none;padding:0}
 .dbar__in::placeholder{color:#a79a89}
 .dbar__go{font:700 11px var(--font-mono);border:0;border-radius:10px;padding:0 16px;min-height:44px;
@@ -224,7 +224,7 @@ function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
 if(document.querySelector('details[open]'))return true;
-var x=document.querySelectorAll('textarea,input[type=text]');
+var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
 for(var j=0;j<x.length;j++)if(x[j].checked!==x[j].defaultChecked)return true;
@@ -549,7 +549,7 @@ def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
         for url, label in links
     )
     reply = (
-        "<input class=nyi__reply name=text required "
+        "<input type=text class=nyi__reply name=text required "
         f"maxlength=MAX placeholder='Reply to {esc(entity)}…' aria-label='Reply to {esc(entity)}'>"
     )
     if n.kind == "decision":
@@ -653,7 +653,7 @@ def _dbar(focus: Project | None, ctx: Ctx) -> str:
     form = ctx.form(
         "delegate",
         f"<span class=dbar__target data-target>→ {esc(label)}</span>"
-        "<input class=dbar__in name=text required maxlength=4000 placeholder='Describe a goal…' "
+        "<input type=text class=dbar__in name=text required maxlength=4000 placeholder='Describe a goal…' "
         "aria-label='Delegate a goal'><button class=dbar__go>Delegate</button>",
         "dbar",
         rid=new_request_id(),
