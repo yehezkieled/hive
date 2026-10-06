@@ -253,8 +253,8 @@ a delegate bar that is always present, and one ambient quota chip in the chrome.
 landscape frame shows the same components reflowing. Everything below is interactive: tap a card, tap the quota chip, type in the bar.</p>
 
 <section class="sect"><div class="sect__head"><span class="sect__n">1</span><h2 class="sect__title">Portrait · loud</h2>
-<span class="sect__note">Hero populated · blocked project card · quota at 71% (warn)</span></div>
-<p class="frame__cap">Stack home · portrait iPad · the real layout <span class="cap-note">— tapping a card selects it, retargets the delegate bar, and (in the app) opens/focuses that project's Work-view tab (T003).</span></p>
+<span class="sect__note">Hero populated · every project with a needs-you item is blocked · quota at 71% (warn)</span></div>
+<p class="frame__cap">Stack home · portrait iPad · the real layout · after the captain selected hive <span class="cap-note">— tapping a card selects it, retargets the delegate bar, and (in the app) opens/focuses that project's Work-view tab (T003).</span></p>
 <div class="ipad ipad--portrait"><div class="screen" data-scope>
 <div class="chrome">
   <span class="chrome__brand">hive<span>.</span></span>
@@ -275,21 +275,21 @@ landscape frame shows the same components reflowing. Everything below is interac
  <span class="state-dot state-dot--gated"></span><span class="nyi__entity">hive · crew 2</span><span class="nyi__kind">gate</span><span class="nyi__sub">plan</span><span class="nyi__open">open tab ↗</span>
  <p class="nyi__summary">Waiting at <b>plan approval</b> — “Migrate the session store to Postgres”.</p></header><div class="nyi__actions"><button class="btn btn--allow">Approve plan</button><button class="btn btn--deny">Reject</button></div></article></div></section>
 <p class="sec-label">Projects · tap to focus</p>
-<div class="pcs"><button class="pc pc--running" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="false">
-  <span class="pc__top"><span class="state-dot state-dot--active"></span>
-    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">running</span></span>
-  <p class="pc__now"><b>Building</b> the CSV import · 3 leaf agents in flight</p>
+<div class="pcs"><button class="pc pc--blocked" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — CSV dialect decision (see Needs you)</p>
   <span class="pc__prog"><span class="pc__track"><i style="width:62%"></i></span>5 / 8 tasks<span class="pc__open">· opens Work tab ↗</span></span>
 </button><button class="pc pc--blocked is-selected" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="true">
   <span class="pc__top"><span class="state-dot state-dot--error"></span>
     <span class="pc__name">hive</span><span class="pc__mae">second mate</span><span class="pc__status">blocked</span></span>
   <p class="pc__now"><b>Waiting on you</b> — plan approval (see Needs you)</p>
   <span class="pc__prog"><span class="pc__track"><i style="width:40%"></i></span>2 / 5 tasks<span class="pc__open">· opens Work tab ↗</span></span>
-</button><button class="pc pc--idle" data-card data-maestro="first mate · blog" data-name="blog" aria-pressed="false">
-  <span class="pc__top"><span class="state-dot state-dot--idle"></span>
-    <span class="pc__name">blog</span><span class="pc__mae">first mate</span><span class="pc__status">idle</span></span>
-  <p class="pc__now">Idle · last run finished 2h ago, 4 posts drafted</p>
-  <span class="pc__prog"><span class="pc__track"><i style="width:100%"></i></span>done<span class="pc__open">· opens Work tab ↗</span></span>
+</button><button class="pc pc--blocked" data-card data-maestro="first mate · blog" data-name="blog" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">blog</span><span class="pc__mae">first mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — crew 3 errored (see Needs you)</p>
+  <span class="pc__prog"><span class="pc__track"><i style="width:50%"></i></span>3 / 6 tasks<span class="pc__open">· opens Work tab ↗</span></span>
 </button></div>
 <div class="dbar-wrap"><div class="dbar">
   <span class="dbar__target" data-target>→ second mate · hive</span>
@@ -301,7 +301,7 @@ landscape frame shows the same components reflowing. Everything below is interac
 
 <section class="sect"><div class="sect__head"><span class="sect__n">2</span><h2 class="sect__title">Portrait · calm</h2>
 <span class="sect__note">Empty hero collapses to a quiet line · quota 18% (calm)</span></div>
-<p class="frame__cap">Stack home · portrait iPad · nothing needs you</p>
+<p class="frame__cap">Stack home · portrait iPad · nothing needs you · after the captain selected finance-app</p>
 <div class="ipad ipad--portrait"><div class="screen" data-scope>
 <div class="chrome">
   <span class="chrome__brand">hive<span>.</span></span>
@@ -321,10 +321,10 @@ landscape frame shows the same components reflowing. Everything below is interac
     <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">running</span></span>
   <p class="pc__now"><b>Building</b> the CSV import · 3 leaf agents in flight</p>
   <span class="pc__prog"><span class="pc__track"><i style="width:62%"></i></span>5 / 8 tasks<span class="pc__open">· opens Work tab ↗</span></span>
-</button><button class="pc pc--blocked" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="false">
-  <span class="pc__top"><span class="state-dot state-dot--error"></span>
-    <span class="pc__name">hive</span><span class="pc__mae">second mate</span><span class="pc__status">blocked</span></span>
-  <p class="pc__now"><b>Waiting on you</b> — plan approval (see Needs you)</p>
+</button><button class="pc pc--running" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="false">
+  <span class="pc__top"><span class="state-dot state-dot--active"></span>
+    <span class="pc__name">hive</span><span class="pc__mae">second mate</span><span class="pc__status">running</span></span>
+  <p class="pc__now"><b>Building</b> the session-store migration · plan approved</p>
   <span class="pc__prog"><span class="pc__track"><i style="width:40%"></i></span>2 / 5 tasks<span class="pc__open">· opens Work tab ↗</span></span>
 </button><button class="pc pc--idle" data-card data-maestro="first mate · blog" data-name="blog" aria-pressed="false">
   <span class="pc__top"><span class="state-dot state-dot--idle"></span>
@@ -342,7 +342,7 @@ landscape frame shows the same components reflowing. Everything below is interac
 
 <section class="sect"><div class="sect__head"><span class="sect__n">3</span><h2 class="sect__title">Landscape reflow</h2>
 <span class="sect__note">Same components, two columns · lane stays the hero · quota hot (93%)</span></div>
-<p class="frame__cap">Stack home · landscape iPad · not a separate design</p>
+<p class="frame__cap">Stack home · landscape iPad · not a separate design · after the captain selected finance-app</p>
 <div class="ipad ipad--landscape"><div class="screen" data-scope>
 <div class="chrome">
   <span class="chrome__brand">hive<span>.</span></span>
@@ -361,10 +361,10 @@ landscape frame shows the same components reflowing. Everything below is interac
  <p class="nyi__summary">Which CSV dialect should import assume — <b>US</b> or <b>EU</b> decimals?</p></header><div class="nyi__actions"><input class="nyi__reply" placeholder="Reply to finance-app · crew 1…" aria-label="Reply to finance-app · crew 1"><button class="btn btn--go">Send</button></div></article><article class="nyi nyi--gate"><header class="nyi__head" title="open hive · crew 2's Work tab">
  <span class="state-dot state-dot--gated"></span><span class="nyi__entity">hive · crew 2</span><span class="nyi__kind">gate</span><span class="nyi__sub">plan</span><span class="nyi__open">open tab ↗</span>
  <p class="nyi__summary">Waiting at <b>plan approval</b> — “Migrate the session store to Postgres”.</p></header><div class="nyi__actions"><button class="btn btn--allow">Approve plan</button><button class="btn btn--deny">Reject</button></div></article></div></section></div>
- <div class="land__col"><p class="sec-label">Projects · tap to focus</p><div class="pcs"><button class="pc pc--running is-selected" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="true">
-  <span class="pc__top"><span class="state-dot state-dot--active"></span>
-    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">running</span></span>
-  <p class="pc__now"><b>Building</b> the CSV import · 3 leaf agents in flight</p>
+ <div class="land__col"><p class="sec-label">Projects · tap to focus</p><div class="pcs"><button class="pc pc--blocked is-selected" data-card data-maestro="first mate · finance-app" data-name="finance-app" aria-pressed="true">
+  <span class="pc__top"><span class="state-dot state-dot--error"></span>
+    <span class="pc__name">finance-app</span><span class="pc__mae">first mate</span><span class="pc__status">blocked</span></span>
+  <p class="pc__now"><b>Waiting on you</b> — CSV dialect decision (see Needs you)</p>
   <span class="pc__prog"><span class="pc__track"><i style="width:62%"></i></span>5 / 8 tasks<span class="pc__open">· opens Work tab ↗</span></span>
 </button><button class="pc pc--blocked" data-card data-maestro="second mate · hive" data-name="hive" aria-pressed="false">
   <span class="pc__top"><span class="state-dot state-dot--error"></span>
@@ -386,7 +386,18 @@ landscape frame shows the same components reflowing. Everything below is interac
   <p class="toast" data-toast></p></div>
 </div></div></section>
 
-<section class="sect"><div class="sect__head"><span class="sect__n">4</span><h2 class="sect__title">Rules for T004</h2></div>
+<section class="sect"><div class="sect__head"><span class="sect__n">4</span><h2 class="sect__title">On-load default</h2>
+<span class="sect__note">No card selected · the bar targets the first mate</span></div>
+<p class="frame__cap">Delegate bar · on load, before any card is tapped <span class="cap-note">— with several projects no card is selected; with a sole project it is selected and targeted.</span></p>
+<div class="ipad ipad--portrait"><div class="screen">
+<div class="dbar-wrap"><div class="dbar">
+  <span class="dbar__target">→ first mate</span>
+  <input class="dbar__in" placeholder="Describe a goal…" aria-label="Delegate a goal">
+  <button class="dbar__go">Delegate</button></div>
+  <p class="dbar-note">Delegate to <b>first mate</b> · no project focus · tapping a project card retargets this bar</p></div>
+</div></div></section>
+
+<section class="sect"><div class="sect__head"><span class="sect__n">5</span><h2 class="sect__title">Rules for T004</h2></div>
 <div class="note"><h3>Settled in grilling (2026-09-14)</h3><ul>
 <li><b>Delegate target = card selects it.</b> One target, no picker. Default on load: the first mate with no project focus, or the sole project.</li>
 <li><b>Quota chip = worst of the two windows</b> (5-hour vs 7-day), as a percent; calm (&lt;60) → warn (60–85) → hot (&gt;85). Tap reveals both.</li>
