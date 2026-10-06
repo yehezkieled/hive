@@ -1212,7 +1212,7 @@ firstmate script with an argument list, never a shell string:
 | Action | Script |
 |---|---|
 | answer a captain hold | `fm-captain-hold.sh answers --any-origin --source "hive website (<owner>)"`, one `task<TAB>answer<TAB>Hive desk<TAB>done\|release` row on stdin; the owner-aware intake closes it in whichever home holds the task. Answers are one line, max 512 bytes (the intake's limit) |
-| chat, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
+| chat, delegate, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
 | worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
 
 The website never merges: the Merge button only records the owner's merge
@@ -1225,7 +1225,22 @@ re-runs the script. Every write logs one
 `gateway-audit action=... subject=... outcome=...` line to stderr (the
 journal); free text is never logged, only its length. Chat shows receipts
 and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
-the header of every page; Home has a compose box). One fixed inline script,
+the header of every page).
+
+Home is the **Stack home** (`docs/design/T002-stack-home.html`): the needs-you
+lane as the hero (a calm "all clear · N loops running" when empty; rows sort
+decision, hold, merge), one card per project (blocked exactly when it has a
+needs-you item, else running when a crew is `working`, else idle; the activity
+line and done/total tasks), and the delegate bar. Tapping a card selects it in
+place (`/?focus=<project>`) and retargets the bar to that project's first or
+second mate; tapping the selected card opens its Project page. With no card
+selected the bar messages the first mate; a sole project is selected on load.
+The chrome on every page carries the quota chip: the worse of the Claude plan's
+5-hour and 7-day windows (calm below 60%, warn to 85%, hot above), read from
+`quota-axi --provider claude --json --no-credential-refresh` (cached 60 s,
+refreshed in the background; "—" when it does not answer). The desk's fonts
+(IBM Plex Mono, Nunito, Nunito Sans; OFL) are served from `/fonts/`, so the
+CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
 stream (below); only while that stream is down does it poll `/chat` every 4 s
 and Home and Project every 30 s. It never swaps the page while text is
@@ -1247,6 +1262,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
 | `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
+| `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the quota chip's source; `off` disables it) |
 
 ### Live updates, alerts and live tail
 

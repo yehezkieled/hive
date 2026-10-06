@@ -14,55 +14,77 @@ from zoneinfo import ZoneInfo
 
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
 from hive.gateway.chat import ChatView
-from hive.gateway.desk import Crew, Desk, NeedsYou, Project, Row
+from hive.gateway.desk import NO_PROJECT, Crew, Desk, NeedsYou, Project, Row, glance
+from hive.gateway.quota import Quota
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
 
 CSS = """
-:root{--bg:#f6f3ec;--card:#fffdf8;--ink:#1d1b16;--mute:#6b665a;--line:#ddd6c6;--acc:#b4531a;--ok:#2f6b3a}
-@media (prefers-color-scheme:dark){:root{--bg:#16140f;--card:#201d16;--ink:#efe9da;
---mute:#a39c8a;--line:#3a352a;--acc:#f0925a;--ok:#7fc48c}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,sans-serif;
-padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
-main{max-width:960px;margin:0 auto;padding:8px 0 48px}
-h1{font-size:1.4rem;margin:.6rem 0}h2{font-size:1.05rem;margin:1.6rem 0 .6rem}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-display:swap;src:url(/fonts/ibm-plex-mono-400.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-display:swap;src:url(/fonts/ibm-plex-mono-500.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:600;font-display:swap;src:url(/fonts/ibm-plex-mono-600.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:700;font-display:swap;src:url(/fonts/ibm-plex-mono-700.woff2) format("woff2")}
+@font-face{font-family:"Nunito";font-weight:200 1000;font-display:swap;src:url(/fonts/nunito.woff2) format("woff2")}
+@font-face{font-family:"Nunito Sans";font-weight:200 1000;font-display:swap;src:url(/fonts/nunito-sans.woff2) format("woff2")}
+:root{
+--paper:#faf7ed;--paper-2:#f2ecd8;--paper-soft:#f6f1de;--paper-shadow:rgba(60,45,25,.08);
+--ink:#1f1812;--ink-2:#3d332a;--ink-3:#6f6356;--ink-4:#a79a89;
+--rule:#1f1812;--rule-soft:#d9cfb6;--rule-faint:#e8dfc8;
+--accent:#c8382a;--accent-soft:#f6dcd6;--amber:#b7741a;--amber-soft:#f4e4c8;
+--honey:#e0a726;--honey-soft:#f9ecc6;--ochre:#8a6a1a;--sage:#4d8a3a;--sage-soft:#d7e6c5;
+--bar:#1f1812;--bar-ink:#faf7ed;
+--font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+--font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
+--font-display:"Nunito","Inter",system-ui,sans-serif;
+--bg:var(--paper-2);--card:var(--paper);--mute:var(--ink-3);--line:var(--rule-soft);--acc:var(--amber);--ok:var(--sage)}
+@media (prefers-color-scheme:dark){:root{
+--paper:#201d16;--paper-2:#16140f;--paper-soft:#2a261d;--paper-shadow:rgba(0,0,0,.35);
+--ink:#efe9da;--ink-2:#d6cfbf;--ink-3:#a39c8a;--ink-4:#7c7566;
+--rule:#8f8775;--rule-soft:#3a352a;--rule-faint:#2e2a21;
+--accent:#f0715f;--accent-soft:#4a2620;--amber:#e0a050;--amber-soft:#43331c;
+--honey:#e8b640;--honey-soft:#3d3218;--ochre:#d9b45a;--sage:#7fc48c;--sage-soft:#22351f;
+--bar:#efe9da;--bar-ink:#16140f}}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--font-sans);
+-webkit-font-smoothing:antialiased;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+button,input,label,summary,a{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+main{max-width:960px;margin:0 auto;padding:12px 0 48px}
+h1{font:900 1.4rem var(--font-display);letter-spacing:-.4px;margin:.6rem 0}
+h2{font:800 1.05rem var(--font-display);margin:1.6rem 0 .6rem}
 a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
-.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
-margin:0 -16px;padding:6px 16px}
-.top div{max-width:960px;margin:0 auto;display:flex;justify-content:space-between;
-align-items:center;gap:8px}
-.brand{font-weight:600;text-decoration:none;color:var(--ink)}
-.top nav{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-#alerts{margin-left:4px;padding:0 10px;font-size:.9rem}
+.chrome{max-width:960px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:12px 2px 0}
+.chrome>*{min-width:0}
+.chrome__brand{font-family:var(--font-display);font-weight:900;font-size:17px;letter-spacing:-.3px;
+color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
+.chrome__brand span{color:var(--accent)}
+.chrome nav{margin-left:auto;display:flex;align-items:center;gap:2px;flex-wrap:wrap;justify-content:flex-end}
+.chrome nav a,#alerts{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;border-radius:999px;
+font:700 11px var(--font-mono);letter-spacing:.4px;color:var(--ink-3);text-decoration:none;
+background:transparent;border:1.5px solid transparent;cursor:pointer}
+#alerts[hidden]{display:none}
+.chrome nav a[aria-current]{color:var(--ink);border-color:var(--rule-soft);background:var(--paper)}
 .tail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;
-font:12px/1.35 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;
+font:12px/1.35 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;
 min-height:12rem;max-height:70vh;overflow:auto}
-.top nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 12px;
-border-radius:8px;text-decoration:none}
-.top nav a[aria-current]{background:var(--card);border:1px solid var(--line);font-weight:600}
-.banner{border:1px solid var(--acc);border-radius:10px;padding:12px;margin:12px 0;
+.banner{border:1px solid var(--accent);border-radius:10px;padding:12px;margin:12px 0;
 background:var(--card)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
-.card.hot{border-color:var(--acc)}.card h3{margin:0 0 6px;font-size:1.05rem}
-.need{background:var(--card);border:1px solid var(--acc);border-radius:12px;padding:12px;
+.need{background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:12px;
 margin:8px 0;overflow-wrap:anywhere}
-.need .what{font-weight:600}.sub{display:block;color:var(--mute);font-size:.8rem;margin-top:2px}
-.tag{display:inline-block;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;
+.need .what{font-weight:700}.sub{display:block;color:var(--mute);font-size:.8rem;margin-top:2px}
+.tag{display:inline-block;font:700 .66rem var(--font-mono);text-transform:uppercase;letter-spacing:.06em;
 border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-right:6px;color:var(--mute)}
 .row{padding:10px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
-.chips span{margin-right:12px;white-space:nowrap}
 form{margin:8px 0}textarea,input[type=text],select{width:100%;font:inherit;color:var(--ink);
-background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px}
 textarea{min-height:5.5rem}label{display:block;font-size:.88rem;color:var(--mute);margin:6px 0 2px}
-button{font:inherit;border:1px solid var(--acc);background:var(--acc);color:var(--bg);
+button{font:inherit;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);
 border-radius:8px;padding:8px 14px;min-height:44px;cursor:pointer}
-button.quiet{background:transparent;color:var(--acc)}button.danger{background:#a3261e;border-color:#a3261e;color:#fff}
+button.quiet{background:transparent;color:var(--ink)}button.danger{background:var(--accent);border-color:var(--accent);color:#fff}
 .inline{display:inline-block;margin:4px 6px 4px 0}details{margin-top:8px}summary{cursor:pointer;color:var(--acc);
 min-height:32px}
 .ok{border-color:var(--ok)}.bubble{white-space:pre-wrap;overflow-wrap:anywhere}
-.compose textarea{min-height:3.5rem}.compose{margin:12px 0}
 .thread{display:flex;flex-direction:column;gap:10px;margin:12px 0}
 .msg{max-width:85%;border-radius:14px;padding:8px 12px;border:1px solid var(--line);
 background:var(--card)}
@@ -71,7 +93,112 @@ background:var(--card)}
 .dock{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(8px + env(safe-area-inset-bottom));
 border-top:1px solid var(--line)}
 .dock form{margin:0}.dock textarea{min-height:3rem}
-@media (max-width:480px){.msg{max-width:94%}.top nav a{padding:0 8px}}
+@media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}}
+/* quota chip: the worse of the two plan windows; tap shows both */
+.qwrap{position:relative;margin:0}
+.qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
+background:var(--paper);padding:0 12px;min-height:44px;font:700 11px var(--font-mono);cursor:pointer;
+color:var(--ink);list-style:none;white-space:nowrap}
+.qchip::-webkit-details-marker{display:none}
+.qchip__bar{width:30px;height:5px;border-radius:3px;background:var(--rule-faint);overflow:hidden;display:inline-block}
+.qchip__bar i{display:block;height:100%;background:var(--sage)}
+.qchip--warn{border-color:var(--amber)}.qchip--warn .qchip__bar i{background:var(--amber)}
+.qchip--hot{border-color:var(--accent);background:var(--accent-soft)}.qchip--hot .qchip__bar i{background:var(--accent)}
+.qchip--unknown{color:var(--ink-4)}
+.qpop{position:absolute;right:0;top:50px;z-index:5;background:var(--paper);border:1.5px solid var(--rule);
+border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px var(--paper-shadow);font:10.5px/1.4 var(--font-mono);
+min-width:210px;color:var(--ink-2)}
+.qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
+.qpop b{color:var(--ink)}.qpop span,.qpop b{white-space:nowrap}.qpop .qpop__note{color:var(--ink-4)}
+/* the Stack home (docs/design/T002-stack-home.html) */
+.screen{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.4}
+.screen :where(p,h1,h2,h3,li,span,code,b){overflow-wrap:anywhere}
+.screen form{margin:0}
+.stamp{font:10px var(--font-mono);color:var(--ink-3);letter-spacing:.5px;margin:0 2px}
+.land{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
+.land__col{display:flex;flex-direction:column;gap:12px;min-width:0}
+@media (min-width:900px){.land{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}}
+.nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
+box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
+.nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
+.nyl__head>*{min-width:0}
+.nyl__glyph{color:var(--accent);font-size:14px;line-height:1}
+.nyl__title{font-family:var(--font-display);font-weight:800;font-size:14px;margin:0}
+.nyl__count{margin-left:auto;font:700 10px var(--font-mono);letter-spacing:1px;background:var(--accent);
+color:#fff;padding:2px 9px;border-radius:999px}
+.nyl__body{padding:12px;display:flex;flex-direction:column;gap:10px}
+.nyi{background:var(--paper);border:1px solid var(--rule-soft);border-left-width:4px;border-radius:12px;padding:11px 12px 12px}
+.nyi--decision{border-left-color:var(--honey)}.nyi--gate{border-left-color:var(--ochre)}.nyi--mode{border-left-color:var(--amber)}
+.nyi__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:44px;color:inherit;text-decoration:none;
+border-radius:7px;padding:2px 4px;margin:-2px -4px 8px;cursor:pointer}
+.nyi__head>*{min-width:0}
+.nyi__head:hover{background:var(--paper-soft)}
+.state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.state-dot--active{background:var(--sage)}.state-dot--idle{background:var(--ink-4)}
+.state-dot--error{background:var(--accent)}.state-dot--gated{background:var(--honey)}
+.nyi__entity{font:600 12px var(--font-mono);color:var(--ink)}
+.nyi__kind{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
+border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft);white-space:nowrap}
+.nyi--gate .nyi__kind{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
+.nyi--mode .nyi__kind{color:var(--amber);border-color:var(--amber-soft);background:var(--amber-soft)}
+.nyi__open{margin-left:auto;font:9px var(--font-mono);color:var(--ink-4);white-space:nowrap}
+.nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
+.nyi__summary b{color:var(--ink);font-weight:700}
+.nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.nyi__actions>*{min-width:0}
+.nyi__btns{display:flex;gap:7px;flex-wrap:wrap}
+input.nyi__reply{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:12px var(--font-mono);padding:6px 9px;
+border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
+.nyi__reply::placeholder{color:var(--ink-4)}
+.btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
+border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
+white-space:nowrap;text-decoration:none}
+.btn:active{transform:translateY(1px)}
+.btn--go{background:var(--ink);color:var(--paper)}
+.btn--allow{border-color:var(--sage);color:var(--sage)}
+.btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
+.calm{text-align:center;padding:16px 16px 18px}
+.calm__check{font-size:20px;color:var(--sage);line-height:1}
+.calm__line{font-family:var(--font-display);font-weight:800;font-size:15px;margin:8px 0 2px}
+.calm__sub{font:10px var(--font-mono);color:var(--ink-3);letter-spacing:.5px;margin:0}
+.nyl--calm .nyl__head{border-bottom-color:var(--rule-faint)}
+.nyl--calm .nyl__glyph{color:var(--sage)}
+.nyl--calm .nyl__count{background:var(--sage-soft);color:var(--ochre)}
+.sec-label{font:700 9.5px var(--font-mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);margin:2px 2px -4px}
+.pcs{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.pc{display:flex;flex-direction:column;gap:7px;text-align:left;width:100%;min-height:44px;font:inherit;color:inherit;
+text-decoration:none;background:var(--paper);border:1.5px solid var(--rule-soft);border-left-width:4px;border-radius:12px;
+padding:11px 12px;cursor:pointer}
+.pc:hover{background:var(--paper-soft)}
+.pc--running{border-left-color:var(--sage)}.pc--idle{border-left-color:var(--ink-4)}.pc--blocked{border-left-color:var(--accent)}
+.pc.is-selected{border-color:var(--rule);border-left-width:4px;background:var(--honey-soft);
+box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
+.pc__top{display:flex;align-items:center;gap:8px}
+.pc__top>*{min-width:0}
+.pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
+.pc__mae{font:10px var(--font-mono);color:var(--ink-3)}
+.pc__status{margin-left:auto;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
+border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);background:var(--paper-soft);color:var(--ink-3)}
+.pc--running .pc__status{background:var(--sage-soft);color:var(--sage);border-color:var(--sage-soft)}
+.pc--blocked .pc__status{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-soft)}
+.pc__now{font-size:12px;color:var(--ink-2);margin:0}
+.pc__now b{color:var(--ink)}
+.pc__prog{display:flex;align-items:center;gap:8px;font:10px var(--font-mono);color:var(--ink-3)}
+.pc__track{flex:1;height:6px;border-radius:3px;background:var(--rule-faint);overflow:hidden}
+.pc__track i{display:block;height:100%;background:var(--sage)}
+.pc--blocked .pc__track i{background:var(--accent)}.pc--idle .pc__track i{background:var(--ink-4)}
+.pc__open{font:9px var(--font-mono);color:var(--ink-4);display:none}
+.pc.is-selected .pc__open{display:inline;color:var(--ink-2);font-weight:600}
+.dbar{display:flex;align-items:center;gap:8px;background:var(--bar);color:var(--bar-ink);border-radius:16px;padding:8px 8px 8px 12px}
+.dbar>*{min-width:0}
+.dbar__target{font:700 10px var(--font-mono);letter-spacing:.6px;white-space:nowrap;background:var(--honey);
+color:#1f1812;border-radius:999px;padding:4px 10px;overflow:hidden;text-overflow:ellipsis;max-width:45%}
+input.dbar__in{flex:1;min-width:0;width:auto;min-height:44px;background:transparent;border:0;color:var(--bar-ink);
+font:13px var(--font-sans);outline:none;padding:0}
+.dbar__in::placeholder{color:#a79a89}
+.dbar__go{font:700 11px var(--font-mono);border:0;border-radius:10px;padding:0 16px;min-height:44px;
+background:var(--bar-ink);color:var(--bar);cursor:pointer}
+.dbar-note{font:9px var(--font-mono);color:var(--ink-3);margin:6px 4px 0}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -97,7 +224,7 @@ function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
 if(document.querySelector('details[open]'))return true;
-var x=document.querySelectorAll('textarea,input[type=text]');
+var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
 for(var j=0;j<x.length;j++)if(x[j].checked!==x[j].defaultChecked)return true;
@@ -117,6 +244,8 @@ var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeigh
 th.innerHTML=n.innerHTML;stamps();if(near)bottom();});}
 function refreshMain(){if(document.hidden||busy()){want=true;return;}
 want=false;load(function(doc){
+var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
+if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
 var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();window.scrollTo(0,y);});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
@@ -169,6 +298,21 @@ return post('/push/subscribe',s.toJSON(),k.csrf).then(function(r){
 if(!r.ok){s.unsubscribe();note('Could not save the subscription.');return;}show(true);note('');});});});
 });}).catch(function(){note('Could not change alerts. Try again.');});};
 }).catch(function(){});}}
+function focus(card){var s=document.querySelector('[data-stack]');if(!s)return;
+var cards=s.querySelectorAll('[data-card]');
+for(var i=0;i<cards.length;i++){cards[i].classList.remove('is-selected');cards[i].removeAttribute('aria-current');
+cards[i].setAttribute('href',cards[i].getAttribute('data-next'));}
+card.classList.add('is-selected');card.setAttribute('aria-current','true');
+card.setAttribute('href',card.getAttribute('data-open'));
+var label=card.getAttribute('data-label'),proj=card.getAttribute('data-project');
+s.querySelector('[data-target]').textContent='\u2192 '+label;s.querySelector('[data-tname]').textContent=label;
+var nf=s.querySelector('[data-nofocus]');if(nf)nf.hidden=!!proj;
+var fm=s.querySelector('form.dbar');
+if(fm){fm.elements.project.value=proj;fm.elements.next.value=card.getAttribute('data-next');}
+try{history.replaceState(null,'',card.getAttribute('data-next'));}catch(e){}}
+document.addEventListener('click',function(e){var a=e.target.closest?e.target.closest('[data-card]'):null;
+if(!a||a.classList.contains('is-selected')||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+e.preventDefault();focus(a);});
 stamps();setInterval(stamps,30000);
 })();
 """
@@ -193,26 +337,37 @@ class Ctx:
         nxt: str = "/",
         board_url: str = DEFAULT_BOARD_URL,
         tz: str = DEFAULT_TZ,
+        quota: Quota | None = None,
     ) -> None:
         self.csrf = csrf
         self.writable = writable
         self.nxt = nxt
         self.board_url = board_url.rstrip("/")
         self.tz = tz
+        self.quota = quota  # None: quota-axi did not answer
 
-    def form(self, action: str, inner: str, **hidden: str) -> str:
+    def form(self, action: str, inner: str, cls: str = "", **hidden: str) -> str:
         if not self.writable:
             return ""
         fields = {"csrf": self.csrf, "next": self.nxt, **hidden}
         hid = "".join(
             f'<input type=hidden name={esc(k)} value="{esc(v)}">' for k, v in fields.items()
         )
-        return f"<form method=post action='/act/{esc(action)}'>{hid}{inner}</form>"
+        klass = f" class='{esc(cls)}'" if cls else ""
+        return f"<form method=post action='/act/{esc(action)}'{klass}>{hid}{inner}</form>"
 
     def link(self, url: str | None) -> str | None:
         """An http(s) URL, with loopback Lavish board links pointed at the tailnet origin."""
         safe = _safe_url(url)
         return BOARD_RE.sub(lambda m: f"{self.board_url}/{m[1]}", safe) if safe else None
+
+    def plain(self, value: str) -> str:
+        """Escaped text with loopback board URLs shortened to 'board' (for inside a link)."""
+        return esc(BOARD_RE.sub("board", value))
+
+    def boards(self, value: str) -> list[str]:
+        """The tailnet URL of every loopback board link in ``value``."""
+        return [f"{self.board_url}/{m[1]}" for m in BOARD_RE.finditer(value)]
 
     def text(self, value: str) -> str:
         """Escaped text where loopback board URLs become 'Open board' links."""
@@ -243,10 +398,56 @@ class Ctx:
         return f"<time datetime='{esc(dt.isoformat())}'>{esc(shown)}</time>"
 
 
-def _page(title: str, body: str, active: str = "", attrs: str = "") -> str:
+def _resets(at: datetime | None, tz: str, now: datetime) -> str:
+    if at is None:
+        return "not started"
+    secs = (at - now).total_seconds()
+    if secs < 0:
+        return "now"
+    if secs < 3600:
+        return f"resets {int(secs // 60)}m"
+    if secs < 86400:
+        return f"resets {int(secs // 3600)}h {int(secs % 3600 // 60):02d}m"
+    try:
+        return f"resets {at.astimezone(ZoneInfo(tz)):%a}"
+    except Exception:  # unknown zone name or no tz database
+        return f"resets {at:%a}"
+
+
+def _chip(ctx: Ctx, now: datetime | None = None) -> str:
+    """The ambient quota chip: worst window as a percent; tap shows both windows."""
+    q = ctx.quota
+    if q is None:
+        chip = (
+            "<summary class='qchip qchip--unknown' aria-label='Plan quota unknown'>"
+            "<span class=qchip__bar><i style='width:0%'></i></span>—</summary>"
+        )
+        rows = "<div><span>Plan quota unknown</span></div>"
+    else:
+        now = now or datetime.now(UTC)
+        worst = q.worst
+        chip = (
+            f"<summary class='qchip qchip--{q.level}' "
+            f"aria-label='Plan quota, worst window {worst.used} percent'>"
+            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span>{worst.used}%</summary>"
+        )
+        rows = "".join(
+            f"<div><span>{esc(w.label)}</span><b>{w.used}% · {esc(_resets(w.resets_at, ctx.tz, now))}"
+            "</b></div>"
+            for w in q.windows
+        )
+    return (
+        f"<details class=qwrap id=qchip>{chip}<div class=qpop>{rows}"
+        "<div class=qpop__note><span>account-wide · shared with your own use</span></div>"
+        "</div></details>"
+    )
+
+
+def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | None = None) -> str:
     def cur(name: str) -> str:
         return " aria-current=page" if active == name else ""
 
+    chip = _chip(ctx) if ctx is not None else ""
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
@@ -258,10 +459,11 @@ def _page(title: str, body: str, active: str = "", attrs: str = "") -> str:
         "<link rel=icon href='/icons/icon-192.png'>"
         "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
         f"<title>{esc(title)}</title><style>{CSS}</style></head>"
-        f"<body{attrs}><header class=top><div><a class=brand href='/'>Hive desk</a>"
+        f"<body{attrs}><header class=chrome>"
+        "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
-        "<button id=alerts class=quiet hidden type=button>Alerts</button></nav>"
-        f"</div></header><main>{body}</main><script>{SCRIPT}</script></body></html>"
+        f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
+        f"</header><main>{body}</main><script>{SCRIPT}</script></body></html>"
     )
 
 
@@ -320,48 +522,178 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
     )
 
 
-def _compose(ctx: Ctx, nxt: str = "/chat") -> str:
-    box = ctx.form(
-        "chat",
-        "<label>Message the first mate</label><textarea name=text required maxlength=4000 "
-        "placeholder='Ask, delegate, or steer…'></textarea><button>Send</button>",
+# Needs-you kinds on the T001 lane: (row class, state dot, badge).
+_LANE = {
+    "decision": ("nyi--decision", "idle", "decision"),
+    "hold": ("nyi--gate", "gated", "hold"),
+    "merge": ("nyi--mode", "active", "merge"),
+}
+
+
+def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
+    """One T001 lane row: the header opens the project, the actions answer in place."""
+    row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
+    ref = n.ref.partition("/")[0]
+    entity = f"{n.project} · {ref}"
+    if n.title and n.text and n.title != n.text:
+        summary = f"<b>{ctx.plain(n.title)}</b> — {ctx.plain(n.text)}"
+    else:
+        summary = ctx.plain(n.text or n.title or n.ref)
+    href = "/p/" + quote(n.project, safe="")
+    links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
+    pr = ctx.link(n.url)
+    if pr:
+        links.append((pr, "Open PR ↗"))
+    extra = "".join(
+        f'<a class="btn btn--deny" href="{esc(url)}" rel="noopener noreferrer">{label}</a>'
+        for url, label in links
+    )
+    reply = (
+        "<input type=text class=nyi__reply name=text required "
+        f"maxlength=MAX placeholder='Reply to {esc(entity)}…' aria-label='Reply to {esc(entity)}'>"
+    )
+    if n.kind == "decision":
+        task, _, key = n.ref.partition("/")
+        act = ctx.form(
+            "decision",
+            reply.replace("MAX", "4000", 1)
+            + f"<span class=nyi__btns><button class='btn btn--go'>Send</button>{extra}</span>",
+            "nyi__actions",
+            task=task,
+            key=key,
+            rid=new_request_id(),
+        )
+    elif n.kind == "hold":
+        resume = "<button class='btn btn--{}' name=release value=1>Answer &amp; resume</button>"
+        close = "<button class='btn btn--{}' name=release value=0>Answer &amp; close</button>"
+        buttons = (
+            resume.format("go") + close.format("deny")
+            if n.gated
+            else close.format("go") + resume.format("deny")
+        )
+        act = ctx.form(
+            "answer",
+            reply.replace("MAX", "512", 1) + f"<span class=nyi__btns>{buttons}{extra}</span>",
+            "nyi__actions",
+            task=n.ref,
+            rid=new_request_id(),
+        )
+    elif n.kind == "merge":
+        act = ctx.form(
+            "merge",
+            f"<button class='btn btn--allow'>Give merge word…</button>{extra}",
+            "nyi__actions",
+            task=n.ref,
+            rid=new_request_id(),
+        )
+    else:
+        act = f"<div class=nyi__actions>{extra}</div>" if extra else ""
+    return (
+        f"<article class='nyi {row}'><a class=nyi__head href='{esc(href)}' "
+        f"title='open {esc(n.project)}'><span class='state-dot state-dot--{dot}'></span>"
+        f"<span class=nyi__entity>{esc(entity)}</span><span class=nyi__kind>{esc(badge)}</span>"
+        f"<span class=nyi__open>open ↗</span><p class=nyi__summary>{summary}</p></a>{act}</article>"
+    )
+
+
+def _lane(desk: Desk, ctx: Ctx) -> str:
+    head = (
+        "<div class=nyl__head><span class=nyl__glyph aria-hidden=true>◆</span>"
+        f"<h2 class=nyl__title>Needs you</h2><span class=nyl__count>{len(desk.needs_you)}</span></div>"
+    )
+    if not desk.needs_you:
+        n = desk.loops_running
+        return (
+            f"<section class='nyl nyl--calm'>{head}<div class=calm>"
+            "<div class=calm__check aria-hidden=true>✓</div>"
+            f"<p class=calm__line>✓ all clear · {n} loop{'' if n == 1 else 's'} running</p>"
+            "<p class=calm__sub>nothing needs you</p></div></section>"
+        )
+    items = "".join(_lane_item(n, ctx) for n in desk.needs_you)
+    return f"<section class=nyl>{head}<div class=nyl__body>{items}</div></section>"
+
+
+_DOT = {"blocked": "error", "running": "active", "idle": "idle"}
+
+
+def _target(p: Project) -> tuple[str, str]:
+    """(delegate-bar label, project field) for a focused card."""
+    if p.name == NO_PROJECT:
+        return "first mate", ""
+    return f"{'second mate' if p.mate else 'first mate'} · {p.name}", p.name
+
+
+def _card(p: Project, selected: bool) -> str:
+    g = glance(p)
+    label, field = _target(p)
+    nxt = "/?focus=" + quote(p.name, safe="")
+    open_href = "/p/" + quote(p.name, safe="")
+    pct = round(100 * g.done / g.total) if g.total else 0
+    prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
+    now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
+    sel = " is-selected" if selected else ""
+    return (
+        f"<a class='pc pc--{g.status}{sel}' href='{esc(open_href if selected else nxt)}' "
+        f"data-card data-name='{esc(p.name)}' data-label='{esc(label)}' "
+        f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}'"
+        f"{' aria-current=true' if selected else ''}>"
+        f"<span class=pc__top><span class='state-dot state-dot--{_DOT[g.status]}'></span>"
+        f"<span class=pc__name>{esc(p.name)}</span>"
+        f"<span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span>"
+        f"<span class=pc__status>{g.status}</span></span>"
+        f"<p class=pc__now>{now}</p>"
+        f"<span class=pc__prog><span class=pc__track><i style='width:{pct}%'></i></span>{prog}"
+        "<span class=pc__open>· opens project ↗</span></span></a>"
+    )
+
+
+def _dbar(focus: Project | None, ctx: Ctx) -> str:
+    label, field = _target(focus) if focus else ("first mate", "")
+    nxt = "/?focus=" + quote(focus.name, safe="") if focus else "/"
+    form = ctx.form(
+        "delegate",
+        f"<span class=dbar__target data-target>→ {esc(label)}</span>"
+        "<input type=text class=dbar__in name=text required maxlength=4000 placeholder='Describe a goal…' "
+        "aria-label='Delegate a goal'><button class=dbar__go>Delegate</button>",
+        "dbar",
         rid=new_request_id(),
+        project=field,
         next=nxt,
     )
-    return f"<div class='card compose'>{box}</div>" if box else ""
+    if not form:
+        return ""
+    hidden = " hidden" if field else ""
+    return (
+        f"<div class=dbar-wrap>{form}<p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
+        f"<span data-nofocus{hidden}> · no project focus</span>"
+        " · tapping a project card retargets this bar</p></div>"
+    )
 
 
-def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx) -> str:
+def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx, focus: str | None = None) -> str:
     attrs = " data-refresh=30000"
     if desk is None:
-        return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs)
-    needs = (
-        "".join(_need(n, True, ctx) for n in desk.needs_you)
-        or "<p class=mute>Nothing needs you.</p>"
+        return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
+    if focus not in desk.projects:
+        focus = desk.default_focus()
+    cards = "".join(_card(p, p.name == focus) for p in desk.projects.values())
+    projects = (
+        f"<p class=sec-label>Projects · tap to focus</p><div class=pcs>{cards}</div>"
+        if cards
+        else "<p class=sec-label>No projects yet</p>"
     )
-    cards = []
-    for p in desk.projects.values():
-        hot = " hot" if p.needs_you else ""
-        link = esc(quote(p.name, safe=""))
-        cards.append(
-            f"<a class='card{hot}' href='/p/{link}' style='text-decoration:none;color:inherit'>"
-            f"<h3>{esc(p.name)}</h3><div class=chips>"
-            f"<span>{p.count('in_flight')} in flight</span><span>{p.count('queued')} queued</span>"
-            f"<span>{len(p.needs_you)} need you</span></div></a>"
-        )
-    stamp = f"<p class=mute>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
+    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
     more = "".join(
-        f"<p class=mute>+{n} more owned by {esc(owner)}, not shown</p>"
+        f"<p class=stamp>+{n} more owned by {esc(owner)}, not shown</p>"
         for owner, n in desk.more.items()
     )
-    return _page(
-        "Hive desk",
-        f"<h1>Hive desk</h1>{stamp}{_compose(ctx)}<h2>Needs you ({len(desk.needs_you)})</h2>{needs}"
-        f"<h2>Projects</h2><div class=grid>{''.join(cards)}</div>{more}"
-        "<p class=mute id=alerts-note></p>",
-        "desk",
-        attrs,
+    body = (
+        f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
+        f"</div><div class=land__col>{projects}{more}</div></div>"
+        f"{_dbar(desk.projects.get(focus) if focus else None, ctx)}{stamp}"
+        "<p class=stamp id=alerts-note></p></div>"
     )
+    return _page("Hive desk", body, "desk", attrs, ctx)
 
 
 def _crew(c: Crew, ctx: Ctx) -> str:
@@ -418,7 +750,7 @@ def render_project(
     attrs = " data-refresh=30000"
     if project is None:
         body = _banner(snap, ctx) if not snap.ok else "<p>Unknown project.</p>"
-        return _page(name, f"<p><a href='/'>← Desk</a></p>{body}", "", attrs)
+        return _page(name, f"<p><a href='/'>← Desk</a></p>{body}", "", attrs, ctx)
     needs = (
         "".join(_need(n, False, ctx) for n in project.needs_you)
         or "<p class=mute>Nothing needs you.</p>"
@@ -451,6 +783,7 @@ def render_project(
         f"{_new_ticket(project.name, ctx)}{''.join(rows) or '<p class=mute>Empty.</p>'}",
         "",
         attrs,
+        ctx,
     )
 
 
@@ -459,6 +792,7 @@ _KIND_LABEL = {
     "ticket": "ticket request",
     "merge": "merge word",
     "decision": "answer",
+    "delegate": "delegated",
 }
 _STATE_LABEL = {
     "pending": "Sent · waiting for the first mate",
@@ -499,6 +833,7 @@ def render_watch(crew: Crew, ctx: Ctx) -> str:
         "<pre class=tail id=tail aria-label='Recent output' aria-live=off></pre>",
         "",
         f" data-tail='{esc(crew.id)}'",
+        ctx,
     )
 
 
@@ -524,6 +859,7 @@ def render_chat(view: ChatView, ctx: Ctx) -> str:
         f"<div class=dock>{form}</div>",
         "chat",
         " data-poll=4000",
+        ctx,
     )
 
 

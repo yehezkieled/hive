@@ -3,7 +3,8 @@
 No logic about holds, merges or crews lives here. It groups what the snapshot already
 decided (``hold_bucket``, ``captain_actionable``, ``open_decisions``, the captain
 contribution list, each second mate's ``secondmate_current`` roll-up) by project, and
-reads every field defensively.
+reads every field defensively. ``glance`` derives a project card's state from those
+groups, so a card is blocked exactly when the project has a needs-you item.
 """
 
 from __future__ import annotations
@@ -16,6 +17,9 @@ NO_PROJECT = "General"
 STATE_ORDER = ("in_flight", "queued", "done")
 # A mate's captain hold, echoed onto the primary's status channel as a needs-decision line.
 CAPTAIN_HOLD_KEY = re.compile(r"captain-hold-(.+)-\d+")
+RUNNING = "working"  # the crew state that counts as a running loop
+# The needs-you lane sorts by kind in a fixed order, so each kind keeps its place (T001).
+_KIND_ORDER = {"decision": 0, "hold": 1, "merge": 2}
 
 
 @dataclass
@@ -57,9 +61,53 @@ class Project:
     needs_you: list[NeedsYou] = field(default_factory=list)
     rows: list[Row] = field(default_factory=list)
     crews: list[Crew] = field(default_factory=list)
+    mate: bool = False  # a second mate owns this project; otherwise the first mate answers
 
     def count(self, state: str) -> int:
         return sum(1 for r in self.rows if r.state == state)
+
+    @property
+    def running(self) -> list[Crew]:
+        """Working loops; a second mate's own session supervises, so it is not one."""
+        return [c for c in self.crews if c.state == RUNNING and c.kind != "secondmate"]
+
+
+@dataclass(frozen=True)
+class Glance:
+    """What a project card shows: loop status, what it is doing now, and progress."""
+
+    status: str  # blocked (a needs-you item exists) | running | idle
+    lead: str  # the bold opening of the activity line; may be empty
+    now: str
+    done: int
+    total: int
+
+
+_NEED_WORD = {"hold": "question", "decision": "decision", "merge": "merge approval"}
+
+
+def glance(p: Project) -> Glance:
+    done, total = p.count("done"), len(p.rows)
+    if p.needs_you:
+        if len(p.needs_you) == 1:
+            n = p.needs_you[0]
+            what = f"{_NEED_WORD.get(n.kind, n.kind)}: {n.title or n.text or n.ref}"
+        else:
+            what = f"{len(p.needs_you)} items"
+        return Glance("blocked", "Waiting on you", f"{what} (see Needs you)", done, total)
+    running = p.running
+    if running:
+        first = running[0]
+        now = first.title or first.id
+        if len(running) > 1:
+            now += f" · {len(running)} crews in flight"
+        return Glance("running", "Working", now, done, total)
+    queued = p.count("queued")
+    parts = ["Idle", f"{queued} queued" if queued else "nothing queued"]
+    parked = [c for c in p.crews if c.kind != "secondmate"]
+    if parked:
+        parts.append(f"{len(parked)} crew{'s' if len(parked) != 1 else ''} parked")
+    return Glance("idle", "", " · ".join(parts), done, total)
 
 
 @dataclass
@@ -68,6 +116,15 @@ class Desk:
     projects: dict[str, Project]
     needs_you: list[NeedsYou]
     more: dict[str, int] = field(default_factory=dict)  # second-mate tickets the roll-up cut off
+
+    @property
+    def loops_running(self) -> int:
+        return sum(len(p.running) for p in self.projects.values())
+
+    def default_focus(self) -> str | None:
+        """The sole real project, selected on load; None means the first mate, unfocused."""
+        real = [name for name in self.projects if name != NO_PROJECT]
+        return real[0] if len(real) == 1 else None
 
 
 def _s(value: object, default: str = "") -> str:
@@ -133,24 +190,37 @@ def build_desk(data: dict) -> Desk:
         if isinstance(rec, dict):
             add_record(rec)
 
+    # A second mate's session is a task naming the projects it owns; a mate record without
+    # a repo (a hold the bounded queued list cut off) belongs to that mate's project.
+    mate_home: dict[str, str] = {}
+    for task in _list(data.get("tasks")):
+        if isinstance(task, dict):
+            owned = [p for p in _list(task.get("secondmate_projects")) if isinstance(p, str)]
+            if owned:
+                mate_home[_s(task.get("id"))] = owned[0]
+
     # Second mates own tickets too (ADR 0030): read their roll-up as the same rows.
     more: dict[str, int] = {}
     for mate in _list(_list_of(data, "secondmate_current", "records")):
         if not isinstance(mate, dict):
             continue
         owner = _s(mate.get("id"))
+        home_repo = mate_home.get(owner)
+
+        def add_mate_record(rec: dict, owner: str = owner, repo: str | None = home_repo) -> None:
+            add_record({"owner": owner, **rec, "repo": rec.get("repo") or repo})
+
         queued_seen: set[str] = set()
         active_seen: set[str] = set()
         for rec in _list(mate.get("queued")):
             if isinstance(rec, dict):
                 queued_seen.add(_s(rec.get("id")))
-                add_record({"owner": owner, **rec})
+                add_mate_record(rec)
         for child in _list(mate.get("active_children")):
             if isinstance(child, dict):
                 active_seen.add(_s(child.get("id")))
-                add_record(
+                add_mate_record(
                     {
-                        "owner": owner,
                         "id": child.get("id"),
                         "title": child.get("name"),
                         "repo": child.get("repo"),
@@ -161,9 +231,8 @@ def build_desk(data: dict) -> Desk:
             if not isinstance(held, dict) or held.get("source") != "child-state":
                 continue
             queued_seen.add(_s(held.get("id")))
-            add_record(
+            add_mate_record(
                 {
-                    "owner": owner,
                     "id": held.get("id"),
                     "title": held.get("title"),
                     "hold_reason": held.get("reason"),
@@ -174,9 +243,8 @@ def build_desk(data: dict) -> Desk:
             if not isinstance(dec, dict) or dec.get("verb") != "captain-hold":
                 continue
             queued_seen.add(_s(dec.get("id")))
-            add_record(
+            add_mate_record(
                 {
-                    "owner": owner,
                     "id": dec.get("id"),
                     "title": dec.get("summary"),
                     "hold_reason": dec.get("reason"),
@@ -200,15 +268,21 @@ def build_desk(data: dict) -> Desk:
         if hidden:
             more[owner] = hidden
 
+    mate_projects: set[str] = set()
     for task in _list(data.get("tasks")):
         if not isinstance(task, dict):
             continue
         tid = _s(task.get("id"))
-        name = (
-            _project_name(task.get("project"))
-            if task.get("project")
-            else task_project.get(tid, NO_PROJECT)
-        )
+        owned = [
+            _project_name(p) for p in _list(task.get("secondmate_projects")) if isinstance(p, str)
+        ]
+        mate_projects.update(owned)
+        if owned:  # a second mate's own session runs from its home; show it on its project
+            name = owned[0]
+        elif task.get("project"):
+            name = _project_name(task.get("project"))
+        else:
+            name = task_project.get(tid, NO_PROJECT)
         cur = task.get("current_state") if isinstance(task.get("current_state"), dict) else {}
         project(name).crews.append(
             Crew(
@@ -254,8 +328,12 @@ def build_desk(data: dict) -> Desk:
         )
 
     for proj in projects.values():
+        proj.mate = proj.name in mate_projects
         proj.rows.sort(key=lambda r: STATE_ORDER.index(r.state) if r.state in STATE_ORDER else 99)
-    needs = [n for p in projects.values() for n in p.needs_you]
+    needs = sorted(
+        (n for p in projects.values() for n in p.needs_you),
+        key=lambda n: _KIND_ORDER.get(n.kind, 9),
+    )
     ordered = dict(
         sorted(projects.items(), key=lambda kv: (-len(kv[1].needs_you), kv[0] == NO_PROJECT, kv[0]))
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -48,6 +49,11 @@ class GatewaySettings:
     tail_timeout_s: float = 8.0
     # Run the change watcher and push (off in tests that do not start a server).
     live: bool = True
+    # The quota chip's source: a ``quota-axi`` binary, or None for "quota unknown".
+    quota_axi: Path | None = None
+    quota_ttl_s: float = 60.0
+    quota_timeout_s: float = 15.0
+    quota_first_wait_s: float = 1.0
 
     @property
     def state_dir(self) -> Path:
@@ -71,4 +77,22 @@ class GatewaySettings:
             fm_home=Path(env.get("HIVE_GATEWAY_FM_HOME", DEFAULT_FM_HOME)),
             board_url=env.get("HIVE_GATEWAY_BOARD_URL", DEFAULT_BOARD_URL).strip().rstrip("/"),
             default_tz=env.get("HIVE_GATEWAY_TZ", DEFAULT_TZ).strip() or DEFAULT_TZ,
+            quota_axi=_quota_axi(env.get("HIVE_GATEWAY_QUOTA_AXI", "").strip()),
         )
+
+
+def _quota_axi(value: str) -> Path | None:
+    """The configured binary, else ``quota-axi`` on PATH or in ``~/.local/bin``.
+
+    A systemd user service often runs without ``~/.local/bin`` on its PATH, hence the
+    fallback. ``off`` disables the chip's reads.
+    """
+    if value == "off":
+        return None
+    if value:
+        return Path(value).expanduser()
+    found = shutil.which("quota-axi")
+    if found:
+        return Path(found)
+    local = Path("~/.local/bin/quota-axi").expanduser()
+    return local if local.is_file() else None

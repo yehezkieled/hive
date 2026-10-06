@@ -84,21 +84,21 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     res = client.get("/", headers=GOOD)
     assert res.status_code == 200
     html = res.text
-    assert "Needs you (3)" in html  # hold + decision + merge approval
+    assert "<span class=nyl__count>3</span>" in html  # hold + decision + merge approval
     assert "merge approval needed" in html and "Choose option A or B" in html
     assert "alpha" in html and "beta" in html
     assert "General" in html and "(no project)" not in html
     assert "<b>chore</b>" not in html
     assert res.headers["cache-control"] == "no-store"
     assert html.count("<script") == 1  # the one pinned inline script
-    assert "<a href='/chat'" in html and "Message the first mate" in html
-    needs = html.split("Needs you (3)", 1)[1].split("<h2>Projects</h2>", 1)[0]
-    leads = re.findall(r"<div class=need><span class=what>([^<]*)</span>", needs)
-    subs = re.findall(r"<span class=sub>([^<]*)</span>", needs)
-    assert len(leads) == len(subs) == 3
-    assert any(lead.endswith("Build the alpha widget") for lead in leads)
-    assert not any("alpha-build" in lead for lead in leads)
-    assert any("alpha-build" in sub for sub in subs)
+    assert "<a href='/chat'" in html and "/act/delegate" in html
+    lane = html.split("class=nyl__body>", 1)[1].split("</section>", 1)[0]
+    entities = re.findall(r"<span class=nyi__entity>([^<]*)</span>", lane)
+    kinds = re.findall(r"<span class=nyi__kind>([^<]*)</span>", lane)
+    # fixed kind order (T001): decision, then hold, then merge
+    assert kinds == ["decision", "hold", "merge"]
+    assert entities == ["beta · beta-pr", "beta · beta-hold", "alpha · alpha-build"]
+    assert "<b>Build the alpha widget</b> — checks green; merge approval needed" in lane
 
 
 def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -> None:
@@ -274,7 +274,7 @@ def test_cards_are_plain_language_and_board_links_rewritten(tmp_path: Path) -> N
     html = res.text
     assert "127.0.0.1:4387" not in html
     assert 'href="https://board.example.ts.net:8445/session/abc123"' in html
-    assert "Pick the beta palette" in html.split("Projects")[0]  # human title leads the card
+    assert "Pick the beta palette" in html.split("Projects · tap")[0]  # human title leads the row
     assert "script-src 'sha256-" in res.headers["content-security-policy"]
 
 
