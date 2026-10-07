@@ -1,5 +1,6 @@
 // A minimal DOM, just enough to run the desk's page script against a Needs-you lane.
-// Usage: node lane_dom.js <script.js> <reduce|motion> <clicks as JSON [[item, ms], ...]>
+// Usage: node lane_dom.js <script.js> <reduce|motion> <clicks as JSON [[position, ms], ...]>
+// A click lands on whichever item sits at that position in the lane at that moment.
 'use strict';
 const fs = require('fs');
 const [, , scriptPath, motion, clicksJson] = process.argv;
@@ -100,9 +101,9 @@ new Function(fs.readFileSync(scriptPath, 'utf8'))();
 const order = () => lane.querySelectorAll('.nyx').map((n) => n.getAttribute('data-item'));
 const primary = () => lane.querySelector('.nyx.is-primary').getAttribute('data-item');
 const steps = [];
-for (const [id, ms] of JSON.parse(clicksJson)) {
+for (const [pos, ms] of JSON.parse(clicksJson)) {
   now += ms;
-  const head = lane.querySelectorAll('.nyx').find((n) => n.getAttribute('data-item') === id).querySelector('.nyx__head');
+  const head = lane.querySelectorAll('.nyx')[pos].querySelector('.nyx__head');
   let prevented = false;
   for (const fn of listeners.click || []) fn({ target: head, button: 0, preventDefault: () => { prevented = true; } });
   lane.querySelectorAll('.nyx').forEach((n) => { if (n.style.transform || n.classes.has('is-flip')) transformed.add(n.getAttribute('data-item')); });

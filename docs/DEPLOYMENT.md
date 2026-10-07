@@ -1237,8 +1237,10 @@ first hold is the expanded card (its answer form unchanged); every other item is
 a compact row. Picking a row (click or tap) animates it into the card slot and
 the old card drops into the row's place (a short FLIP move; none under
 `prefers-reduced-motion`); the pick survives the page's own refreshes. A second
-click on the same item within 450 ms opens the project, and every item has an explicit "open ↗"
-(and a card has "Open project ↗") for touch, where there is no double click.
+click within 450 ms in the same project, on the picked card or at the spot clicked
+first (where the old card now sits), opens the project; a quick click on another
+row picks that row instead. Every item has an explicit "open ↗" (and a card has
+"Open project ↗") for touch, where there is no double click.
 Without the script every row is a plain link to the project. The card shows a
 one-to-two sentence plain description of the item (what it is, why it is
 parked, what is next), written by one `claude-haiku-4-5-20251001` turn on Hive's
@@ -1276,9 +1278,16 @@ columns; the phone layout is unchanged.
 The chrome on every page carries the quota chip: the percent **used** in the
 busier of the Claude plan's 5-hour and 7-day windows (calm below 60%, warn from
 60%, hot above 85%). Tapping it lists both plus the Fable week, each with its
-reset as a clock time in the viewer's zone. It is read from
-`quota-axi --provider claude --json --no-credential-refresh` (cached 60 s,
-refreshed in the background; "—" when it does not answer). The desk's fonts
+reset as a clock time in the viewer's zone. Claude Code's own rate limits are
+the authority for the two headline windows: the gateway reads the rate-limits
+cache file another process writes (`{ts, rate_limits: {five_hour:
+{used_percentage, resets_at}, seven_day: {…}}}`, epoch seconds) on every page,
+and the popover shows the figures' age once they are over 10 minutes old. When
+that file is missing or unreadable, or both its windows have reset, the headline
+windows come from `quota-axi --provider claude --json --no-credential-refresh`
+(used = 100 − percentRemaining); the Fable week always does (cached 60 s,
+refreshed in the background). A window past its reset time is not shown; "—"
+when no 5-hour or 7-day figure is left. The desk's fonts
 (IBM Plex Mono, Nunito, Nunito Sans; OFL) are served from `/fonts/`, so the
 CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
@@ -1302,7 +1311,8 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
 | `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
-| `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the quota chip's source; `off` disables it) |
+| `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
+| `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 
 ### Live updates, alerts and live tail

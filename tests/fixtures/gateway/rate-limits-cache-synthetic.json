@@ -1,0 +1,13 @@
+{
+  "ts": 1893553200,
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 7,
+      "resets_at": 1893561240
+    },
+    "seven_day": {
+      "used_percentage": 59,
+      "resets_at": 1894060800
+    }
+  }
+}

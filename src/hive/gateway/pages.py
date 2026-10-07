@@ -7,7 +7,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape as esc
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
@@ -24,7 +24,7 @@ from hive.gateway.desk import (
     Row,
     glance,
 )
-from hive.gateway.quota import Quota
+from hive.gateway.quota import STALE_AFTER_S, Quota
 from hive.gateway.reviews import Review
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
@@ -448,10 +448,12 @@ if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();}
 document.addEventListener('click',function(e){
 var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
-var it=h.closest('.nyx'),g=it.closest('[data-group]'),k=g.getAttribute('data-group'),now=Date.now();
+var it=h.closest('.nyx'),g=it.closest('[data-group]'),k=g.getAttribute('data-group'),now=Date.now(),
+pos=[].indexOf.call(g.querySelectorAll('.nyx'),it);
 e.preventDefault();
-if(lastPick&&lastPick.it===it&&now-lastPick.t<450){lastPick=null;location.href=g.getAttribute('data-open');return;}
-lastPick={it:it,t:now};picks[k]=it.getAttribute('data-item');
+if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primary')===lastPick.it&&
+(it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
+lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
 pick(g,it,!calm());describe(it);});
 restore();stamps();setInterval(stamps,30000);
 })();
@@ -556,6 +558,11 @@ def _resets(at: datetime | None, tz: str, now: datetime) -> str:
     return f"resets <time class=reset datetime='{esc(at.isoformat())}'>{esc(shown)}</time>"
 
 
+def _age(delta: timedelta) -> str:
+    minutes = int(delta.total_seconds() // 60)
+    return f"{minutes} min ago" if minutes < 60 else f"{minutes // 60} h ago"
+
+
 def _chip(ctx: Ctx, now: datetime | None = None) -> str:
     """The ambient quota chip: busiest window as a percent used; tap shows both windows."""
     now = now or datetime.now(UTC)
@@ -578,6 +585,12 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
             "</b></div>"
             for w in q.windows
         )
+        if q.as_of is not None and (now - q.as_of).total_seconds() > STALE_AFTER_S:
+            rows += (
+                "<div class=qpop__note><span>Claude Code figures from "
+                f"<time datetime='{esc(q.as_of.isoformat())}'>{_age(now - q.as_of)}</time>"
+                "</span></div>"
+            )
     return (
         f"<details class=qwrap id=qchip>{chip}<div class=qpop>{rows}"
         "<div class=qpop__note><span>account-wide · shared with your own use</span></div>"

@@ -148,7 +148,9 @@ def test_reduced_motion_css_turns_the_lane_animations_off(tmp_path: Path) -> Non
 LANE_DOM = Path(__file__).parent / "lane_dom.js"
 
 
-def _run_lane(tmp_path: Path, motion: str, clicks: list[tuple[str, int]]) -> dict:
+def _run_lane(tmp_path: Path, motion: str, clicks: list[tuple[int, int]]) -> dict:
+    """Clicks are (position in the lane, ms since the last click); the lane starts
+    ask (the card), later-email, plain."""
     js = tmp_path / "page.js"
     js.write_text(SCRIPT)
     out = subprocess.run(
@@ -160,27 +162,43 @@ def _run_lane(tmp_path: Path, motion: str, clicks: list[tuple[str, int]]) -> dic
     return json.loads(out.stdout)
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+
+
+@needs_node
 @pytest.mark.parametrize(("motion", "animated"), [("motion", True), ("reduce", False)])
 def test_a_click_swaps_the_row_into_the_card(tmp_path: Path, motion: str, animated: bool) -> None:
-    run = _run_lane(tmp_path, motion, [("later-email", 0)])
+    run = _run_lane(tmp_path, motion, [(1, 0)])
     (step,) = run["steps"]
     assert step["order"] == ["later-email", "ask", "plain"]
     assert step["primary"] == "later-email" and step["opened"] == [] and step["prevented"]
     assert bool(run["animated"]) is animated  # no FLIP move under prefers-reduced-motion
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-def test_a_quick_second_click_on_the_same_item_opens_the_project(tmp_path: Path) -> None:
-    steps = _run_lane(tmp_path, "reduce", [("later-email", 0), ("later-email", 200)])["steps"]
+@needs_node
+@pytest.mark.parametrize("motion", ["motion", "reduce"])
+def test_a_double_click_on_a_row_opens_the_project(tmp_path: Path, motion: str) -> None:
+    """The second click lands where the first did, now on the old card that dropped there."""
+    steps = _run_lane(tmp_path, motion, [(1, 0), (1, 200)])["steps"]
+    assert steps[0]["order"][1] == "ask"  # the old card sits under the pointer
     assert steps[1]["opened"] == ["/p/bnm"] and steps[1]["primary"] == "later-email"
-    slow = _run_lane(tmp_path, "reduce", [("later-email", 0), ("later-email", 600)])["steps"]
-    assert slow[1]["opened"] == []
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-def test_a_quick_click_on_another_item_swaps_instead_of_opening(tmp_path: Path) -> None:
-    steps = _run_lane(tmp_path, "reduce", [("later-email", 0), ("plain", 200)])["steps"]
+@needs_node
+def test_a_double_click_on_the_card_opens_the_project(tmp_path: Path) -> None:
+    steps = _run_lane(tmp_path, "reduce", [(0, 0), (0, 200)])["steps"]
+    assert steps[0]["opened"] == [] and steps[1]["opened"] == ["/p/bnm"]
+
+
+@needs_node
+def test_two_slow_clicks_swap_twice(tmp_path: Path) -> None:
+    steps = _run_lane(tmp_path, "reduce", [(1, 0), (1, 600)])["steps"]
+    assert steps[1]["opened"] == [] and steps[1]["primary"] == "ask"
+
+
+@needs_node
+def test_a_quick_click_on_another_row_swaps_instead_of_opening(tmp_path: Path) -> None:
+    steps = _run_lane(tmp_path, "reduce", [(1, 0), (2, 200)])["steps"]
     assert steps[1]["opened"] == [] and steps[1]["primary"] == "plain"
     assert steps[1]["order"] == ["plain", "ask", "later-email"]
 

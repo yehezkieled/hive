@@ -17,7 +17,13 @@ from fastapi.testclient import TestClient
 from hive.gateway.app import _safe_next, create_app
 from hive.gateway.desk import build_desk, glance
 from hive.gateway.pages import Ctx, _chip
-from hive.gateway.quota import Quota, QuotaProvider, Window, parse_quota
+from hive.gateway.quota import (
+    Quota,
+    QuotaProvider,
+    Window,
+    parse_quota,
+    parse_rate_limits,
+)
 from hive.gateway.settings import GatewaySettings
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
@@ -400,6 +406,119 @@ def test_chip_states() -> None:
     assert "qchip--unknown" in _chip(Ctx("t"))
 
 
+RATE_LIMITS = FIXTURE.parent / "rate-limits-cache-synthetic.json"
+
+
+def test_rate_limits_cache_reads_as_used_with_its_resets() -> None:
+    """A synthetic Claude Code rate-limits cache (shape of the real file, made-up values)."""
+    q = parse_rate_limits(RATE_LIMITS.read_text())
+    assert q is not None and q.as_of == datetime(2030, 1, 2, 3, 0, tzinfo=UTC)
+    assert [(w.label, w.used) for w in q.windows] == [("5-hour window", 7), ("7-day window", 59)]
+    html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2030, 1, 2, 3, 5, tzinfo=UTC))
+    assert "qchip--ok" in html and "59% used</summary>" in html
+    reset = "<time class=reset datetime='2030-01-02T05:14:00+00:00'>5:14 am</time>"
+    assert f"<b>7% used · resets {reset}</b>" in html
+    assert "Claude Code figures from" not in html  # five minutes old: no age shown
+
+
+def test_old_rate_limits_show_their_age() -> None:
+    q = parse_rate_limits(RATE_LIMITS.read_text())
+    html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2030, 1, 2, 3, 25, tzinfo=UTC))
+    assert (
+        "Claude Code figures from <time datetime='2030-01-02T03:00:00+00:00'>25 min ago</time>"
+        in html
+    )
+
+
+@pytest.mark.parametrize(
+    "five",
+    [
+        {"used_percentage": True, "resets_at": 1893561240},
+        {"used_percentage": 140, "resets_at": 1893561240},
+        {"used_percentage": -1, "resets_at": 1893561240},
+        {"used_percentage": "7", "resets_at": 1893561240},
+        {"used_percentage": 7, "resets_at": 1e300},
+        {"used_percentage": 7, "resets_at": False},
+        {"used_percentage": 7},
+    ],
+)
+def test_rate_limits_cache_values_are_validated(five: dict) -> None:
+    raw = json.loads(RATE_LIMITS.read_text())
+    raw["rate_limits"]["five_hour"] = five
+    q = parse_rate_limits(json.dumps(raw))
+    assert q is not None and [w.label for w in q.windows] == ["7-day window"]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "nope",
+        "[]",
+        '{"rate_limits": {}}',
+        '{"ts": 1893553200, "rate_limits": {}}',
+        '{"ts": NaN, "rate_limits": {"five_hour": {"used_percentage": 7, "resets_at": 2e9}}}',
+    ],
+)
+def test_unreadable_rate_limits_cache(raw: str) -> None:
+    assert parse_rate_limits(raw) is None
+
+
+def _cache(path: Path, five: float, seven: float, age_s: float = 0) -> Path:
+    now = time.time()
+    path.write_text(
+        json.dumps(
+            {
+                "ts": now - age_s,
+                "rate_limits": {
+                    "five_hour": {"used_percentage": five, "resets_at": now + 3600},
+                    "seven_day": {"used_percentage": seven, "resets_at": now + 86400},
+                },
+            }
+        )
+    )
+    return path
+
+
+async def test_rate_limits_cache_leads_and_quota_axi_adds_the_fable_week(tmp_path: Path) -> None:
+    axi = json.loads((FIXTURE.parent / "quota-axi-claude.json").read_text())
+    for w in axi["providers"][0]["windows"]:
+        w.pop("resetsAt")
+    fake = _exe(tmp_path / "quota-axi", f"echo '{json.dumps(axi)}'")
+    cache = _cache(tmp_path / "rate-limits-cache.json", 7, 12)
+    q = await QuotaProvider(GatewaySettings(quota_axi=fake, rate_limits=cache)).get()
+    assert q is not None
+    assert [(w.label, w.used) for w in q.windows] == [
+        ("5-hour window", 7),
+        ("7-day window", 12),
+        ("Fable week", 91),
+    ]
+    assert (q.worst.used, q.level) == (12, "ok")
+
+
+@pytest.mark.parametrize("cache", ["missing", "corrupt", "reset"])
+async def test_quota_axi_is_the_fallback_without_a_usable_cache(tmp_path: Path, cache: str) -> None:
+    fake = _exe(tmp_path / "quota-axi", f"echo '{_quota_json(93, 61)}'")
+    path = tmp_path / "rate-limits-cache.json"
+    if cache == "corrupt":
+        path.write_text('{"ts": 1, "rate_limits": {"five_hour": {"used_percentage": "x"}}}')
+    elif cache == "reset":
+        _cache(path, 7, 12)
+        raw = json.loads(path.read_text())
+        for w in raw["rate_limits"].values():
+            w["resets_at"] = time.time() - 60
+        path.write_text(json.dumps(raw))
+    q = await QuotaProvider(GatewaySettings(quota_axi=fake, rate_limits=path)).get()
+    assert q is not None and q.as_of is None and q.worst.used == 93
+
+
+async def test_rate_limits_cache_alone_without_quota_axi(tmp_path: Path) -> None:
+    cache = _cache(tmp_path / "c.json", 40, 20, age_s=1200)
+    q = await QuotaProvider(GatewaySettings(rate_limits=cache)).get()
+    assert q is not None and [w.used for w in q.windows] == [40, 20]
+    assert "Claude Code figures from" in _chip(Ctx("t", quota=q))
+
+
 def test_page_reads_quota_axi(tmp_path: Path) -> None:
     fake = _exe(tmp_path / "q" / "quota-axi", f"echo '{_quota_json(93, 61)}'")
     html = _client(tmp_path, _calm(), fake).get("/", headers=GOOD).text
@@ -450,6 +569,17 @@ def test_home_waits_once_on_a_cold_slow_quota(tmp_path: Path) -> None:
     html = client.get("/", headers=GOOD).text
     assert time.monotonic() - start < 0.9
     assert "qchip--unknown" in html
+
+
+def test_rate_limits_setting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HIVE_GATEWAY_RATE_LIMITS", raising=False)
+    assert GatewaySettings.from_env().rate_limits == tmp_path / ".claude/rate-limits-cache.json"
+    monkeypatch.setenv("HIVE_GATEWAY_RATE_LIMITS", "off")
+    assert GatewaySettings.from_env().rate_limits is None
+    monkeypatch.setenv("HIVE_GATEWAY_RATE_LIMITS", str(tmp_path / "r.json"))
+    assert GatewaySettings.from_env().rate_limits == tmp_path / "r.json"
+    assert GatewaySettings().rate_limits is None
 
 
 def test_quota_axi_setting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
