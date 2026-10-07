@@ -38,7 +38,7 @@ def _title(file: Path) -> str:
 
 
 def _project(file: Path, projects: set[str]) -> str:
-    """The nearest path component naming a known project, else the owning home's name."""
+    """The nearest path component naming a known project, else empty."""
     for part in reversed(file.parts[:-1]):
         base = re.sub(r"-[0-9a-f]{6}$", "", part)
         if part in projects or base in projects:
@@ -63,7 +63,8 @@ def read_reviews(state: Path | None, projects: set[str]) -> list[Review]:
         key, file = s.get("key"), s.get("file")
         if not isinstance(key, str) or not _KEY.fullmatch(key) or not isinstance(file, str):
             continue
-        chat = [c for c in s.get("chat") or [] if isinstance(c, dict)]
+        chat = s.get("chat")
+        chat = [c for c in chat if isinstance(c, dict)] if isinstance(chat, list) else []
         updated = s.get("updated_at") if isinstance(s.get("updated_at"), str) else ""
         path = Path(file)
         out.append(

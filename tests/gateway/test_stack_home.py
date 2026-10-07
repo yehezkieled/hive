@@ -484,6 +484,16 @@ def test_review_pages_absent_when_state_missing_or_unreadable(
     assert "Review pages" not in _client_with_reviews(tmp_path, None).get("/", headers=GOOD).text
 
 
+@pytest.mark.parametrize("chat", [3, "agent", {"role": "agent"}])
+def test_review_with_malformed_chat_still_lists(tmp_path: Path, chat: object) -> None:
+    session = {"key": "k1", "file": "/w/p.html", "status": "open", "chat": chat}
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"sessions": {"k1": session}}))
+    resp = _client_with_reviews(tmp_path, state).get("/", headers=GOOD)
+    assert resp.status_code == 200
+    assert "Review pages · 1" in resp.text and "<span class=rv__reply>" not in resp.text
+
+
 def test_many_reviews_fold_the_rest(tmp_path: Path) -> None:
     sessions = {
         f"k{i}": {"key": f"k{i}", "file": f"/w/p{i}.html", "status": "open"} for i in range(9)
