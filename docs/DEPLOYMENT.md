@@ -1235,8 +1235,15 @@ line and done/total tasks), and the delegate bar. Tapping a card selects it in
 place (`/?focus=<project>`) and retargets the bar to that project's first or
 second mate; tapping the selected card opens its Project page. With no card
 selected the bar messages the first mate; a sole project is selected on load.
-The chrome on every page carries the quota chip: the worse of the Claude plan's
-5-hour and 7-day windows (calm below 60%, warn to 85%, hot above), read from
+With the page script running, the bar sends in place (`Accept: application/json`
+on `POST /act/<name>` returns `{ok, message}` instead of an outcome page): the
+desk stays put, shows the result under the bar and takes a fresh request id
+for the next goal. On wide screens (1100px and up) the desk widens to two
+columns; the phone layout is unchanged.
+The chrome on every page carries the quota chip: the percent **left** in the
+worse of the Claude plan's 5-hour and 7-day windows (calm above 40%, warn to
+15%, hot below). Tapping it lists both plus the Fable week, each with its
+reset as a clock time in the viewer's zone. It is read from
 `quota-axi --provider claude --json --no-credential-refresh` (cached 60 s,
 refreshed in the background; "—" when it does not answer). The desk's fonts
 (IBM Plex Mono, Nunito, Nunito Sans; OFL) are served from `/fonts/`, so the

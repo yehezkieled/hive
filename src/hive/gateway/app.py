@@ -305,6 +305,7 @@ def create_app(
             for k, v in parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True).items()
         }
         nxt = _safe_next(form.get("next", "/"))
+        wants_json = request.headers.get("accept", "") == "application/json"
         if not tokens.check_csrf(form.get("csrf", "")):
             return forbidden()
         try:
@@ -317,9 +318,13 @@ def create_app(
             result = await _dispatch(name, form, desk, settings, tokens, runs, nxt)
         except ActionError as exc:
             actions.audit(name, "-", "refused", status=exc.status)
+            if wants_json:
+                return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
             return pages_error(name, str(exc), nxt, exc.status)
         if isinstance(result, HTMLResponse):  # a confirm page
             return result
+        if wants_json:
+            return JSONResponse({"ok": True, "message": result.summary})
         return HTMLResponse(pages.render_outcome(result, nxt))
 
     return app

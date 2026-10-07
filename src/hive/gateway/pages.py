@@ -118,6 +118,17 @@ min-width:210px;color:var(--ink-2)}
 .land{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
 .land__col{display:flex;flex-direction:column;gap:12px;min-width:0}
 @media (min-width:900px){.land{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}}
+/* wide desk: use the width; the phone layout above is untouched */
+@media (min-width:1100px){
+.wide main,.wide .chrome{max-width:1480px}
+.wide .screen{min-height:calc(100vh - 96px);gap:16px}
+.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr);gap:20px}
+.wide .land__col{gap:16px}
+.wide .pcs{grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.wide .dbar-wrap{margin-top:auto;position:sticky;bottom:12px}
+.wide .dbar{padding:10px 10px 10px 16px;box-shadow:0 8px 24px var(--paper-shadow)}
+.wide input.dbar__in{font-size:15px}
+}
 .nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
 box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
 .nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
@@ -199,6 +210,11 @@ font:13px var(--font-sans);outline:none;padding:0}
 .dbar__go{font:700 11px var(--font-mono);border:0;border-radius:10px;padding:0 16px;min-height:44px;
 background:var(--bar-ink);color:var(--bar);cursor:pointer}
 .dbar-note{font:9px var(--font-mono);color:var(--ink-3);margin:6px 4px 0}
+.dbar-flash{font:700 11px var(--font-mono);color:var(--ochre);margin:6px 4px 0}
+.dbar-flash--err{color:var(--accent)}
+.dbar-flash[hidden]{display:none}
+.dbar-wrap:has(.dbar-flash:not([hidden])) .dbar-note{display:none}
+.dbar.is-sending{opacity:.7}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -211,12 +227,13 @@ try{Z=Intl.DateTimeFormat().resolvedOptions().timeZone||FB;}catch(e){Z=FB;}
 function f(o,d){try{return new Intl.DateTimeFormat('en-AU',Object.assign({timeZone:Z},o)).format(d);}
 catch(e){return new Intl.DateTimeFormat('en-AU',Object.assign({timeZone:FB},o)).format(d);}}
 function stamp(el){var d=new Date(el.getAttribute('datetime'));if(isNaN(d))return;
-var s=(Date.now()-d.getTime())/1000,t;
-if(s>=0&&s<60)t='just now';
+var s=(Date.now()-d.getTime())/1000,t,today=f({dateStyle:'short'},d)===f({dateStyle:'short'},new Date());
+if(el.className==='reset'){t=f({hour:'numeric',minute:'2-digit'},d);if(!today)t=f({weekday:'short'},d)+' '+t;}
+else if(s>=0&&s<60)t='just now';
 else if(s>=0&&s<3600)t=Math.floor(s/60)+' min ago';
 else if(s>=0&&s<21600)t=Math.floor(s/3600)+' h ago';
 else{var h=f({hour:'numeric',minute:'2-digit'},d);
-if(f({dateStyle:'short'},d)===f({dateStyle:'short'},new Date()))t='today '+h;
+if(today)t='today '+h;
 else t=f({weekday:'short',day:'numeric',month:'short'},d)+', '+h;}
 el.textContent=t;el.title=f({dateStyle:'medium',timeStyle:'short'},d)+' ('+Z+')';}
 function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.length;i++)stamp(a[i]);}
@@ -245,9 +262,10 @@ th.innerHTML=n.innerHTML;stamps();if(near)bottom();});}
 function refreshMain(){if(document.hidden||busy()){want=true;return;}
 want=false;load(function(doc){
 var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
+if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
 if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
-var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();window.scrollTo(0,y);});}
+var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();showFlash();window.scrollTo(0,y);});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
 function connect(){es=new EventSource('/events');
 es.onopen=function(){live=true;seen=Date.now();};
@@ -313,6 +331,23 @@ try{history.replaceState(null,'',card.getAttribute('data-next'));}catch(e){}}
 document.addEventListener('click',function(e){var a=e.target.closest?e.target.closest('[data-card]'):null;
 if(!a||a.classList.contains('is-selected')||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
 e.preventDefault();focus(a);});
+var flash=null,flashT;
+function showFlash(){var e=document.querySelector('[data-flash]');if(!e||!flash)return;
+e.textContent=flash.t;e.hidden=false;e.className='dbar-flash'+(flash.ok?'':' dbar-flash--err');}
+function setFlash(t,ok){flash={t:t,ok:ok};showFlash();clearTimeout(flashT);
+flashT=setTimeout(function(){flash=null;var e=document.querySelector('[data-flash]');if(e)e.hidden=true;},8000);}
+function newRid(){var a=new Uint8Array(8),s='web-';crypto.getRandomValues(a);
+for(var i=0;i<8;i++)s+=('0'+a[i].toString(16)).slice(-2);return s;}
+document.addEventListener('submit',function(e){var fm=e.target;
+if(!fm.classList||!fm.classList.contains('dbar')||!window.fetch||!window.URLSearchParams)return;
+e.preventDefault();if(fm.classList.contains('is-sending'))return;fm.classList.add('is-sending');
+fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},
+body:new URLSearchParams(new FormData(fm))})
+.then(function(r){return r.json();}).then(function(j){
+if(j.ok){fm.elements.text.value='';fm.elements.rid.value=newRid();}
+setFlash(j.message||'Could not send.',!!j.ok);})
+.catch(function(){setFlash('Could not send. Reload the desk.',false);})
+.then(function(){fm.classList.remove('is-sending');});});
 stamps();setInterval(stamps,30000);
 })();
 """
@@ -399,19 +434,19 @@ class Ctx:
 
 
 def _resets(at: datetime | None, tz: str, now: datetime) -> str:
+    """The reset as a ``<time>`` the page script shows in the viewer's zone; ``tz`` is the fallback."""
     if at is None:
         return "not started"
-    secs = (at - now).total_seconds()
-    if secs < 0:
+    if at <= now:
         return "now"
-    if secs < 3600:
-        return f"resets {int(secs // 60)}m"
-    if secs < 86400:
-        return f"resets {int(secs // 3600)}h {int(secs % 3600 // 60):02d}m"
     try:
-        return f"resets {at.astimezone(ZoneInfo(tz)):%a}"
+        zone = ZoneInfo(tz)
     except Exception:  # unknown zone name or no tz database
-        return f"resets {at:%a}"
+        zone = UTC
+    local, today = at.astimezone(zone), now.astimezone(zone)
+    clock = f"{local.hour % 12 or 12}:{local:%M} {local:%p}".lower()
+    shown = clock if local.date() == today.date() else f"{local:%a} {clock}"
+    return f"resets <time class=reset datetime='{esc(at.isoformat())}'>{esc(shown)}</time>"
 
 
 def _chip(ctx: Ctx, now: datetime | None = None) -> str:
@@ -428,11 +463,11 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
         worst = q.worst
         chip = (
             f"<summary class='qchip qchip--{q.level}' "
-            f"aria-label='Plan quota, worst window {worst.used} percent'>"
-            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span>{worst.used}%</summary>"
+            f"aria-label='Plan quota, worst window {worst.left} percent left'>"
+            f"<span class=qchip__bar><i style='width:{worst.left}%'></i></span>{worst.left}% left</summary>"
         )
         rows = "".join(
-            f"<div><span>{esc(w.label)}</span><b>{w.used}% · {esc(_resets(w.resets_at, ctx.tz, now))}"
+            f"<div><span>{esc(w.label)}</span><b>{w.left}% left · {_resets(w.resets_at, ctx.tz, now)}"
             "</b></div>"
             for w in q.windows
         )
@@ -459,7 +494,7 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         "<link rel=icon href='/icons/icon-192.png'>"
         "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
         f"<title>{esc(title)}</title><style>{CSS}</style></head>"
-        f"<body{attrs}><header class=chrome>"
+        f"<body{attrs}{' class=wide' if active == 'desk' else ''}><header class=chrome>"
         "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
         f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
@@ -664,7 +699,8 @@ def _dbar(focus: Project | None, ctx: Ctx) -> str:
         return ""
     hidden = " hidden" if field else ""
     return (
-        f"<div class=dbar-wrap>{form}<p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
+        f"<div class=dbar-wrap>{form}<p class=dbar-flash data-flash role=status hidden></p>"
+        f"<p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
         f"<span data-nofocus{hidden}> · no project focus</span>"
         " · tapping a project card retargets this bar</p></div>"
     )
