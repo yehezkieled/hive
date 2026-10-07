@@ -227,12 +227,13 @@ try{Z=Intl.DateTimeFormat().resolvedOptions().timeZone||FB;}catch(e){Z=FB;}
 function f(o,d){try{return new Intl.DateTimeFormat('en-AU',Object.assign({timeZone:Z},o)).format(d);}
 catch(e){return new Intl.DateTimeFormat('en-AU',Object.assign({timeZone:FB},o)).format(d);}}
 function stamp(el){var d=new Date(el.getAttribute('datetime'));if(isNaN(d))return;
-var s=(Date.now()-d.getTime())/1000,t;
-if(s>=0&&s<60)t='just now';
+var s=(Date.now()-d.getTime())/1000,t,today=f({dateStyle:'short'},d)===f({dateStyle:'short'},new Date());
+if(el.className==='reset'){t=f({hour:'numeric',minute:'2-digit'},d);if(!today)t=f({weekday:'short'},d)+' '+t;}
+else if(s>=0&&s<60)t='just now';
 else if(s>=0&&s<3600)t=Math.floor(s/60)+' min ago';
 else if(s>=0&&s<21600)t=Math.floor(s/3600)+' h ago';
 else{var h=f({hour:'numeric',minute:'2-digit'},d);
-if(f({dateStyle:'short'},d)===f({dateStyle:'short'},new Date()))t='today '+h;
+if(today)t='today '+h;
 else t=f({weekday:'short',day:'numeric',month:'short'},d)+', '+h;}
 el.textContent=t;el.title=f({dateStyle:'medium',timeStyle:'short'},d)+' ('+Z+')';}
 function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.length;i++)stamp(a[i]);}
@@ -432,7 +433,7 @@ class Ctx:
 
 
 def _resets(at: datetime | None, tz: str, now: datetime) -> str:
-    """The reset as a local clock time, with the weekday when it is not today."""
+    """The reset as a ``<time>`` the page script shows in the viewer's zone; ``tz`` is the fallback."""
     if at is None:
         return "not started"
     if at <= now:
@@ -443,7 +444,8 @@ def _resets(at: datetime | None, tz: str, now: datetime) -> str:
         zone = UTC
     local, today = at.astimezone(zone), now.astimezone(zone)
     clock = f"{local.hour % 12 or 12}:{local:%M} {local:%p}".lower()
-    return f"resets {clock if local.date() == today.date() else f'{local:%a} {clock}'}"
+    shown = clock if local.date() == today.date() else f"{local:%a} {clock}"
+    return f"resets <time class=reset datetime='{esc(at.isoformat())}'>{esc(shown)}</time>"
 
 
 def _chip(ctx: Ctx, now: datetime | None = None) -> str:
@@ -464,7 +466,7 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
             f"<span class=qchip__bar><i style='width:{worst.left}%'></i></span>{worst.left}% left</summary>"
         )
         rows = "".join(
-            f"<div><span>{esc(w.label)}</span><b>{w.left}% left · {esc(_resets(w.resets_at, ctx.tz, now))}"
+            f"<div><span>{esc(w.label)}</span><b>{w.left}% left · {_resets(w.resets_at, ctx.tz, now)}"
             "</b></div>"
             for w in q.windows
         )

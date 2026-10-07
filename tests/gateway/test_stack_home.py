@@ -264,11 +264,17 @@ def test_recorded_quota_axi_output_reads_as_what_is_left() -> None:
     now = datetime(2026, 10, 7, 8, 24, tzinfo=UTC)
     html = _chip(Ctx("t", quota=q, tz="UTC"), now)
     assert "34% left</summary>" in html and "width:34%" in html
-    assert "<b>34% left · resets 12:29 pm</b>" in html
-    assert "<b>47% left · resets Thu 2:59 pm</b>" in html
-    assert "<b>9% left · resets Thu 2:59 pm</b>" in html
+    five, week = "2026-10-07T12:29:59.584507+00:00", "2026-10-08T14:59:59.584532+00:00"
+    fable = "2026-10-08T14:59:59.584750+00:00"
+
+    def row(left: int, iso: str, shown: str) -> str:
+        return f"<b>{left}% left · resets <time class=reset datetime='{iso}'>{shown}</time></b>"
+
+    assert row(34, five, "12:29 pm") in html
+    assert row(47, week, "Thu 2:59 pm") in html
+    assert row(9, fable, "Thu 2:59 pm") in html
     local = _chip(Ctx("t", quota=q, tz="Australia/Sydney"), now)
-    assert "<b>34% left · resets 11:29 pm</b>" in local
+    assert row(34, five, "11:29 pm") in local
 
 
 @pytest.mark.parametrize("raw", ["nope", "{}", '{"providers":[{"provider":"claude"}]}'])
@@ -281,7 +287,8 @@ def test_chip_states() -> None:
     q = Quota((Window("5-hour window", 29, datetime(2030, 1, 2, 5, 14, tzinfo=UTC)),))
     html = _chip(Ctx("t", quota=q, tz="UTC"), now)
     assert "class='qchip qchip--warn'" in html and "worst window 29 percent left" in html
-    assert "<b>29% left · resets 5:14 am</b>" in html
+    reset = "<time class=reset datetime='2030-01-02T05:14:00+00:00'>5:14 am</time>"
+    assert f"<b>29% left · resets {reset}</b>" in html
     hot = Quota((Window("5-hour window", 7, now + timedelta(minutes=25)),))
     assert "qchip--hot" in _chip(Ctx("t", quota=hot), now)
     assert "qchip--unknown" in _chip(Ctx("t"))

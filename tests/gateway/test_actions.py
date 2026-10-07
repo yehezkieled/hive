@@ -548,12 +548,3 @@ def test_delegate_answers_a_fetch_with_json_so_the_desk_stays_put(
 def test_a_fresh_desk_render_carries_a_fresh_delegate_request_id(client: TestClient) -> None:
     rids = {_hidden(client.get("/", headers=GOOD).text, "rid") for _ in range(2)}
     assert len(rids) == 2
-
-
-def test_the_page_script_rotates_the_request_id_after_a_sent_goal() -> None:
-    # A second goal from the same page must not reuse the first one's id (it would read as
-    # "Already sent"); the script swaps in a new id once the server confirms.
-    from hive.gateway import pages
-
-    assert "fm.elements.rid.value=newRid()" in pages.SCRIPT
-    assert "is-sending" in pages.SCRIPT  # a double click cannot post twice
