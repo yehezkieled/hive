@@ -15,6 +15,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from hive.gateway.settings import GatewaySettings
 
@@ -81,7 +82,37 @@ async def run_snapshot(settings: GatewaySettings) -> Snapshot:
         return Snapshot(None, None, None, "firstmate snapshot timed out")
     if proc.returncode != 0 or len(out) > _MAX_OUTPUT:
         return Snapshot(None, None, None, "firstmate snapshot failed")
-    return parse_snapshot(out.decode("utf-8", "replace"))
+    snap = parse_snapshot(out.decode("utf-8", "replace"))
+    if snap.data is not None:
+        snap.data["registered_projects"] = await asyncio.to_thread(
+            registered_projects, settings.fm_home, snap.data
+        )
+    return snap
+
+
+_REGISTRY_LINE = re.compile(r"^- (.+?)(?: \[| - )")
+
+
+def registered_projects(fm_home: Path, data: dict) -> list[str]:
+    """Project names from the main registry and every local second mate's, so a project with
+    no backlog rows still has a card. Unreadable registries add nothing."""
+    homes = [fm_home]
+    mates = data.get("secondmate_current")
+    for rec in mates.get("records", []) if isinstance(mates, dict) else []:
+        home = rec.get("home") if isinstance(rec, dict) else None
+        if isinstance(home, str) and home.startswith("/") and not rec.get("host"):
+            homes.append(Path(home))
+    names: list[str] = []
+    for home in homes:
+        try:
+            lines = (home / "data" / "projects.md").read_text().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            m = _REGISTRY_LINE.match(line)
+            if m and m.group(1) not in names:
+                names.append(m.group(1))
+    return names
 
 
 class SnapshotProvider:

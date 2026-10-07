@@ -100,7 +100,7 @@ def test_every_project_with_a_needs_you_item_is_blocked_and_only_those(tmp_path:
         assert (glance(p).status == "blocked") == bool(p.needs_you), p.name
     html = _client(tmp_path, json.loads(FIXTURE.read_text())).get("/", headers=GOOD).text
     assert _cards(html) == {"alpha": "blocked", "beta": "blocked", "General": "idle"}
-    assert "<b>Waiting on you</b> — 2 items (see Needs you)" in html
+    assert "<b>Waiting on you</b> — 2 items (open the project)" in html
 
 
 def test_running_idle_activity_and_progress() -> None:
@@ -144,13 +144,68 @@ def test_mate_record_without_repo_lands_on_the_mates_project() -> None:
 # ---- the page --------------------------------------------------------------------
 
 
+def _calm_empty() -> dict:
+    data = _calm()
+    data["backlog"]["records"] = [r for r in data["backlog"]["records"] if r["state"] != "queued"]
+    return data
+
+
 def test_calm_hero_counts_running_loops(tmp_path: Path) -> None:
-    html = _client(tmp_path, _calm()).get("/", headers=GOOD).text
+    html = _client(tmp_path, _calm_empty()).get("/", headers=GOOD).text
     assert "class='nyl nyl--calm'" in html and "<span class=nyl__count>0</span>" in html
-    assert "✓ all clear · 2 loops running" in html and "nothing needs you" in html
+    assert "✓ all clear · 2 loops running" in html and "backlog is empty" in html
     assert _cards(html) == {"alpha": "running", "beta": "idle", "hive": "running"}
     assert "<span class=pc__mae>second mate</span>" in html
-    assert "1 / 3 tasks" in html and ">done<span class=pc__open>" in html
+    assert "1 / 2 tasks" in html and ">done<span class=pc__open>" in html
+
+
+def test_lane_is_the_backlog_grouped_by_project_without_worker_questions(tmp_path: Path) -> None:
+    data = _calm()
+    data["backlog"]["records"] += [
+        _rec("a4", "alpha", "queued", blocked_by=["a3"], unresolved_blocker_ids=["a3"]),
+        _rec("a5", "alpha", "queued", hold_reason="timed", captain_actionable=False),
+        _rec("b2", "beta", "queued", hold_reason="Pick?", captain_actionable=True),
+        *(_rec(f"a{n}", "alpha", "queued") for n in range(6, 10)),
+    ]
+    data["tasks"][0]["hints"] = {"open_decisions": [{"key": "ask", "summary": "Worker asks?"}]}
+    html = _client(tmp_path, data).get("/", headers=GOOD).text
+    lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
+    assert re.findall(r"<span class=nyg__name>([^<]*)</span>", lane) == ["beta", "alpha"]
+    assert "Worker asks?" not in html.split("Projects · tap")[0]
+    assert "1 waiting on you" in lane and "<span class=nyl__count>8</span>" in html
+    assert "+3 more" in lane  # alpha lists four queued, the rest is one tap away
+    assert "held</span>" in lane and "blocked</span>" in lane
+    assert "name=release value=1" in lane  # a held item is still answered as before
+
+
+def test_registered_project_without_backlog_rows_still_has_an_idle_card(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / "data").mkdir(parents=True)
+    (home / "data" / "projects.md").write_text(
+        "- rumble-arena [no-mistakes +yolo] - a game (added 2026-09-01)\n"
+        "- plain-one - no mode (added 2026-09-02)\n"
+    )
+    mate = tmp_path / "mate"
+    (mate / "data").mkdir(parents=True)
+    (mate / "data" / "projects.md").write_text("- hive [no-mistakes] - the desk (added x)\n")
+    data = _snapshot(
+        backlog={"records": [_rec("a1", "alpha", "done")]},
+        secondmate_current={"records": [{"id": "hive", "home": str(mate), "queued": []}]},
+    )
+    snap = tmp_path / "snap.json"
+    snap.write_text(json.dumps(data))
+    _exe(home / "bin" / "fm-fleet-snapshot.sh", f"cat '{snap}'")
+    settings = GatewaySettings(
+        owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home, snapshot_ttl_s=0
+    )
+    client = TestClient(create_app(settings), client=("127.0.0.1", 5000))
+    html = client.get("/", headers=GOOD).text
+    assert _cards(html) == {
+        "alpha": "idle",
+        "hive": "idle",
+        "plain-one": "idle",
+        "rumble-arena": "idle",
+    }
 
 
 def test_default_target_is_the_first_mate_with_several_projects(tmp_path: Path) -> None:
@@ -363,3 +418,87 @@ def test_chat_thread_labels_a_delegated_goal() -> None:
     assert [r.kind for r in items] == ["delegate"]
     html = render_chat(ChatView(True, True, items, []), Ctx("t"))
     assert "<span class=tag>delegated</span>" in html
+
+
+# ---- Review pages: open Lavish sessions ------------------------------------------
+
+LAVISH = Path(__file__).parent.parent / "fixtures" / "gateway" / "lavish-state.json"
+
+
+def _client_with_reviews(tmp_path: Path, state: Path | None) -> TestClient:
+    snap = tmp_path / "snap.json"
+    snap.write_text(json.dumps(_calm()))
+    _exe(tmp_path / "bin" / "fm-fleet-snapshot.sh", f"cat '{snap}'")
+    settings = GatewaySettings(
+        owner_login=OWNER,
+        allowed_hosts=(HOST,),
+        fm_home=tmp_path,
+        snapshot_ttl_s=0,
+        board_url="https://board.example.ts.net:8445",
+        lavish_state=state,
+    )
+    return TestClient(create_app(settings), client=("127.0.0.1", 5000))
+
+
+def test_review_pages_list_open_sessions_on_the_tailnet_url(tmp_path: Path) -> None:
+    html = _client_with_reviews(tmp_path, LAVISH).get("/", headers=GOOD).text
+    section = html.split("Review pages", 1)[1].split("</section>", 1)[0]
+    assert section.startswith(" · 3")  # open only; the ended and malformed ones are left out
+    hrefs = re.findall(
+        r"<a class=rv href='([^']+)' target=_blank rel='noopener noreferrer'", section
+    )
+    # reply waiting first, then newest
+    assert hrefs == [
+        f"https://board.example.ts.net:8445/session/{k}"
+        for k in ("aaaa1111aaaa1111", "bbbb2222bbbb2222", "cccc3333cccc3333")
+    ]
+    assert "127.0.0.1:4387" not in html and "dddd4444" not in html and "bad/key" not in html
+    assert re.findall(r"<span class=rv__title>([^<]*)</span>", section) == [
+        "pixel board",
+        "ai example",
+        "recon report",
+    ]
+    assert re.findall(r"<span class=rv__proj>([^<]*)</span>", section) == ["alpha", "alpha"]
+    assert section.count("<span class=rv__reply>reply</span>") == 1
+
+
+def test_review_title_prefers_the_html_title(tmp_path: Path) -> None:
+    page = tmp_path / "x.html"
+    page.write_text("<!doctype html><title> Pick the\n palette </title><body>")
+    state = tmp_path / "state.json"
+    state.write_text(
+        json.dumps({"sessions": {"k1": {"key": "k1", "file": str(page), "status": "open"}}})
+    )
+    html = _client_with_reviews(tmp_path, state).get("/", headers=GOOD).text
+    assert "<span class=rv__title>Pick the palette</span>" in html
+
+
+@pytest.mark.parametrize("raw", [None, "nope", "[]", '{"sessions": 3}'])
+def test_review_pages_absent_when_state_missing_or_unreadable(
+    tmp_path: Path, raw: str | None
+) -> None:
+    state = tmp_path / "state.json"
+    if raw is not None:
+        state.write_text(raw)
+    assert "Review pages" not in _client_with_reviews(tmp_path, state).get("/", headers=GOOD).text
+    assert "Review pages" not in _client_with_reviews(tmp_path, None).get("/", headers=GOOD).text
+
+
+@pytest.mark.parametrize("chat", [3, "agent", {"role": "agent"}])
+def test_review_with_malformed_chat_still_lists(tmp_path: Path, chat: object) -> None:
+    session = {"key": "k1", "file": "/w/p.html", "status": "open", "chat": chat}
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"sessions": {"k1": session}}))
+    resp = _client_with_reviews(tmp_path, state).get("/", headers=GOOD)
+    assert resp.status_code == 200
+    assert "Review pages · 1" in resp.text and "<span class=rv__reply>" not in resp.text
+
+
+def test_many_reviews_fold_the_rest(tmp_path: Path) -> None:
+    sessions = {
+        f"k{i}": {"key": f"k{i}", "file": f"/w/p{i}.html", "status": "open"} for i in range(9)
+    }
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"sessions": sessions}))
+    html = _client_with_reviews(tmp_path, state).get("/", headers=GOOD).text
+    assert "Review pages · 9" in html and "<summary>+3 more</summary>" in html

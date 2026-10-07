@@ -1228,10 +1228,24 @@ and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
 the header of every page).
 
 Home is the **Stack home** (`docs/design/T002-stack-home.html`): the needs-you
-lane as the hero (a calm "all clear · N loops running" when empty; rows sort
-decision, hold, merge), one card per project (blocked exactly when it has a
-needs-you item, else running when a crew is `working`, else idle; the activity
-line and done/total tasks), and the delegate bar. Tapping a card selects it in
+lane as the hero, one card per project and the delegate bar. The lane is the
+backlog across every project (the first mate's and each second mate's), grouped
+by project: captain holds first, marked "waiting on you" and answerable in
+place, then queued tickets (a few per project, the rest behind "+N more" to the
+Project page). Worker questions, task decisions and merge approvals are not in
+the lane; they show on the Project page. An empty backlog shows a calm "all
+clear · N loops running". Cards come from the snapshot plus every project named
+in `data/projects.md` of the first mate's home and of each second mate home on
+this host, so a registered project with no backlog rows still shows as idle. A
+card is blocked exactly when it has a needs-you item, else running when a crew
+is `working`, else idle; it shows the activity line and done/total tasks.
+Below the cards, **Review pages** lists every open Lavish review session, read
+only from `HIVE_GATEWAY_LAVISH_STATE`: a short title (the page's `<title>`, else
+the file name), the project when a path component names one, a "reply" tag when
+the agent answered last (those sort first, then newest), and a link to
+`$HIVE_GATEWAY_BOARD_URL/session/<id>`, so it opens on the tailnet from an
+iPhone or iPad. The link is built from the session key only; the recorded local
+address is never shown. Six are listed, the rest fold under "+N more". Tapping a card selects it in
 place (`/?focus=<project>`) and retargets the bar to that project's first or
 second mate; tapping the selected card opens its Project page. With no card
 selected the bar messages the first mate; a sole project is selected on load.
@@ -1270,6 +1284,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
 | `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the quota chip's source; `off` disables it) |
+| `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 
 ### Live updates, alerts and live tail
 

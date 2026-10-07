@@ -28,6 +28,7 @@ from hive.gateway.desk import Desk, build_desk
 from hive.gateway.live import LiveHub
 from hive.gateway.push import PushService, valid_subscription
 from hive.gateway.quota import Quota, QuotaProvider
+from hive.gateway.reviews import read_reviews
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
 from hive.gateway.tail import peek
@@ -172,7 +173,9 @@ def create_app(
         selected = focus if desk is not None and focus in desk.projects else None
         nxt = "/?focus=" + quote(selected, safe="") if selected else "/"
         ctx = make_ctx(snap, nxt, q)
-        return HTMLResponse(pages.render_home(snap, desk, ctx, selected))
+        names = set(desk.projects) if desk else set()
+        reviews = await asyncio.to_thread(read_reviews, settings.lavish_state, names)
+        return HTMLResponse(pages.render_home(snap, desk, ctx, selected, reviews))
 
     @app.get("/p/{name}", response_class=HTMLResponse)
     async def project(name: str) -> HTMLResponse:

@@ -1,0 +1,117 @@
+{
+ "sessions": {
+  "aaaa1111aaaa1111": {
+   "key": "aaaa1111aaaa1111",
+   "file": "/work/alpha-9a8d6d/1/alpha/.lavish/pixel-board.html",
+   "url": "http://127.0.0.1:4387/session/aaaa1111aaaa1111",
+   "status": "open",
+   "pending_prompts": 0,
+   "prompts": [],
+   "layout_warnings": [],
+   "artifact_revision": 2,
+   "artifact_failures": [],
+   "delivered_attachments": [],
+   "dom_snapshot": "",
+   "chat": [
+    {
+     "role": "user",
+     "text": "looks off",
+     "at": "2030-01-02T03:00:00.000Z"
+    },
+    {
+     "role": "agent",
+     "text": "Fixed, take a look",
+     "at": "2030-01-02T03:00:00.000Z"
+    }
+   ],
+   "chat_revision": 2,
+   "chat_ack_ids": [],
+   "updated_at": "2030-01-02T03:00:00.000Z"
+  },
+  "bbbb2222bbbb2222": {
+   "key": "bbbb2222bbbb2222",
+   "file": "/work/alpha-9a8d6d/2/alpha/.lavish/ai_example.html",
+   "url": "http://127.0.0.1:4387/session/bbbb2222bbbb2222",
+   "status": "open",
+   "pending_prompts": 0,
+   "prompts": [],
+   "layout_warnings": [],
+   "artifact_revision": 2,
+   "artifact_failures": [],
+   "delivered_attachments": [],
+   "dom_snapshot": "",
+   "chat": [
+    {
+     "role": "agent",
+     "text": "hi",
+     "at": "2030-01-02T05:00:00.000Z"
+    },
+    {
+     "role": "user",
+     "text": "thanks",
+     "at": "2030-01-02T05:00:00.000Z"
+    }
+   ],
+   "chat_revision": 2,
+   "chat_ack_ids": [],
+   "updated_at": "2030-01-02T05:00:00.000Z"
+  },
+  "cccc3333cccc3333": {
+   "key": "cccc3333cccc3333",
+   "file": "/work/fm/.lavish/recon-report.html",
+   "url": "http://127.0.0.1:4387/session/cccc3333cccc3333",
+   "status": "open",
+   "pending_prompts": 0,
+   "prompts": [],
+   "layout_warnings": [],
+   "artifact_revision": 2,
+   "artifact_failures": [],
+   "delivered_attachments": [],
+   "dom_snapshot": "",
+   "chat": [],
+   "chat_revision": 0,
+   "chat_ack_ids": [],
+   "updated_at": "2030-01-02T04:00:00.000Z"
+  },
+  "dddd4444dddd4444": {
+   "key": "dddd4444dddd4444",
+   "file": "/work/alpha-9a8d6d/1/alpha/.lavish/old.html",
+   "url": "http://127.0.0.1:4387/session/dddd4444dddd4444",
+   "status": "ended",
+   "pending_prompts": 0,
+   "prompts": [],
+   "layout_warnings": [],
+   "artifact_revision": 2,
+   "artifact_failures": [],
+   "delivered_attachments": [],
+   "dom_snapshot": "",
+   "chat": [
+    {
+     "role": "agent",
+     "text": "bye",
+     "at": "2030-01-02T03:04:05.000Z"
+    }
+   ],
+   "chat_revision": 1,
+   "chat_ack_ids": [],
+   "updated_at": "2030-01-02T03:04:05.000Z"
+  },
+  "bad/key": {
+   "key": "bad/key",
+   "file": "/work/x.html",
+   "url": "http://127.0.0.1:4387/session/bad/key",
+   "status": "open",
+   "pending_prompts": 0,
+   "prompts": [],
+   "layout_warnings": [],
+   "artifact_revision": 2,
+   "artifact_failures": [],
+   "delivered_attachments": [],
+   "dom_snapshot": "",
+   "chat": [],
+   "chat_revision": 0,
+   "chat_ack_ids": [],
+   "updated_at": "2030-01-02T03:04:05.000Z"
+  }
+ }
+}

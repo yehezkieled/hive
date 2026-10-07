@@ -14,8 +14,18 @@ from zoneinfo import ZoneInfo
 
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
 from hive.gateway.chat import ChatView
-from hive.gateway.desk import NO_PROJECT, Crew, Desk, NeedsYou, Project, Row, glance
+from hive.gateway.desk import (
+    NO_PROJECT,
+    BacklogGroup,
+    Crew,
+    Desk,
+    NeedsYou,
+    Project,
+    Row,
+    glance,
+)
 from hive.gateway.quota import Quota
+from hive.gateway.reviews import Review
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
 
@@ -160,6 +170,38 @@ border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;backgroun
 .nyi__btns{display:flex;gap:7px;flex-wrap:wrap}
 input.nyi__reply{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:12px var(--font-mono);padding:6px 9px;
 border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
+.nyg{display:flex;flex-direction:column;gap:6px}
+.nyg+.nyg{border-top:1px solid var(--rule-faint);padding-top:10px}
+.nyg__head{display:flex;align-items:center;gap:8px;min-height:44px;color:inherit;text-decoration:none;flex-wrap:wrap}
+.nyg__head>*{min-width:0}
+.nyg__name{font:700 13px var(--font-display)}
+.nyg__mate{font:9px var(--font-mono);color:var(--ink-4)}
+.nyg__wait{font:700 9px var(--font-mono);letter-spacing:.5px;color:var(--ochre);background:var(--honey-soft);
+border-radius:999px;padding:2px 8px;white-space:nowrap}
+.nyg__count{margin-left:auto;font:700 10px var(--font-mono);color:var(--ink-3)}
+.nyq{display:flex;align-items:baseline;gap:8px;min-height:36px;padding:6px 4px;color:inherit;text-decoration:none;
+border-radius:7px}
+.nyq:hover{background:var(--paper-soft)}
+.nyq__id{font:10px var(--font-mono);color:var(--ink-4);flex-shrink:0;max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nyq__title{flex:1;min-width:0;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nyq__tag{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
+border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft)}
+.nyq__tag--hold{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
+.nyq__more{font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;padding:6px 4px;min-height:36px}
+.rvs{display:flex;flex-direction:column;gap:6px}
+.rv__list{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
+.rv{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;color:inherit;text-decoration:none;
+border-top:1px solid var(--rule-faint)}
+.rv:first-child{border-top:0}
+.rv:hover{background:var(--paper-soft)}
+.rv>*{min-width:0}
+.rv__title{flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv__proj{font:10px var(--font-mono);color:var(--ink-3);max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv__reply{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ochre);
+background:var(--honey-soft);border-radius:999px;padding:2px 8px}
+.rv__go{font:10px var(--font-mono);color:var(--ink-4)}
+.rv__more summary{min-height:44px;display:flex;align-items:center;padding:0 12px;font:10px var(--font-mono);
+color:var(--ink-3);cursor:pointer;border-top:1px solid var(--rule-faint)}
 .nyi__reply::placeholder{color:var(--ink-4)}
 .btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
 border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
@@ -560,7 +602,7 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
 # Needs-you kinds on the T001 lane: (row class, state dot, badge).
 _LANE = {
     "decision": ("nyi--decision", "idle", "decision"),
-    "hold": ("nyi--gate", "gated", "hold"),
+    "hold": ("nyi--gate", "gated", "waiting on you"),
     "merge": ("nyi--mode", "active", "merge"),
 }
 
@@ -569,7 +611,7 @@ def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
     """One T001 lane row: the header opens the project, the actions answer in place."""
     row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
     ref = n.ref.partition("/")[0]
-    entity = f"{n.project} · {ref}"
+    entity = f"{n.project} · {ref}"  # the reply label; the lane's group header names the project
     if n.title and n.text and n.title != n.text:
         summary = f"<b>{ctx.plain(n.title)}</b> — {ctx.plain(n.text)}"
     else:
@@ -626,26 +668,60 @@ def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
     return (
         f"<article class='nyi {row}'><a class=nyi__head href='{esc(href)}' "
         f"title='open {esc(n.project)}'><span class='state-dot state-dot--{dot}'></span>"
-        f"<span class=nyi__entity>{esc(entity)}</span><span class=nyi__kind>{esc(badge)}</span>"
+        f"<span class=nyi__entity>{esc(ref)}</span><span class=nyi__kind>{esc(badge)}</span>"
         f"<span class=nyi__open>open ↗</span><p class=nyi__summary>{summary}</p></a>{act}</article>"
     )
 
 
+_QUEUED_SHOWN = 4  # queued tickets listed per project before "+N more"
+
+
+def _queued_row(r: Row, href: str) -> str:
+    if r.hold:
+        tag = "<span class='nyq__tag nyq__tag--hold'>held</span>"
+    elif r.blocked_by:
+        tag = "<span class=nyq__tag>blocked</span>"
+    else:
+        tag = ""
+    return (
+        f"<a class=nyq href='{esc(href)}'><span class=nyq__id>{esc(r.id)}</span>"
+        f"<span class=nyq__title>{esc(r.title or r.id)}</span>{tag}</a>"
+    )
+
+
+def _group(g: BacklogGroup, ctx: Ctx) -> str:
+    href = "/p/" + quote(g.project, safe="")
+    shown = g.queued[:_QUEUED_SHOWN]
+    rest = len(g.queued) - len(shown)
+    more = f"<a class=nyq__more href='{esc(href)}'>+{rest} more ↗</a>" if rest else ""
+    waiting = f"<span class=nyg__wait>{len(g.waiting)} waiting on you</span>" if g.waiting else ""
+    return (
+        f"<section class=nyg><a class=nyg__head href='{esc(href)}'>"
+        f"<span class=nyg__name>{esc(g.project)}</span>"
+        f"<span class=nyg__mate>{'second mate' if g.mate else 'first mate'}</span>{waiting}"
+        f"<span class=nyg__count>{g.count}</span></a>"
+        + "".join(_lane_item(n, ctx) for n in g.waiting)
+        + "".join(_queued_row(r, href) for r in shown)
+        + f"{more}</section>"
+    )
+
+
 def _lane(desk: Desk, ctx: Ctx) -> str:
+    """ "Needs you": the backlog across every project, grouped by project (not worker chatter)."""
     head = (
         "<div class=nyl__head><span class=nyl__glyph aria-hidden=true>◆</span>"
-        f"<h2 class=nyl__title>Needs you</h2><span class=nyl__count>{len(desk.needs_you)}</span></div>"
+        f"<h2 class=nyl__title>Needs you</h2><span class=nyl__count>{desk.backlog_count}</span></div>"
     )
-    if not desk.needs_you:
+    if not desk.backlog:
         n = desk.loops_running
         return (
             f"<section class='nyl nyl--calm'>{head}<div class=calm>"
             "<div class=calm__check aria-hidden=true>✓</div>"
             f"<p class=calm__line>✓ all clear · {n} loop{'' if n == 1 else 's'} running</p>"
-            "<p class=calm__sub>nothing needs you</p></div></section>"
+            "<p class=calm__sub>backlog is empty</p></div></section>"
         )
-    items = "".join(_lane_item(n, ctx) for n in desk.needs_you)
-    return f"<section class=nyl>{head}<div class=nyl__body>{items}</div></section>"
+    groups = "".join(_group(g, ctx) for g in desk.backlog)
+    return f"<section class=nyl>{head}<div class=nyl__body>{groups}</div></section>"
 
 
 _DOT = {"blocked": "error", "running": "active", "idle": "idle"}
@@ -706,7 +782,44 @@ def _dbar(focus: Project | None, ctx: Ctx) -> str:
     )
 
 
-def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx, focus: str | None = None) -> str:
+_REVIEWS_SHOWN = 6
+
+
+def _review(r: Review, ctx: Ctx) -> str:
+    href = f"{ctx.board_url}/session/{r.key}"
+    reply = "<span class=rv__reply>reply</span>" if r.reply else ""
+    where = f"<span class=rv__proj>{esc(r.project)}</span>" if r.project else ""
+    return (
+        f"<a class=rv href='{esc(href)}' target=_blank rel='noopener noreferrer'>"
+        f"<span class=rv__title>{esc(r.title)}</span>{where}{reply}<span class=rv__go>↗</span></a>"
+    )
+
+
+def _reviews(reviews: list[Review], ctx: Ctx) -> str:
+    """Open Lavish review sessions as tap targets that open on the tailnet board URL."""
+    if not reviews:
+        return ""
+    shown = "".join(_review(r, ctx) for r in reviews[:_REVIEWS_SHOWN])
+    rest = reviews[_REVIEWS_SHOWN:]
+    more = (
+        f"<details class=rv__more><summary>+{len(rest)} more</summary>"
+        f"{''.join(_review(r, ctx) for r in rest)}</details>"
+        if rest
+        else ""
+    )
+    return (
+        f"<section class=rvs><p class=sec-label>Review pages · {len(reviews)}</p>"
+        f"<div class=rv__list>{shown}{more}</div></section>"
+    )
+
+
+def render_home(
+    snap: Snapshot,
+    desk: Desk | None,
+    ctx: Ctx,
+    focus: str | None = None,
+    reviews: list[Review] | None = None,
+) -> str:
     attrs = " data-refresh=30000"
     if desk is None:
         return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
@@ -725,7 +838,7 @@ def render_home(snap: Snapshot, desk: Desk | None, ctx: Ctx, focus: str | None =
     )
     body = (
         f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
-        f"</div><div class=land__col>{projects}{more}</div></div>"
+        f"</div><div class=land__col>{projects}{more}{_reviews(reviews or [], ctx)}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx)}{stamp}"
         "<p class=stamp id=alerts-note></p></div>"
     )

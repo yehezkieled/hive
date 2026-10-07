@@ -131,7 +131,9 @@ def test_post_outside_act_is_405(client: TestClient) -> None:
 
 def test_forms_carry_csrf_and_fallback_hides_them(client: TestClient, tmp_path: Path) -> None:
     html = client.get("/", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
-    assert CSRF.csrf() in html and "/act/answer" in html and "/act/merge" in html
+    assert CSRF.csrf() in html and "/act/answer" in html
+    assert "/act/merge" not in html  # the lane is backlog, not merge approvals
+    assert "/act/merge" in client.get("/p/alpha", headers=GOOD).text
 
 
 def test_writes_refused_when_snapshot_unusable(tmp_path: Path) -> None:
