@@ -529,3 +529,31 @@ def test_delegate_refusals(client: TestClient, home: Path) -> None:
     assert post(client, "delegate", text="x", project="nope").status_code == 404
     assert post(client, "delegate", text="  ", project="alpha").status_code == 400
     assert _calls(home) == []
+
+
+def test_delegate_answers_a_fetch_with_json_so_the_desk_stays_put(
+    client: TestClient, home: Path
+) -> None:
+    data = {"csrf": CSRF.csrf(), "next": "/", "rid": RID, "text": "Ship it", "project": ""}
+    headers = {**GOOD, "accept": "application/json"}
+    res = client.post("/act/delegate", content=urlencode(data), headers=headers)
+    assert res.status_code == 200
+    assert res.json() == {"ok": True, "message": "Sent to the first mate."}
+    blank = urlencode({**data, "text": " "})
+    refused = client.post("/act/delegate", content=blank, headers=headers)
+    assert refused.status_code == 400 and refused.json()["ok"] is False
+    assert len(_calls(home)) == 1
+
+
+def test_a_fresh_desk_render_carries_a_fresh_delegate_request_id(client: TestClient) -> None:
+    rids = {_hidden(client.get("/", headers=GOOD).text, "rid") for _ in range(2)}
+    assert len(rids) == 2
+
+
+def test_the_page_script_rotates_the_request_id_after_a_sent_goal() -> None:
+    # A second goal from the same page must not reuse the first one's id (it would read as
+    # "Already sent"); the script swaps in a new id once the server confirms.
+    from hive.gateway import pages
+
+    assert "fm.elements.rid.value=newRid()" in pages.SCRIPT
+    assert "is-sending" in pages.SCRIPT  # a double click cannot post twice
