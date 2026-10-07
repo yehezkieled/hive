@@ -24,6 +24,7 @@ from hive.gateway import actions, pages
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
 from hive.gateway.chat import load_chat
+from hive.gateway.describe import Describer, Item
 from hive.gateway.desk import Desk, build_desk
 from hive.gateway.live import LiveHub
 from hive.gateway.push import PushService, valid_subscription
@@ -115,10 +116,12 @@ def create_app(
     settings: GatewaySettings | None = None,
     provider: SnapshotProvider | None = None,
     tokens: Tokens | None = None,
+    describer: Describer | None = None,
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
     quota = QuotaProvider(settings)
+    describer = describer or Describer(settings)
     tokens = tokens or Tokens()
     runs = RunOnce()
     push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
@@ -153,7 +156,7 @@ def create_app(
             response.headers["Cache-Control"] = "private, max-age=604800"
         return response
 
-    def make_ctx(snap: Snapshot, nxt: str, q: Quota | None) -> pages.Ctx:
+    def make_ctx(snap: Snapshot, nxt: str, q: Quota | None, desk: Desk | None = None) -> pages.Ctx:
         return pages.Ctx(
             tokens.csrf(),
             writable=snap.ok,
@@ -161,6 +164,7 @@ def create_app(
             board_url=settings.board_url,
             tz=settings.default_tz,
             quota=q,
+            descriptions=_cached_descriptions(describer, desk),
         )
 
     async def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
@@ -172,10 +176,24 @@ def create_app(
         desk = build_desk(snap.data) if snap.data is not None else None
         selected = focus if desk is not None and focus in desk.projects else None
         nxt = "/?focus=" + quote(selected, safe="") if selected else "/"
-        ctx = make_ctx(snap, nxt, q)
+        ctx = make_ctx(snap, nxt, q, desk)
         names = set(desk.projects) if desk else set()
         reviews = await asyncio.to_thread(read_reviews, settings.lavish_state, names)
         return HTMLResponse(pages.render_home(snap, desk, ctx, selected, reviews))
+
+    @app.get("/describe")
+    async def describe(p: str = "", id: str = "") -> Response:
+        """The agent's plain description of one lane item: ready, still pending, or unavailable.
+
+        The item is looked up in the current snapshot, never taken from the request, so only a
+        real backlog item can start a turn. Behind the same owner gate as every page.
+        """
+        snap = await provider.get()
+        item = _lane_item(build_desk(snap.data), p, id) if snap.data is not None else None
+        if item is None:
+            return JSONResponse({"state": "unavailable"}, status_code=404)
+        state, text = await describer.request(item)
+        return JSONResponse({"state": state, "text": text} if text else {"state": state})
 
     @app.get("/p/{name}", response_class=HTMLResponse)
     async def project(name: str) -> HTMLResponse:
@@ -331,6 +349,31 @@ def create_app(
         return HTMLResponse(pages.render_outcome(result, nxt))
 
     return app
+
+
+def _lane_item(desk: Desk, project: str, item_id: str) -> Item | None:
+    """What a description is generated from: the lane item's snapshot record, if it exists."""
+    proj = desk.projects.get(project)
+    row = next((r for r in proj.rows if r.id == item_id), None) if proj else None
+    if row is None:
+        return None
+    return Item(
+        project, row.id, row.title, row.body, row.hold or "", row.state, tuple(row.blocked_by)
+    )
+
+
+def _cached_descriptions(describer: Describer, desk: Desk | None) -> dict[str, str]:
+    """Cached text for every lane item, read from memory only (a page never waits on one)."""
+    if desk is None:
+        return {}
+    out: dict[str, str] = {}
+    for g in desk.backlog:
+        for ref in [*(n.ref for n in g.waiting), *(r.id for r in g.queued)]:
+            item = _lane_item(desk, g.project, ref)
+            text = describer.cached(item) if item else None
+            if item and text:
+                out[item.key] = text
+    return out
 
 
 def _find_crew(snap: Snapshot, task: str):

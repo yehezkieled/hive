@@ -31,7 +31,8 @@ You (Telegram, optional)   ──►  Hive orchestrator (Python asyncio)
                           Approval via Telegram or the legacy web app
 ```
 
-The gateway is self-contained and does not need the orchestrator. The
+The gateway is self-contained and does not need the orchestrator (it borrows only the
+headless Claude adapter, to write item descriptions). The
 orchestrator (`python -m hive`) owns the Vault Entity's lifecycle, the
 approval rail, notification fan-out (Telegram, SSE, Web Push, email digest)
 and the legacy web app.

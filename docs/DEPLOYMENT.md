@@ -1200,7 +1200,8 @@ become no-ops — Hive still boots.
 
 `python -m hive.gateway` serves the desk (Home, Project and Chat pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
-and no Hive core. Each page load runs firstmate's
+and no running Hive process; the one piece of Hive code it uses is the headless
+Claude adapter, imported lazily to write item descriptions (below). Each page load runs firstmate's
 `$HIVE_GATEWAY_FM_HOME/bin/fm-fleet-snapshot.sh --json` (cached 5 s) and
 pins schema major `fm-fleet-snapshot.v1`; any other schema, a failed run or
 bad JSON shows a read-only fallback banner with every write button removed
@@ -1230,9 +1231,29 @@ the header of every page).
 Home is the **Stack home** (`docs/design/T002-stack-home.html`): the needs-you
 lane as the hero, one card per project and the delegate bar. The lane is the
 backlog across every project (the first mate's and each second mate's), grouped
-by project: captain holds first, marked "waiting on you" and answerable in
-place, then queued tickets (a few per project, the rest behind "+N more" to the
-Project page). Worker questions, task decisions and merge approvals are not in
+by project: captain holds first, marked "waiting on you", then queued tickets (a
+few per project, the rest behind "+N more" to the Project page). Per project the
+first hold is the expanded card (its answer form unchanged); every other item is
+a compact row. Picking a row (click or tap) animates it into the card slot and
+the old card drops into the row's place (a short FLIP move; none under
+`prefers-reduced-motion`); the pick survives the page's own refreshes. A second
+click within 450 ms in the same project, on the picked card or at the spot clicked
+first (where the old card now sits), opens the project; a quick click on another
+row picks that row instead. Every item has an explicit "open ↗" (and a card has
+"Open project ↗") for touch, where there is no double click.
+Without the script every row is a plain link to the project. The card shows a
+one-to-two sentence plain description of the item (what it is, why it is
+parked, what is next), written by one `claude-haiku-4-5-20251001` turn on Hive's
+headless Claude adapter (plan-billed `claude -p`, API-key env stripped, every
+built-in tool denied, no MCP servers; the user's settings, hooks and CLAUDE.md
+still load). `GET /describe?p=<project>&id=<item>` looks the item up
+in the current snapshot (404 for anything else), starts at most one turn at a
+time and answers `ready`, `pending` or `unavailable`; the page renders cached text
+when it has some and otherwise fills it in, so a page load never waits. The
+cache is `descriptions.json` (mode 0600) under `HIVE_GATEWAY_DATA_DIR`, keyed per
+item and refreshed when its title, notes, hold reason, state or blockers change;
+a failed turn is retried no sooner than 5 minutes later. The item text is passed
+as quoted data and the reply is only ever shown as escaped text. Worker questions, task decisions and merge approvals are not in
 the lane; they show on the Project page. An empty backlog shows a calm "all
 clear · N loops running". Cards come from the snapshot plus every project named
 in `data/projects.md` of the first mate's home and of each second mate home on
@@ -1254,12 +1275,19 @@ on `POST /act/<name>` returns `{ok, message}` instead of an outcome page): the
 desk stays put, shows the result under the bar and takes a fresh request id
 for the next goal. On wide screens (1100px and up) the desk widens to two
 columns; the phone layout is unchanged.
-The chrome on every page carries the quota chip: the percent **left** in the
-worse of the Claude plan's 5-hour and 7-day windows (calm above 40%, warn to
-15%, hot below). Tapping it lists both plus the Fable week, each with its
-reset as a clock time in the viewer's zone. It is read from
-`quota-axi --provider claude --json --no-credential-refresh` (cached 60 s,
-refreshed in the background; "—" when it does not answer). The desk's fonts
+The chrome on every page carries the quota chip: the percent **used** in the
+busier of the Claude plan's 5-hour and 7-day windows (calm below 60%, warn from
+60%, hot above 85%). Tapping it lists both plus the Fable week, each with its
+reset as a clock time in the viewer's zone. Claude Code's own rate limits are
+the authority for the two headline windows: the gateway reads the rate-limits
+cache file another process writes (`{ts, rate_limits: {five_hour:
+{used_percentage, resets_at}, seven_day: {…}}}`, epoch seconds) on every page,
+and the popover shows the figures' age once they are over 10 minutes old. When
+that file is missing or unreadable, or both its windows have reset, the headline
+windows come from `quota-axi --provider claude --json --no-credential-refresh`
+(used = 100 − percentRemaining); the Fable week always does (cached 60 s,
+refreshed in the background). A window past its reset time is not shown; "—"
+when no 5-hour or 7-day figure is left. The desk's fonts
 (IBM Plex Mono, Nunito, Nunito Sans; OFL) are served from `/fonts/`, so the
 CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
@@ -1283,7 +1311,8 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
 | `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
-| `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the quota chip's source; `off` disables it) |
+| `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
+| `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 
 ### Live updates, alerts and live tail

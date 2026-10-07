@@ -7,9 +7,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape as esc
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
@@ -24,7 +24,7 @@ from hive.gateway.desk import (
     Row,
     glance,
 )
-from hive.gateway.quota import Quota
+from hive.gateway.quota import STALE_AFTER_S, Quota
 from hive.gateway.reviews import Review
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
@@ -104,7 +104,7 @@ background:var(--card)}
 border-top:1px solid var(--line)}
 .dock form{margin:0}.dock textarea{min-height:3rem}
 @media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}}
-/* quota chip: the worse of the two plan windows; tap shows both */
+/* quota chip: the busier of the two plan windows, as percent used; tap shows both */
 .qwrap{position:relative;margin:0}
 .qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
 background:var(--paper);padding:0 12px;min-height:44px;font:700 11px var(--font-mono);cursor:pointer;
@@ -148,21 +148,10 @@ box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
 .nyl__count{margin-left:auto;font:700 10px var(--font-mono);letter-spacing:1px;background:var(--accent);
 color:#fff;padding:2px 9px;border-radius:999px}
 .nyl__body{padding:12px;display:flex;flex-direction:column;gap:10px}
-.nyi{background:var(--paper);border:1px solid var(--rule-soft);border-left-width:4px;border-radius:12px;padding:11px 12px 12px}
-.nyi--decision{border-left-color:var(--honey)}.nyi--gate{border-left-color:var(--ochre)}.nyi--mode{border-left-color:var(--amber)}
-.nyi__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:44px;color:inherit;text-decoration:none;
-border-radius:7px;padding:2px 4px;margin:-2px -4px 8px;cursor:pointer}
-.nyi__head>*{min-width:0}
-.nyi__head:hover{background:var(--paper-soft)}
 .state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .state-dot--active{background:var(--sage)}.state-dot--idle{background:var(--ink-4)}
 .state-dot--error{background:var(--accent)}.state-dot--gated{background:var(--honey)}
 .nyi__entity{font:600 12px var(--font-mono);color:var(--ink)}
-.nyi__kind{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
-border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft);white-space:nowrap}
-.nyi--gate .nyi__kind{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
-.nyi--mode .nyi__kind{color:var(--amber);border-color:var(--amber-soft);background:var(--amber-soft)}
-.nyi__open{margin-left:auto;font:9px var(--font-mono);color:var(--ink-4);white-space:nowrap}
 .nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
 .nyi__summary b{color:var(--ink);font-weight:700}
 .nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
@@ -179,14 +168,47 @@ border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);colo
 .nyg__wait{font:700 9px var(--font-mono);letter-spacing:.5px;color:var(--ochre);background:var(--honey-soft);
 border-radius:999px;padding:2px 8px;white-space:nowrap}
 .nyg__count{margin-left:auto;font:700 10px var(--font-mono);color:var(--ink-3)}
-.nyq{display:flex;align-items:baseline;gap:8px;min-height:36px;padding:6px 4px;color:inherit;text-decoration:none;
-border-radius:7px}
-.nyq:hover{background:var(--paper-soft)}
-.nyq__id{font:10px var(--font-mono);color:var(--ink-4);flex-shrink:0;max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nyq__title{flex:1;min-width:0;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nyq__tag{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
-border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft)}
-.nyq__tag--hold{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
+.nyg__items{display:flex;flex-direction:column;gap:2px}
+.nyx{position:relative;border:1px solid transparent;border-left:4px solid transparent;border-radius:12px}
+.nyx__bar{display:flex;align-items:center;gap:2px}
+.nyx__head{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:44px;padding:4px 6px;
+color:inherit;text-decoration:none;border-radius:7px;cursor:pointer}
+.nyx__head:hover{background:var(--paper-soft)}
+.nyx__head:focus-visible,.nyx__open:focus-visible{outline:2px solid var(--ochre);outline-offset:-2px}
+.nyx__id{font:10px var(--font-mono);color:var(--ink-4);flex-shrink:0;max-width:34%;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+.nyx__title{flex:1 1 150px;min-width:0;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;
+white-space:nowrap}
+.nyx__tag{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
+border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft);
+white-space:nowrap}
+.nyx__tag--hold{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
+.nyx__open{font:9px var(--font-mono);color:var(--ink-4);white-space:nowrap;min-height:44px;min-width:44px;
+display:inline-flex;align-items:center;justify-content:center;padding:0 6px;border-radius:7px;text-decoration:none}
+.nyx__open:hover{background:var(--paper-soft);color:var(--ink-2)}
+.nyx .state-dot,.nyx__more{display:none}
+.nyx.is-primary{background:var(--paper);border-color:var(--rule-soft);padding:2px 8px 12px;margin:4px 0}
+.nyx.is-primary.nyi--decision{border-left-color:var(--honey)}
+.nyx.is-primary.nyi--gate{border-left-color:var(--ochre)}
+.nyx.is-primary.nyi--mode{border-left-color:var(--amber)}
+.nyx.is-primary.nyi--queued{border-left-color:var(--sage)}
+.nyx.is-primary.nyi--blocked{border-left-color:var(--ink-4)}
+.nyx.is-primary .state-dot{display:block}
+.nyx.is-primary .nyx__title{display:none}
+.nyx.is-primary .nyx__id{font:600 12px var(--font-mono);color:var(--ink);max-width:none}
+.nyx.is-primary .nyx__head:hover{background:none}
+.nyx.is-primary .nyx__more{display:block;padding:0 4px}
+.nyx__more>.nyi__summary{margin:2px 0 6px}
+.nyx__desc{margin:0 0 8px;font-size:12.5px;line-height:1.45;color:var(--ink-3);border-left:2px solid var(--rule-faint);
+padding-left:9px}
+.nyx__desc[hidden]{display:none}
+.nyx__desc.is-pending{color:var(--ink-4);animation:nyx-pulse 1.4s ease-in-out infinite}
+.nyx.is-flip{transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
+.nyx.is-lifted{z-index:2}
+.nyx.is-opening .nyx__more{animation:nyx-in .28s ease-out both}
+@keyframes nyx-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes nyx-pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none!important;transition:none!important}}
 .nyq__more{font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;padding:6px 4px;min-height:36px}
 .rvs{display:flex;flex-direction:column;gap:6px}
 .rv__list{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
@@ -307,7 +329,7 @@ var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
 if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
 if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
-var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();showFlash();window.scrollTo(0,y);});}
+var y=window.scrollY;c.innerHTML=m.innerHTML;restore();stamps();showFlash();window.scrollTo(0,y);});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
 function connect(){es=new EventSource('/events');
 es.onopen=function(){live=true;seen=Date.now();};
@@ -390,7 +412,50 @@ if(j.ok){fm.elements.text.value='';fm.elements.rid.value=newRid();}
 setFlash(j.message||'Could not send.',!!j.ok);})
 .catch(function(){setFlash('Could not send. Reload the desk.',false);})
 .then(function(){fm.classList.remove('is-sending');});});
-stamps();setInterval(stamps,30000);
+var picks={},lastPick=null;
+function calm(){return !(window.matchMedia&&matchMedia('(prefers-reduced-motion: no-preference)').matches);}
+function groups(){return document.querySelectorAll('[data-group]');}
+function sync(g){var cur=g.querySelector('.nyx.is-primary'),a=g.querySelectorAll('.nyx__head');
+for(var i=0;i<a.length;i++){var on=a[i].closest('.nyx')===cur;a[i].setAttribute('role','button');
+a[i].setAttribute('aria-expanded',on?'true':'false');}}
+function describe(it,n){var p=it.querySelector('.nyx__desc'),u=it.getAttribute('data-desc');
+if(!p||!u||!it.classList.contains('is-primary')||p.getAttribute('data-ready')||p.busy)return;
+p.busy=true;if(!p.textContent){p.hidden=false;p.className='nyx__desc is-pending';p.textContent='Reading the backlog item\u2026';}
+fetch(u,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.ok?r.json():{};}).then(function(j){
+p.busy=false;if(j.state==='ready'&&j.text){p.className='nyx__desc';p.textContent=j.text;p.setAttribute('data-ready','1');p.hidden=false;}
+else if(j.state==='pending'&&(n||0)<20)setTimeout(function(){describe(it,(n||0)+1);},2000);
+else{p.hidden=true;p.textContent='';}}).catch(function(){p.busy=false;p.hidden=true;p.textContent='';});}
+function describeAll(){var a=document.querySelectorAll('.nyx.is-primary');for(var i=0;i<a.length;i++)describe(a[i]);}
+function pick(g,it,animate){var cur=g.querySelector('.nyx.is-primary');if(cur===it)return;
+var list=[].slice.call(g.querySelectorAll('.nyx')),y=list.map(function(r){return r.getBoundingClientRect().top;});
+var act=document.activeElement,keep=act&&it.contains(act)?act:null;
+if(cur){var ph=document.createComment('');it.parentNode.insertBefore(ph,it);cur.parentNode.insertBefore(it,cur);
+ph.parentNode.insertBefore(cur,ph);ph.parentNode.removeChild(ph);cur.classList.remove('is-primary');}
+else it.parentNode.insertBefore(it,it.parentNode.firstChild);
+it.classList.add('is-primary');sync(g);if(keep)keep.focus({preventScroll:true});
+if(!animate)return;
+it.classList.add('is-lifted','is-opening');
+list.forEach(function(r,i){var d=y[i]-r.getBoundingClientRect().top;
+if(d){r.style.transition='none';r.style.transform='translateY('+d+'px)';}});
+void g.offsetHeight;
+list.forEach(function(r){if(r.style.transform){r.classList.add('is-flip');r.style.transition='';r.style.transform='';}});
+setTimeout(function(){list.forEach(function(r){r.classList.remove('is-flip','is-lifted','is-opening');
+r.style.transition='';r.style.transform='';});},340);}
+function restore(){var g=groups();for(var i=0;i<g.length;i++){var k=g[i].getAttribute('data-group'),id=picks[k];
+if(id!==undefined){var its=g[i].querySelectorAll('.nyx'),hit=null;
+for(var j=0;j<its.length;j++)if(its[j].getAttribute('data-item')===id)hit=its[j];
+if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();}
+document.addEventListener('click',function(e){
+var h=e.target.closest?e.target.closest('.nyx__head'):null;
+if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+var it=h.closest('.nyx'),g=it.closest('[data-group]'),k=g.getAttribute('data-group'),now=Date.now(),
+pos=[].indexOf.call(g.querySelectorAll('.nyx'),it);
+e.preventDefault();
+if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primary')===lastPick.it&&
+(it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
+lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
+pick(g,it,!calm());describe(it);});
+restore();stamps();setInterval(stamps,30000);
 })();
 """
 SCRIPT_CSP_HASH = "sha256-" + base64.b64encode(hashlib.sha256(SCRIPT.encode()).digest()).decode()
@@ -415,6 +480,7 @@ class Ctx:
         board_url: str = DEFAULT_BOARD_URL,
         tz: str = DEFAULT_TZ,
         quota: Quota | None = None,
+        descriptions: dict[str, str] | None = None,
     ) -> None:
         self.csrf = csrf
         self.writable = writable
@@ -422,6 +488,7 @@ class Ctx:
         self.board_url = board_url.rstrip("/")
         self.tz = tz
         self.quota = quota  # None: quota-axi did not answer
+        self.descriptions = descriptions or {}  # "project/item" -> cached agent description
 
     def form(self, action: str, inner: str, cls: str = "", **hidden: str) -> str:
         if not self.writable:
@@ -491,9 +558,15 @@ def _resets(at: datetime | None, tz: str, now: datetime) -> str:
     return f"resets <time class=reset datetime='{esc(at.isoformat())}'>{esc(shown)}</time>"
 
 
+def _age(delta: timedelta) -> str:
+    minutes = int(delta.total_seconds() // 60)
+    return f"{minutes} min ago" if minutes < 60 else f"{minutes // 60} h ago"
+
+
 def _chip(ctx: Ctx, now: datetime | None = None) -> str:
-    """The ambient quota chip: worst window as a percent; tap shows both windows."""
-    q = ctx.quota
+    """The ambient quota chip: busiest window as a percent used; tap shows both windows."""
+    now = now or datetime.now(UTC)
+    q = ctx.quota.current(now) if ctx.quota else None
     if q is None:
         chip = (
             "<summary class='qchip qchip--unknown' aria-label='Plan quota unknown'>"
@@ -501,18 +574,23 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
         )
         rows = "<div><span>Plan quota unknown</span></div>"
     else:
-        now = now or datetime.now(UTC)
         worst = q.worst
         chip = (
             f"<summary class='qchip qchip--{q.level}' "
-            f"aria-label='Plan quota, worst window {worst.left} percent left'>"
-            f"<span class=qchip__bar><i style='width:{worst.left}%'></i></span>{worst.left}% left</summary>"
+            f"aria-label='Plan quota, busiest window {worst.used} percent used'>"
+            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span>{worst.used}% used</summary>"
         )
         rows = "".join(
-            f"<div><span>{esc(w.label)}</span><b>{w.left}% left · {_resets(w.resets_at, ctx.tz, now)}"
+            f"<div><span>{esc(w.label)}</span><b>{w.used}% used · {_resets(w.resets_at, ctx.tz, now)}"
             "</b></div>"
             for w in q.windows
         )
+        if q.as_of is not None and (now - q.as_of).total_seconds() > STALE_AFTER_S:
+            rows += (
+                "<div class=qpop__note><span>Claude Code figures from "
+                f"<time datetime='{esc(q.as_of.isoformat())}'>{_age(now - q.as_of)}</time>"
+                "</span></div>"
+            )
     return (
         f"<details class=qwrap id=qchip>{chip}<div class=qpop>{rows}"
         "<div class=qpop__note><span>account-wide · shared with your own use</span></div>"
@@ -607,8 +685,8 @@ _LANE = {
 }
 
 
-def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
-    """One T001 lane row: the header opens the project, the actions answer in place."""
+def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
+    """A captain hold's lane parts: row class, state dot, badge, summary and the answer form."""
     row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
     ref = n.ref.partition("/")[0]
     entity = f"{n.project} · {ref}"  # the reply label; the lane's group header names the project
@@ -616,7 +694,6 @@ def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
         summary = f"<b>{ctx.plain(n.title)}</b> — {ctx.plain(n.text)}"
     else:
         summary = ctx.plain(n.text or n.title or n.ref)
-    href = "/p/" + quote(n.project, safe="")
     links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
     pr = ctx.link(n.url)
     if pr:
@@ -665,44 +742,116 @@ def _lane_item(n: NeedsYou, ctx: Ctx) -> str:
         )
     else:
         act = f"<div class=nyi__actions>{extra}</div>" if extra else ""
-    return (
-        f"<article class='nyi {row}'><a class=nyi__head href='{esc(href)}' "
-        f"title='open {esc(n.project)}'><span class='state-dot state-dot--{dot}'></span>"
-        f"<span class=nyi__entity>{esc(ref)}</span><span class=nyi__kind>{esc(badge)}</span>"
-        f"<span class=nyi__open>open ↗</span><p class=nyi__summary>{summary}</p></a>{act}</article>"
-    )
+    return row, dot, badge, summary, act
 
 
 _QUEUED_SHOWN = 4  # queued tickets listed per project before "+N more"
 
 
-def _queued_row(r: Row, href: str) -> str:
+def _row_parts(r: Row, href: str, ctx: Ctx) -> tuple[str, str, str, str, str]:
+    """A queued ticket's lane parts: row class, tag, tag class, summary and actions."""
     if r.hold:
-        tag = "<span class='nyq__tag nyq__tag--hold'>held</span>"
+        cls, tag, status = "nyi--gate", "held", f"Held: {ctx.plain(r.hold)}"
     elif r.blocked_by:
-        tag = "<span class=nyq__tag>blocked</span>"
+        cls, tag = "nyi--blocked", "blocked"
+        status = "Blocked by " + ", ".join(esc(b) for b in r.blocked_by)
     else:
-        tag = ""
+        cls, tag, status = "nyi--queued", "", "Queued, nothing blocking it"
+    summary = f"<b>{ctx.plain(r.title or r.id)}</b> — {status}"
+    act = (
+        f"<div class=nyi__actions><a class='btn btn--deny' href='{esc(href)}'>"
+        "Open project ↗</a></div>"
+    )
+    return cls, tag, "nyx__tag--hold" if r.hold else "", summary, act
+
+
+def _nyx(
+    *,
+    group: BacklogGroup,
+    item_id: str,
+    title: str,
+    cls: str,
+    dot: str,
+    tag: str,
+    tag_cls: str,
+    summary: str,
+    act: str,
+    primary: bool,
+    ctx: Ctx,
+) -> str:
+    """One lane item. The same element is a compact row or the expanded card (``is-primary``):
+    the page script swaps which one is the group's card when a row is picked."""
+    href = "/p/" + quote(group.project, safe="")
+    text = ctx.descriptions.get(f"{group.project}/{item_id}")
+    desc_url = "/describe?" + urlencode({"p": group.project, "id": item_id})
+    desc = (
+        f"<p class=nyx__desc data-ready=1>{esc(text)}</p>"
+        if text
+        else "<p class=nyx__desc hidden></p>"
+    )
+    badge = f"<span class='nyx__tag {tag_cls}'>{esc(tag)}</span>" if tag else ""
+    state = " is-primary" if primary else ""
     return (
-        f"<a class=nyq href='{esc(href)}'><span class=nyq__id>{esc(r.id)}</span>"
-        f"<span class=nyq__title>{esc(r.title or r.id)}</span>{tag}</a>"
+        f"<div class='nyx {cls}{state}' data-item='{esc(item_id)}' data-desc='{esc(desc_url)}'>"
+        f"<div class=nyx__bar><a class=nyx__head href='{esc(href)}' title='{esc(title or item_id)}'>"
+        f"<span class='state-dot state-dot--{dot}'></span><span class=nyx__id>{esc(item_id)}</span>"
+        f"<span class=nyx__title>{esc(title or item_id)}</span>{badge}</a>"
+        f"<a class=nyx__open href='{esc(href)}' aria-label='Open {esc(group.project)}'>"
+        "open ↗</a></div>"
+        f"<div class=nyx__more><p class=nyi__summary>{summary}</p>{desc}{act}</div></div>"
     )
 
 
 def _group(g: BacklogGroup, ctx: Ctx) -> str:
+    """One project's slice: the first held item is the card, the rest are rows; picking a row
+    (page script) swaps it into the card slot. Without the script every row opens the project."""
     href = "/p/" + quote(g.project, safe="")
     shown = g.queued[:_QUEUED_SHOWN]
     rest = len(g.queued) - len(shown)
     more = f"<a class=nyq__more href='{esc(href)}'>+{rest} more ↗</a>" if rest else ""
     waiting = f"<span class=nyg__wait>{len(g.waiting)} waiting on you</span>" if g.waiting else ""
+    items = []
+    for i, n in enumerate(g.waiting):
+        cls, dot, badge, summary, act = _hold_parts(n, ctx)
+        items.append(
+            _nyx(
+                group=g,
+                item_id=n.ref,
+                title=n.title or n.text,
+                cls=cls,
+                dot=dot,
+                tag=badge,
+                tag_cls="nyx__tag--hold",
+                summary=summary,
+                act=act,
+                primary=i == 0,
+                ctx=ctx,
+            )
+        )
+    for r in shown:
+        cls, tag, tag_cls, summary, act = _row_parts(r, href, ctx)
+        items.append(
+            _nyx(
+                group=g,
+                item_id=r.id,
+                title=r.title,
+                cls=cls,
+                dot="gated" if r.hold else "idle",
+                tag=tag,
+                tag_cls=tag_cls,
+                summary=summary,
+                act=act,
+                primary=False,
+                ctx=ctx,
+            )
+        )
     return (
-        f"<section class=nyg><a class=nyg__head href='{esc(href)}'>"
+        f"<section class=nyg data-group='{esc(g.project)}' data-open='{esc(href)}'>"
+        f"<a class=nyg__head href='{esc(href)}'>"
         f"<span class=nyg__name>{esc(g.project)}</span>"
         f"<span class=nyg__mate>{'second mate' if g.mate else 'first mate'}</span>{waiting}"
         f"<span class=nyg__count>{g.count}</span></a>"
-        + "".join(_lane_item(n, ctx) for n in g.waiting)
-        + "".join(_queued_row(r, href) for r in shown)
-        + f"{more}</section>"
+        f"<div class=nyg__items>{''.join(items)}</div>{more}</section>"
     )
 
 

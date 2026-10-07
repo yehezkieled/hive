@@ -54,6 +54,8 @@ class GatewaySettings:
     quota_ttl_s: float = 60.0
     quota_timeout_s: float = 15.0
     quota_first_wait_s: float = 1.0
+    # Claude Code's rate-limits cache file, the chip's headline source; None: quota-axi only.
+    rate_limits: Path | None = None
     # Lavish's session state, read-only, for the Review pages list; None leaves the list out.
     lavish_state: Path | None = None
 
@@ -80,6 +82,7 @@ class GatewaySettings:
             board_url=env.get("HIVE_GATEWAY_BOARD_URL", DEFAULT_BOARD_URL).strip().rstrip("/"),
             default_tz=env.get("HIVE_GATEWAY_TZ", DEFAULT_TZ).strip() or DEFAULT_TZ,
             quota_axi=_quota_axi(env.get("HIVE_GATEWAY_QUOTA_AXI", "").strip()),
+            rate_limits=_rate_limits(env.get("HIVE_GATEWAY_RATE_LIMITS", "").strip()),
             lavish_state=_lavish_state(env.get("HIVE_GATEWAY_LAVISH_STATE", "").strip()),
         )
 
@@ -89,6 +92,13 @@ def _lavish_state(value: str) -> Path | None:
     if value == "off":
         return None
     return Path(value or "~/.lavish-axi/state.json").expanduser()
+
+
+def _rate_limits(value: str) -> Path | None:
+    """Claude Code's rate-limits cache file; ``off`` leaves the chip on ``quota-axi``."""
+    if value == "off":
+        return None
+    return Path(value or "~/.claude/rate-limits-cache.json").expanduser()
 
 
 def _quota_axi(value: str) -> Path | None:
