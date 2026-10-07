@@ -333,14 +333,37 @@ def test_recorded_quota_axi_output_reads_as_what_is_used() -> None:
     assert row(66, five, "11:29 pm") in local
 
 
-def test_fresh_window_reads_as_a_little_used_and_calm() -> None:
-    """Just after the 5-hour reset (captain, 2026-10-07): about 7% used, not "7% left" in red."""
-    q = parse_quota((FIXTURE.parent / "quota-axi-claude-fresh-window.json").read_text())
+def test_second_recorded_capture_reads_as_used_and_hot() -> None:
+    """A real ``quota-axi`` capture from 2026-10-07 13:05 UTC, half an hour after a 5-hour reset.
+
+    Not a fresh window: quota-axi reported 23% remaining on the 5-hour window, so the chip
+    shows 77% used, a warning (red is kept for above 85%). The captain's "about 7% used"
+    is not what quota-axi reported.
+    """
+    q = parse_quota((FIXTURE.parent / "quota-axi-claude-capture-2026-10-07.json").read_text())
     assert q is not None
-    assert (q.worst.label, q.worst.used, q.level) == ("5-hour window", 7, "ok")
-    html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2026, 10, 7, 12, 31, tzinfo=UTC))
-    assert "qchip--ok" in html and "7% used</summary>" in html
-    assert "% left" not in html and "qchip--hot" not in html
+    assert [w.used for w in q.windows] == [77, 42, 91]  # 100 - percentRemaining
+    assert (q.worst.label, q.worst.used, q.level) == ("5-hour window", 77, "warn")
+    html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2026, 10, 7, 13, 5, tzinfo=UTC))
+    assert "qchip--warn" in html and "77% used</summary>" in html and "% left" not in html
+
+
+def test_windows_past_their_reset_are_not_shown() -> None:
+    q = parse_quota((FIXTURE.parent / "quota-axi-claude-capture-2026-10-07.json").read_text())
+    assert q is not None
+    after_five = datetime(2026, 10, 7, 18, 0, tzinfo=UTC)  # 5-hour window has reset
+    html = _chip(Ctx("t", quota=q, tz="UTC"), after_five)
+    assert "42% used</summary>" in html and "77% used" not in html
+    after_week = datetime(2026, 10, 8, 15, 0, tzinfo=UTC)  # every window has reset
+    html = _chip(Ctx("t", quota=q, tz="UTC"), after_week)
+    assert "qchip--unknown" in html and "% used" not in html
+    only_fable = Quota(
+        (
+            Window("5-hour window", 77, after_five - timedelta(hours=1)),
+            Window("Fable week", 91, after_week, headline=False),
+        )
+    )
+    assert only_fable.current(after_five) is None
 
 
 def test_percent_used_field_wins_over_percent_remaining() -> None:

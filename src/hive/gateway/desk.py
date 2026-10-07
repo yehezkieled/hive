@@ -32,7 +32,6 @@ class NeedsYou:
     title: str = ""  # the work item's human title, when the snapshot knows it
     gated: bool = False  # a hold on a work item: answering releases it instead of closing
     owner: str = ""  # the home that owns the work item; empty when the snapshot omits it
-    body: str = ""  # the item's notes, when the snapshot carries them
 
 
 @dataclass
@@ -216,7 +215,6 @@ def build_desk(data: dict) -> Desk:
                     title=_s(rec.get("title")),
                     gated=_s(rec.get("kind")) != "captain",
                     owner=owner,
-                    body=_body(rec),
                 )
             )
 

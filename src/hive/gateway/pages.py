@@ -450,8 +450,8 @@ var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
 var it=h.closest('.nyx'),g=it.closest('[data-group]'),k=g.getAttribute('data-group'),now=Date.now();
 e.preventDefault();
-if(lastPick&&lastPick.k===k&&now-lastPick.t<450){lastPick=null;location.href=g.getAttribute('data-open');return;}
-lastPick={k:k,t:now};picks[k]=it.getAttribute('data-item');
+if(lastPick&&lastPick.it===it&&now-lastPick.t<450){lastPick=null;location.href=g.getAttribute('data-open');return;}
+lastPick={it:it,t:now};picks[k]=it.getAttribute('data-item');
 pick(g,it,!calm());describe(it);});
 restore();stamps();setInterval(stamps,30000);
 })();
@@ -558,7 +558,8 @@ def _resets(at: datetime | None, tz: str, now: datetime) -> str:
 
 def _chip(ctx: Ctx, now: datetime | None = None) -> str:
     """The ambient quota chip: busiest window as a percent used; tap shows both windows."""
-    q = ctx.quota
+    now = now or datetime.now(UTC)
+    q = ctx.quota.current(now) if ctx.quota else None
     if q is None:
         chip = (
             "<summary class='qchip qchip--unknown' aria-label='Plan quota unknown'>"
@@ -566,7 +567,6 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
         )
         rows = "<div><span>Plan quota unknown</span></div>"
     else:
-        now = now or datetime.now(UTC)
         worst = q.worst
         chip = (
             f"<summary class='qchip qchip--{q.level}' "

@@ -140,13 +140,49 @@ def test_row_card_says_why_it_is_parked(tmp_path: Path) -> None:
     assert "Blocked by plain" in html and "Queued, nothing blocking it" in html
 
 
-def test_page_script_swaps_on_click_opens_on_double_click_and_honours_reduced_motion(
-    tmp_path: Path,
-) -> None:
-    assert "prefers-reduced-motion: no-preference" in SCRIPT  # no FLIP when reduced
-    assert "now-lastPick.t<450" in SCRIPT and "data-open" in SCRIPT  # quick second click opens
+def test_reduced_motion_css_turns_the_lane_animations_off(tmp_path: Path) -> None:
     css = _client(tmp_path, _data()).get("/", headers=GOOD).text
     assert "@media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none" in css
+
+
+LANE_DOM = Path(__file__).parent / "lane_dom.js"
+
+
+def _run_lane(tmp_path: Path, motion: str, clicks: list[tuple[str, int]]) -> dict:
+    js = tmp_path / "page.js"
+    js.write_text(SCRIPT)
+    out = subprocess.run(
+        ["node", str(LANE_DOM), str(js), motion, json.dumps(clicks)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(out.stdout)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.parametrize(("motion", "animated"), [("motion", True), ("reduce", False)])
+def test_a_click_swaps_the_row_into_the_card(tmp_path: Path, motion: str, animated: bool) -> None:
+    run = _run_lane(tmp_path, motion, [("later-email", 0)])
+    (step,) = run["steps"]
+    assert step["order"] == ["later-email", "ask", "plain"]
+    assert step["primary"] == "later-email" and step["opened"] == [] and step["prevented"]
+    assert bool(run["animated"]) is animated  # no FLIP move under prefers-reduced-motion
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_quick_second_click_on_the_same_item_opens_the_project(tmp_path: Path) -> None:
+    steps = _run_lane(tmp_path, "reduce", [("later-email", 0), ("later-email", 200)])["steps"]
+    assert steps[1]["opened"] == ["/p/bnm"] and steps[1]["primary"] == "later-email"
+    slow = _run_lane(tmp_path, "reduce", [("later-email", 0), ("later-email", 600)])["steps"]
+    assert slow[1]["opened"] == []
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_quick_click_on_another_item_swaps_instead_of_opening(tmp_path: Path) -> None:
+    steps = _run_lane(tmp_path, "reduce", [("later-email", 0), ("plain", 200)])["steps"]
+    assert steps[1]["opened"] == [] and steps[1]["primary"] == "plain"
+    assert steps[1]["order"] == ["plain", "ask", "later-email"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -218,7 +254,8 @@ def test_describing_turn_is_pinned_cheap_and_has_no_tools(tmp_path: Path) -> Non
     assert argv[argv.index("--model") + 1] == MODEL
     assert "--strict-mcp-config" in argv and "--disallowedTools" in argv
     tools = argv[argv.index("--disallowedTools") + 1 :]
-    assert {"Bash", "Edit", "Write", "WebFetch"} <= set(tools)
+    denied = {"Agent", "Bash", "Edit", "Skill", "Task", "ToolSearch", "WebFetch", "Write"}
+    assert denied <= set(tools)
     assert "--dangerously-skip-permissions" not in argv and "--resume" not in argv
 
 

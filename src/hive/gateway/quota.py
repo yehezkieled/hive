@@ -1,11 +1,13 @@
 """Plan quota for the desk's quota chip, read from ``quota-axi`` (read-only).
 
 The chip shows the busier of the Claude plan's two account-wide windows (5-hour and
-7-day) as a percent used; tapping it shows both plus the Fable weekly window.
-``quota-axi`` runs with ``--no-credential-refresh`` so a page load never renews a login.
-Reads are cached and refreshed in the background; a page waits at most
-``quota_first_wait_s`` on a cold cache, so a slow or missing ``quota-axi`` never holds a
-page up: the chip then says the quota is unknown until the refresh lands.
+7-day) as a percent used; tapping it shows both plus the Fable weekly window. A window
+whose reset time has passed is stale and is not shown; when no 5-hour or 7-day window is
+left the chip says the quota is unknown. ``quota-axi`` runs with
+``--no-credential-refresh`` so a page load never renews a login. Reads are cached and
+refreshed in the background; a page waits at most ``quota_first_wait_s`` on a cold
+cache, so a slow or missing ``quota-axi`` never holds a page up: the chip then says the
+quota is unknown until the refresh lands.
 """
 
 from __future__ import annotations
@@ -46,6 +48,11 @@ class Quota:
     def worst(self) -> Window:
         pool = [w for w in self.windows if w.headline] or list(self.windows)
         return max(pool, key=lambda w: w.used)
+
+    def current(self, now: datetime) -> Quota | None:
+        """The windows that have not reset by ``now``; None when no headline window is left."""
+        live = tuple(w for w in self.windows if w.resets_at is None or w.resets_at > now)
+        return Quota(live) if any(w.headline for w in live) else None
 
     @property
     def level(self) -> str:

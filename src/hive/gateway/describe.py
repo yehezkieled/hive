@@ -7,8 +7,9 @@ file) and keyed by a fingerprint of the item's title, notes and hold reason, so 
 regenerated only when the item changes. A page never waits for one: it renders the cached
 text when there is any, and the page script asks ``/describe`` and fills the text in.
 
-The item text is copied from a backlog, so it is data: the prompt says so, the turn gets no
-tools and no MCP servers, and the reply is only ever rendered as escaped text.
+The item text is copied from a backlog, so it is data: the prompt says so, every built-in tool
+is denied and no MCP server is loaded (the user's settings, hooks and CLAUDE.md still
+load), and the reply is only ever rendered as escaped text.
 """
 
 from __future__ import annotations
@@ -46,17 +47,43 @@ SYSTEM_PROMPT = (
 )
 # Every built-in tool a describing turn could reach; the turn only has to write text.
 _NO_TOOLS = [
+    "Agent",
+    "AskUserQuestion",
     "Bash",
+    "BashOutput",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
     "Edit",
-    "Write",
-    "Read",
+    "EnterPlanMode",
+    "EnterWorktree",
+    "ExitPlanMode",
+    "ExitWorktree",
     "Glob",
     "Grep",
+    "KillShell",
+    "LSP",
+    "ListMcpResourcesTool",
+    "Monitor",
+    "MultiEdit",
     "NotebookEdit",
+    "NotebookRead",
+    "PushNotification",
+    "Read",
+    "ReadMcpResourceTool",
+    "RemoteTrigger",
+    "SendMessage",
+    "Skill",
+    "SlashCommand",
+    "Task",
+    "TaskOutput",
+    "TaskStop",
+    "TodoWrite",
+    "ToolSearch",
     "WebFetch",
     "WebSearch",
-    "Task",
-    "TodoWrite",
+    "Workflow",
+    "Write",
 ]
 
 
@@ -121,7 +148,7 @@ Generate = Callable[[str], Awaitable[str]]
 
 
 def describer_config(workdir: Path):
-    """The adapter config for a describing turn: pinned model, no tools, no MCP servers."""
+    """The adapter config for a describing turn: pinned model, built-ins denied, no MCP."""
     from hive.runtime.adapter_config import AdapterConfig
 
     workdir.mkdir(parents=True, exist_ok=True)

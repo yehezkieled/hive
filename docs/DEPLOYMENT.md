@@ -1237,13 +1237,14 @@ first hold is the expanded card (its answer form unchanged); every other item is
 a compact row. Picking a row (click or tap) animates it into the card slot and
 the old card drops into the row's place (a short FLIP move; none under
 `prefers-reduced-motion`); the pick survives the page's own refreshes. A second
-click within 450 ms opens the project, and every item has an explicit "open ↗"
+click on the same item within 450 ms opens the project, and every item has an explicit "open ↗"
 (and a card has "Open project ↗") for touch, where there is no double click.
 Without the script every row is a plain link to the project. The card shows a
 one-to-two sentence plain description of the item (what it is, why it is
 parked, what is next), written by one `claude-haiku-4-5-20251001` turn on Hive's
-headless Claude adapter (plan-billed `claude -p`, API-key env stripped, no
-tools, no MCP servers). `GET /describe?p=<project>&id=<item>` looks the item up
+headless Claude adapter (plan-billed `claude -p`, API-key env stripped, every
+built-in tool denied, no MCP servers; the user's settings, hooks and CLAUDE.md
+still load). `GET /describe?p=<project>&id=<item>` looks the item up
 in the current snapshot (404 for anything else), starts at most one turn at a
 time and answers `ready`, `pending` or `unavailable`; the page renders cached text
 when it has some and otherwise fills it in, so a page load never waits. The
