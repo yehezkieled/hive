@@ -741,3 +741,65 @@ def test_desk_is_one_page_with_independently_scrolling_panels() -> None:
         )
     assert "orientation:portrait" in one_page  # iPad portrait stacks the panels
     assert ".wide .dbar-wrap{position:static" in one_page  # the hint can no longer overlap rows
+
+
+# ---- Projects shown by their GitHub repo name -------------------------------------
+
+
+def _clone(home: Path, name: str, url: str | None) -> None:
+    git = home / "projects" / name / ".git"
+    git.mkdir(parents=True)
+    remote = f'[remote "origin"]\n\turl = {url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n'
+    (git / "config").write_text("[core]\n\tbare = false\n" + (remote if url else ""))
+
+
+@pytest.mark.parametrize(
+    ("url", "repo"),
+    [
+        (
+            "https://github.com/o/standardise_network_tariff_tables.git",
+            "standardise_network_tariff_tables",
+        ),
+        ("git@github.com:o/repo-x.git", "repo-x"),
+        ("/srv/git/plain", "plain"),
+        ("https://github.com/o/<script>.git", ""),
+    ],
+)
+def test_repo_name_from_remote_url(url: str, repo: str) -> None:
+    from hive.gateway.repos import repo_name_from_url
+
+    assert repo_name_from_url(url) == repo
+
+
+def test_desk_shows_the_repo_name_and_keeps_routing_on_the_registry_name(tmp_path: Path) -> None:
+    _clone(tmp_path, "alpha", "https://github.com/o/renamed_alpha.git")
+    _clone(tmp_path, "beta", None)  # no remote: falls back to the registry name
+    client = _client_with_reviews(tmp_path, LAVISH)
+    html = client.get("/", headers=GOOD).text
+    card = html.split("data-name='alpha'", 1)[1].split("</a>", 1)[0]
+    assert "<span class=pc__name>renamed_alpha<small class=aka" in card
+    assert ">alpha</small>" in card  # the local name, as a small secondary label
+    assert "data-label='first mate · renamed_alpha'" in html or "· renamed_alpha'" in html
+    assert "data-open='/p/alpha'" in html and "/p/renamed_alpha" not in html
+    assert "<span class=nyg__name>renamed_alpha<small" in html
+    assert "<span class=pc__name>beta</span>" in html and "data-name='beta'" in html
+    section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
+    assert "<span class=rv__proj>renamed_alpha</span>" in section
+    page = client.get("/p/alpha", headers=GOOD).text
+    assert "<h1>renamed_alpha<small" in page and "<title>renamed_alpha · Hive desk" in page
+    assert "<span class=pc__name>alpha</span>" not in html
+
+
+def test_repo_names_do_not_block_on_a_stale_entry(tmp_path: Path) -> None:
+    import asyncio
+
+    from hive.gateway import repos
+    from hive.gateway.repos import RepoNames
+
+    _clone(tmp_path, "alpha", "https://github.com/o/one.git")
+    names = RepoNames(tmp_path / "projects")
+    assert asyncio.run(names.get(["alpha"])) == {"alpha": "one"}
+    _clone_cfg = tmp_path / "projects" / "alpha" / ".git" / "config"
+    _clone_cfg.write_text('[remote "origin"]\n\turl = https://github.com/o/two.git\n')
+    assert asyncio.run(names.get(["alpha"])) == {"alpha": "one"}  # cached within the TTL
+    assert repos._TTL_S > 0

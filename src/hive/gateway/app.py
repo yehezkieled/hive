@@ -29,6 +29,7 @@ from hive.gateway.desk import Desk, build_desk
 from hive.gateway.live import LiveHub
 from hive.gateway.push import PushService, valid_subscription
 from hive.gateway.quota import Quota, QuotaProvider
+from hive.gateway.repos import RepoNames
 from hive.gateway.reviews import read_reviews
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
@@ -122,6 +123,7 @@ def create_app(
     provider = provider or SnapshotProvider(settings)
     quota = QuotaProvider(settings)
     describer = describer or Describer(settings)
+    repo_names = RepoNames(settings.fm_home / "projects")
     tokens = tokens or Tokens()
     runs = RunOnce()
     push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
@@ -156,7 +158,13 @@ def create_app(
             response.headers["Cache-Control"] = "private, max-age=604800"
         return response
 
-    def make_ctx(snap: Snapshot, nxt: str, q: Quota | None, desk: Desk | None = None) -> pages.Ctx:
+    def make_ctx(
+        snap: Snapshot,
+        nxt: str,
+        q: Quota | None,
+        desk: Desk | None = None,
+        repos: dict[str, str] | None = None,
+    ) -> pages.Ctx:
         return pages.Ctx(
             tokens.csrf(),
             writable=snap.ok,
@@ -165,10 +173,12 @@ def create_app(
             tz=settings.default_tz,
             quota=q,
             descriptions=_cached_descriptions(describer, desk),
+            repos=repos,
         )
 
-    async def ctx_for(snap: Snapshot, nxt: str) -> pages.Ctx:
-        return make_ctx(snap, nxt, await quota.get())
+    async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
+        repos = await repo_names.get(names or [])
+        return make_ctx(snap, nxt, await quota.get(), repos=repos)
 
     @app.get("/", response_class=HTMLResponse)
     async def home(focus: str = "") -> HTMLResponse:
@@ -176,8 +186,8 @@ def create_app(
         desk = build_desk(snap.data) if snap.data is not None else None
         selected = focus if desk is not None and focus in desk.projects else None
         nxt = "/?focus=" + quote(selected, safe="") if selected else "/"
-        ctx = make_ctx(snap, nxt, q, desk)
         names = set(desk.projects) if desk else set()
+        ctx = make_ctx(snap, nxt, q, desk, await repo_names.get(names))
         reviews = await asyncio.to_thread(read_reviews, settings.lavish_state, names)
         return HTMLResponse(pages.render_home(snap, desk, ctx, selected, reviews))
 
@@ -201,7 +211,7 @@ def create_app(
         desk = build_desk(snap.data) if snap.data is not None else None
         proj = desk.projects.get(name) if desk else None
         status = 200 if (proj or desk is None) else 404
-        ctx = await ctx_for(snap, _quote_project(name))
+        ctx = await ctx_for(snap, _quote_project(name), [name])
         return HTMLResponse(pages.render_project(name, snap, proj, ctx), status_code=status)
 
     @app.get("/chat", response_class=HTMLResponse)

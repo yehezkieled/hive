@@ -295,6 +295,7 @@ padding:11px 12px;cursor:pointer}
 box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
 .pc__top{display:flex;align-items:center;gap:8px}
 .pc__top>*{min-width:0}
+.aka{font:10px var(--font-mono);color:var(--ink-4);font-weight:400;margin-left:6px}
 .pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
 .pc__mae{font:10px var(--font-mono);color:var(--ink-3)}
 .pc__status{margin-left:auto;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
@@ -545,6 +546,7 @@ class Ctx:
         tz: str = DEFAULT_TZ,
         quota: Quota | None = None,
         descriptions: dict[str, str] | None = None,
+        repos: dict[str, str] | None = None,
     ) -> None:
         self.csrf = csrf
         self.writable = writable
@@ -553,6 +555,21 @@ class Ctx:
         self.tz = tz
         self.quota = quota  # None: quota-axi did not answer
         self.descriptions = descriptions or {}  # "project/item" -> cached agent description
+        self.repos = repos or {}  # registry name -> GitHub repo name (when it differs)
+
+    def show(self, name: str) -> str:
+        """The project's display name: its GitHub repo name, else the registry name."""
+        return self.repos.get(name) or name
+
+    def name_html(self, name: str) -> str:
+        """Display name, plus the local registry name as a small secondary label if it differs."""
+        shown = self.show(name)
+        aka = (
+            f"<small class=aka title='local clone name'>{esc(name)}</small>"
+            if shown != name
+            else ""
+        )
+        return f"{esc(shown)}{aka}"
 
     def form(self, action: str, inner: str, cls: str = "", **hidden: str) -> str:
         if not self.writable:
@@ -753,7 +770,7 @@ def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
     """A captain hold's lane parts: row class, state dot, badge, summary and the answer form."""
     row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
     ref = n.ref.partition("/")[0]
-    entity = f"{n.project} · {ref}"  # the reply label; the lane's group header names the project
+    entity = f"{ctx.show(n.project)} · {ref}"  # the reply label; the lane's group header names the project
     if n.title and n.text and n.title != n.text:
         summary = f"<b>{ctx.plain(n.title)}</b> — {ctx.plain(n.text)}"
     else:
@@ -912,7 +929,7 @@ def _group(g: BacklogGroup, ctx: Ctx) -> str:
     return (
         f"<section class=nyg data-group='{esc(g.project)}' data-open='{esc(href)}'>"
         f"<a class=nyg__head href='{esc(href)}'>"
-        f"<span class=nyg__name>{esc(g.project)}</span>"
+        f"<span class=nyg__name>{ctx.name_html(g.project)}</span>"
         f"<span class=nyg__mate>{'second mate' if g.mate else 'first mate'}</span>{waiting}"
         f"<span class=nyg__count>{g.count}</span></a>"
         f"<div class=nyg__items>{''.join(items)}</div>{more}</section>"
@@ -940,16 +957,16 @@ def _lane(desk: Desk, ctx: Ctx) -> str:
 _DOT = {"blocked": "error", "running": "active", "idle": "idle"}
 
 
-def _target(p: Project) -> tuple[str, str]:
+def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
     """(delegate-bar label, project field) for a focused card."""
     if p.name == NO_PROJECT:
         return "first mate", ""
-    return f"{'second mate' if p.mate else 'first mate'} · {p.name}", p.name
+    return f"{'second mate' if p.mate else 'first mate'} · {ctx.show(p.name)}", p.name
 
 
-def _card(p: Project, selected: bool) -> str:
+def _card(p: Project, selected: bool, ctx: Ctx) -> str:
     g = glance(p)
-    label, field = _target(p)
+    label, field = _target(p, ctx)
     nxt = "/?focus=" + quote(p.name, safe="")
     open_href = "/p/" + quote(p.name, safe="")
     pct = round(100 * g.done / g.total) if g.total else 0
@@ -962,7 +979,7 @@ def _card(p: Project, selected: bool) -> str:
         f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}'"
         f"{' aria-current=true' if selected else ''}>"
         f"<span class=pc__top><span class='state-dot state-dot--{_DOT[g.status]}'></span>"
-        f"<span class=pc__name>{esc(p.name)}</span>"
+        f"<span class=pc__name>{ctx.name_html(p.name)}</span>"
         f"<span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span>"
         f"<span class=pc__status>{g.status}</span></span>"
         f"<p class=pc__now>{now}</p>"
@@ -972,7 +989,7 @@ def _card(p: Project, selected: bool) -> str:
 
 
 def _dbar(focus: Project | None, ctx: Ctx) -> str:
-    label, field = _target(focus) if focus else ("first mate", "")
+    label, field = _target(focus, ctx) if focus else ("first mate", "")
     nxt = "/?focus=" + quote(focus.name, safe="") if focus else "/"
     form = ctx.form(
         "delegate",
@@ -1001,7 +1018,7 @@ _REVIEWS_SHOWN = 10
 def _review(r: Review, ctx: Ctx) -> str:
     href = f"{ctx.board_url}/session/{r.key}"
     reply = "<span class=rv__reply>reply</span>" if r.reply else ""
-    where = f"<span class=rv__proj>{esc(r.project)}</span>" if r.project else ""
+    where = f"<span class=rv__proj>{esc(ctx.show(r.project))}</span>" if r.project else ""
     return (
         f"<a class=rv href='{esc(href)}' target=_blank rel='noopener noreferrer'>"
         f"<span class=rv__title>{esc(r.title)}</span>{where}{reply}<span class=rv__go>↗</span></a>"
@@ -1052,7 +1069,7 @@ def render_home(
         return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
     if focus not in desk.projects:
         focus = desk.default_focus()
-    cards = "".join(_card(p, p.name == focus) for p in desk.projects.values())
+    cards = "".join(_card(p, p.name == focus, ctx) for p in desk.projects.values())
     projects = (
         f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
         f"<div class=pcs>{cards}</div></section>"
@@ -1153,8 +1170,8 @@ def render_project(
         )
     crews = "".join(_crew(c, ctx) for c in project.crews) or "<p class=mute>No live crews.</p>"
     return _page(
-        f"{name} · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>{esc(name)}</h1>"
+        f"{ctx.show(name)} · Hive desk",
+        f"<p><a href='/'>← Desk</a></p><h1>{ctx.name_html(name)}</h1>"
         f"<h2>Needs you ({len(project.needs_you)})</h2>"
         f"{needs}<h2>Crews</h2>{crews}<h2>Backlog ({len(project.rows)})</h2>"
         f"{_new_ticket(project.name, ctx)}{''.join(rows) or '<p class=mute>Empty.</p>'}",
