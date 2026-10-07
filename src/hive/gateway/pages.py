@@ -432,19 +432,18 @@ class Ctx:
 
 
 def _resets(at: datetime | None, tz: str, now: datetime) -> str:
+    """The reset as a local clock time, with the weekday when it is not today."""
     if at is None:
         return "not started"
-    secs = (at - now).total_seconds()
-    if secs < 0:
+    if at <= now:
         return "now"
-    if secs < 3600:
-        return f"resets {int(secs // 60)}m"
-    if secs < 86400:
-        return f"resets {int(secs // 3600)}h {int(secs % 3600 // 60):02d}m"
     try:
-        return f"resets {at.astimezone(ZoneInfo(tz)):%a}"
+        zone = ZoneInfo(tz)
     except Exception:  # unknown zone name or no tz database
-        return f"resets {at:%a}"
+        zone = UTC
+    local, today = at.astimezone(zone), now.astimezone(zone)
+    clock = f"{local.hour % 12 or 12}:{local:%M} {local:%p}".lower()
+    return f"resets {clock if local.date() == today.date() else f'{local:%a} {clock}'}"
 
 
 def _chip(ctx: Ctx, now: datetime | None = None) -> str:
@@ -461,11 +460,11 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
         worst = q.worst
         chip = (
             f"<summary class='qchip qchip--{q.level}' "
-            f"aria-label='Plan quota, worst window {worst.used} percent'>"
-            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span>{worst.used}%</summary>"
+            f"aria-label='Plan quota, worst window {worst.left} percent left'>"
+            f"<span class=qchip__bar><i style='width:{worst.left}%'></i></span>{worst.left}% left</summary>"
         )
         rows = "".join(
-            f"<div><span>{esc(w.label)}</span><b>{w.used}% · {esc(_resets(w.resets_at, ctx.tz, now))}"
+            f"<div><span>{esc(w.label)}</span><b>{w.left}% left · {esc(_resets(w.resets_at, ctx.tz, now))}"
             "</b></div>"
             for w in q.windows
         )

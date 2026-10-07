@@ -241,12 +241,34 @@ def _quota_json(five: float, seven: float) -> str:
 
 @pytest.mark.parametrize(
     ("five", "seven", "worst", "level"),
-    [(82, 88, 18, "ok"), (29, 62, 71, "warn"), (40, 15, 85, "warn"), (7, 39, 93, "hot")],
+    [(82, 88, 82, "ok"), (29, 62, 29, "warn"), (40, 15, 15, "warn"), (7, 39, 7, "hot")],
 )
-def test_quota_is_the_worse_claude_window(five: int, seven: int, worst: int, level: str) -> None:
+def test_quota_is_the_worse_claude_window_as_percent_left(
+    five: int, seven: int, worst: int, level: str
+) -> None:
     q = parse_quota(_quota_json(five, seven))
     assert q is not None and [w.label for w in q.windows] == ["5-hour window", "7-day window"]
-    assert (q.worst.used, q.level) == (worst, level)
+    assert (q.worst.left, q.level) == (worst, level)
+
+
+def test_recorded_quota_axi_output_reads_as_what_is_left() -> None:
+    """A real ``quota-axi --provider claude --json`` capture (2026-10-07): 34% / 47% / 9% left."""
+    q = parse_quota((FIXTURE.parent / "quota-axi-claude.json").read_text())
+    assert q is not None
+    assert [(w.label, w.left) for w in q.windows] == [
+        ("5-hour window", 34),
+        ("7-day window", 47),
+        ("Fable week", 9),
+    ]
+    assert q.worst.left == 34  # the Fable-only window does not drive the headline
+    now = datetime(2026, 10, 7, 8, 24, tzinfo=UTC)
+    html = _chip(Ctx("t", quota=q, tz="UTC"), now)
+    assert "34% left</summary>" in html and "width:34%" in html
+    assert "<b>34% left · resets 12:29 pm</b>" in html
+    assert "<b>47% left · resets Thu 2:59 pm</b>" in html
+    assert "<b>9% left · resets Thu 2:59 pm</b>" in html
+    local = _chip(Ctx("t", quota=q, tz="Australia/Sydney"), now)
+    assert "<b>34% left · resets 11:29 pm</b>" in local
 
 
 @pytest.mark.parametrize("raw", ["nope", "{}", '{"providers":[{"provider":"claude"}]}'])
@@ -254,26 +276,21 @@ def test_quota_unknown_when_unreadable(raw: str) -> None:
     assert parse_quota(raw) is None
 
 
-def test_chip_shows_worst_and_both_windows() -> None:
-    q = Quota(
-        (
-            Window("5-hour window", 71, datetime(2030, 1, 2, 5, 14, tzinfo=UTC)),
-            Window("7-day window", 38, datetime(2030, 1, 8, tzinfo=UTC)),
-        )
-    )
+def test_chip_states() -> None:
     now = datetime(2030, 1, 2, 3, 4, tzinfo=UTC)
+    q = Quota((Window("5-hour window", 29, datetime(2030, 1, 2, 5, 14, tzinfo=UTC)),))
     html = _chip(Ctx("t", quota=q, tz="UTC"), now)
-    assert "class='qchip qchip--warn'" in html and "worst window 71 percent" in html
-    assert "<b>71% · resets 2h 10m</b>" in html and "<b>38% · resets Tue</b>" in html
-    soon = Quota((Window("5-hour window", 93, now + timedelta(minutes=25)),))
-    assert "93% · resets 25m" in _chip(Ctx("t", quota=soon), now)
+    assert "class='qchip qchip--warn'" in html and "worst window 29 percent left" in html
+    assert "<b>29% left · resets 5:14 am</b>" in html
+    hot = Quota((Window("5-hour window", 7, now + timedelta(minutes=25)),))
+    assert "qchip--hot" in _chip(Ctx("t", quota=hot), now)
     assert "qchip--unknown" in _chip(Ctx("t"))
 
 
 def test_page_reads_quota_axi(tmp_path: Path) -> None:
     fake = _exe(tmp_path / "q" / "quota-axi", f"echo '{_quota_json(7, 39)}'")
     html = _client(tmp_path, _calm(), fake).get("/", headers=GOOD).text
-    assert "class='qchip qchip--hot'" in html and ">93%</summary>" in html
+    assert "class='qchip qchip--hot'" in html and ">7% left</summary>" in html
     # every desk page carries the chip in its chrome
     assert "id=qchip" in _client(tmp_path, _calm()).get("/p/alpha", headers=GOOD).text
 
@@ -283,8 +300,8 @@ async def test_quota_provider_serves_stale_while_refreshing(tmp_path: Path) -> N
     fake = _exe(tmp_path / "quota-axi", f"echo x >> '{counter}'; echo '{_quota_json(50, 50)}'")
     settings = GatewaySettings(quota_axi=fake, quota_ttl_s=60)
     provider = QuotaProvider(settings)
-    assert (await provider.get()).worst.used == 50
-    assert (await provider.get()).worst.used == 50
+    assert (await provider.get()).worst.left == 50
+    assert (await provider.get()).worst.left == 50
     assert len(counter.read_text().splitlines()) == 1
     assert await QuotaProvider(GatewaySettings()).get() is None
 
@@ -299,7 +316,7 @@ async def test_quota_provider_does_not_hold_a_cold_page(tmp_path: Path) -> None:
         await asyncio.sleep(0.05)
         if (q := await provider.get()) is not None:
             break
-    assert q is not None and q.worst.used == 80
+    assert q is not None and q.worst.left == 20
 
 
 def test_home_waits_once_on_a_cold_slow_quota(tmp_path: Path) -> None:
