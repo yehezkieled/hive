@@ -126,8 +126,9 @@ class SnapshotProvider:
     A page request never waits on the script once a value exists: an expired value is served
     as is while one background refresh runs (single flight). Only the first call, an explicit
     ``fresh`` (after an action, and the live watcher) or a zero TTL (tests) wait for it. A
-    failed background refresh keeps the last good value for ``_MAX_STALE_S`` and is retried
-    on the next request.
+    caller that is not ``fresh`` takes a value another caller produced while it waited for
+    the lock, so a cold burst runs the script once. A failed background refresh keeps the
+    last good value for ``_MAX_STALE_S`` and is retried on the next request.
     """
 
     def __init__(self, settings: GatewaySettings) -> None:
@@ -141,19 +142,22 @@ class SnapshotProvider:
     async def get(self, fresh: bool = False) -> Snapshot:
         ttl = self._settings.snapshot_ttl_s
         if fresh or self._value is None or ttl <= 0:
-            return await self._refresh(keep_good=False)
+            return await self._refresh(keep_good=False, fresh=fresh)
         if time.monotonic() - self._at > ttl and (self._task is None or self._task.done()):
             self._task = asyncio.create_task(self._refresh_quietly())
         return self._value
 
     async def _refresh_quietly(self) -> None:
         try:
-            await self._refresh(keep_good=True)
+            await self._refresh(keep_good=True, fresh=False)
         except Exception:
             log.exception("background snapshot refresh failed")
 
-    async def _refresh(self, keep_good: bool) -> Snapshot:
+    async def _refresh(self, keep_good: bool, fresh: bool) -> Snapshot:
+        started = time.monotonic()
         async with self._lock:
+            if not fresh and self._value is not None and self._at >= started:
+                return self._value
             snap = await run_snapshot(self._settings)
             now = time.monotonic()
             old = self._value

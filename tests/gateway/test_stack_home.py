@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
 import stat
 import time
 from datetime import UTC, datetime, timedelta
@@ -706,7 +707,7 @@ def test_many_reviews_scroll_box_ends_in_the_more_button(tmp_path: Path) -> None
 def test_review_sheet_lists_every_session_unread_replies_first(tmp_path: Path) -> None:
     html = _many_reviews(tmp_path, 25)
     sheet = html.split("<dialog id=rvs-sheet", 1)[1].split("</dialog>", 1)[0]
-    assert "aria-labelledby=rvs-title" in sheet and "data-rvs-close" in sheet
+    assert "aria-labelledby=rvs-sheet-title" in sheet and "data-sheet-close" in sheet
     hrefs = re.findall(r"href='([^']+)'", sheet)
     assert len(hrefs) == 25 and len(set(hrefs)) == 25
     assert all(h.startswith("https://board.example.ts.net:8445/session/") for h in hrefs)
@@ -718,29 +719,181 @@ def test_few_reviews_have_no_sheet(tmp_path: Path) -> None:
     html = _many_reviews(tmp_path, 4)
     assert "Review pages · 4" in html
     section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
-    assert "<dialog" not in section and "data-rvs-open" not in section
+    assert "<dialog" not in section and "data-sheet-open" not in section
 
 
-def test_review_sheet_script_handles_escape_backdrop_and_focus() -> None:
-    from hive.gateway.pages import CSS, SCRIPT
-
-    for hook in ("showModal", "'Escape'", "rvOpener.focus()", "data-rvs-close", "dialog[open]"):
-        assert hook in SCRIPT
-    assert "prefers-reduced-motion:reduce){.rvsheet" in CSS
-    assert "-webkit-overflow-scrolling:touch" in CSS and "--bar-room" in CSS
+CHROME = next(
+    (c for c in ("google-chrome", "chromium", "chromium-browser") if shutil.which(c)), None
+)
+needs_chrome = pytest.mark.skipif(CHROME is None, reason="no headless Chrome")
+LONG_DESC = "Files bills from a Gmail label into the ledger. " * 12
 
 
-def test_desk_is_one_page_with_independently_scrolling_panels() -> None:
-    from hive.gateway.pages import CSS
+def _busy_desk() -> str:
+    """A desk that overflows every panel: 8 projects of 7 items (the first held, so it is the
+    group's card, with a long cached description) and 25 review pages."""
+    from hive.gateway.pages import render_home
+    from hive.gateway.reviews import Review
+    from hive.gateway.snapshot import Snapshot
 
-    one_page = CSS.split("one-page desk", 1)[1].split("\n.nyl{", 1)[0]
-    assert "body.wide{height:100vh;height:100dvh;overflow:hidden" in one_page
-    for panel in (".wide .nyl__body{", ".wide .pcs{"):
-        assert (
-            panel in one_page and "overflow-y:auto" in one_page.split(panel, 1)[1].split("}", 1)[0]
-        )
-    assert "orientation:portrait" in one_page  # iPad portrait stacks the panels
-    assert ".wide .dbar-wrap{position:static" in one_page  # the hint can no longer overlap rows
+    records = [
+        _rec(f"p{p}-t{i}", f"proj{p}", "queued", hold_reason="Which one?", captain_actionable=True)
+        if i == 0
+        else _rec(f"p{p}-t{i}", f"proj{p}", "queued")
+        for p in range(8)
+        for i in range(7)
+    ]
+    data = _snapshot(backlog={"records": records})
+    reviews = [Review(f"k{i}", f"Review {i}", "proj0", i < 3, "") for i in range(25)]
+    descriptions = {f"proj{p}/p{p}-t0": LONG_DESC.strip() for p in range(8)}
+    ctx = Ctx("t", descriptions=descriptions)
+    return render_home(Snapshot(data, data["schema"], None), build_desk(data), ctx, None, reviews)
+
+
+def _in_chrome(tmp_path: Path, page: str, driver: str, size: tuple[int, int], *flags: str) -> dict:
+    """Load the desk in headless Chrome, run ``driver`` (JS that fills ``R``) after the page
+    script, and return ``R``."""
+    import html as html_mod
+    import subprocess
+
+    probe = (
+        "<script>var R={};function q(s){return document.querySelector(s);}"
+        "function box(s){var r=q(s).getBoundingClientRect();return {top:r.top,bottom:r.bottom,"
+        "left:r.left,right:r.right,height:r.height};}"
+        "function key(k){(document.activeElement||document).dispatchEvent("
+        "new KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}));}"
+        "function click(el){var ev=new MouseEvent('click',{bubbles:true,cancelable:true});"
+        "el.dispatchEvent(ev);return ev.defaultPrevented;}"
+        f"try{{{driver}}}catch(e){{R.error=String(e);}}"
+        "var o=document.createElement('pre');o.id='result';o.textContent=JSON.stringify(R);"
+        "document.body.appendChild(o);</script></body>"
+    )
+    file = tmp_path / "desk.html"
+    file.write_text(page.replace("</body>", probe, 1))
+    out = subprocess.run(
+        [
+            str(CHROME),
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--hide-scrollbars",
+            f"--user-data-dir={tmp_path / 'chrome'}",
+            f"--window-size={size[0]},{size[1]}",
+            *flags,
+            "--dump-dom",
+            file.as_uri(),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=25,
+        check=True,
+    )
+    m = re.search(r'<pre id="result">(.*?)</pre>', out.stdout, re.S)
+    assert m, out.stdout[-500:]
+    result = json.loads(html_mod.unescape(m.group(1)))
+    assert "error" not in result, result["error"]
+    return result
+
+
+SHEET_DRIVER = """
+function st(id){var d=document.getElementById(id);return {open:d.open,modal:d.matches(':modal'),
+focus:document.activeElement&&document.activeElement.getAttribute('aria-label')};}
+var more=q('.nyq__more'),url=location.href;
+R.groupPrevented=click(more);R.group=st('nys-0');
+var gs=document.getElementById('nys-0');
+R.groupRows=gs.querySelectorAll('.sheet__list a.rv').length;
+R.groupOpen=[].map.call(gs.querySelectorAll('.sheet__head a'),
+function(a){return a.getAttribute('href');});
+var gl=gs.querySelector('.sheet__list');R.groupScroll=getComputedStyle(gl).overflowY;
+R.anim=getComputedStyle(gs).animationName;
+key('Escape');R.afterEscape=st('nys-0');R.focusBack=document.activeElement===more;R.url=location.href===url;
+var rb=q('.rv__morebtn');click(rb);R.reviews=st('rvs-sheet');
+var rl=document.querySelector('#rvs-sheet .sheet__list');
+R.reviewRows=rl.querySelectorAll('a.rv').length;R.reviewScrolls=rl.scrollHeight>rl.clientHeight;
+R.reviewScroll=getComputedStyle(rl).overflowY;
+click(document.getElementById('rvs-sheet'));R.afterBackdrop=st('rvs-sheet');
+var desc=q('.nyx.is-primary .nyx__desc');R.clamp=getComputedStyle(desc).webkitLineClamp;
+R.clamped=desc.scrollHeight>desc.clientHeight+1;
+click(desc);R.desc=st('desc-sheet');
+R.descTitle=q('#desc-sheet [data-sheet-title]').textContent;
+R.descText=q('#desc-sheet [data-sheet-text]').textContent;
+click(q('#desc-sheet [data-sheet-close]'));R.afterX=st('desc-sheet');
+R.descFocus=document.activeElement===desc;
+desc.focus();key('Enter');R.descKey=st('desc-sheet').open;key('Escape');
+var cards=document.querySelectorAll('[data-card]'),c=cards[1];
+R.firstTapPrevented=click(c);R.selected=c.classList.contains('is-selected');
+R.anyOpen=!!document.querySelector('dialog[open]');
+click(c);var did=c.getAttribute('data-detail');R.card=st(did);
+var cs=document.getElementById(did);
+R.cardRows=cs.querySelectorAll('.sheet__list a.rv').length;
+R.cardOpen=cs.querySelector('.sheet__head a').getAttribute('href');
+R.cardName=c.getAttribute('data-name');
+"""
+
+
+@needs_chrome
+def test_sheets_open_close_and_return_focus_in_a_real_browser(tmp_path: Path) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), SHEET_DRIVER, (1440, 900))
+    # (a) a long Needs-you group: "+N more" opens a modal sheet of the whole slice, not a page
+    assert r["groupPrevented"] and r["url"]
+    assert r["group"] == {"open": True, "modal": True, "focus": "Close proj0"}
+    assert r["groupRows"] == 7 and r["groupOpen"] == ["/p/proj0"]
+    assert r["groupScroll"] == "auto" and r["anim"] == "sheet-in"
+    assert r["afterEscape"]["open"] is False and r["focusBack"]
+    # review pages: every page in a scrolling modal sheet; a tap outside closes it
+    assert r["reviews"]["open"] and r["reviews"]["modal"]
+    assert r["reviewRows"] == 25 and r["reviewScrolls"] and r["reviewScroll"] == "auto"
+    assert r["afterBackdrop"]["open"] is False
+    # (b) a long description is clamped inline and opens in full in a sheet; X closes it
+    assert r["clamp"] == "4" and r["clamped"]
+    assert r["desc"] == {"open": True, "modal": True, "focus": "Close description"}
+    assert r["descTitle"] == "p0-t0" and r["descText"] == LONG_DESC.strip()
+    assert r["afterX"]["open"] is False and r["descFocus"] and r["descKey"]
+    # (c) a tap focuses a card; a tap on the focused card opens its detail sheet
+    assert r["firstTapPrevented"] and r["selected"] and not r["anyOpen"]
+    assert r["card"]["open"] and r["card"]["modal"]
+    assert r["cardRows"] == 7 and r["cardOpen"] == f"/p/{r['cardName']}"
+
+
+@needs_chrome
+def test_sheets_do_not_animate_under_reduced_motion(tmp_path: Path) -> None:
+    driver = "click(q('.nyq__more'));R.anim=getComputedStyle(q('#nys-0')).animationName;"
+    r = _in_chrome(tmp_path, _busy_desk(), driver, (1440, 900), "--force-prefers-reduced-motion")
+    assert r["anim"] == "none"
+
+
+LAYOUT_DRIVER = """
+R.inner=innerHeight;R.page=document.scrollingElement.scrollHeight;
+R.bar=box('.dbar-wrap');R.lane=box('.nyl');R.pcsec=box('.pcsec');R.rvs=box('.rvs');
+R.note=box('.dbar-note');
+function sc(s){var e=q(s);
+return {y:getComputedStyle(e).overflowY,over:e.scrollHeight>e.clientHeight};}
+R.laneBody=sc('.nyl__body');R.pcs=sc('.pcs');R.rvList=sc('.rv__list');
+"""
+
+
+@needs_chrome
+@pytest.mark.parametrize(
+    ("size", "portrait"),
+    [((1440, 900), False), ((1280, 800), False), ((1180, 820), False), ((820, 1180), True)],
+    ids=["pc", "laptop", "ipad-landscape", "ipad-portrait"],
+)
+def test_desk_is_one_page_with_independently_scrolling_panels(
+    tmp_path: Path, size: tuple[int, int], portrait: bool
+) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), LAYOUT_DRIVER, size)
+    assert r["page"] <= r["inner"]  # no page scroll
+    assert r["bar"]["bottom"] <= r["inner"]
+    for panel in ("lane", "pcsec", "rvs"):
+        assert r[panel]["bottom"] <= r["bar"]["top"] + 0.5, panel  # nothing under the bar
+    assert r["note"]["top"] >= r["lane"]["bottom"]  # the hint line never covers a row
+    for panel in ("laneBody", "pcs", "rvList"):
+        assert r[panel] == {"y": "auto", "over": True}, panel  # each panel scrolls on its own
+    if portrait:  # Projects and Review pages side by side, each the row's full height
+        assert abs(r["pcsec"]["top"] - r["rvs"]["top"]) < 1
+        assert abs(r["pcsec"]["bottom"] - r["rvs"]["bottom"]) < 1
+    else:
+        assert r["pcsec"]["bottom"] <= r["rvs"]["top"]
 
 
 # ---- Projects shown by their GitHub repo name -------------------------------------
@@ -790,16 +943,28 @@ def test_desk_shows_the_repo_name_and_keeps_routing_on_the_registry_name(tmp_pat
     assert "<span class=pc__name>alpha</span>" not in html
 
 
-def test_repo_names_do_not_block_on_a_stale_entry(tmp_path: Path) -> None:
-    import asyncio
-
+async def test_repo_names_serve_a_stale_entry_and_refresh_it_in_the_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from hive.gateway import repos
     from hive.gateway.repos import RepoNames
 
     _clone(tmp_path, "alpha", "https://github.com/o/one.git")
     names = RepoNames(tmp_path / "projects")
-    assert asyncio.run(names.get(["alpha"])) == {"alpha": "one"}
-    _clone_cfg = tmp_path / "projects" / "alpha" / ".git" / "config"
-    _clone_cfg.write_text('[remote "origin"]\n\turl = https://github.com/o/two.git\n')
-    assert asyncio.run(names.get(["alpha"])) == {"alpha": "one"}  # cached within the TTL
-    assert repos._TTL_S > 0
+    assert await names.get(["alpha"]) == {"alpha": "one"}
+    cfg = tmp_path / "projects" / "alpha" / ".git" / "config"
+    cfg.write_text('[remote "origin"]\n\turl = https://github.com/o/two.git\n')
+    assert await names.get(["alpha"]) == {"alpha": "one"}  # cached within the TTL
+    assert names._task is None
+    monkeypatch.setattr(repos, "_TTL_S", 0.0)
+    await asyncio.sleep(0.01)  # the entry is now stale
+    reads: list[str] = []
+    real = names._read
+    monkeypatch.setattr(names, "_read", lambda n: reads.append(n) or real(n))
+    assert await names.get(["alpha"]) == {"alpha": "one"}  # served stale, read not awaited
+    assert reads == [] and names._task is not None
+    await names._task
+    assert reads == ["alpha"]
+    assert await names.get(["alpha"]) == {"alpha": "two"}  # the background read landed
+    if names._task is not None:
+        await names._task

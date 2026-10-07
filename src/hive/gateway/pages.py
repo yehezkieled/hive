@@ -19,6 +19,7 @@ from hive.gateway.desk import (
     BacklogGroup,
     Crew,
     Desk,
+    Glance,
     NeedsYou,
     Project,
     Row,
@@ -156,7 +157,6 @@ align-content:start;min-height:0;padding-bottom:2px}
 .wide .rvs{flex:1 1 0;min-height:0}
 .wide .rv__box{flex:1;min-height:0}
 .wide .rv__list{flex:1;max-height:none;min-height:0}
-.wide .nyx__desc{max-height:7.5em;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .wide .dbar-wrap{position:static;margin:0;flex:none}
 .wide .stamp{flex:none}
 }
@@ -166,6 +166,7 @@ align-content:start;min-height:0;padding-bottom:2px}
 .wide .land__col:last-child{flex-direction:row}
 .wide .land__col:last-child>*{flex:1 1 0;min-width:0}
 .wide .pcs{grid-template-columns:minmax(0,1fr)}
+.wide .pcsec{max-height:none}
 }
 .nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
 box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
@@ -228,7 +229,10 @@ display:inline-flex;align-items:center;justify-content:center;padding:0 6px;bord
 .nyx.is-primary .nyx__more{display:block;padding:0 4px}
 .nyx__more>.nyi__summary{margin:2px 0 6px}
 .nyx__desc{margin:0 0 8px;font-size:12.5px;line-height:1.45;color:var(--ink-3);border-left:2px solid var(--rule-faint);
-padding-left:9px}
+padding-left:9px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
+.nyx__desc[data-ready]{cursor:pointer}
+.nyx__desc[data-ready]:hover{color:var(--ink-2)}
+.nyx__desc:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
 .nyx__desc[hidden]{display:none}
 .nyx__desc.is-pending{color:var(--ink-4);animation:nyx-pulse 1.4s ease-in-out infinite}
 .nyx.is-flip{transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
@@ -237,7 +241,8 @@ padding-left:9px}
 @keyframes nyx-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 @keyframes nyx-pulse{50%{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none!important;transition:none!important}}
-.nyq__more{font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;padding:6px 4px;min-height:36px}
+.nyq__more{display:inline-flex;align-items:center;font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;
+padding:0 4px;min-height:44px}
 .rvs{display:flex;flex-direction:column;gap:6px}
 .rv__box{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
 .rv__list{display:flex;flex-direction:column;max-height:min(44vh,300px);overflow-y:auto;overflow-x:hidden;
@@ -255,20 +260,24 @@ background:var(--honey-soft);border-radius:999px;padding:2px 8px}
 .rv__morebtn{display:flex;align-items:center;width:100%;min-height:44px;padding:0 12px;border:0;border-top:1px solid var(--rule-faint);
 border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-mono);cursor:pointer;text-align:left}
 .rv__morebtn:hover{background:var(--paper-soft)}
-.rvsheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
+.sheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
 background:var(--paper);color:var(--ink);border:1.5px solid var(--rule);border-radius:16px;
 box-shadow:0 16px 48px var(--paper-shadow);overflow:hidden}
-.rvsheet[open]{display:flex;flex-direction:column;animation:rvs-in .18s ease-out}
-.rvsheet{cursor:pointer}.rvsheet>*{cursor:auto}
+.sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s ease-out}
+.sheet{cursor:pointer}.sheet>*{cursor:auto}
 body:has(dialog[open]){overflow:hidden}
-.rvsheet::backdrop{background:rgba(20,16,12,.5)}
-.rvsheet__head{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;border-bottom:1.5px solid var(--rule);flex:none}
-.rvsheet__head h2{flex:1;margin:0;font:800 .95rem var(--font-display)}
-.rvsheet__x{min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:26px;line-height:1}
-.rvsheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;
+.sheet::backdrop{background:rgba(20,16,12,.5)}
+.sheet__head{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;border-bottom:1.5px solid var(--rule);flex:none}
+.sheet__head>*{min-width:0}
+.sheet__head h2{flex:1;margin:0;font:800 .95rem var(--font-display);overflow-wrap:anywhere}
+.sheet__x{min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:26px;line-height:1}
+.sheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;
 -webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom)}
-@keyframes rvs-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.rvsheet[open]{animation:none}}
+.sheet__meta{margin:0;padding:10px 16px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--rule-faint);flex:none}
+.sheet__text{margin:0;padding:14px 16px;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.sheet__empty{margin:0;padding:14px 16px;font:10px var(--font-mono);color:var(--ink-3)}
+@keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sheet[open]{animation:none}}
 .nyi__reply::placeholder{color:var(--ink-4)}
 .btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
 border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
@@ -439,8 +448,9 @@ var fm=s.querySelector('form.dbar');
 if(fm){fm.elements.project.value=proj;fm.elements.next.value=card.getAttribute('data-next');}
 try{history.replaceState(null,'',card.getAttribute('data-next'));}catch(e){}}
 document.addEventListener('click',function(e){var a=e.target.closest?e.target.closest('[data-card]'):null;
-if(!a||a.classList.contains('is-selected')||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
-e.preventDefault();focus(a);});
+if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+e.preventDefault();if(a.classList.contains('is-selected'))sheetOpen(document.getElementById(a.getAttribute('data-detail')),a);
+else focus(a);});
 var flash=null,flashT;
 function showFlash(){var e=document.querySelector('[data-flash]');if(!e||!flash)return;
 e.textContent=flash.t;e.hidden=false;e.className='dbar-flash'+(flash.ok?'':' dbar-flash--err');}
@@ -468,7 +478,8 @@ function describe(it,n){var p=it.querySelector('.nyx__desc'),u=it.getAttribute('
 if(!p||!u||!it.classList.contains('is-primary')||p.getAttribute('data-ready')||p.busy)return;
 p.busy=true;if(!p.textContent){p.hidden=false;p.className='nyx__desc is-pending';p.textContent='Reading the backlog item\u2026';}
 fetch(u,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.ok?r.json():{};}).then(function(j){
-p.busy=false;if(j.state==='ready'&&j.text){p.className='nyx__desc';p.textContent=j.text;p.setAttribute('data-ready','1');p.hidden=false;}
+p.busy=false;if(j.state==='ready'&&j.text){p.className='nyx__desc';p.textContent=j.text;p.setAttribute('data-ready','1');
+p.setAttribute('tabindex','0');p.setAttribute('role','button');p.setAttribute('aria-haspopup','dialog');p.hidden=false;}
 else if(j.state==='pending'&&(n||0)<20)setTimeout(function(){describe(it,(n||0)+1);},2000);
 else{p.hidden=true;p.textContent='';}}).catch(function(){p.busy=false;p.hidden=true;p.textContent='';});}
 function describeAll(){var a=document.querySelectorAll('.nyx.is-primary');for(var i=0;i<a.length;i++)describe(a[i]);}
@@ -501,21 +512,28 @@ if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primar
 (it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
 lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
 pick(g,it,!calm());describe(it);});
-var rvOpener=null;
-function rvOpen(b){var d=document.querySelector('[data-rvs-sheet]');if(!d||d.open)return;rvOpener=b;
+var sheetOpener=null;
+function sheetOpen(d,b){if(!d||d.open)return;sheetOpener=b;
 if(d.showModal)d.showModal();else d.setAttribute('open','');
-var l=d.querySelector('.rvsheet__list');if(l)l.scrollTop=0;var x=d.querySelector('[data-rvs-close]');if(x)x.focus();}
-function rvClose(d){if(d.close)d.close();else d.removeAttribute('open');
-if(rvOpener&&document.contains(rvOpener))rvOpener.focus();rvOpener=null;}
+var l=d.querySelector('.sheet__list');if(l)l.scrollTop=0;var x=d.querySelector('[data-sheet-close]');if(x)x.focus();}
+function sheetClose(d){if(d.close)d.close();else d.removeAttribute('open');
+if(sheetOpener&&document.contains(sheetOpener))sheetOpener.focus();sheetOpener=null;}
+function descOpen(p){var d=document.getElementById('desc-sheet'),it=p.closest('.nyx');if(!d)return;
+d.querySelector('[data-sheet-title]').textContent=it?it.getAttribute('data-item'):'';
+d.querySelector('[data-sheet-text]').textContent=p.textContent;sheetOpen(d,p);}
 document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;
-var o=t.closest('[data-rvs-open]');if(o){e.preventDefault();rvOpen(o);return;}
-var d=t.closest('[data-rvs-sheet]');
-if(t.closest('[data-rvs-close]')){e.preventDefault();rvClose(d);return;}
-if(t.hasAttribute&&t.hasAttribute('data-rvs-sheet'))rvClose(t);});
+var o=t.closest('[data-sheet-open]');
+if(o){if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+e.preventDefault();sheetOpen(document.getElementById(o.getAttribute('data-sheet-open')),o);return;}
+var p=t.closest('.nyx__desc[data-ready]');if(p){e.preventDefault();descOpen(p);return;}
+var d=t.closest('[data-sheet]');
+if(t.closest('[data-sheet-close]')){e.preventDefault();sheetClose(d);return;}
+if(t.hasAttribute&&t.hasAttribute('data-sheet'))sheetClose(t);});
 document.addEventListener('cancel',function(e){var d=e.target;
-if(d&&d.hasAttribute&&d.hasAttribute('data-rvs-sheet')){e.preventDefault();rvClose(d);}},true);
-document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;
-var d=document.querySelector('[data-rvs-sheet][open]');if(d){e.preventDefault();rvClose(d);}});
+if(d&&d.hasAttribute&&d.hasAttribute('data-sheet')){e.preventDefault();sheetClose(d);}},true);
+document.addEventListener('keydown',function(e){var t=e.target;
+if(e.key==='Escape'){var d=document.querySelector('[data-sheet][open]');if(d){e.preventDefault();sheetClose(d);}return;}
+if((e.key==='Enter'||e.key===' ')&&t&&t.matches&&t.matches('.nyx__desc[data-ready]')){e.preventDefault();descOpen(t);}});
 function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
 document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
 try{barRoom();window.addEventListener('resize',barRoom);
@@ -866,7 +884,8 @@ def _nyx(
     text = ctx.descriptions.get(f"{group.project}/{item_id}")
     desc_url = "/describe?" + urlencode({"p": group.project, "id": item_id})
     desc = (
-        f"<p class=nyx__desc data-ready=1>{esc(text)}</p>"
+        "<p class=nyx__desc data-ready=1 tabindex=0 role=button aria-haspopup=dialog>"
+        f"{esc(text)}</p>"
         if text
         else "<p class=nyx__desc hidden></p>"
     )
@@ -883,13 +902,62 @@ def _nyx(
     )
 
 
-def _group(g: BacklogGroup, ctx: Ctx) -> str:
+def _sheet(sid: str, title: str, body: str, close: str, head: str = "") -> str:
+    """A modal sheet (``<dialog>``) the page script opens from any ``data-sheet-open=<sid>``
+    and closes on its X, a tap outside or Escape. ``title`` and ``body`` are HTML."""
+    return (
+        f"<dialog id={sid} class=sheet aria-labelledby={sid}-title data-sheet>"
+        f"<div class=sheet__head><h2 id={sid}-title data-sheet-title>{title}</h2>{head}"
+        f"<button type=button class=sheet__x data-sheet-close aria-label='{esc(close)}'>×</button>"
+        f"</div>{body}</dialog>"
+    )
+
+
+def _open_project(href: str) -> str:
+    return f"<a class='btn btn--deny' href='{esc(href)}'>Open project ↗</a>"
+
+
+def _sheet_row(href: str, item_id: str, title: str, tag: str) -> str:
+    badge = f"<span class=rv__reply>{esc(tag)}</span>" if tag else ""
+    return (
+        f"<a class=rv href='{esc(href)}'><span class=rv__title>{esc(title or item_id)}</span>"
+        f"<span class=rv__proj>{esc(item_id)}</span>{badge}<span class=rv__go>↗</span></a>"
+    )
+
+
+def _items_list(g: BacklogGroup | None, ctx: Ctx) -> str:
+    """Every item of a project's Needs-you slice (held first, then queued), for a sheet."""
+    if g is None or not g.count:
+        return "<p class=sheet__empty>Nothing waiting on you or queued.</p>"
+    href = "/p/" + quote(g.project, safe="")
+    rows = [
+        _sheet_row(href, n.ref, n.title or n.text, _LANE.get(n.kind, ("", "", n.kind))[2])
+        for n in g.waiting
+    ]
+    rows += [_sheet_row(href, r.id, r.title, _row_parts(r, href, ctx)[1]) for r in g.queued]
+    return f"<div class=sheet__list>{''.join(rows)}</div>"
+
+
+def _group(g: BacklogGroup, ctx: Ctx, sid: str) -> str:
     """One project's slice: the first held item is the card, the rest are rows; picking a row
-    (page script) swaps it into the card slot. Without the script every row opens the project."""
+    (page script) swaps it into the card slot. Without the script every row opens the project.
+    "+N more" opens a sheet listing the whole slice (without the script, the project page)."""
     href = "/p/" + quote(g.project, safe="")
     shown = g.queued[:_QUEUED_SHOWN]
     rest = len(g.queued) - len(shown)
-    more = f"<a class=nyq__more href='{esc(href)}'>+{rest} more ↗</a>" if rest else ""
+    more = (
+        f"<a class=nyq__more href='{esc(href)}' data-sheet-open={sid} aria-haspopup=dialog "
+        f"aria-controls={sid}>+{rest} more</a>"
+        + _sheet(
+            sid,
+            f"{ctx.name_html(g.project)} · {g.count}",
+            _items_list(g, ctx),
+            f"Close {ctx.show(g.project)}",
+            _open_project(href),
+        )
+        if rest
+        else ""
+    )
     waiting = f"<span class=nyg__wait>{len(g.waiting)} waiting on you</span>" if g.waiting else ""
     items = []
     for i, n in enumerate(g.waiting):
@@ -950,7 +1018,7 @@ def _lane(desk: Desk, ctx: Ctx) -> str:
             f"<p class=calm__line>✓ all clear · {n} loop{'' if n == 1 else 's'} running</p>"
             "<p class=calm__sub>backlog is empty</p></div></section>"
         )
-    groups = "".join(_group(g, ctx) for g in desk.backlog)
+    groups = "".join(_group(g, ctx, f"nys-{i}") for i, g in enumerate(desk.backlog))
     return f"<section class=nyl>{head}<div class=nyl__body>{groups}</div></section>"
 
 
@@ -964,27 +1032,51 @@ def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
     return f"{'second mate' if p.mate else 'first mate'} · {ctx.show(p.name)}", p.name
 
 
-def _card(p: Project, selected: bool, ctx: Ctx) -> str:
+def _card_text(p: Project) -> tuple[Glance, str, str]:
+    """A card's glance, its activity line (HTML) and its progress label."""
     g = glance(p)
+    prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
+    now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
+    return g, now, prog
+
+
+def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
+    """A project card: a tap focuses it (retargets the delegate bar); a tap on the focused card
+    opens its detail sheet ``sid``. Without the script the focused card opens the project."""
+    g, now, prog = _card_text(p)
     label, field = _target(p, ctx)
     nxt = "/?focus=" + quote(p.name, safe="")
     open_href = "/p/" + quote(p.name, safe="")
     pct = round(100 * g.done / g.total) if g.total else 0
-    prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
-    now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
     sel = " is-selected" if selected else ""
     return (
         f"<a class='pc pc--{g.status}{sel}' href='{esc(open_href if selected else nxt)}' "
         f"data-card data-name='{esc(p.name)}' data-label='{esc(label)}' "
-        f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}'"
-        f"{' aria-current=true' if selected else ''}>"
+        f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}' "
+        f"data-detail={sid}{' aria-current=true' if selected else ''}>"
         f"<span class=pc__top><span class='state-dot state-dot--{_DOT[g.status]}'></span>"
         f"<span class=pc__name>{ctx.name_html(p.name)}</span>"
         f"<span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span>"
         f"<span class=pc__status>{g.status}</span></span>"
         f"<p class=pc__now>{now}</p>"
         f"<span class=pc__prog><span class=pc__track><i style='width:{pct}%'></i></span>{prog}"
-        "<span class=pc__open>· opens project ↗</span></span></a>"
+        "<span class=pc__open>· tap for details</span></span></a>"
+    )
+
+
+def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> str:
+    """The focused card's detail: status, activity, progress and its Needs-you items."""
+    g, now, prog = _card_text(p)
+    meta = (
+        f"<p class=sheet__meta><b>{g.status}</b> · {'second mate' if p.mate else 'first mate'}"
+        f" · {prog}<br>{now}</p>"
+    )
+    return _sheet(
+        sid,
+        ctx.name_html(p.name),
+        meta + _items_list(group, ctx),
+        f"Close {ctx.show(p.name)}",
+        _open_project("/p/" + quote(p.name, safe="")),
     )
 
 
@@ -1039,16 +1131,14 @@ def _reviews(reviews: list[Review], ctx: Ctx) -> str:
     more = sheet = ""
     if rest > 0:
         more = (
-            "<button type=button class=rv__morebtn data-rvs-open aria-haspopup=dialog "
+            "<button type=button class=rv__morebtn data-sheet-open=rvs-sheet aria-haspopup=dialog "
             f"aria-controls=rvs-sheet>+{rest} more</button>"
         )
-        sheet = (
-            "<dialog id=rvs-sheet class=rvsheet aria-labelledby=rvs-title data-rvs-sheet>"
-            "<div class=rvsheet__head>"
-            f"<h2 id=rvs-title>Review pages · {n}</h2>"
-            "<button type=button class=rvsheet__x data-rvs-close aria-label='Close review pages'>"
-            "×</button></div>"
-            f"<div class=rvsheet__list>{''.join(_review(r, ctx) for r in reviews)}</div></dialog>"
+        sheet = _sheet(
+            "rvs-sheet",
+            f"Review pages · {n}",
+            f"<div class=sheet__list>{''.join(_review(r, ctx) for r in reviews)}</div>",
+            "Close review pages",
         )
     return (
         f"<section class=rvs><p class=sec-label>Review pages · {n}</p>"
@@ -1069,10 +1159,14 @@ def render_home(
         return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
     if focus not in desk.projects:
         focus = desk.default_focus()
-    cards = "".join(_card(p, p.name == focus, ctx) for p in desk.projects.values())
+    groups = {g.project: g for g in desk.backlog}
+    cards = details = ""
+    for i, p in enumerate(desk.projects.values()):
+        cards += _card(p, p.name == focus, ctx, f"pcs-{i}")
+        details += _card_sheet(p, groups.get(p.name), ctx, f"pcs-{i}")
     projects = (
         f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
-        f"<div class=pcs>{cards}</div></section>"
+        f"<div class=pcs>{cards}</div>{details}</section>"
         if cards
         else "<p class=sec-label>No projects yet</p>"
     )
@@ -1085,7 +1179,14 @@ def render_home(
         f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
         f"</div><div class=land__col>{projects}{more}{_reviews(reviews or [], ctx)}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx)}{stamp}"
-        "<p class=stamp id=alerts-note></p></div>"
+        "<p class=stamp id=alerts-note></p>"
+        + _sheet(
+            "desc-sheet",
+            "",
+            "<div class=sheet__list><p class=sheet__text data-sheet-text></p></div>",
+            "Close description",
+        )
+        + "</div>"
     )
     return _page("Hive desk", body, "desk", attrs, ctx)
 

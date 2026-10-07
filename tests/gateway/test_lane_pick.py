@@ -296,8 +296,9 @@ def test_describe_endpoint_fills_in_after_the_page_has_loaded(tmp_path: Path) ->
     assert got == {"state": "ready", "text": "Files bills from a Gmail label; waits for M1."}
     assert "Gmail label that files" not in html
     again = c.get("/", headers=GOOD).text  # now rendered with the text, no script needed
-    assert (
-        "<p class=nyx__desc data-ready=1>Files bills from a Gmail label; waits for M1.</p>" in again
+    assert re.search(
+        r"<p class=nyx__desc data-ready=1 [^>]*>Files bills from a Gmail label; waits for M1\.</p>",
+        again,
     )
 
 

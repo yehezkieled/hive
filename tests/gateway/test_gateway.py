@@ -318,3 +318,20 @@ async def test_provider_never_makes_a_request_wait_on_a_slow_refresh(tmp_path: P
     assert await provider.get() is not first  # the refresh landed
     if provider._task is not None:
         await provider._task  # let the follow-up refresh finish before the loop closes
+
+
+async def test_provider_runs_the_script_once_for_a_cold_burst(tmp_path: Path) -> None:
+    import asyncio
+
+    runs = tmp_path / "runs"
+    home = _fake_home(tmp_path, f"echo x >> '{runs}'; sleep 0.3; cat '{FIXTURE}'")
+    settings = GatewaySettings(
+        owner_login=OWNER, allowed_hosts=(HOST,), fm_home=home, snapshot_ttl_s=60
+    )
+    provider = SnapshotProvider(settings)
+    burst = await asyncio.gather(*(provider.get() for _ in range(3)))
+    assert runs.read_text().count("x") == 1  # the waiters take the first caller's value
+    assert all(s is burst[0] for s in burst) and burst[0].ok
+    # an explicit fresh read still runs the script, even while another run is in flight
+    a, b = await asyncio.gather(provider.get(fresh=True), provider.get(fresh=True))
+    assert runs.read_text().count("x") == 3 and a is not b
