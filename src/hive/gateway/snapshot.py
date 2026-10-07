@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -20,6 +21,7 @@ from pathlib import Path
 from hive.gateway.settings import GatewaySettings
 
 PINNED_SCHEMA_MAJOR = 1
+log = logging.getLogger(__name__)
 _SCHEMA_RE = re.compile(r"^fm-fleet-snapshot\.v(\d+)$")
 _MAX_OUTPUT = 16 * 1024 * 1024
 
@@ -115,19 +117,50 @@ def registered_projects(fm_home: Path, data: dict) -> list[str]:
     return names
 
 
+_MAX_STALE_S = 120.0
+
+
 class SnapshotProvider:
-    """Short-TTL cache so a burst of page loads runs the script once."""
+    """Stale-while-revalidate cache around the ~3 s snapshot script.
+
+    A page request never waits on the script once a value exists: an expired value is served
+    as is while one background refresh runs (single flight). Only the first call, an explicit
+    ``fresh`` (after an action, and the live watcher) or a zero TTL (tests) wait for it. A
+    failed background refresh keeps the last good value for ``_MAX_STALE_S`` and is retried
+    on the next request.
+    """
 
     def __init__(self, settings: GatewaySettings) -> None:
         self._settings = settings
         self._lock = asyncio.Lock()
         self._at = 0.0
+        self._good_at = 0.0
         self._value: Snapshot | None = None
+        self._task: asyncio.Task[None] | None = None
 
     async def get(self, fresh: bool = False) -> Snapshot:
+        ttl = self._settings.snapshot_ttl_s
+        if fresh or self._value is None or ttl <= 0:
+            return await self._refresh(keep_good=False)
+        if time.monotonic() - self._at > ttl and (self._task is None or self._task.done()):
+            self._task = asyncio.create_task(self._refresh_quietly())
+        return self._value
+
+    async def _refresh_quietly(self) -> None:
+        try:
+            await self._refresh(keep_good=True)
+        except Exception:
+            log.exception("background snapshot refresh failed")
+
+    async def _refresh(self, keep_good: bool) -> Snapshot:
         async with self._lock:
+            snap = await run_snapshot(self._settings)
             now = time.monotonic()
-            if fresh or self._value is None or now - self._at > self._settings.snapshot_ttl_s:
-                self._value = await run_snapshot(self._settings)
-                self._at = time.monotonic()
-            return self._value
+            old = self._value
+            if snap.data is not None:
+                self._good_at = now
+            elif keep_good and old is not None and old.data is not None:
+                if now - self._good_at < _MAX_STALE_S:
+                    return old  # keep serving the last good value; retried on the next request
+            self._value, self._at = snap, now
+            return snap
