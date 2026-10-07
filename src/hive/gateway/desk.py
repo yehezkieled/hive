@@ -94,7 +94,7 @@ def glance(p: Project) -> Glance:
             what = f"{_NEED_WORD.get(n.kind, n.kind)}: {n.title or n.text or n.ref}"
         else:
             what = f"{len(p.needs_you)} items"
-        return Glance("blocked", "Waiting on you", f"{what} (see Needs you)", done, total)
+        return Glance("blocked", "Waiting on you", f"{what} (open the project)", done, total)
     running = p.running
     if running:
         first = running[0]
@@ -111,11 +111,31 @@ def glance(p: Project) -> Glance:
 
 
 @dataclass
+class BacklogGroup:
+    """One project's slice of the "Needs you" lane: what is waiting on the owner (a captain
+    hold) and what is queued behind it. In-flight chatter and worker questions are not here."""
+
+    project: str
+    mate: bool
+    waiting: list[NeedsYou]
+    queued: list[Row]
+
+    @property
+    def count(self) -> int:
+        return len(self.waiting) + len(self.queued)
+
+
+@dataclass
 class Desk:
     generated: str | None
     projects: dict[str, Project]
     needs_you: list[NeedsYou]
     more: dict[str, int] = field(default_factory=dict)  # second-mate tickets the roll-up cut off
+    backlog: list[BacklogGroup] = field(default_factory=list)
+
+    @property
+    def backlog_count(self) -> int:
+        return sum(g.count for g in self.backlog)
 
     @property
     def loops_running(self) -> int:
@@ -145,6 +165,10 @@ def build_desk(data: dict) -> Desk:
 
     def project(name: str) -> Project:
         return projects.setdefault(name, Project(name))
+
+    for name in _list(data.get("registered_projects")):  # an idle project still has a card
+        if isinstance(name, str) and name:
+            project(name)
 
     task_project: dict[str, str] = {}
     task_title: dict[str, str] = {}
@@ -338,7 +362,20 @@ def build_desk(data: dict) -> Desk:
         sorted(projects.items(), key=lambda kv: (-len(kv[1].needs_you), kv[0] == NO_PROJECT, kv[0]))
     )
     generated = data.get("generated") if isinstance(data.get("generated"), str) else None
-    return Desk(generated, ordered, needs, more)
+    return Desk(generated, ordered, needs, more, _backlog(ordered))
+
+
+def _backlog(projects: dict[str, Project]) -> list[BacklogGroup]:
+    """The lane: per project, captain holds first, then queued tickets that are not holds."""
+    groups = []
+    for p in projects.values():
+        waiting = [n for n in p.needs_you if n.kind == "hold"]
+        held = {n.ref for n in waiting}
+        queued = [r for r in p.rows if r.state == "queued" and r.id not in held]
+        if waiting or queued:
+            groups.append(BacklogGroup(p.name, p.mate, waiting, queued))
+    groups.sort(key=lambda g: (-len(g.waiting), g.project == NO_PROJECT, g.project))
+    return groups
 
 
 def _list_of(data: dict, section: str, key: str) -> object:

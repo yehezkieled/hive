@@ -84,21 +84,21 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     res = client.get("/", headers=GOOD)
     assert res.status_code == 200
     html = res.text
-    assert "<span class=nyl__count>3</span>" in html  # hold + decision + merge approval
-    assert "merge approval needed" in html and "Choose option A or B" in html
+    assert "<span class=nyl__count>3</span>" in html  # hold + 2 queued; no worker decisions
+    assert "choose palette" in html
+    assert "merge approval needed" not in html.split("Projects · tap")[0]
     assert "alpha" in html and "beta" in html
     assert "General" in html and "(no project)" not in html
     assert "<b>chore</b>" not in html
     assert res.headers["cache-control"] == "no-store"
     assert html.count("<script") == 1  # the one pinned inline script
     assert "<a href='/chat'" in html and "/act/delegate" in html
-    lane = html.split("class=nyl__body>", 1)[1].split("</section>", 1)[0]
-    entities = re.findall(r"<span class=nyi__entity>([^<]*)</span>", lane)
-    kinds = re.findall(r"<span class=nyi__kind>([^<]*)</span>", lane)
-    # fixed kind order (T001): decision, then hold, then merge
-    assert kinds == ["decision", "hold", "merge"]
-    assert entities == ["beta · beta-pr", "beta · beta-hold", "alpha · alpha-build"]
-    assert "<b>Build the alpha widget</b> — checks green; merge approval needed" in lane
+    lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
+    groups = re.findall(r"<span class=nyg__name>([^<]*)</span>", lane)
+    assert groups == ["beta", "alpha", "General"]  # the group waiting on the owner comes first
+    assert re.findall(r"<span class=nyi__kind>([^<]*)</span>", lane) == ["waiting on you"]
+    assert re.findall(r"<span class=nyq__id>([^<]*)</span>", lane) == ["alpha-docs", "misc"]
+    assert "decision" not in lane and "Decision" not in lane
 
 
 def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -> None:
@@ -258,9 +258,9 @@ async def test_provider_caches(tmp_path: Path) -> None:
 
 def test_cards_are_plain_language_and_board_links_rewritten(tmp_path: Path) -> None:
     data = json.loads(FIXTURE.read_text())
-    for task in data["tasks"]:
-        for dec in task.get("hints", {}).get("open_decisions", []):
-            dec["summary"] = "pick one; board http://127.0.0.1:4387/session/abc123"
+    for rec in data["backlog"]["records"]:
+        if rec.get("captain_actionable"):
+            rec["hold_reason"] = "pick one; board http://127.0.0.1:4387/session/abc123"
     home = _fake_home(tmp_path, f"cat <<'EOF'\n{json.dumps(data)}\nEOF")
     settings = GatewaySettings(
         owner_login=OWNER,

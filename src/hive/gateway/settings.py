@@ -54,6 +54,8 @@ class GatewaySettings:
     quota_ttl_s: float = 60.0
     quota_timeout_s: float = 15.0
     quota_first_wait_s: float = 1.0
+    # Lavish's session state, read-only, for the Review pages list; None leaves the list out.
+    lavish_state: Path | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -78,7 +80,15 @@ class GatewaySettings:
             board_url=env.get("HIVE_GATEWAY_BOARD_URL", DEFAULT_BOARD_URL).strip().rstrip("/"),
             default_tz=env.get("HIVE_GATEWAY_TZ", DEFAULT_TZ).strip() or DEFAULT_TZ,
             quota_axi=_quota_axi(env.get("HIVE_GATEWAY_QUOTA_AXI", "").strip()),
+            lavish_state=_lavish_state(env.get("HIVE_GATEWAY_LAVISH_STATE", "").strip()),
         )
+
+
+def _lavish_state(value: str) -> Path | None:
+    """The Lavish session file; ``off`` hides the Review pages list."""
+    if value == "off":
+        return None
+    return Path(value or "~/.lavish-axi/state.json").expanduser()
 
 
 def _quota_axi(value: str) -> Path | None:
