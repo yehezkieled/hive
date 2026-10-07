@@ -32,6 +32,7 @@ class NeedsYou:
     title: str = ""  # the work item's human title, when the snapshot knows it
     gated: bool = False  # a hold on a work item: answering releases it instead of closing
     owner: str = ""  # the home that owns the work item; empty when the snapshot omits it
+    body: str = ""  # the item's notes, when the snapshot carries them
 
 
 @dataclass
@@ -43,6 +44,7 @@ class Row:
     hold: str | None
     pr_url: str | None
     owner: str = ""  # the home that owns the ticket; empty when the snapshot omits it
+    body: str = ""  # the ticket's notes, when the snapshot carries them (first mate's only)
 
 
 @dataclass
@@ -155,6 +157,12 @@ def _list(value: object) -> list:
     return value if isinstance(value, list) else []
 
 
+def _body(rec: dict) -> str:
+    """A record's notes: the body lines, else the excerpt."""
+    lines = [x for x in _list(rec.get("body_lines")) if isinstance(x, str)]
+    return "\n".join(lines) if lines else _s(rec.get("body_excerpt"))
+
+
 def _project_name(value: object) -> str:
     name = PurePath(_s(value)).name if value else ""
     return name or NO_PROJECT
@@ -194,6 +202,7 @@ def build_desk(data: dict) -> Desk:
                 hold=hold,
                 pr_url=_s(rec.get("pr_url")) or None,
                 owner=owner,
+                body=_body(rec),
             )
         )
         if rec.get("captain_actionable") is True:
@@ -207,6 +216,7 @@ def build_desk(data: dict) -> Desk:
                     title=_s(rec.get("title")),
                     gated=_s(rec.get("kind")) != "captain",
                     owner=owner,
+                    body=_body(rec),
                 )
             )
 

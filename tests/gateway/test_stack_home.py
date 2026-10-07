@@ -268,25 +268,26 @@ def test_touch_targets_and_fonts_are_self_hosted(tmp_path: Path) -> None:
 
 
 def _quota_json(five: float, seven: float) -> str:
+    """A ``quota-axi --json`` capture; ``five`` and ``seven`` are percent USED."""
     return json.dumps(
         {
             "schemaVersion": 5,
             "providers": [
-                {"provider": "codex", "windows": [{"id": "five_hour", "percentRemaining": 1}]},
+                {"provider": "codex", "windows": [{"id": "five_hour", "percentRemaining": 99}]},
                 {
                     "provider": "claude",
                     "windows": [
                         {
                             "id": "five_hour",
-                            "percentRemaining": five,
+                            "percentRemaining": 100 - five,
                             "resetsAt": "2030-01-02T05:14:05Z",
                         },
                         {
                             "id": "seven_day",
-                            "percentRemaining": seven,
+                            "percentRemaining": 100 - seven,
                             "resetsAt": "2030-01-08T00:00:00Z",
                         },
-                        {"id": "model:x", "percentRemaining": 0},
+                        {"id": "model:x", "percentRemaining": 100},
                     ],
                 },
             ],
@@ -296,40 +297,67 @@ def _quota_json(five: float, seven: float) -> str:
 
 @pytest.mark.parametrize(
     ("five", "seven", "worst", "level"),
-    [(82, 88, 82, "ok"), (29, 62, 29, "warn"), (40, 15, 15, "warn"), (7, 39, 7, "hot")],
+    [(18, 12, 18, "ok"), (71, 38, 71, "warn"), (60, 85, 85, "warn"), (93, 61, 93, "hot")],
 )
-def test_quota_is_the_worse_claude_window_as_percent_left(
+def test_quota_is_the_busier_claude_window_as_percent_used(
     five: int, seven: int, worst: int, level: str
 ) -> None:
     q = parse_quota(_quota_json(five, seven))
     assert q is not None and [w.label for w in q.windows] == ["5-hour window", "7-day window"]
-    assert (q.worst.left, q.level) == (worst, level)
+    assert (q.worst.used, q.level) == (worst, level)
 
 
-def test_recorded_quota_axi_output_reads_as_what_is_left() -> None:
-    """A real ``quota-axi --provider claude --json`` capture (2026-10-07): 34% / 47% / 9% left."""
+def test_recorded_quota_axi_output_reads_as_what_is_used() -> None:
+    """A real ``quota-axi --provider claude --json`` capture (2026-10-07): 66% / 53% / 91% used."""
     q = parse_quota((FIXTURE.parent / "quota-axi-claude.json").read_text())
     assert q is not None
-    assert [(w.label, w.left) for w in q.windows] == [
-        ("5-hour window", 34),
-        ("7-day window", 47),
-        ("Fable week", 9),
+    assert [(w.label, w.used) for w in q.windows] == [
+        ("5-hour window", 66),
+        ("7-day window", 53),
+        ("Fable week", 91),
     ]
-    assert q.worst.left == 34  # the Fable-only window does not drive the headline
+    assert q.worst.used == 66  # the Fable-only window does not drive the headline
     now = datetime(2026, 10, 7, 8, 24, tzinfo=UTC)
     html = _chip(Ctx("t", quota=q, tz="UTC"), now)
-    assert "34% left</summary>" in html and "width:34%" in html
+    assert "66% used</summary>" in html and "width:66%" in html and "% left" not in html
     five, week = "2026-10-07T12:29:59.584507+00:00", "2026-10-08T14:59:59.584532+00:00"
     fable = "2026-10-08T14:59:59.584750+00:00"
 
-    def row(left: int, iso: str, shown: str) -> str:
-        return f"<b>{left}% left · resets <time class=reset datetime='{iso}'>{shown}</time></b>"
+    def row(used: int, iso: str, shown: str) -> str:
+        return f"<b>{used}% used · resets <time class=reset datetime='{iso}'>{shown}</time></b>"
 
-    assert row(34, five, "12:29 pm") in html
-    assert row(47, week, "Thu 2:59 pm") in html
-    assert row(9, fable, "Thu 2:59 pm") in html
+    assert row(66, five, "12:29 pm") in html
+    assert row(53, week, "Thu 2:59 pm") in html
+    assert row(91, fable, "Thu 2:59 pm") in html
     local = _chip(Ctx("t", quota=q, tz="Australia/Sydney"), now)
-    assert row(34, five, "11:29 pm") in local
+    assert row(66, five, "11:29 pm") in local
+
+
+def test_fresh_window_reads_as_a_little_used_and_calm() -> None:
+    """Just after the 5-hour reset (captain, 2026-10-07): about 7% used, not "7% left" in red."""
+    q = parse_quota((FIXTURE.parent / "quota-axi-claude-fresh-window.json").read_text())
+    assert q is not None
+    assert (q.worst.label, q.worst.used, q.level) == ("5-hour window", 7, "ok")
+    html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2026, 10, 7, 12, 31, tzinfo=UTC))
+    assert "qchip--ok" in html and "7% used</summary>" in html
+    assert "% left" not in html and "qchip--hot" not in html
+
+
+def test_percent_used_field_wins_over_percent_remaining() -> None:
+    """``quota-axi --full`` adds ``percentUsed``; read it when present, derive it when not."""
+    full = json.dumps(
+        {
+            "providers": [
+                {
+                    "provider": "claude",
+                    "windows": [{"id": "five_hour", "percentUsed": 7, "percentRemaining": 93}],
+                }
+            ]
+        }
+    )
+    q = parse_quota(full)
+    assert q is not None and q.worst.used == 7
+    assert parse_quota(full.replace('"percentUsed": 7, ', "")).worst.used == 7  # type: ignore[union-attr]
 
 
 @pytest.mark.parametrize("raw", ["nope", "{}", '{"providers":[{"provider":"claude"}]}'])
@@ -339,20 +367,20 @@ def test_quota_unknown_when_unreadable(raw: str) -> None:
 
 def test_chip_states() -> None:
     now = datetime(2030, 1, 2, 3, 4, tzinfo=UTC)
-    q = Quota((Window("5-hour window", 29, datetime(2030, 1, 2, 5, 14, tzinfo=UTC)),))
+    q = Quota((Window("5-hour window", 71, datetime(2030, 1, 2, 5, 14, tzinfo=UTC)),))
     html = _chip(Ctx("t", quota=q, tz="UTC"), now)
-    assert "class='qchip qchip--warn'" in html and "worst window 29 percent left" in html
+    assert "class='qchip qchip--warn'" in html and "busiest window 71 percent used" in html
     reset = "<time class=reset datetime='2030-01-02T05:14:00+00:00'>5:14 am</time>"
-    assert f"<b>29% left · resets {reset}</b>" in html
-    hot = Quota((Window("5-hour window", 7, now + timedelta(minutes=25)),))
+    assert f"<b>71% used · resets {reset}</b>" in html
+    hot = Quota((Window("5-hour window", 93, now + timedelta(minutes=25)),))
     assert "qchip--hot" in _chip(Ctx("t", quota=hot), now)
     assert "qchip--unknown" in _chip(Ctx("t"))
 
 
 def test_page_reads_quota_axi(tmp_path: Path) -> None:
-    fake = _exe(tmp_path / "q" / "quota-axi", f"echo '{_quota_json(7, 39)}'")
+    fake = _exe(tmp_path / "q" / "quota-axi", f"echo '{_quota_json(93, 61)}'")
     html = _client(tmp_path, _calm(), fake).get("/", headers=GOOD).text
-    assert "class='qchip qchip--hot'" in html and ">7% left</summary>" in html
+    assert "class='qchip qchip--hot'" in html and ">93% used</summary>" in html
     # every desk page carries the chip in its chrome
     assert "id=qchip" in _client(tmp_path, _calm()).get("/p/alpha", headers=GOOD).text
 
@@ -362,8 +390,8 @@ async def test_quota_provider_serves_stale_while_refreshing(tmp_path: Path) -> N
     fake = _exe(tmp_path / "quota-axi", f"echo x >> '{counter}'; echo '{_quota_json(50, 50)}'")
     settings = GatewaySettings(quota_axi=fake, quota_ttl_s=60)
     provider = QuotaProvider(settings)
-    assert (await provider.get()).worst.left == 50
-    assert (await provider.get()).worst.left == 50
+    assert (await provider.get()).worst.used == 50
+    assert (await provider.get()).worst.used == 50
     assert len(counter.read_text().splitlines()) == 1
     assert await QuotaProvider(GatewaySettings()).get() is None
 
@@ -378,7 +406,7 @@ async def test_quota_provider_does_not_hold_a_cold_page(tmp_path: Path) -> None:
         await asyncio.sleep(0.05)
         if (q := await provider.get()) is not None:
             break
-    assert q is not None and q.worst.left == 20
+    assert q is not None and q.worst.used == 30
 
 
 def test_home_waits_once_on_a_cold_slow_quota(tmp_path: Path) -> None:

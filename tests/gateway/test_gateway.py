@@ -96,8 +96,11 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
     groups = re.findall(r"<span class=nyg__name>([^<]*)</span>", lane)
     assert groups == ["beta", "alpha", "General"]  # the group waiting on the owner comes first
-    assert re.findall(r"<span class=nyi__kind>([^<]*)</span>", lane) == ["waiting on you"]
-    assert re.findall(r"<span class=nyq__id>([^<]*)</span>", lane) == ["alpha-docs", "misc"]
+    assert re.findall(r"<span class='nyx__tag [^']*'>([^<]*)</span>", lane) == [
+        "waiting on you",
+        "blocked",  # alpha-docs, a row
+    ]
+    assert re.findall(r"data-item='([^']*)'", lane) == ["beta-hold", "alpha-docs", "misc"]
     assert "decision" not in lane and "Decision" not in lane
 
 

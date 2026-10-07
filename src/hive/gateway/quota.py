@@ -1,7 +1,7 @@
 """Plan quota for the desk's quota chip, read from ``quota-axi`` (read-only).
 
-The chip shows the worse of the Claude plan's two account-wide windows (5-hour and
-7-day) as a percent left; tapping it shows both plus the Fable weekly window.
+The chip shows the busier of the Claude plan's two account-wide windows (5-hour and
+7-day) as a percent used; tapping it shows both plus the Fable weekly window.
 ``quota-axi`` runs with ``--no-credential-refresh`` so a page load never renews a login.
 Reads are cached and refreshed in the background; a page waits at most
 ``quota_first_wait_s`` on a cold cache, so a slow or missing ``quota-axi`` never holds a
@@ -25,17 +25,17 @@ WINDOWS = (
     ("seven_day", "7-day window", True),
     ("model:fable", "Fable week", False),
 )
-WARN_AT = 40  # calm above, warn from here down
-HOT_BELOW = 15  # hot below this
+WARN_AT = 60  # calm below, warn from here
+HOT_ABOVE = 85  # hot above this
 _MAX_OUTPUT = 1024 * 1024
 
 
 @dataclass(frozen=True)
 class Window:
     label: str
-    left: int  # percent of the window still available, 0-100
+    used: int  # percent of the window used, 0-100
     resets_at: datetime | None
-    headline: bool = True  # counts toward the chip's worst-window figure
+    headline: bool = True  # counts toward the chip's busiest-window figure
 
 
 @dataclass(frozen=True)
@@ -45,12 +45,12 @@ class Quota:
     @property
     def worst(self) -> Window:
         pool = [w for w in self.windows if w.headline] or list(self.windows)
-        return min(pool, key=lambda w: w.left)
+        return max(pool, key=lambda w: w.used)
 
     @property
     def level(self) -> str:
-        left = self.worst.left
-        return "hot" if left < HOT_BELOW else "warn" if left <= WARN_AT else "ok"
+        used = self.worst.used
+        return "hot" if used > HOT_ABOVE else "warn" if used >= WARN_AT else "ok"
 
 
 def _when(value: object) -> datetime | None:
@@ -61,6 +61,20 @@ def _when(value: object) -> datetime | None:
     except ValueError:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _percent(value: object) -> float | None:
+    ok = isinstance(value, int | float) and not isinstance(value, bool)
+    return float(value) if ok else None  # type: ignore[arg-type]
+
+
+def _used(w: dict) -> float | None:
+    """Percent used, from ``percentUsed``, else derived from ``percentRemaining``."""
+    used = _percent(w.get("percentUsed"))
+    if used is not None:
+        return used
+    left = _percent(w.get("percentRemaining"))
+    return None if left is None else 100 - left
 
 
 def parse_quota(raw: str) -> Quota | None:
@@ -81,10 +95,10 @@ def parse_quota(raw: str) -> Quota | None:
         windows = []
         for wid, label, headline in WINDOWS:
             w = found.get(wid)
-            left = w.get("percentRemaining") if w else None
-            if isinstance(left, int | float) and not isinstance(left, bool):
+            used = _used(w) if w else None
+            if used is not None:
                 windows.append(
-                    Window(label, max(0, min(100, round(left))), _when(w.get("resetsAt")), headline)
+                    Window(label, max(0, min(100, round(used))), _when(w.get("resetsAt")), headline)
                 )
         if windows and any(w.headline for w in windows):
             return Quota(tuple(windows))
