@@ -747,27 +747,37 @@ def _busy_desk() -> str:
     reviews = [Review(f"k{i}", f"Review {i}", "proj0", i < 3, "") for i in range(25)]
     descriptions = {f"proj{p}/p{p}-t0": LONG_DESC.strip() for p in range(8)}
     ctx = Ctx("t", descriptions=descriptions)
-    return render_home(Snapshot(data, data["schema"], None), build_desk(data), ctx, None, reviews)
+    desk = build_desk(data)
+    desk.more = {"hive": 3}  # a second mate's roll-up cut off
+    return render_home(Snapshot(data, data["schema"], None), desk, ctx, None, reviews)
 
 
-def _in_chrome(tmp_path: Path, page: str, driver: str, size: tuple[int, int], *flags: str) -> dict:
-    """Load the desk in headless Chrome, run ``driver`` (JS that fills ``R``) after the page
-    script, and return ``R``."""
+def _in_chrome(
+    tmp_path: Path,
+    page: str,
+    driver: str,
+    size: tuple[int, int],
+    *flags: str,
+    prelude: str = "",
+) -> dict:
+    """Load the desk in headless Chrome, run ``prelude`` before the page script and ``driver``
+    (the body of an async function that fills ``R``) after it, and return ``R``."""
     import html as html_mod
     import subprocess
 
     probe = (
         "<script>var R={};function q(s){return document.querySelector(s);}"
         "function box(s){var r=q(s).getBoundingClientRect();return {top:r.top,bottom:r.bottom,"
-        "left:r.left,right:r.right,height:r.height};}"
+        "left:r.left,right:r.right,height:r.height,width:r.width};}"
         "function key(k){(document.activeElement||document).dispatchEvent("
         "new KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}));}"
         "function click(el){var ev=new MouseEvent('click',{bubbles:true,cancelable:true});"
         "el.dispatchEvent(ev);return ev.defaultPrevented;}"
-        f"try{{{driver}}}catch(e){{R.error=String(e);}}"
-        "var o=document.createElement('pre');o.id='result';o.textContent=JSON.stringify(R);"
-        "document.body.appendChild(o);</script></body>"
+        f"(async function(){{{driver}}})().catch(function(e){{R.error=String(e);}})"
+        ".then(function(){var o=document.createElement('pre');o.id='result';"
+        "o.textContent=JSON.stringify(R);document.body.appendChild(o);});</script></body>"
     )
+    page = page.replace("<script>", f"<script>{prelude}</script><script>", 1)
     file = tmp_path / "desk.html"
     file.write_text(page.replace("</body>", probe, 1))
     out = subprocess.run(
@@ -779,6 +789,7 @@ def _in_chrome(tmp_path: Path, page: str, driver: str, size: tuple[int, int], *f
             "--hide-scrollbars",
             f"--user-data-dir={tmp_path / 'chrome'}",
             f"--window-size={size[0]},{size[1]}",
+            "--virtual-time-budget=3000",
             *flags,
             "--dump-dom",
             file.as_uri(),
@@ -863,7 +874,8 @@ def test_sheets_do_not_animate_under_reduced_motion(tmp_path: Path) -> None:
 
 
 LAYOUT_DRIVER = """
-R.inner=innerHeight;R.page=document.scrollingElement.scrollHeight;
+R.inner=innerHeight;R.moreInProjects=!!q('.pcsec .stamp');
+R.page=document.scrollingElement.scrollHeight;
 R.bar=box('.dbar-wrap');R.lane=box('.nyl');R.pcsec=box('.pcsec');R.rvs=box('.rvs');
 R.note=box('.dbar-note');
 function sc(s){var e=q(s);
@@ -886,14 +898,43 @@ def test_desk_is_one_page_with_independently_scrolling_panels(
     assert r["bar"]["bottom"] <= r["inner"]
     for panel in ("lane", "pcsec", "rvs"):
         assert r[panel]["bottom"] <= r["bar"]["top"] + 0.5, panel  # nothing under the bar
-    assert r["note"]["top"] >= r["lane"]["bottom"]  # the hint line never covers a row
+    assert (
+        r["moreInProjects"] and r["note"]["top"] >= r["lane"]["bottom"]
+    )  # the hint line never covers a row
     for panel in ("laneBody", "pcs", "rvList"):
         assert r[panel] == {"y": "auto", "over": True}, panel  # each panel scrolls on its own
     if portrait:  # Projects and Review pages side by side, each the row's full height
         assert abs(r["pcsec"]["top"] - r["rvs"]["top"]) < 1
         assert abs(r["pcsec"]["bottom"] - r["rvs"]["bottom"]) < 1
+        assert abs(r["pcsec"]["width"] - r["rvs"]["width"]) < 2  # two equal columns, no third
     else:
         assert r["pcsec"]["bottom"] <= r["rvs"]["top"]
+
+
+FAKE_LIVE = """
+window.EventSource=function(){var me=this;me.l={};me.readyState=1;window.__es=me;
+me.addEventListener=function(t,f){me.l[t]=f;};me.close=function(){};};
+window.fetch=function(){return Promise.resolve({ok:true,
+text:function(){return Promise.resolve(window.__next);}});};
+"""
+
+REFRESH_DRIVER = """
+window.__next=document.documentElement.outerHTML.replace('Review 7<','Review 7 (edited)<');
+var S=['.nyl__body','.pcs','.rv__list'];
+S.forEach(function(s,i){q(s).scrollTop=60+40*i;});
+R.before=S.map(function(s){return q(s).scrollTop;});
+var old=q('.rv__list');window.__es.l.desk();
+await new Promise(function(r){setTimeout(r,300);});
+R.replaced=q('.rv__list')!==old&&q('main').textContent.indexOf('Review 7 (edited)')>=0;
+R.after=S.map(function(s){return q(s).scrollTop;});
+"""
+
+
+@needs_chrome
+def test_a_live_refresh_keeps_each_panel_scrolled_where_it_was(tmp_path: Path) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), REFRESH_DRIVER, (1440, 900), prelude=FAKE_LIVE)
+    assert r["replaced"]  # the desk really was re-rendered from the new page
+    assert all(b > 0 for b in r["before"]) and r["after"] == r["before"]
 
 
 # ---- Projects shown by their GitHub repo name -------------------------------------

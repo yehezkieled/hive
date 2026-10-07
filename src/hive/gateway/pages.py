@@ -384,7 +384,10 @@ var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
 if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
 if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
-var y=window.scrollY;c.innerHTML=m.innerHTML;restore();stamps();showFlash();window.scrollTo(0,y);});}
+var y=window.scrollY,ps=panels();c.innerHTML=m.innerHTML;restore();panels(ps);stamps();showFlash();
+window.scrollTo(0,y);});}
+function panels(v){return ['.nyl__body','.pcs','.rv__list'].map(function(s,i){var e=c.querySelector(s);
+if(!e)return 0;if(v)e.scrollTop=v[i];return e.scrollTop;});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
 function connect(){es=new EventSource('/events');
 es.onopen=function(){live=true;seen=Date.now();};
@@ -1164,20 +1167,20 @@ def render_home(
     for i, p in enumerate(desk.projects.values()):
         cards += _card(p, p.name == focus, ctx, f"pcs-{i}")
         details += _card_sheet(p, groups.get(p.name), ctx, f"pcs-{i}")
-    projects = (
-        f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
-        f"<div class=pcs>{cards}</div>{details}</section>"
-        if cards
-        else "<p class=sec-label>No projects yet</p>"
-    )
-    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
     more = "".join(
         f"<p class=stamp>+{n} more owned by {esc(owner)}, not shown</p>"
         for owner, n in desk.more.items()
     )
+    projects = (
+        f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
+        f"<div class=pcs>{cards}</div>{details}{more}</section>"
+        if cards
+        else f"<section class=pcsec><p class=sec-label>No projects yet</p>{more}</section>"
+    )
+    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
     body = (
         f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
-        f"</div><div class=land__col>{projects}{more}{_reviews(reviews or [], ctx)}</div></div>"
+        f"</div><div class=land__col>{projects}{_reviews(reviews or [], ctx)}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx)}{stamp}"
         "<p class=stamp id=alerts-note></p>"
         + _sheet(
