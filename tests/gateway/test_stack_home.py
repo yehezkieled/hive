@@ -881,6 +881,8 @@ R.note=box('.dbar-note');
 function sc(s){var e=q(s);
 return {y:getComputedStyle(e).overflowY,over:e.scrollHeight>e.clientHeight};}
 R.laneBody=sc('.nyl__body');R.pcs=sc('.pcs');R.rvList=sc('.rv__list');
+R.spilled=[].filter.call(document.querySelectorAll('.pcs .pc'),
+function(c){return c.scrollHeight>c.clientHeight+1;}).length;
 """
 
 
@@ -903,6 +905,7 @@ def test_desk_is_one_page_with_independently_scrolling_panels(
     )  # the hint line never covers a row
     for panel in ("laneBody", "pcs", "rvList"):
         assert r[panel] == {"y": "auto", "over": True}, panel  # each panel scrolls on its own
+    assert r["spilled"] == 0  # project cards keep their text inside their borders
     if portrait:  # Projects and Review pages side by side, each the row's full height
         assert abs(r["pcsec"]["top"] - r["rvs"]["top"]) < 1
         assert abs(r["pcsec"]["bottom"] - r["rvs"]["bottom"]) < 1
