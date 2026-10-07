@@ -262,6 +262,7 @@ th.innerHTML=n.innerHTML;stamps();if(near)bottom();});}
 function refreshMain(){if(document.hidden||busy()){want=true;return;}
 want=false;load(function(doc){
 var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
+if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
 if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
 var y=window.scrollY;c.innerHTML=m.innerHTML;stamps();showFlash();window.scrollTo(0,y);});}
