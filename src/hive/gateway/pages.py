@@ -339,8 +339,8 @@ flashT=setTimeout(function(){flash=null;var e=document.querySelector('[data-flas
 function newRid(){var a=new Uint8Array(8),s='web-';crypto.getRandomValues(a);
 for(var i=0;i<8;i++)s+=('0'+a[i].toString(16)).slice(-2);return s;}
 document.addEventListener('submit',function(e){var fm=e.target;
-if(!fm.classList||!fm.classList.contains('dbar')||!window.fetch||!window.URLSearchParams||fm.classList.contains('is-sending'))return;
-e.preventDefault();fm.classList.add('is-sending');
+if(!fm.classList||!fm.classList.contains('dbar')||!window.fetch||!window.URLSearchParams)return;
+e.preventDefault();if(fm.classList.contains('is-sending'))return;fm.classList.add('is-sending');
 fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},
 body:new URLSearchParams(new FormData(fm))})
 .then(function(r){return r.json();}).then(function(j){
