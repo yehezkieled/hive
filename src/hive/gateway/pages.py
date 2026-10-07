@@ -58,7 +58,7 @@ CSS = """
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--font-sans);
 -webkit-font-smoothing:antialiased;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
 button,input,label,summary,a{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-main{max-width:960px;margin:0 auto;padding:12px 0 48px}
+main{max-width:960px;margin:0 auto;padding:12px 0 calc(48px + var(--bar-room,0px) + env(safe-area-inset-bottom))}
 h1{font:900 1.4rem var(--font-display);letter-spacing:-.4px;margin:.6rem 0}
 h2{font:800 1.05rem var(--font-display);margin:1.6rem 0 .6rem}
 a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
@@ -139,6 +139,34 @@ min-width:210px;color:var(--ink-2)}
 .wide .dbar{padding:10px 10px 10px 16px;box-shadow:0 8px 24px var(--paper-shadow)}
 .wide input.dbar__in{font-size:15px}
 }
+/* one-page desk on PC, laptop and tablet: the viewport is the page; each panel scrolls on its own */
+@media (min-width:700px) and (min-height:560px){
+body.wide{height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+.wide .chrome{flex:none;width:100%}
+.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 calc(12px + env(safe-area-inset-bottom))}
+.wide .screen{flex:1;min-height:0;gap:10px}
+.wide .land{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px;align-items:stretch}
+.wide .land__col{min-height:0;gap:10px}
+.wide .nyl{display:flex;flex-direction:column;min-height:0;height:100%}
+.wide .nyl__head{flex:none}
+.wide .nyl__body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.wide .pcsec{display:flex;flex-direction:column;gap:6px;min-height:0;flex:0 1 auto;max-height:55%}
+.wide .pcs{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+align-content:start;min-height:0;padding-bottom:2px}
+.wide .rvs{flex:1 1 0;min-height:0}
+.wide .rv__box{flex:1;min-height:0}
+.wide .rv__list{flex:1;max-height:none;min-height:0}
+.wide .nyx__desc{max-height:7.5em;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.wide .dbar-wrap{position:static;margin:0;flex:none}
+.wide .stamp{flex:none}
+}
+@media (min-width:1100px) and (min-height:560px){.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr)}}
+@media (min-width:700px) and (min-height:560px) and (max-width:1099px) and (orientation:portrait){
+.wide .land{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1.1fr) minmax(0,1fr)}
+.wide .land__col:last-child{flex-direction:row}
+.wide .land__col:last-child>*{flex:1 1 0;min-width:0}
+.wide .pcs{grid-template-columns:minmax(0,1fr)}
+}
 .nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
 box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
 .nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
@@ -211,9 +239,11 @@ padding-left:9px}
 @media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none!important;transition:none!important}}
 .nyq__more{font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;padding:6px 4px;min-height:36px}
 .rvs{display:flex;flex-direction:column;gap:6px}
-.rv__list{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
+.rv__box{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
+.rv__list{display:flex;flex-direction:column;max-height:min(44vh,300px);overflow-y:auto;overflow-x:hidden;
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .rv{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;color:inherit;text-decoration:none;
-border-top:1px solid var(--rule-faint)}
+border-top:1px solid var(--rule-faint);flex:none}
 .rv:first-child{border-top:0}
 .rv:hover{background:var(--paper-soft)}
 .rv>*{min-width:0}
@@ -222,8 +252,23 @@ border-top:1px solid var(--rule-faint)}
 .rv__reply{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ochre);
 background:var(--honey-soft);border-radius:999px;padding:2px 8px}
 .rv__go{font:10px var(--font-mono);color:var(--ink-4)}
-.rv__more summary{min-height:44px;display:flex;align-items:center;padding:0 12px;font:10px var(--font-mono);
-color:var(--ink-3);cursor:pointer;border-top:1px solid var(--rule-faint)}
+.rv__morebtn{display:flex;align-items:center;width:100%;min-height:44px;padding:0 12px;border:0;border-top:1px solid var(--rule-faint);
+border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-mono);cursor:pointer;text-align:left}
+.rv__morebtn:hover{background:var(--paper-soft)}
+.rvsheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
+background:var(--paper);color:var(--ink);border:1.5px solid var(--rule);border-radius:16px;
+box-shadow:0 16px 48px var(--paper-shadow);overflow:hidden}
+.rvsheet[open]{display:flex;flex-direction:column;animation:rvs-in .18s ease-out}
+.rvsheet{cursor:pointer}.rvsheet>*{cursor:auto}
+body:has(dialog[open]){overflow:hidden}
+.rvsheet::backdrop{background:rgba(20,16,12,.5)}
+.rvsheet__head{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;border-bottom:1.5px solid var(--rule);flex:none}
+.rvsheet__head h2{flex:1;margin:0;font:800 .95rem var(--font-display)}
+.rvsheet__x{min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:26px;line-height:1}
+.rvsheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom)}
+@keyframes rvs-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.rvsheet[open]{animation:none}}
 .nyi__reply::placeholder{color:var(--ink-4)}
 .btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
 border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
@@ -304,7 +349,7 @@ function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.le
 function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed);}
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
-if(document.querySelector('details[open]'))return true;
+if(document.querySelector('details[open],dialog[open]'))return true;
 var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
@@ -444,7 +489,7 @@ r.style.transition='';r.style.transform='';});},340);}
 function restore(){var g=groups();for(var i=0;i<g.length;i++){var k=g[i].getAttribute('data-group'),id=picks[k];
 if(id!==undefined){var its=g[i].querySelectorAll('.nyx'),hit=null;
 for(var j=0;j<its.length;j++)if(its[j].getAttribute('data-item')===id)hit=its[j];
-if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();}
+if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();barRoom();}
 document.addEventListener('click',function(e){
 var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
@@ -455,6 +500,25 @@ if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primar
 (it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
 lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
 pick(g,it,!calm());describe(it);});
+var rvOpener=null;
+function rvOpen(b){var d=document.querySelector('[data-rvs-sheet]');if(!d||d.open)return;rvOpener=b;
+if(d.showModal)d.showModal();else d.setAttribute('open','');
+var l=d.querySelector('.rvsheet__list');if(l)l.scrollTop=0;var x=d.querySelector('[data-rvs-close]');if(x)x.focus();}
+function rvClose(d){if(d.close)d.close();else d.removeAttribute('open');
+if(rvOpener&&document.contains(rvOpener))rvOpener.focus();rvOpener=null;}
+document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;
+var o=t.closest('[data-rvs-open]');if(o){e.preventDefault();rvOpen(o);return;}
+var d=t.closest('[data-rvs-sheet]');
+if(t.closest('[data-rvs-close]')){e.preventDefault();rvClose(d);return;}
+if(t.hasAttribute&&t.hasAttribute('data-rvs-sheet'))rvClose(t);});
+document.addEventListener('cancel',function(e){var d=e.target;
+if(d&&d.hasAttribute&&d.hasAttribute('data-rvs-sheet')){e.preventDefault();rvClose(d);}},true);
+document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;
+var d=document.querySelector('[data-rvs-sheet][open]');if(d){e.preventDefault();rvClose(d);}});
+function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
+document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
+try{barRoom();window.addEventListener('resize',barRoom);
+if(window.ResizeObserver){var bw=document.querySelector('.dbar-wrap,.dock');if(bw)new ResizeObserver(barRoom).observe(bw);}}catch(e){}
 restore();stamps();setInterval(stamps,30000);
 })();
 """
@@ -931,7 +995,7 @@ def _dbar(focus: Project | None, ctx: Ctx) -> str:
     )
 
 
-_REVIEWS_SHOWN = 6
+_REVIEWS_SHOWN = 10
 
 
 def _review(r: Review, ctx: Ctx) -> str:
@@ -945,20 +1009,34 @@ def _review(r: Review, ctx: Ctx) -> str:
 
 
 def _reviews(reviews: list[Review], ctx: Ctx) -> str:
-    """Open Lavish review sessions as tap targets that open on the tailnet board URL."""
+    """Open Lavish review sessions as tap targets that open on the tailnet board URL.
+
+    The first few sit in a scrollable box; "+N more" is always its last row and opens a
+    sheet listing every session (the same unread-replies-first order).
+    """
     if not reviews:
         return ""
     shown = "".join(_review(r, ctx) for r in reviews[:_REVIEWS_SHOWN])
-    rest = reviews[_REVIEWS_SHOWN:]
-    more = (
-        f"<details class=rv__more><summary>+{len(rest)} more</summary>"
-        f"{''.join(_review(r, ctx) for r in rest)}</details>"
-        if rest
-        else ""
-    )
+    n = len(reviews)
+    rest = n - _REVIEWS_SHOWN
+    more = sheet = ""
+    if rest > 0:
+        more = (
+            "<button type=button class=rv__morebtn data-rvs-open aria-haspopup=dialog "
+            f"aria-controls=rvs-sheet>+{rest} more</button>"
+        )
+        sheet = (
+            "<dialog id=rvs-sheet class=rvsheet aria-labelledby=rvs-title data-rvs-sheet>"
+            "<div class=rvsheet__head>"
+            f"<h2 id=rvs-title>Review pages · {n}</h2>"
+            "<button type=button class=rvsheet__x data-rvs-close aria-label='Close review pages'>"
+            "×</button></div>"
+            f"<div class=rvsheet__list>{''.join(_review(r, ctx) for r in reviews)}</div></dialog>"
+        )
     return (
-        f"<section class=rvs><p class=sec-label>Review pages · {len(reviews)}</p>"
-        f"<div class=rv__list>{shown}{more}</div></section>"
+        f"<section class=rvs><p class=sec-label>Review pages · {n}</p>"
+        f"<div class=rv__box><div class=rv__list tabindex=0 role=region "
+        f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</section>"
     )
 
 
@@ -976,7 +1054,8 @@ def render_home(
         focus = desk.default_focus()
     cards = "".join(_card(p, p.name == focus) for p in desk.projects.values())
     projects = (
-        f"<p class=sec-label>Projects · tap to focus</p><div class=pcs>{cards}</div>"
+        f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
+        f"<div class=pcs>{cards}</div></section>"
         if cards
         else "<p class=sec-label>No projects yet</p>"
     )

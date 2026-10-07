@@ -675,11 +675,69 @@ def test_review_with_malformed_chat_still_lists(tmp_path: Path, chat: object) ->
     assert "Review pages · 1" in resp.text and "<span class=rv__reply>" not in resp.text
 
 
-def test_many_reviews_fold_the_rest(tmp_path: Path) -> None:
+def _many_reviews(tmp_path: Path, n: int) -> str:
     sessions = {
-        f"k{i}": {"key": f"k{i}", "file": f"/w/p{i}.html", "status": "open"} for i in range(9)
+        f"k{i}": {
+            "key": f"k{i}",
+            "file": f"/w/p{i}.html",
+            "status": "open",
+            "updated_at": f"2030-01-02T03:{i:02d}:00.000Z",
+            # every 7th session has an unread agent reply
+            "chat": [{"role": "agent" if i % 7 == 0 else "user"}],
+        }
+        for i in range(n)
     }
     state = tmp_path / "state.json"
     state.write_text(json.dumps({"sessions": sessions}))
-    html = _client_with_reviews(tmp_path, state).get("/", headers=GOOD).text
-    assert "Review pages · 9" in html and "<summary>+3 more</summary>" in html
+    return _client_with_reviews(tmp_path, state).get("/", headers=GOOD).text
+
+
+def test_many_reviews_scroll_box_ends_in_the_more_button(tmp_path: Path) -> None:
+    html = _many_reviews(tmp_path, 25)
+    box = html.split("<div class=rv__box>", 1)[1].split("</section>", 1)[0]
+    # the scroll box holds the first rows; the "+N more" button is the box's last child
+    scroller = box.split("<div class=rv__list", 1)[1].split("</div>", 1)[0]
+    assert scroller.count("<a class=rv ") == 10
+    tail = box.split("</div>", 1)[1]
+    assert tail.startswith("<button type=button class=rv__morebtn")
+    assert ">+15 more</button>" in tail and "<a class=rv " not in tail.split("</button>", 1)[0]
+
+
+def test_review_sheet_lists_every_session_unread_replies_first(tmp_path: Path) -> None:
+    html = _many_reviews(tmp_path, 25)
+    sheet = html.split("<dialog id=rvs-sheet", 1)[1].split("</dialog>", 1)[0]
+    assert "aria-labelledby=rvs-title" in sheet and "data-rvs-close" in sheet
+    hrefs = re.findall(r"href='([^']+)'", sheet)
+    assert len(hrefs) == 25 and len(set(hrefs)) == 25
+    assert all(h.startswith("https://board.example.ts.net:8445/session/") for h in hrefs)
+    flags = [bool(re.search(r"rv__reply", row)) for row in sheet.split("<a class=rv ")[1:]]
+    assert flags == sorted(flags, reverse=True) and sum(flags) == 4  # replies lead
+
+
+def test_few_reviews_have_no_sheet(tmp_path: Path) -> None:
+    html = _many_reviews(tmp_path, 4)
+    assert "Review pages · 4" in html
+    section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
+    assert "<dialog" not in section and "data-rvs-open" not in section
+
+
+def test_review_sheet_script_handles_escape_backdrop_and_focus() -> None:
+    from hive.gateway.pages import CSS, SCRIPT
+
+    for hook in ("showModal", "'Escape'", "rvOpener.focus()", "data-rvs-close", "dialog[open]"):
+        assert hook in SCRIPT
+    assert "prefers-reduced-motion:reduce){.rvsheet" in CSS
+    assert "-webkit-overflow-scrolling:touch" in CSS and "--bar-room" in CSS
+
+
+def test_desk_is_one_page_with_independently_scrolling_panels() -> None:
+    from hive.gateway.pages import CSS
+
+    one_page = CSS.split("one-page desk", 1)[1].split("\n.nyl{", 1)[0]
+    assert "body.wide{height:100vh;height:100dvh;overflow:hidden" in one_page
+    for panel in (".wide .nyl__body{", ".wide .pcs{"):
+        assert (
+            panel in one_page and "overflow-y:auto" in one_page.split(panel, 1)[1].split("}", 1)[0]
+        )
+    assert "orientation:portrait" in one_page  # iPad portrait stacks the panels
+    assert ".wide .dbar-wrap{position:static" in one_page  # the hint can no longer overlap rows
