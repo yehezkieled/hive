@@ -89,6 +89,9 @@ async def run_snapshot(settings: GatewaySettings) -> Snapshot:
         snap.data["registered_projects"] = await asyncio.to_thread(
             registered_projects, settings.fm_home, snap.data
         )
+        snap.data["project_descriptions"] = await asyncio.to_thread(
+            project_descriptions, settings.fm_home, snap.data
+        )
     return snap
 
 
@@ -115,6 +118,92 @@ def registered_projects(fm_home: Path, data: dict) -> list[str]:
             if m and m.group(1) not in names:
                 names.append(m.group(1))
     return names
+
+
+_NOTE_MAX = 240
+_ENTRY_NOTE = re.compile(r"^- .+?(?:\]| - )\s*(?:-\s*)?(.*)$")
+_ADDED = re.compile(r"\s*\((?:added|registered)[^)]*\)\s*$", re.I)
+
+
+def _clip(text: str) -> str:
+    text = " ".join(text.split())
+    if len(text) <= _NOTE_MAX:
+        return text
+    cut = text.rfind(" ", 0, _NOTE_MAX)
+    return text[: cut if cut > 0 else _NOTE_MAX].rstrip(" ,;:") + "…"
+
+
+def _registry_notes(home: Path) -> dict[str, str]:
+    """``name -> description`` from one home's ``data/projects.md`` (``- name [flags] - text``)."""
+    try:
+        lines = (home / "data" / "projects.md").read_text().splitlines()
+    except (OSError, UnicodeError):
+        return {}
+    notes: dict[str, str] = {}
+    for line in lines:
+        name = _REGISTRY_LINE.match(line)
+        body = _ENTRY_NOTE.match(line)
+        if name and body:
+            text = _ADDED.sub("", body.group(1)).strip()
+            if text and name.group(1) not in notes:
+                notes[name.group(1)] = _clip(text)
+    return notes
+
+
+def _charter_summary(home: Path) -> str:
+    """The first sentence of a second mate's ``data/charter.md`` charter, or empty."""
+    try:
+        text = (home / "data" / "charter.md").read_text()
+    except (OSError, UnicodeError):
+        return ""
+    m = re.search(r"^# Charter\s*\n(.*?)(?=^# |\Z)", text, re.M | re.S)
+    body = " ".join((m.group(1) if m else "").split())
+    if not body:
+        return ""
+    sentence = re.split(r"(?<=[.!?])\s", body, maxsplit=1)[0]
+    return _clip(sentence)
+
+
+def _owned_names(home: Path, rec: dict, data: dict) -> list[str]:
+    """The projects a second mate owns: its session task's list, then its own registry."""
+    names: list[str] = []
+    tasks = data.get("tasks")
+    for task in tasks if isinstance(tasks, list) else []:
+        if isinstance(task, dict) and task.get("id") == rec.get("id"):
+            owned = task.get("secondmate_projects")
+            names += [p for p in owned if isinstance(p, str)] if isinstance(owned, list) else []
+    try:
+        for line in (home / "data" / "projects.md").read_text().splitlines():
+            m = _REGISTRY_LINE.match(line)
+            if m:
+                names.append(m.group(1))
+    except (OSError, UnicodeError):
+        pass
+    return list(dict.fromkeys(names))
+
+
+def project_descriptions(fm_home: Path, data: dict) -> dict[str, str]:
+    """A one-line description per registered project: a second mate's charter summary for the
+    projects it owns, else the first mate's ``data/projects.md`` entry. Missing or unparsable
+    sources add nothing."""
+    notes = _registry_notes(fm_home)
+    mates = data.get("secondmate_current")
+    for rec in mates.get("records", []) if isinstance(mates, dict) else []:
+        home = rec.get("home") if isinstance(rec, dict) else None
+        if not (isinstance(home, str) and home.startswith("/")) or rec.get("host"):
+            continue
+        charter = _charter_summary(Path(home))
+        if charter:
+            for name in _owned_names(Path(home), rec, data):
+                notes[name] = charter
+    return notes
+
+
+def project_notes(snap: Snapshot) -> dict[str, str]:
+    raw = snap.data.get("project_descriptions") if snap.data else None
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str) and v}
 
 
 _MAX_STALE_S = 120.0

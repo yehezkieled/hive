@@ -13,6 +13,7 @@ from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
+from hive.gateway.cards import parse_card
 from hive.gateway.chat import ChatView
 from hive.gateway.desk import (
     NO_PROJECT,
@@ -138,6 +139,11 @@ color:var(--ink);list-style:none;white-space:nowrap}
 .qpop{position:absolute;right:0;top:50px;z-index:5;background:var(--paper);border:1.5px solid var(--rule);
 border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px var(--paper-shadow);font:10.5px/1.4 var(--font-mono);
 min-width:210px;color:var(--ink-2)}
+.qpop{max-width:min(320px,calc(100vw - 24px))}
+.qpop__alerts{margin-top:6px;padding-top:8px;border-top:1px solid var(--rule-faint);white-space:normal}
+.qpop__alerts h3{margin:0 0 4px;font:800 11px var(--font-mono);color:var(--ink);text-transform:uppercase;letter-spacing:.04em}
+.qpop__alerts p{margin:0 0 4px}.qpop__alerts ol{margin:0 0 4px;padding-left:18px}.qpop__alerts li{padding:2px 0}
+.qpop__alerts #alerts-note:empty{display:none}
 .qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
 .qpop b{color:var(--ink)}.qpop span,.qpop b{white-space:nowrap}.qpop .qpop__note{color:var(--ink-4)}
 /* the Stack home (docs/design/T002-stack-home.html) */
@@ -202,6 +208,16 @@ color:#fff;padding:2px 9px;border-radius:999px}
 .nyi__entity{font:600 12px var(--font-mono);color:var(--ink)}
 .nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
 .nyi__summary b{color:var(--ink);font-weight:700}
+.dq__q{display:block;font-weight:600;color:var(--ink);line-height:1.4}
+.nyi__summary>b+.dq__q{margin-top:2px}
+.dq__opts{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.dq__opt{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:5px 8px;border:1px solid var(--rule-faint);border-radius:6px}
+.dq__opt b{font:700 .8rem var(--font-mono);color:var(--ink)}
+.dq__opt.is-rec{border-color:var(--honey);background:rgba(200,150,40,.12);color:var(--ink)}
+.dq__rec{margin-left:auto;font:700 10px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
+.dq__more{margin-top:6px}
+.dq__more summary{display:inline-flex;align-items:center;min-height:44px;min-width:44px;cursor:pointer;font-weight:700;color:var(--ink-2)}
+.dq__more p{margin:0 0 4px;white-space:pre-wrap;overflow-wrap:anywhere}
 .nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .nyi__actions>*{min-width:0}
 .nyi__btns{display:flex;gap:7px;flex-wrap:wrap}
@@ -310,6 +326,7 @@ body:has(dialog[open]){overflow:hidden}
 -webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom)}
 .sheet__meta{margin:0;padding:10px 16px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--rule-faint);flex:none}
 .sheet__text{margin:0;padding:14px 16px;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.sheet__about{margin:0;padding:12px 16px 4px;font-size:14px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere;flex:none}
 .sheet__empty{margin:0;padding:14px 16px;font:10px var(--font-mono);color:var(--ink-3)}
 @keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.sheet[open]{animation:none}}
@@ -482,11 +499,7 @@ var r=atob(s),a=new Uint8Array(r.length);for(var i=0;i<r.length;i++)a[i]=r.charC
 function post(path,obj,csrf){return fetch(path,{method:'POST',credentials:'same-origin',
 headers:{'content-type':'application/json','x-csrf':csrf},body:JSON.stringify(obj)});}
 function note(t){var an=document.getElementById('alerts-note');if(an)an.textContent=t;}
-if(ab){var ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-var standalone=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
-if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){
-if(ios&&!standalone)note('To get alerts on iPhone or iPad, add the desk to the Home Screen (Share, Add to Home Screen; iOS 16.4 or later), then open it from there.');
-}else{
+if(ab&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window){
 navigator.serviceWorker.register('/sw.js').then(function(reg){
 function show(on){ab.hidden=false;ab.textContent=on?'Alerts on':'Alerts off';ab.setAttribute('aria-pressed',on?'true':'false');}
 reg.pushManager.getSubscription().then(function(sub){show(!!sub);});
@@ -501,7 +514,7 @@ return reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(
 return post('/push/subscribe',s.toJSON(),k.csrf).then(function(r){
 if(!r.ok){s.unsubscribe();note('Could not save the subscription.');return;}show(true);note('');});});});
 });}).catch(function(){note('Could not change alerts. Try again.');});};
-}).catch(function(){});}}
+}).catch(function(){});}
 function focus(card){var s=document.querySelector('[data-stack]');if(!s)return;
 var cards=s.querySelectorAll('[data-card]');
 for(var i=0;i<cards.length;i++){cards[i].classList.remove('is-selected');cards[i].removeAttribute('aria-current');
@@ -645,10 +658,14 @@ var p=t.closest('.nyx__desc[data-ready]');if(p){e.preventDefault();descOpen(p);r
 var d=t.closest('[data-sheet]');
 if(t.closest('[data-sheet-close]')){e.preventDefault();sheetClose(d);return;}
 if(t.hasAttribute&&t.hasAttribute('data-sheet'))sheetClose(t);});
+document.addEventListener('click',function(e){var qc=document.getElementById('qchip');
+if(qc&&qc.open&&!qc.contains(e.target))qc.open=false;});
 document.addEventListener('cancel',function(e){var d=e.target;
 if(d&&d.hasAttribute&&d.hasAttribute('data-sheet')){e.preventDefault();sheetClose(d);}},true);
 document.addEventListener('keydown',function(e){var t=e.target;
-if(e.key==='Escape'){var d=document.querySelector('[data-sheet][open]');if(d){e.preventDefault();sheetClose(d);}return;}
+if(e.key==='Escape'){var qc=document.getElementById('qchip');
+if(qc&&qc.open){qc.open=false;var qs=qc.querySelector('summary');if(qs)qs.focus();return;}
+var d=document.querySelector('[data-sheet][open]');if(d){e.preventDefault();sheetClose(d);}return;}
 if((e.key==='Enter'||e.key===' ')&&t&&t.matches&&t.matches('.nyx__desc[data-ready]')){e.preventDefault();descOpen(t);}});
 function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
 document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
@@ -687,6 +704,7 @@ class Ctx:
         descriptions: dict[str, str] | None = None,
         repos: dict[str, str] | None = None,
         can_close_reviews: bool = False,
+        project_notes: dict[str, str] | None = None,
     ) -> None:
         self.can_close_reviews = can_close_reviews  # lavish-axi is available to end a session
         self.csrf = csrf
@@ -696,6 +714,7 @@ class Ctx:
         self.tz = tz
         self.quota = quota  # None: quota-axi did not answer
         self.descriptions = descriptions or {}  # "project/item" -> cached agent description
+        self.project_notes = project_notes or {}  # registry name -> one-line project description
         self.repos = repos or {}  # registry name -> GitHub repo name (when it differs)
 
     def show(self, name: str) -> str:
@@ -817,6 +836,12 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
     return (
         f"<details class=qwrap id=qchip>{chip}<div class=qpop>{rows}"
         "<div class=qpop__note><span>account-wide · shared with your own use</span></div>"
+        "<section class=qpop__alerts aria-labelledby=qpop-alerts-h>"
+        "<h3 id=qpop-alerts-h>Get alerts</h3>"
+        "<p>On iPhone or iPad (iOS 16.4 and up):</p>"
+        "<ol><li>Tap Share in Safari.</li><li>Tap Add to Home Screen.</li>"
+        "<li>Open the desk from its Home Screen icon, then tap Alerts.</li></ol>"
+        "<p id=alerts-note role=status></p></section>"
         "</div></details>"
     )
 
@@ -855,12 +880,39 @@ def _banner(snap: Snapshot, ctx: Ctx) -> str:
     )
 
 
+def _structured(text: str, ctx: Ctx) -> str:
+    """A decision text as a card body: the question, a short option list with the recommended
+    one marked, and the full wording behind a native "More" disclosure."""
+    card = parse_card(text)
+    if not card.question:
+        return ""
+    out = f"<span class=dq__q>{ctx.plain(card.question)}</span>"
+    if card.options:
+        out += (
+            "<ul class=dq__opts>"
+            + "".join(
+                f"<li class='dq__opt{' is-rec' if o.recommended else ''}'><b>{esc(o.letter)}</b> "
+                f"{ctx.plain(o.label)}"
+                + ("<span class=dq__rec>recommended</span>" if o.recommended else "")
+                + "</li>"
+                for o in card.options
+            )
+            + "</ul>"
+        )
+    if card.more:
+        out += f"<details class=dq__more><summary>More</summary><p>{ctx.plain(card.more)}</p></details>"
+    return out
+
+
 _NEED_LABEL = {"hold": "Question on hold", "decision": "Decision", "merge": "Merge approval"}
 
 
 def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
     url = ctx.link(n.url)
     link = f' <a href="{esc(url)}" rel="noopener noreferrer">Open PR</a>' if url else ""
+    link += "".join(
+        f' <a href="{esc(b)}" rel="noopener noreferrer">Open board</a>' for b in ctx.boards(n.text)
+    )
     title = n.title or n.ref.partition("/")[0]
     where = n.project if show_project and not title.lower().startswith(n.project.lower()) else ""
     lead = " · ".join(p for p in (where, title) if p)
@@ -896,7 +948,7 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
     detail = f"{_NEED_LABEL.get(n.kind, n.kind)} · {n.ref}"
     return (
         f"<div class=need><span class=what>{esc(lead)}</span>{link}"
-        f"<div>{ctx.text(n.text)}</div><span class=sub>{esc(detail)}</span>{act}</div>"
+        f"<div class=dq>{_structured(n.text, ctx)}</div><span class=sub>{esc(detail)}</span>{act}</div>"
     )
 
 
@@ -914,9 +966,9 @@ def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
     ref = n.ref.partition("/")[0]
     entity = f"{ctx.show(n.project)} · {ref}"  # the reply label; the lane's group header names the project
     if n.title and n.text and n.title != n.text:
-        summary = f"<b>{ctx.plain(n.title)}</b> — {ctx.plain(n.text)}"
+        summary = f"<b>{ctx.plain(n.title)}</b>{_structured(n.text, ctx)}"
     else:
-        summary = ctx.plain(n.text or n.title or n.ref)
+        summary = _structured(n.text, ctx) or ctx.plain(n.title or n.ref)
     links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
     pr = ctx.link(n.url)
     if pr:
@@ -1022,7 +1074,7 @@ def _nyx(
         f"<span class=nyx__title>{esc(title or item_id)}</span>{badge}</a>"
         f"<a class=nyx__open href='{esc(href)}' aria-label='Open {esc(group.project)}'>"
         "open ↗</a></div>"
-        f"<div class=nyx__more><p class=nyi__summary>{summary}</p>{desc}{act}</div></div>"
+        f"<div class=nyx__more><div class=nyi__summary>{summary}</div>{desc}{act}</div></div>"
     )
 
 
@@ -1195,10 +1247,12 @@ def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> s
         f"<p class=sheet__meta><b>{g.status}</b> · {'second mate' if p.mate else 'first mate'}"
         f" · {prog}<br>{now}</p>"
     )
+    note = ctx.project_notes.get(p.name)
+    about = f"<p class=sheet__about>{esc(note)}</p>" if note else ""
     return _sheet(
         sid,
         ctx.name_html(p.name),
-        meta + _items_list(group, ctx),
+        about + meta + _items_list(group, ctx),
         f"Close {ctx.show(p.name)}",
         _open_project("/p/" + quote(p.name, safe="")),
     )
@@ -1335,7 +1389,6 @@ def render_home(
         f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
         f"</div><div class=land__col>{projects}{_reviews(reviews or [], ctx)}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx, stamp)}"
-        "<p class=stamp id=alerts-note></p>"
         + _sheet(
             "desc-sheet",
             "",
