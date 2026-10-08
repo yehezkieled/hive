@@ -62,7 +62,7 @@ class GatewaySettings:
 
     # The idempotent fleet-up script whose firstmate step the wake control runs; None: off.
     fleet_up: Path | None = DEFAULT_FLEET_UP
-    # herdr, for releasing a stale firstmate pane report on restart; None: not found.
+    # herdr, for releasing a stale firstmate pane report on wake or restart; None: not found.
     herdr: Path | None = None
 
     @property

@@ -27,6 +27,7 @@ from hive.gateway.wake import (
     ACTIVE_RECENT_S,
     BEAT_FRESH_S,
     FirstmateStatus,
+    Herdr,
     StatusCache,
     WakeService,
     last_activity,
@@ -128,9 +129,12 @@ def _dies(runner: Fake) -> None:
 class FakeHerdr:
     """Pane list and release-agent, recorded; a release clears the shared stale pane."""
 
-    def __init__(self, panes: list[dict] | None = None, fail: bool = False) -> None:
+    def __init__(
+        self, panes: list[dict] | None = None, fail: bool = False, available: bool = True
+    ) -> None:
         self._panes = panes or []
         self.fail = fail
+        self.available = available
         self.released: list[tuple[str, str]] = []
         self.world: World | None = None
 
@@ -558,6 +562,22 @@ async def test_wake_after_an_unknown_read_releases_nothing(
     svc = _service(tmp_path, "unknown", Fake(), herdr=herdr, stale_pane=True)
     result = await svc.wake("a", "desk")
     assert herdr.released == [] and result.outcome == "failed"
+
+
+@pytest.mark.parametrize("action", ["wake", "restart"])
+async def test_no_herdr_skips_the_release_silently(tmp_path: Path, action: str) -> None:
+    runner = Fake()
+    herdr = FakeHerdr(fail=True, available=False)
+    state = "down" if action == "wake" else "no-beat"
+    svc = _service(tmp_path, state, runner, herdr=herdr)
+    result = await getattr(svc, action)("a", "desk")
+    assert result.ok and runner.calls == 1
+    assert "herdr" not in result.message and herdr.released == []
+
+
+def test_herdr_without_a_binary_is_not_available(tmp_path: Path) -> None:
+    assert not Herdr(None).available
+    assert not Herdr(tmp_path / "no-such-herdr").available
 
 
 async def test_a_failed_wake_release_is_not_fatal(tmp_path: Path) -> None:
