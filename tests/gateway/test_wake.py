@@ -1,14 +1,17 @@
-"""Wake firstmate: status rendering, owner-only desk action, rate limit, Telegram allowlist.
+"""Wake firstmate: status rendering, owner-only desk actions, rate limit, Telegram allowlist.
 
-No test starts a session: the runner is always a fake, /proc is a temp tree, and the
-default runner (which would call scripts/fleet-up.sh) is never reached.
+No test starts or stops a session: the runner and the killer are always fakes, /proc and
+~/.claude are temp trees, and the default runner (which would call scripts/fleet-up.sh)
+is never reached.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
+import signal
 import stat
 import time
 from pathlib import Path
@@ -21,13 +24,15 @@ from fastapi.testclient import TestClient
 from hive.gateway.app import create_app
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.wake import (
+    ACTIVE_RECENT_S,
     BEAT_FRESH_S,
     FirstmateStatus,
     StatusCache,
     WakeService,
+    last_activity,
     read_status,
 )
-from hive.telegram.bridge import WAKE_CALLBACK, TelegramBridge
+from hive.telegram.bridge import RESTART_CALLBACK, WAKE_CALLBACK, TelegramBridge
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
 OWNER = "owner@example.test"
@@ -40,12 +45,29 @@ GOOD = {
 }
 RID = "web-0123456789abcdef"
 NOW = 1_800_000_000.0
+FM_PID = 4242
 
 
-def _status(state: str) -> FirstmateStatus:
-    session = state != "down"
+def _status(state: str, pids: tuple[int, ...] | None = None) -> FirstmateStatus:
+    if pids is None:
+        pids = (FM_PID,) if state in ("alive", "no-beat") else ()
     beat = {"alive": 20.0, "no-beat": 4000.0, "down": 9 * 3600.0}.get(state)
-    return FirstmateStatus(state, session, beat, time.time())
+    return FirstmateStatus(state, pids, beat, time.time())
+
+
+class Killer:
+    """Records signals instead of sending them; the pid is gone once it has had SIGTERM."""
+
+    def __init__(self, stubborn: bool = False) -> None:
+        self.sent: list[tuple[int, int]] = []
+        self.stubborn = stubborn
+
+    def __call__(self, pid: int, sig: int) -> None:
+        if sig == 0:
+            if not self.stubborn and (pid, signal.SIGTERM) in self.sent:
+                raise ProcessLookupError
+            return
+        self.sent.append((pid, sig))
 
 
 class Fake:
@@ -80,10 +102,25 @@ def _settings(tmp_path: Path) -> GatewaySettings:
     )
 
 
-def _service(tmp_path: Path, state: str, runner: Fake, cooldown: float = 60.0) -> WakeService:
+def _service(
+    tmp_path: Path,
+    state: str,
+    runner: Fake,
+    cooldown: float = 60.0,
+    killer: Killer | None = None,
+    active_s: float | None = None,
+    pids: tuple[int, ...] | None = None,
+) -> WakeService:
     settings = _settings(tmp_path)
-    cache = StatusCache(settings, reader=lambda _home: _status(state))
-    return WakeService(settings, runner=runner, status=cache, cooldown_s=cooldown)
+    cache = StatusCache(settings, reader=lambda _home: _status(state, pids))
+    return WakeService(
+        settings,
+        runner=runner,
+        status=cache,
+        cooldown_s=cooldown,
+        killer=killer or Killer(),
+        activity=lambda _pid: active_s,
+    )
 
 
 # ---- status from firstmate's records ------------------------------------------------
@@ -112,7 +149,7 @@ def test_alive_needs_session_and_fresh_beat(tmp_path: Path) -> None:
     home, proc = _home(tmp_path, 12)
     _proc(proc, 100, "claude", home)
     st = read_status(home, NOW, proc)
-    assert (st.state, st.session, st.needs_wake) == ("alive", True, False)
+    assert (st.state, st.pids, st.can_wake, st.can_restart) == ("alive", (100,), False, False)
     assert st.beat_age_s == pytest.approx(12)
     assert "session running" in st.describe() and "12s ago" in st.describe()
 
@@ -124,13 +161,14 @@ def test_down_when_no_claude_in_the_firstmate_home(tmp_path: Path) -> None:
     _proc(proc, 100, "claude", other)  # a crew's claude, not firstmate's
     _proc(proc, 101, "bash", home)  # right directory, wrong process
     st = read_status(home, NOW, proc)
-    assert (st.state, st.session, st.needs_wake) == ("down", False, True)
+    assert (st.state, st.session, st.can_wake, st.can_restart) == ("down", False, True, False)
 
 
 def test_silent_watcher_with_a_session_is_not_alive(tmp_path: Path) -> None:
     home, proc = _home(tmp_path, BEAT_FRESH_S + 60)
     _proc(proc, 100, "claude", home)
-    assert read_status(home, NOW, proc).state == "no-beat"
+    st = read_status(home, NOW, proc)
+    assert (st.state, st.can_wake, st.can_restart) == ("no-beat", False, True)
     home2, proc2 = _home(tmp_path / "b", None)
     _proc(proc2, 100, "claude", home2)
     st = read_status(home2, NOW, proc2)
@@ -169,6 +207,59 @@ async def test_slow_read_times_out_to_unknown(tmp_path: Path) -> None:
     assert (await cache.fresh()).state == "unknown"
 
 
+async def test_a_failed_read_is_unknown_not_the_last_value(tmp_path: Path) -> None:
+    reads = iter([_status("alive")])
+
+    def reader(_home: Path) -> FirstmateStatus:
+        return next(reads)  # the second read raises StopIteration
+
+    runner = Fake()
+    settings = _settings(tmp_path)
+    cache = StatusCache(settings, reader=reader)
+    assert (await cache.fresh()).state == "alive"
+    svc = WakeService(settings, runner=runner, status=cache, killer=Killer())
+    result = await svc.wake("a", "desk")
+    assert (result.outcome, runner.calls) == ("started", 1)  # never "already alive"
+    assert cache.peek() is not None and cache.peek().state == "unknown"
+
+
+# ---- last activity from Claude Code's records ---------------------------------------
+
+
+def _claude(tmp_path: Path, home: Path) -> tuple[Path, Path]:
+    claude = tmp_path / "claude"
+    (claude / "sessions").mkdir(parents=True)
+    project = claude / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(home.resolve()))
+    project.mkdir(parents=True)
+    return claude, project
+
+
+def test_a_busy_session_record_is_activity(tmp_path: Path) -> None:
+    home, _ = _home(tmp_path, None)
+    claude, _ = _claude(tmp_path, home)
+    record = {"pid": 100, "status": "busy", "statusUpdatedAt": (NOW - 30) * 1000}
+    (claude / "sessions" / "100.json").write_text(json.dumps(record))
+    assert last_activity(home, 100, NOW, claude) == pytest.approx(30)
+    assert last_activity(home, 101, NOW, claude) is None  # another pid's record
+
+
+def test_an_idle_session_record_is_not_activity(tmp_path: Path) -> None:
+    home, _ = _home(tmp_path, None)
+    claude, _ = _claude(tmp_path, home)
+    record = {"pid": 100, "status": "idle", "statusUpdatedAt": (NOW - 5) * 1000}
+    (claude / "sessions" / "100.json").write_text(json.dumps(record))
+    assert last_activity(home, 100, NOW, claude) is None
+
+
+def test_the_newest_transcript_is_activity(tmp_path: Path) -> None:
+    home, _ = _home(tmp_path, None)
+    claude, project = _claude(tmp_path, home)
+    for name, age in (("old.jsonl", 9000), ("new.jsonl", 40)):
+        (project / name).touch()
+        os.utime(project / name, (NOW - age, NOW - age))
+    assert last_activity(home, 100, NOW, claude) == pytest.approx(40)
+
+
 # ---- the action ---------------------------------------------------------------------
 
 
@@ -187,7 +278,9 @@ async def test_down_runs_fleet_up_once_and_audits(tmp_path: Path) -> None:
     assert (result.outcome, runner.calls) == ("started", 1)
     line = svc.audit_path.read_text().strip()
     assert re.match(
-        r"^\d{4}-\d\d-\d\dT[\d:]+\S* who=owner@example.test via=desk outcome=started ", line
+        r"^\d{4}-\d\d-\d\dT[\d:]+\S* action=wake who=owner@example.test via=desk "
+        r"outcome=started ",
+        line,
     )
     assert stat.S_IMODE(svc.audit_path.stat().st_mode) == 0o600
 
@@ -229,10 +322,86 @@ async def test_failure_is_reported_and_audited(tmp_path: Path) -> None:
     assert "outcome=failed" in svc.audit_path.read_text()
 
 
-async def test_session_already_running_is_a_noop_not_a_start(tmp_path: Path) -> None:
+async def test_wake_leaves_a_running_session_alone(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    result = await _service(tmp_path, "no-beat", runner, killer=killer).wake("a", "desk")
+    assert (result.outcome, result.ok, runner.calls, killer.sent) == ("noop", True, 0, [])
+
+
+async def test_fleet_up_finding_a_session_is_a_noop_not_a_start(tmp_path: Path) -> None:
     out = "fleet-up: firstmate: a claude process already runs in /x; not starting a second"
-    result = await _service(tmp_path, "no-beat", Fake(out=out)).wake("a", "desk")
+    result = await _service(tmp_path, "down", Fake(out=out)).wake("a", "desk")
     assert result.outcome == "noop" and result.ok
+
+
+# ---- restart a wedged session -------------------------------------------------------
+
+
+async def test_restart_stops_only_the_firstmate_pid_then_runs_fleet_up(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    svc = _service(tmp_path, "no-beat", runner, killer=killer)
+    result = await svc.restart("owner@example.test", "desk")
+    assert (result.outcome, result.ok, runner.calls) == ("restarted", True, 1)
+    assert killer.sent == [(FM_PID, signal.SIGTERM)]
+    assert f"pid {FM_PID}" in result.message
+    line = svc.audit_path.read_text().strip()
+    assert "action=restart who=owner@example.test via=desk outcome=restarted" in line
+
+
+async def test_restart_escalates_to_sigkill_for_the_same_pid_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("hive.gateway.wake.STOP_WAIT_S", 0.05)
+    runner, killer = Fake(), Killer(stubborn=True)
+    result = await _service(tmp_path, "no-beat", runner, killer=killer).restart("a", "desk")
+    assert killer.sent == [(FM_PID, signal.SIGTERM), (FM_PID, signal.SIGKILL)]
+    assert (result.outcome, runner.calls) == ("failed", 0)
+
+
+async def test_restart_refuses_when_firstmate_was_recently_mid_turn(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    svc = _service(tmp_path, "no-beat", runner, killer=killer, active_s=ACTIVE_RECENT_S - 60)
+    result = await svc.restart("a", "desk")
+    assert (result.outcome, result.ok, runner.calls, killer.sent) == ("refused", False, 0, [])
+    assert "Nothing was stopped" in result.message
+    assert not (tmp_path / "data" / "wake-state").exists()  # no cooldown slot used
+    assert "action=restart" in svc.audit_path.read_text()
+
+
+async def test_restart_goes_ahead_when_the_last_turn_is_old(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    svc = _service(tmp_path, "no-beat", runner, killer=killer, active_s=ACTIVE_RECENT_S + 60)
+    assert (await svc.restart("a", "desk")).outcome == "restarted"
+
+
+@pytest.mark.parametrize("state", ["alive", "down", "unknown"])
+async def test_restart_is_only_for_a_silent_watcher(tmp_path: Path, state: str) -> None:
+    runner, killer = Fake(), Killer()
+    result = await _service(tmp_path, state, runner, killer=killer).restart("a", "desk")
+    assert (result.outcome, runner.calls, killer.sent) == ("refused", 0, [])
+
+
+async def test_restart_will_not_guess_between_two_sessions(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    svc = _service(tmp_path, "no-beat", runner, killer=killer, pids=(1, 2))
+    result = await svc.restart("a", "desk")
+    assert (result.outcome, runner.calls, killer.sent) == ("refused", 0, [])
+
+
+async def test_restart_reports_a_stop_without_a_new_session_as_failed(tmp_path: Path) -> None:
+    out = "fleet-up: firstmate: already running in a herdr pane at /x; nothing to do"
+    result = await _service(tmp_path, "no-beat", Fake(out=out)).restart("a", "desk")
+    assert (result.outcome, result.ok) == ("failed", False)
+    assert "no new session started" in result.message
+
+
+async def test_restart_and_wake_share_the_rate_limit(tmp_path: Path) -> None:
+    run_a, run_b, killer = Fake(), Fake(), Killer()
+    desk = _service(tmp_path, "down", run_a)
+    bot = _service(tmp_path, "no-beat", run_b, killer=killer)
+    assert (await desk.wake("a", "desk")).outcome == "started"
+    again = await bot.restart("b", "telegram")
+    assert (again.outcome, run_b.calls, killer.sent) == ("rate-limited", 0, [])
 
 
 async def test_missing_script_is_unavailable_and_runs_nothing(tmp_path: Path) -> None:
@@ -245,8 +414,10 @@ async def test_missing_script_is_unavailable_and_runs_nothing(tmp_path: Path) ->
 # ---- the desk ------------------------------------------------------------------------
 
 
-def _client(tmp_path: Path, state: str, runner: Fake, cooldown: float = 60.0) -> TestClient:
-    svc = _service(tmp_path, state, runner, cooldown)
+def _client(
+    tmp_path: Path, state: str, runner: Fake, cooldown: float = 60.0, killer: Killer | None = None
+) -> TestClient:
+    svc = _service(tmp_path, state, runner, cooldown, killer=killer)
     app = create_app(_settings(tmp_path), wake=svc)
     return TestClient(app, client=("127.0.0.1", 5000))
 
@@ -257,14 +428,17 @@ def _form(client: TestClient, **extra: str) -> dict[str, str]:
     return {"csrf": csrf.group(1), "next": "/", **extra}
 
 
-def _post(client: TestClient, data: dict[str, str], headers: dict | None = None):
-    return client.post("/act/wake", content=urlencode(data), headers=headers or GOOD)
+def _post(
+    client: TestClient, data: dict[str, str], headers: dict | None = None, action: str = "wake"
+):
+    return client.post(f"/act/{action}", content=urlencode(data), headers=headers or GOOD)
 
 
-def _confirm(client: TestClient) -> dict[str, str]:
+def _confirm(client: TestClient, action: str = "wake") -> dict[str, str]:
     """Post the button, return the confirm page's fields (the step-up token and request id)."""
-    page = _post(client, _form(client))
-    assert page.status_code == 200 and "Wake firstmate" in page.text
+    page = _post(client, _form(client), action=action)
+    title = {"wake": "Wake firstmate", "restart": "Restart firstmate session"}[action]
+    assert page.status_code == 200 and title in page.text
     return {
         m[1]: m[2]
         for m in re.finditer(r"name=(\w+) value=\"([^\"]*)\"", page.text)
@@ -288,7 +462,46 @@ def test_desk_shows_alive_without_a_button(tmp_path: Path) -> None:
     time.sleep(0.1)
     page = c.get("/", headers=GOOD).text
     assert "firstmate · alive" in page and "session running" in page
+    assert "/act/wake" not in page and "/act/restart" not in page
+
+
+def test_desk_shows_restart_not_wake_for_a_silent_watcher(tmp_path: Path) -> None:
+    c = _client(tmp_path, "no-beat", Fake())
+    c.get("/", headers=GOOD)
+    time.sleep(0.1)
+    page = c.get("/", headers=GOOD).text
+    assert "firstmate · session up, watcher silent" in page
+    assert "action='/act/restart'" in page and "Restart session</button>" in page
     assert "/act/wake" not in page
+
+
+def test_desk_down_offers_wake_not_restart(tmp_path: Path) -> None:
+    c = _client(tmp_path, "down", Fake())
+    c.get("/", headers=GOOD)
+    time.sleep(0.1)
+    assert "/act/restart" not in c.get("/", headers=GOOD).text
+
+
+def test_desk_restart_confirms_then_stops_the_session_and_shows_the_result(
+    tmp_path: Path,
+) -> None:
+    runner, killer = Fake(), Killer()
+    c = _client(tmp_path, "no-beat", runner, killer=killer)
+    page = _post(c, _form(c), action="restart")
+    assert "STOPS the running firstmate session" in page.text
+    assert runner.calls == 0 and killer.sent == []
+    res = _post(c, _confirm(c, "restart"), action="restart")
+    assert res.status_code == 200 and "started in pane" in res.text
+    assert killer.sent == [(FM_PID, signal.SIGTERM)] and runner.calls == 1
+
+
+def test_desk_restart_refused_when_active_is_409_and_stops_nothing(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    svc = _service(tmp_path, "no-beat", runner, killer=killer, active_s=10)
+    c = TestClient(create_app(_settings(tmp_path), wake=svc), client=("127.0.0.1", 5000))
+    res = _post(c, _confirm(c, "restart"), action="restart")
+    assert res.status_code == 409 and "Nothing was stopped" in res.text
+    assert killer.sent == [] and runner.calls == 0
 
 
 def test_first_post_only_asks_to_confirm(tmp_path: Path) -> None:
@@ -320,7 +533,7 @@ def test_alive_confirmed_post_is_a_noop_200(tmp_path: Path) -> None:
     runner = Fake()
     c = _client(tmp_path, "alive", runner)
     res = _post(c, _confirm(c))
-    assert res.status_code == 200 and "already alive" in res.text and runner.calls == 0
+    assert res.status_code == 200 and "already running" in res.text and runner.calls == 0
 
 
 def test_a_step_token_for_another_request_is_not_accepted(tmp_path: Path) -> None:
@@ -369,6 +582,21 @@ def test_only_the_owner_can_wake_and_nothing_runs_otherwise(tmp_path: Path, head
     assert runner.calls == 0
 
 
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"host": HOST, "origin": f"https://{HOST}"},  # no login
+        {**GOOD, "tailscale-user-login": "intruder@example.test"},
+    ],
+)
+def test_only_the_owner_can_restart_and_nothing_is_stopped(tmp_path: Path, headers: dict) -> None:
+    runner, killer = Fake(), Killer()
+    c = _client(tmp_path, "no-beat", runner, killer=killer)
+    data = _confirm(c, "restart")
+    assert _post(c, data, headers, action="restart").status_code == 403
+    assert runner.calls == 0 and killer.sent == []
+
+
 def test_non_loopback_peer_cannot_wake(tmp_path: Path) -> None:
     runner = Fake()
     c = _client(tmp_path, "down", runner)
@@ -415,10 +643,12 @@ class _Query:
         self.answers.append(text)
 
 
-def _bridge(tmp_path: Path, state: str, runner: Fake, allowed: list[int]) -> TelegramBridge:
+def _bridge(
+    tmp_path: Path, state: str, runner: Fake, allowed: list[int], killer: Killer | None = None
+) -> TelegramBridge:
     bridge = TelegramBridge.__new__(TelegramBridge)
     bridge.allowed_user_ids = allowed
-    bridge.wake = _service(tmp_path, state, runner)
+    bridge.wake = _service(tmp_path, state, runner, killer=killer)
     return bridge
 
 
@@ -435,6 +665,40 @@ async def test_telegram_wake_shows_status_and_a_button_for_the_allowlisted(tmp_p
     assert "down" in text and markup is not None
     button = markup.inline_keyboard[0][0]
     assert button.callback_data == WAKE_CALLBACK and runner.calls == 0
+
+
+async def test_telegram_silent_watcher_offers_restart_only(tmp_path: Path) -> None:
+    bridge = _bridge(tmp_path, "no-beat", Fake(), [42])
+    update = _message_update(42, "/wake")
+    await bridge._handle_message(update, None)  # type: ignore[arg-type]
+    ((_text, markup),) = update.message.replies
+    assert [b.callback_data for b in markup.inline_keyboard[0]] == [RESTART_CALLBACK]
+
+
+async def test_telegram_restart_button_stops_and_starts_for_the_allowlisted(
+    tmp_path: Path,
+) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "no-beat", runner, [42], killer=killer)
+    query = _Query(RESTART_CALLBACK)
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
+    await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+    assert killer.sent == [(FM_PID, signal.SIGTERM)] and runner.calls == 1
+    assert "restarted" in query.message.replies[0][0]
+    assert "action=restart who=telegram:42 via=telegram" in bridge.wake.audit_path.read_text()
+
+
+@pytest.mark.parametrize("allowed", [[7], []])
+async def test_telegram_restart_from_a_stranger_stops_nothing(
+    tmp_path: Path, allowed: list[int]
+) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "no-beat", runner, allowed, killer=killer)
+    query = _Query(RESTART_CALLBACK)
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
+    await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+    assert (runner.calls, killer.sent, query.answers, query.message.replies) == (0, [], [], [])
+    assert not bridge.wake.audit_path.exists()
 
 
 async def test_telegram_alive_has_no_button(tmp_path: Path) -> None:

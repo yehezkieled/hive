@@ -68,7 +68,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "wake": HelpEntry(
         category="Status",
         usage="/wake",
-        description="Show whether firstmate is alive; a button restarts its session if it is not.",
+        description="Show firstmate's status, with a button to wake or restart it.",
         examples=("/wake",),
     ),
     # Messaging — message (the /a: addressing form folds in here)

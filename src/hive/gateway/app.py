@@ -345,8 +345,8 @@ def create_app(
         if not tokens.check_csrf(form.get("csrf", "")):
             return forbidden()
         try:
-            if name == "wake":  # must work while firstmate's snapshot is unreadable
-                result = await _wake(form, wake, settings, tokens, runs, nxt)
+            if name in FIRSTMATE_ACTIONS:  # must work while firstmate's snapshot is unreadable
+                result = await _firstmate(name, form, wake, settings, tokens, runs, nxt)
                 if isinstance(result, HTMLResponse):
                     return result
                 if wants_json:
@@ -416,10 +416,27 @@ def _need(desk: Desk, kind: str, ref: str):
     raise ActionError("That item is no longer waiting on you. Refresh the desk.", 409)
 
 
-WAKE_STATUS = {"rate-limited": 429, "unavailable": 503, "failed": 502}
+WAKE_STATUS = {"refused": 409, "rate-limited": 429, "unavailable": 503, "failed": 502}
+
+# action -> (confirm title, confirm text); both run through the same owner gate and step-up.
+FIRSTMATE_ACTIONS = {
+    "wake": (
+        "Wake firstmate",
+        "This runs the fleet-up firstmate step: it starts a firstmate session only if "
+        "none is running, and never a second one.",
+    ),
+    "restart": (
+        "Restart firstmate session",
+        "This STOPS the running firstmate session (the one claude process in the firstmate "
+        "home; no worker or crew is touched) and then starts a fresh one with the fleet-up "
+        "firstmate step. Anything it was doing in that session is lost. It refuses, "
+        "stopping nothing, if firstmate was mid-turn in the last few minutes.",
+    ),
+}
 
 
-async def _wake(
+async def _firstmate(
+    name: str,
     form: dict[str, str],
     wake: WakeService,
     settings: GatewaySettings,
@@ -427,30 +444,25 @@ async def _wake(
     runs: RunOnce,
     nxt: str,
 ) -> Outcome | HTMLResponse:
-    """Confirm step, then one wake. The owner gate already ran in the middleware."""
+    """Confirm step, then one wake or restart. The owner gate already ran in the middleware."""
     rid = form.get("rid", "")
     if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
-        form.get("step", ""), "wake", f"firstmate:{rid}"
+        form.get("step", ""), name, f"firstmate:{rid}"
     ):
         rid = actions.new_request_id()
-        step = tokens.step_up("wake", f"firstmate:{rid}")
+        step = tokens.step_up(name, f"firstmate:{rid}")
         ctx = pages.Ctx(tokens.csrf(), True, nxt, settings.board_url, settings.default_tz)
+        title, detail = FIRSTMATE_ACTIONS[name]
         return HTMLResponse(
-            pages.render_confirm(
-                "Wake firstmate",
-                "This runs the fleet-up firstmate step: it starts a firstmate session only if "
-                "none is running, and never a second one.",
-                "wake",
-                ctx,
-                {"rid": rid, "step": step},
-            )
+            pages.render_confirm(title, detail, name, ctx, {"rid": rid, "step": step})
         )
 
     async def run() -> Outcome:
-        result = await wake.wake(settings.owner_login, "desk")
+        act = wake.restart if name == "restart" else wake.wake
+        result = await act(settings.owner_login, "desk")
         if not result.ok:
             raise ActionError(result.message, WAKE_STATUS.get(result.outcome, 502))
-        return Outcome("wake", "firstmate", result.message)
+        return Outcome(name, "firstmate", result.message)
 
     return await runs.run(rid, run)
 
