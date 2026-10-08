@@ -501,9 +501,9 @@ setFlash(j.message||'Could not send.',!!j.ok);})
 .catch(function(){setFlash('Could not send. Reload the desk.',false);})
 .then(function(){fm.classList.remove('is-sending');});});
 var cf=document.querySelector('form.chatf');
-function lmeta(m,t,err){var s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
+function lmeta(m,t,err){var b=th&&atBottom(),s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
 if(err){var r=document.createElement('button');r.type='button';r.className='quiet';r.textContent='Retry';
-r.onclick=function(){send(m,0);};s.appendChild(r);}}
+r.onclick=function(){send(m,0);};s.appendChild(r);}if(b)bottom();}
 function send(m,n){if(locals.indexOf(m)<0)return;lmeta(m,'Sending\u2026');
 fetch(cf.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},
 body:new URLSearchParams({text:m.text,rid:m.rid,csrf:cf.elements.csrf.value,next:'/chat'})})
