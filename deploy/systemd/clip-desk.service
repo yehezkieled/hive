@@ -1,0 +1,17 @@
+[Unit]
+Description=clip desk - loopback only, published with tailscale serve (https 8448)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/apps/clip-desk
+ExecStart=%h/apps/clip-desk/.venv/bin/clip-desk
+Restart=always
+RestartSec=3
+Environment=CLIP_DESK_PORT=8492
+Environment=CLIP_DESK_OUT=%h/.local/state/clip-desk/out
+# Optional overrides: CLIP_DESK_ORIGIN, CLIP_DESK_OWNER, CLIP_DESK_DATA_DIR,
+# CLIP_DESK_PROSPECTS, CLIP_DESK_OUT, CLIP_DESK_PLAN_START (see README, "Clip desk").
+
+[Install]
+WantedBy=default.target

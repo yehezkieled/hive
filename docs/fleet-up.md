@@ -12,21 +12,24 @@ Files (all shipped in this repo, none installed by it):
 | `scripts/fleet-up.sh` | The idempotent "fleet up" script. `--dry-run` prints and changes nothing. |
 | `deploy/fleet-up/fleet-up.conf` | Paths and ports (the captain's current values). Override in `~/.config/hive/fleet-up.conf` or the environment. |
 | `deploy/systemd/hive-gateway.service` | Gateway, `Restart=always`. |
+| `deploy/systemd/clip-desk.service` | Clip desk (`~/apps/clip-desk`, loopback :8492, tailnet https 8448), `Restart=always`. Never port 8490: it is stuck in Windows' WSL relay. |
 | `deploy/systemd/hive-fleet-up.{service,timer}` | Runs fleet-up at boot and every 5 minutes. |
 | `deploy/windows/Register-HiveWsl.ps1` | Task Scheduler task that starts and holds WSL. |
 | `deploy/systemd/hive-telegram.service` | Hive runtime with Telegram (`python -m hive`), `Restart=always`, only if configured; `Conflicts=hive.service`. |
 | `scripts/hive-telegram.sh` | Wrapper: loads the env file, skips cleanly when token/allowlist are missing or another Hive runtime runs. |
 | `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Hive runtime with Telegram, `KeepAlive` on crash only. |
 | `deploy/macos/com.hive.gateway.plist` | LaunchAgent, `RunAtLoad` + `KeepAlive`. |
+| `deploy/macos/com.hive.clip-desk.plist` | LaunchAgent for the clip desk, `RunAtLoad` + `KeepAlive`. |
 | `deploy/macos/com.hive.fleet-up.plist` | LaunchAgent, `RunAtLoad` + every 5 minutes, `AbandonProcessGroup` so started services outlive it. |
 
 ## What fleet-up does
 
-In order: Hive gateway (:8480, via the service manager), the Hive runtime with
+In order: Hive gateway (:8480, via the service manager), the clip desk (:8492,
+via `clip-desk.service`), the Hive runtime with
 Telegram (via its service), broke-no-more (:3001), the Lavish bridge
 (`node lavish-proxy.js`, :4388), the preview server (:8765), then
-`tailscale serve --bg --https=8443..8446` to the local ports (tailnet only,
-never `funnel`), then firstmate. Step names for `--only`: `gateway runtime bnm
+`tailscale serve --bg --https=8443..8446,8448` to the local ports (tailnet only,
+never `funnel`), then firstmate. Step names for `--only`: `gateway clipdesk runtime bnm
 lavish preview serve firstmate`.
 
 Each service step probes its port and only starts what is closed. The
@@ -101,12 +104,12 @@ sudo loginctl enable-linger "$USER"
 systemctl --user disable --now hive.service 2>/dev/null || true
 
 mkdir -p ~/.config/systemd/user ~/.config/hive
-cp ~/apps/hive/deploy/systemd/hive-* ~/.config/systemd/user/
+cp ~/apps/hive/deploy/systemd/hive-* ~/apps/hive/deploy/systemd/clip-desk.service ~/.config/systemd/user/
 cp ~/apps/hive/deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 # On WSL Tailscale is the Windows one:
 #   TAILSCALE_BIN='/mnt/c/Program Files/Tailscale/tailscale.exe'
 systemctl --user daemon-reload
-systemctl --user enable --now hive-gateway.service hive-telegram.service hive-fleet-up.timer
+systemctl --user enable --now hive-gateway.service clip-desk.service hive-telegram.service hive-fleet-up.timer
 ```
 
 Then, in an elevated PowerShell on Windows:
@@ -130,8 +133,8 @@ but only while the machine is up; confirm after the first reboot with
 ```
 
 ```sh
-systemctl --user disable --now hive-fleet-up.timer hive-gateway.service hive-telegram.service
-rm ~/.config/systemd/user/hive-{gateway.service,telegram.service,fleet-up.service,fleet-up.timer}
+systemctl --user disable --now hive-fleet-up.timer hive-gateway.service clip-desk.service hive-telegram.service
+rm ~/.config/systemd/user/{hive-gateway.service,clip-desk.service,hive-telegram.service,hive-fleet-up.service,hive-fleet-up.timer}
 systemctl --user daemon-reload
 ```
 
@@ -146,10 +149,11 @@ mkdir -p ~/.config/hive ~/Library/LaunchAgents
 cp deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 # in that file, set the gateway start for launchd:
 #   GATEWAY_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.gateway'
+#   CLIP_DESK_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.clip-desk'
 #   RUNTIME_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.telegram'
 #   RUNTIME_STATUS_CMD='launchctl print gui/$(id -u)/com.hive.telegram | grep -q "pid = "'
 # Stop any other Hive runtime (python -m hive) first; the job skips while one runs.
-for f in com.hive.gateway com.hive.telegram com.hive.fleet-up; do
+for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.fleet-up; do
   sed -e "s#__HIVE_DIR__#$HOME/apps/hive#g" -e "s#__HOME__#$HOME#g" \
     deploy/macos/$f.plist > ~/Library/LaunchAgents/$f.plist
   plutil -lint ~/Library/LaunchAgents/$f.plist
@@ -163,7 +167,7 @@ LaunchAgents start at user login, so enable automatic login (System Settings
 ### macOS uninstall
 
 ```sh
-for f in com.hive.gateway com.hive.telegram com.hive.fleet-up; do
+for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.fleet-up; do
   launchctl bootout gui/$(id -u)/$f
   rm ~/Library/LaunchAgents/$f.plist
 done

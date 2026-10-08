@@ -7,7 +7,7 @@
   WSL's VM exits when no process is attached. The task starts a hidden,
   long-lived `wsl.exe ... sleep infinity` at startup and at logon; with
   systemd=true in /etc/wsl.conf and linger enabled, that brings up
-  hive-gateway.service and the hive-fleet-up timer. Task Scheduler restarts
+  hive-gateway.service, clip-desk.service and the hive-fleet-up timer. Task Scheduler restarts
   the task if it ends.
 
   -DryRun prints what would be registered and changes nothing.
