@@ -64,6 +64,8 @@ class GatewaySettings:
 
     # The idempotent fleet-up script whose firstmate step the wake control runs; None: off.
     fleet_up: Path | None = DEFAULT_FLEET_UP
+    # herdr, for releasing a stale firstmate pane report on restart; None: not found.
+    herdr: Path | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -92,6 +94,7 @@ class GatewaySettings:
             lavish_state=_lavish_state(env.get("HIVE_GATEWAY_LAVISH_STATE", "").strip()),
             lavish_axi=_lavish_axi(env.get("HIVE_GATEWAY_LAVISH_AXI", "").strip()),
             fleet_up=_fleet_up(env.get("HIVE_GATEWAY_FLEET_UP", "").strip()),
+            herdr=_herdr(env.get("HIVE_GATEWAY_HERDR", "").strip()),
         )
 
 
@@ -100,6 +103,17 @@ def _fleet_up(value: str) -> Path | None:
     if value == "off":
         return None
     return Path(value).expanduser() if value else DEFAULT_FLEET_UP
+
+
+def _herdr(value: str) -> Path | None:
+    """The configured binary, else ``herdr`` on PATH or in ``~/.local/bin``."""
+    if value:
+        return Path(value).expanduser()
+    found = shutil.which("herdr")
+    if found:
+        return Path(found)
+    local = Path("~/.local/bin/herdr").expanduser()
+    return local if local.is_file() else None
 
 
 def _lavish_state(value: str) -> Path | None:

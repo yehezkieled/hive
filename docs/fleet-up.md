@@ -66,7 +66,15 @@ without a terminal. Two separate actions, each offered only in its own state:
   session): stops that one firstmate session and then runs the same fleet-up
   step to start a fresh one. It signals only the single `claude` process whose
   working directory is firstmate's home, by pid (SIGTERM, then SIGKILL after 10 s);
-  never a worker, a crew or a broad `pkill`. It refuses, stopping nothing, when
+  never a worker, a crew or a broad `pkill`. Once the process table shows no
+  firstmate `claude` left, a herdr pane at firstmate's home that still reports
+  `agent: claude` is stale (a killed session never sends its release), and
+  fleet-up would take it for a running firstmate. So that one pane's report is
+  released with `herdr pane release-agent --source hive-wake --agent claude
+  <pane>` (no other pane; a failed release is logged, not fatal). After the
+  start step it waits up to 10 s for a new firstmate process, and reports
+  success only then; otherwise it says the old session was stopped but a new one
+  did not start, to run `scripts/fleet-up.sh --only firstmate` from a terminal. It refuses, stopping nothing, when
   more than one such process runs, or when Claude Code's records show a turn in
   the last 5 minutes (the session's `~/.claude/sessions/<pid>.json` saying
   `busy`, or a transcript under `~/.claude/projects/<firstmate home>/` written

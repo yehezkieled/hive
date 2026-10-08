@@ -55,12 +55,29 @@ def _status(state: str, pids: tuple[int, ...] | None = None) -> FirstmateStatus:
     return FirstmateStatus(state, pids, beat, time.time())
 
 
+NEW_PID = 5151
+
+
+class World:
+    """The fake process table and herdr state the fakes below share; nothing real."""
+
+    def __init__(self, state: str, pids: tuple[int, ...] | None = None) -> None:
+        self.state = state
+        self.pids = _status(state, pids).pids
+        self.stale_pane = False  # herdr still reports claude on firstmate's pane
+        self.stopped = False  # the killer ended a session; the next start shows a new one
+
+    def status(self, _home: Path) -> FirstmateStatus:
+        return _status(self.state, self.pids)
+
+
 class Killer:
     """Records signals instead of sending them; the pid is gone once it has had SIGTERM."""
 
     def __init__(self, stubborn: bool = False) -> None:
         self.sent: list[tuple[int, int]] = []
         self.stubborn = stubborn
+        self.world: World | None = None
 
     def __call__(self, pid: int, sig: int) -> None:
         if sig == 0:
@@ -68,10 +85,18 @@ class Killer:
                 raise ProcessLookupError
             return
         self.sent.append((pid, sig))
+        if sig == signal.SIGTERM and not self.stubborn and self.world is not None:
+            self.world.pids = tuple(p for p in self.world.pids if p != pid)
+            if not self.world.pids:
+                self.world.state, self.world.stopped = "down", True
 
 
 class Fake:
-    """A runner that records calls instead of starting anything."""
+    """A runner that records calls; like fleet-up, it starts nothing over a stale pane.
+
+    After a restart's stop, a start shows a new session in the shared world, so the
+    restart's verification can see it; a plain wake leaves the world as it is.
+    """
 
     def __init__(
         self, code: int = 0, out: str = "fleet-up: firstmate: started in pane w1:p1"
@@ -79,10 +104,36 @@ class Fake:
         self.calls = 0
         self.code = code
         self.out = out
+        self.world: World | None = None
 
     async def __call__(self) -> tuple[int, str]:
         self.calls += 1
+        w = self.world
+        if w is not None and w.stale_pane:
+            return 0, "fleet-up: firstmate: already running in a herdr pane at /x; nothing to do"
+        if w is not None and w.stopped and self.code == 0 and "started in pane" in self.out:
+            w.pids, w.state = (NEW_PID,), "no-beat"
         return self.code, self.out
+
+
+class FakeHerdr:
+    """Pane list and release-agent, recorded; a release clears the shared stale pane."""
+
+    def __init__(self, panes: list[dict] | None = None, fail: bool = False) -> None:
+        self._panes = panes or []
+        self.fail = fail
+        self.released: list[tuple[str, str]] = []
+        self.world: World | None = None
+
+    def panes(self) -> list[dict]:
+        if self.fail:
+            raise OSError("herdr not running")
+        return self._panes
+
+    def release(self, pane_id: str, agent: str) -> None:
+        self.released.append((pane_id, agent))
+        if self.world is not None:
+            self.world.stale_pane = False
 
 
 def _settings(tmp_path: Path) -> GatewaySettings:
@@ -110,16 +161,23 @@ def _service(
     killer: Killer | None = None,
     active_s: float | None = None,
     pids: tuple[int, ...] | None = None,
+    herdr: FakeHerdr | None = None,
+    stale_pane: bool = False,
 ) -> WakeService:
     settings = _settings(tmp_path)
-    cache = StatusCache(settings, reader=lambda _home: _status(state, pids))
+    world = World(state, pids)
+    world.stale_pane = stale_pane
+    killer = killer or Killer()
+    herdr = herdr or FakeHerdr()
+    runner.world = killer.world = herdr.world = world
     return WakeService(
         settings,
         runner=runner,
-        status=cache,
+        status=StatusCache(settings, reader=world.status),
         cooldown_s=cooldown,
-        killer=killer or Killer(),
+        killer=killer,
         activity=lambda _pid: active_s,
+        herdr=herdr,  # type: ignore[arg-type]
     )
 
 
@@ -388,11 +446,63 @@ async def test_restart_will_not_guess_between_two_sessions(tmp_path: Path) -> No
     assert (result.outcome, runner.calls, killer.sent) == ("refused", 0, [])
 
 
-async def test_restart_reports_a_stop_without_a_new_session_as_failed(tmp_path: Path) -> None:
-    out = "fleet-up: firstmate: already running in a herdr pane at /x; nothing to do"
-    result = await _service(tmp_path, "no-beat", Fake(out=out)).restart("a", "desk")
+@pytest.fixture
+def quick_verify(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hive.gateway.wake.VERIFY_WAIT_S", 0.05)
+
+
+def _pane(pane_id: str, cwd: Path | str, agent: str | None = "claude") -> dict:
+    pane = {"pane_id": pane_id, "cwd": str(cwd), "foreground_cwd": str(cwd)}
+    if agent is not None:
+        pane["agent"] = agent
+    return pane
+
+
+async def test_restart_without_a_new_session_is_a_failure_not_a_success(
+    tmp_path: Path, quick_verify: None
+) -> None:
+    out = "fleet-up: firstmate: a claude process already runs in /x; not starting a second"
+    svc = _service(tmp_path, "no-beat", Fake(out=out))
+    result = await svc.restart("a", "desk")
     assert (result.outcome, result.ok) == ("failed", False)
-    assert "no new session started" in result.message
+    assert "a new one did not start" in result.message and "from a terminal" in result.message
+    assert "action=restart" in svc.audit_path.read_text()
+    assert "outcome=failed" in svc.audit_path.read_text()
+
+
+async def test_restart_releases_only_firstmates_stale_pane_then_starts(tmp_path: Path) -> None:
+    home = _settings(tmp_path).fm_home
+    herdr = FakeHerdr(
+        [
+            _pane("w2:p1", home),  # firstmate's pane, still reporting claude after the stop
+            _pane("w3:p1", tmp_path / "crew"),  # a crew's claude elsewhere
+            _pane("w2:p6", home, agent=None),  # an idle shell in the firstmate home
+        ]
+    )
+    runner = Fake()
+    svc = _service(tmp_path, "no-beat", runner, herdr=herdr, stale_pane=True)
+    result = await svc.restart("a", "desk")
+    assert herdr.released == [("w2:p1", "claude")]
+    assert (result.outcome, runner.calls) == ("restarted", 1)
+    assert "w2:p1" in result.message
+
+
+async def test_restart_releases_nothing_when_two_panes_claim_firstmate(
+    tmp_path: Path, quick_verify: None
+) -> None:
+    home = _settings(tmp_path).fm_home
+    herdr = FakeHerdr([_pane("w2:p1", home), _pane("w4:p1", home)])
+    svc = _service(tmp_path, "no-beat", Fake(), herdr=herdr, stale_pane=True)
+    result = await svc.restart("a", "desk")
+    assert herdr.released == [] and result.outcome == "failed"
+
+
+async def test_a_failed_release_is_not_fatal(tmp_path: Path) -> None:
+    runner = Fake()
+    svc = _service(tmp_path, "no-beat", runner, herdr=FakeHerdr(fail=True))
+    result = await svc.restart("a", "desk")
+    assert (result.outcome, runner.calls) == ("restarted", 1)
+    assert "Could not release" in result.message
 
 
 async def test_restart_and_wake_share_the_rate_limit(tmp_path: Path) -> None:
