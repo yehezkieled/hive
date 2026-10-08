@@ -339,6 +339,8 @@ def create_app(
         wants_json = request.headers.get("accept", "") == "application/json"
         if not tokens.check_csrf(form.get("csrf", "")):
             return forbidden()
+        if name == "chat":  # needs no snapshot, so a send never waits on one
+            return await _chat(form, settings, nxt, wants_json)
         try:
             snap = await provider.get(fresh=True)
             if snap.data is None:
@@ -359,6 +361,25 @@ def create_app(
         return HTMLResponse(pages.render_outcome(result, nxt))
 
     return app
+
+
+async def _chat(
+    form: dict[str, str], settings: GatewaySettings, nxt: str, wants_json: bool
+) -> Response:
+    try:
+        text = actions.check_text(form.get("text", ""), "message")
+        result = await actions.send_note_bounded(settings, text, form.get("rid", ""), "chat", "-")
+    except ActionError as exc:
+        actions.audit("chat", "-", "refused", status=exc.status)
+        if wants_json:
+            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
+        return pages_error("chat", str(exc), nxt, exc.status)
+    if wants_json:
+        return JSONResponse(
+            {"ok": True, "message": result.summary, "id": result.ref, "pending": result.pending},
+            status_code=202 if result.pending else 200,
+        )
+    return HTMLResponse(pages.render_outcome(result, nxt))
 
 
 def _lane_item(desk: Desk, project: str, item_id: str) -> Item | None:
@@ -440,10 +461,6 @@ async def _dispatch(
         text = actions.check_text(form.get("text", ""), "answer")
         body = actions.decision_note_body(task, key, text, owner)
         return await actions.send_note(settings, body, rid, "decision", f"{task}/{key}")
-
-    if name == "chat":
-        text = actions.check_text(form.get("text", ""), "message")
-        return await actions.send_note(settings, text, rid, "chat", "-")
 
     if name == "delegate":
         text = actions.check_text(form.get("text", ""), "goal")

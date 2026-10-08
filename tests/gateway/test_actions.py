@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import re
 import stat
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
 
+from hive.gateway import actions
 from hive.gateway.actions import Tokens
 from hive.gateway.app import create_app
 from hive.gateway.settings import GatewaySettings
@@ -142,7 +144,7 @@ def test_writes_refused_when_snapshot_unusable(tmp_path: Path) -> None:
     _script(tmp_path, "fm-inbox.sh", 'rec "$@"')
     settings = GatewaySettings(owner_login=OWNER, allowed_hosts=(HOST,), fm_home=tmp_path)
     c = TestClient(create_app(settings, tokens=CSRF), client=("127.0.0.1", 5000))
-    res = post(c, "chat", text="hi")
+    res = post(c, "delegate", text="hi")
     assert res.status_code == 503
     assert _calls(tmp_path) == []
 
@@ -260,7 +262,7 @@ def test_chat_sends_note_with_request_id(client: TestClient, home: Path) -> None
     ("reply", "shown"),
     [
         ('echo \'{"outcome":"created"}\'; exit 3', "has not been woken yet"),
-        ('echo \'{"outcome":"replay"}\'', "Already sent"),
+        ('echo \'{"outcome":"replay"}\'', "Sent to the first mate."),  # same as the first call
     ],
 )
 def test_chat_shows_the_inbox_outcome(
@@ -269,6 +271,82 @@ def test_chat_shows_the_inbox_outcome(
     _script(home, "fm-inbox.sh", f'case "$1" in\n  note) cat >/dev/null; {reply} ;;\nesac')
     res = post(client, "chat", text="status please")
     assert res.status_code == 200 and shown in res.text
+
+
+def _json_post(client: TestClient, **fields: str):
+    data = {"csrf": CSRF.csrf(), "next": "/chat", "rid": RID, **fields}
+    return client.post(
+        "/act/chat", content=urlencode(data), headers={**GOOD, "accept": "application/json"}
+    )
+
+
+def test_chat_json_returns_the_note_id(client: TestClient) -> None:
+    res = _json_post(client, text="hello")
+    assert res.status_code == 200
+    assert res.json() == {
+        "ok": True,
+        "message": "Sent to the first mate.",
+        "id": "n1",
+        "pending": False,
+    }
+
+
+def test_chat_replay_is_success_in_json_and_html(client: TestClient, home: Path) -> None:
+    _script(
+        home,
+        "fm-inbox.sh",
+        'case "$1" in\n  note) cat >/dev/null; echo \'{"outcome":"replay","id":"n1"}\' ;;\nesac',
+    )
+    res = _json_post(client, text="hello")
+    assert res.status_code == 200 and res.json()["ok"] is True and res.json()["id"] == "n1"
+    html = post(client, "chat", text="hello")
+    assert html.status_code == 200 and "Sent to the first mate." in html.text
+    assert "Already sent" not in html.text
+
+
+def test_chat_never_waits_for_the_snapshot(client: TestClient, home: Path) -> None:
+    _script(home, "fm-fleet-snapshot.sh", "sleep 30")
+    start = time.monotonic()
+    res = _json_post(client, text="hello")
+    assert res.status_code == 200 and time.monotonic() - start < 5
+
+
+def test_chat_slow_inbox_does_not_hold_the_response(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(actions, "NOTE_WAIT_S", 0.3)
+    _script(
+        home,
+        "fm-inbox.sh",
+        'case "$1" in\n  note) cat >/dev/null; sleep 3; '
+        'echo \'{"outcome":"created","id":"n9"}\' ;;\nesac',
+    )
+    start = time.monotonic()
+    res = _json_post(client, text="hello")
+    took = time.monotonic() - start
+    assert took < 2, took
+    assert res.status_code == 202
+    assert res.json()["ok"] is True and res.json()["pending"] is True
+
+
+def test_chat_inbox_failure_is_a_json_error(client: TestClient, home: Path) -> None:
+    _script(home, "fm-inbox.sh", 'cat >/dev/null; echo "disk full"; exit 1')
+    res = _json_post(client, text="hello")
+    assert res.status_code == 502
+    assert res.json()["ok"] is False and "disk full" in res.json()["message"]
+
+
+def test_chat_empty_message_is_a_json_error(client: TestClient, home: Path) -> None:
+    res = _json_post(client, text="  ")
+    assert res.status_code == 400 and res.json()["ok"] is False
+    assert _calls(home) == []
+
+
+def test_chat_page_wires_enter_to_send(client: TestClient) -> None:
+    html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
+    assert "class='chatf'" in html and "enterkeyhint=send" in html
+    # Enter sends; Shift+Enter (and IME composition) falls through to a newline
+    assert "e.key!=='Enter'||e.shiftKey||e.isComposing" in html
 
 
 def test_chat_rejects_bad_request_id_and_empty(client: TestClient, home: Path) -> None:
@@ -310,7 +388,7 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
     (home / "receipts.json").write_text(json.dumps(receipts))
     html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
     assert "done, applied" in html and "Answered" in html
-    assert "waiting for the first mate" in html and "ticket request" in html
+    assert "Sent" in html and "ticket request" in html and "data-id='n2'" in html
     assert "<b>note</b>" not in html and "&lt;b&gt;note&lt;/b&gt;" in html
     assert re.search(r"/act/chat", html)
     # a conversation: oldest first, the reply right after its message, newest last
@@ -550,3 +628,10 @@ def test_delegate_answers_a_fetch_with_json_so_the_desk_stays_put(
 def test_a_fresh_desk_render_carries_a_fresh_delegate_request_id(client: TestClient) -> None:
     rids = {_hidden(client.get("/", headers=GOOD).text, "rid") for _ in range(2)}
     assert len(rids) == 2
+
+
+def test_chat_is_one_pinned_screen(client: TestClient) -> None:
+    html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
+    assert "<body data-poll=4000 class=chatpage>" in html or "class=chatpage" in html
+    assert "id=jump" in html and "visualViewport" in html  # new-messages button, keyboard fit
+    assert ".chatpage .thread{flex:1;min-height:0" in html and "min-height:44px" in html
