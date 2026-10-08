@@ -49,7 +49,6 @@ class Outcome:
     action: str
     subject: str
     summary: str  # sanitised script output, safe to show
-    ref: str = ""  # the saved note's id, when one is known
     pending: bool = False  # still being recorded in the background
 
 
@@ -275,8 +274,7 @@ async def send_note(
         summary = "Saved; the first mate has not been woken yet and will see it on its next pass."
     else:  # a replay reads exactly like the first call: the owner asked for it once, it is sent
         summary = "Sent to the first mate."
-    note_id = info.get("id") if isinstance(info, dict) else None
-    return Outcome(action, subject, summary, note_id if isinstance(note_id, str) else "")
+    return Outcome(action, subject, summary)
 
 
 _background: set[asyncio.Task] = set()
@@ -288,9 +286,8 @@ async def send_note_bounded(
     request_id: str,
     action: str,
     subject: str,
-    wait_s: float | None = None,
 ) -> Outcome:
-    """``send_note``, but never holds the caller longer than ``wait_s``.
+    """``send_note``, but never holds the caller longer than ``NOTE_WAIT_S``.
 
     ``fm-inbox.sh note`` saves the note and then waits for firstmate's wake-queue lock, which
     can take seconds on a busy fleet. A slower call keeps running to its own timeout and the
@@ -299,7 +296,7 @@ async def send_note_bounded(
     task = asyncio.ensure_future(send_note(settings, body, request_id, action, subject))
     _background.add(task)
     task.add_done_callback(_background.discard)
-    done, _ = await asyncio.wait({task}, timeout=NOTE_WAIT_S if wait_s is None else wait_s)
+    done, _ = await asyncio.wait({task}, timeout=NOTE_WAIT_S)
     if task in done:
         return task.result()
 

@@ -23,6 +23,7 @@ class Receipt:
     state: str  # pending | seen | replied
     reply: str | None
     reply_at: str | None
+    request_id: str
 
 
 @dataclass
@@ -75,6 +76,7 @@ def parse_receipts(data: dict) -> tuple[list[Receipt], list[str]]:
                     state,
                     _s(reply.get("body")) if reply else None,
                     _s(reply.get("at")) if reply else None,
+                    _s(item.get("request_id")),
                 )
             )
     out.sort(key=lambda r: r.at, reverse=True)

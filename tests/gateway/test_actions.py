@@ -6,6 +6,7 @@ import json
 import re
 import stat
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -280,15 +281,10 @@ def _json_post(client: TestClient, **fields: str):
     )
 
 
-def test_chat_json_returns_the_note_id(client: TestClient) -> None:
+def test_chat_json_answers_sent(client: TestClient) -> None:
     res = _json_post(client, text="hello")
     assert res.status_code == 200
-    assert res.json() == {
-        "ok": True,
-        "message": "Sent to the first mate.",
-        "id": "n1",
-        "pending": False,
-    }
+    assert res.json() == {"ok": True, "message": "Sent to the first mate.", "pending": False}
 
 
 def test_chat_replay_is_success_in_json_and_html(client: TestClient, home: Path) -> None:
@@ -298,7 +294,7 @@ def test_chat_replay_is_success_in_json_and_html(client: TestClient, home: Path)
         'case "$1" in\n  note) cat >/dev/null; echo \'{"outcome":"replay","id":"n1"}\' ;;\nesac',
     )
     res = _json_post(client, text="hello")
-    assert res.status_code == 200 and res.json()["ok"] is True and res.json()["id"] == "n1"
+    assert res.status_code == 200 and res.json()["ok"] is True
     html = post(client, "chat", text="hello")
     assert html.status_code == 200 and "Sent to the first mate." in html.text
     assert "Already sent" not in html.text
@@ -342,11 +338,38 @@ def test_chat_empty_message_is_a_json_error(client: TestClient, home: Path) -> N
     assert _calls(home) == []
 
 
-def test_chat_page_wires_enter_to_send(client: TestClient) -> None:
-    html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
-    assert "class='chatf'" in html and "enterkeyhint=send" in html
-    # Enter sends; Shift+Enter (and IME composition) falls through to a newline
-    assert "e.key!=='Enter'||e.shiftKey||e.isComposing" in html
+class _Tags(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append((tag, dict(attrs)))
+
+    def find(self, tag: str, **want: str) -> list[dict[str, str | None]]:
+        return [
+            a
+            for t, a in self.tags
+            if t == tag
+            and all(
+                v in (a.get("class") or "").split() if k == "class_" else a.get(k) == v
+                for k, v in want.items()
+            )
+        ]
+
+
+def _tags(html: str) -> _Tags:
+    p = _Tags()
+    p.feed(html)
+    return p
+
+
+def test_chat_page_is_a_send_form_with_a_send_key(client: TestClient) -> None:
+    tags = _tags(client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text)
+    (form,) = tags.find("form", class_="chatf")
+    assert form["action"] == "/act/chat" and form["method"].lower() == "post"
+    (box,) = tags.find("textarea", name="text")
+    assert box["enterkeyhint"] == "send" and "required" in box
 
 
 def test_chat_rejects_bad_request_id_and_empty(client: TestClient, home: Path) -> None:
@@ -362,6 +385,7 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
             {
                 "id": "n2",
                 "at": "2030-01-02T00:00:02Z",
+                "request_id": "web-00000000000000a2",
                 "body": "later <b>note</b>",
                 "acknowledged": False,
                 "reply": None,
@@ -388,7 +412,9 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
     (home / "receipts.json").write_text(json.dumps(receipts))
     html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
     assert "done, applied" in html and "Answered" in html
-    assert "Sent" in html and "ticket request" in html and "data-id='n2'" in html
+    assert "Sent" in html and "ticket request" in html
+    mine = _tags(html).find("div", class_="me")
+    assert [m.get("data-rid") for m in mine] == [None, "web-00000000000000a2", None]
     assert "<b>note</b>" not in html and "&lt;b&gt;note&lt;/b&gt;" in html
     assert re.search(r"/act/chat", html)
     # a conversation: oldest first, the reply right after its message, newest last
@@ -630,8 +656,11 @@ def test_a_fresh_desk_render_carries_a_fresh_delegate_request_id(client: TestCli
     assert len(rids) == 2
 
 
-def test_chat_is_one_pinned_screen(client: TestClient) -> None:
-    html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
-    assert "<body data-poll=4000 class=chatpage>" in html or "class=chatpage" in html
-    assert "id=jump" in html and "visualViewport" in html  # new-messages button, keyboard fit
-    assert ".chatpage .thread{flex:1;min-height:0" in html and "min-height:44px" in html
+def test_chat_is_one_screen_with_a_thread_dock_and_jump_button(client: TestClient) -> None:
+    tags = _tags(client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text)
+    (body,) = tags.find("body", class_="chatpage")
+    assert body["data-poll"] == "4000"
+    assert tags.find("div", id="thread", class_="thread")
+    (jump,) = tags.find("button", id="jump")
+    assert jump["type"] == "button" and "hidden" in jump
+    assert tags.find("div", class_="dock")

@@ -101,7 +101,8 @@ min-height:32px}
 background:var(--card)}
 .msg.me{align-self:flex-end;border-color:var(--acc)}.msg.fm{align-self:flex-start;border-color:var(--ok)}
 .msg .meta{display:block;color:var(--mute);font-size:.78rem;margin-top:4px}
-.msg.is-err{border-color:var(--accent)}.msg .meta button{min-height:0;padding:0 8px;margin-left:6px}
+.msg.is-err{border-color:var(--accent)}.msg.is-err .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.msg .meta button{min-height:44px;padding:0 16px}
 .dock{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(8px + env(safe-area-inset-bottom));
 border-top:1px solid var(--line)}
 .dock form{margin:0}.dock textarea{min-height:3rem}
@@ -397,9 +398,9 @@ function jump(on){if(jb)jb.hidden=!on;}
 if(th&&jb){jb.onclick=function(){bottom();jump(false);};th.addEventListener('scroll',function(){if(atBottom())jump(false);});}
 if(th)bottom();
 var locals=[];
-function hasId(id){var a=th.children;for(var i=0;i<a.length;i++)if(a[i].getAttribute('data-id')===id)return true;return false;}
+function hasRid(rid){var a=th.children;for(var i=0;i<a.length;i++)if(a[i].getAttribute('data-rid')===rid)return true;return false;}
 function lsync(){for(var i=locals.length-1;i>=0;i--){var m=locals[i];
-if(m.id&&hasId(m.id)){if(m.el.parentNode)m.el.parentNode.removeChild(m.el);locals.splice(i,1);}
+if(hasRid(m.rid)){if(m.el.parentNode)m.el.parentNode.removeChild(m.el);locals.splice(i,1);}
 else if(m.el.parentNode!==th)th.appendChild(m.el);}}
 function refreshThread(){if(document.hidden||sel())return;load(function(doc){
 var n=doc.getElementById('thread');if(!n||sel())return;
@@ -503,20 +504,21 @@ var cf=document.querySelector('form.chatf');
 function lmeta(m,t,err){var s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
 if(err){var r=document.createElement('button');r.type='button';r.className='quiet';r.textContent='Retry';
 r.onclick=function(){send(m,0);};s.appendChild(r);}}
-function send(m,n){lmeta(m,'Sending\u2026');
+function send(m,n){if(locals.indexOf(m)<0)return;lmeta(m,'Sending\u2026');
 fetch(cf.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},
 body:new URLSearchParams({text:m.text,rid:m.rid,csrf:cf.elements.csrf.value,next:'/chat'})})
-.then(function(r){return r.json();}).then(function(j){
+.then(function(r){if((r.headers.get('content-type')||'').indexOf('application/json')<0)throw r.status;
+return r.json();}).then(function(j){if(locals.indexOf(m)<0)return;
 if(!j.ok){lmeta(m,'Not sent: '+(j.message||'try again'),true);return;}
-if(j.id)m.id=j.id;
 if(j.pending){if(n<4)setTimeout(function(){send(m,n+1);},3000);
-else lmeta(m,'Not confirmed. It may still arrive.',true);return;}
+else lmeta(m,'Not confirmed. It may still arrive.',true);refreshThread();return;}
 lmeta(m,'Sent');refreshThread();})
-.catch(function(){lmeta(m,'Not sent: no connection',true);});}
+.catch(function(s){lmeta(m,s===403?'Not sent: this page has expired. Reload it.':
+typeof s==='number'?'Not sent: the desk answered '+s:'Not sent: no connection',true);});}
 function chatSend(){var ta=cf.elements.text,text=ta.value.trim();if(!text)return;
 var rid=cf.elements.rid.value,el=document.createElement('div');
 el.className='msg me local';el.innerHTML='<div class=bubble></div><span class=meta></span>';
-el.firstChild.textContent=text;var m={el:el,text:text,rid:rid,id:''};locals.push(m);
+el.firstChild.textContent=text;var m={el:el,text:text,rid:rid};locals.push(m);
 var e=th.querySelector('p.empty');if(e)th.removeChild(e);
 th.appendChild(el);bottom();jump(false);ta.value='';cf.elements.rid.value=newRid();ta.focus();send(m,0);}
 if(cf&&th&&window.fetch&&window.URLSearchParams){
@@ -1363,8 +1365,9 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
     msgs = []
     for r in sorted(view.receipts, key=lambda r: r.at):  # oldest first, newest at the bottom
         kind = f"<span class=tag>{esc(_KIND_LABEL[r.kind])}</span>" if _KIND_LABEL[r.kind] else ""
+        rid = f" data-rid='{esc(r.request_id)}'" if r.request_id else ""
         msgs.append(
-            f"<div class='msg me' data-id='{esc(r.id)}'>{kind}<div class=bubble>{esc(r.body)}</div>"
+            f"<div class='msg me'{rid}>{kind}<div class=bubble>{esc(r.body)}</div>"
             f"<span class=meta>{ctx.time(r.at)} · {esc(_STATE_LABEL[r.state])}</span></div>"
         )
         if r.reply is not None:

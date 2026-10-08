@@ -376,7 +376,7 @@ async def _chat(
         return pages_error("chat", str(exc), nxt, exc.status)
     if wants_json:
         return JSONResponse(
-            {"ok": True, "message": result.summary, "id": result.ref, "pending": result.pending},
+            {"ok": True, "message": result.summary, "pending": result.pending},
             status_code=202 if result.pending else 200,
         )
     return HTMLResponse(pages.render_outcome(result, nxt))
