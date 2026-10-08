@@ -427,11 +427,11 @@ var near=atBottom();
 th.innerHTML=n.innerHTML;stamps();lsync();if(near)bottom();else jump(true);}else lsync();});}
 function reviewSheetOnly(){var d=document.querySelectorAll('dialog[open]');
 return d.length===1&&d[0].id==='rvs-sheet'&&!document.querySelector('details[open],.rv__x.is-armed')&&!sel();}
-function bare(e){var k=e.cloneNode(true),r=k.querySelectorAll('input[name=rid]');
-for(var i=0;i<r.length;i++)r[i].parentNode.removeChild(r[i]);return k.outerHTML;}
+function rsig(e){var a=e.querySelectorAll('a[href]'),h=[];
+for(var i=0;i<a.length;i++)h.push(a[i].getAttribute('href'));return h.join(' ')+' '+e.textContent;}
 function swapReviews(doc){var n=doc.querySelector('.rvs'),o=document.querySelector('.rvs');
 if(!o)return;if(!n){o.parentNode.removeChild(o);return;}
-if(bare(n)===bare(o))return;
+if(rsig(n)===rsig(o))return;
 var d=o.querySelector('dialog[open]'),sl=d?d.querySelector('.sheet__list'):null,st=sl?sl.scrollTop:0,
 bl=o.querySelector('.rv__list'),bt=bl?bl.scrollTop:0;
 o.outerHTML=n.outerHTML;

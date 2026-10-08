@@ -978,6 +978,25 @@ def test_a_live_refresh_updates_an_open_review_sheet_in_place(tmp_path: Path) ->
     assert r["edited"] and r["scroll"] == 50  # and shows the new list where it was scrolled
 
 
+UNCHANGED_SHEET_DRIVER = """
+window.__next=document.documentElement.outerHTML
+ .replace(/name="rid" value="[^"]*"/g,'name="rid" value="fresh"');
+click(q('.rv__morebtn'));
+var d=q('#rvs-sheet'),row=d.querySelector('.sheet__list a.rv');row.focus();
+for(var i=0;i<2;i++){window.__es.l.desk();await new Promise(function(r){setTimeout(r,300);});}
+R.same=q('#rvs-sheet')===d;R.open=d.open;R.focusKept=document.activeElement===row;
+"""
+
+
+@needs_chrome
+def test_a_live_refresh_with_an_unchanged_list_leaves_the_open_sheet_alone(
+    tmp_path: Path,
+) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), UNCHANGED_SHEET_DRIVER, (1440, 900), prelude=FAKE_LIVE)
+    assert r["same"] and r["open"]  # not re-rendered or re-opened
+    assert r["focusKept"]  # so focus stays where the captain left it
+
+
 # ---- Projects shown by their GitHub repo name -------------------------------------
 
 
