@@ -6,15 +6,21 @@ session key on the tailnet board URL, never copied from the recorded local addre
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _KEY = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 _MAX_STATE = 8 * 1024 * 1024
 _MAX_HEAD = 8192
+# The nudge: a page untouched this long, or any page beyond the newest few, looks done.
+STALE_AFTER_S = 2 * 24 * 3600
+KEEP_OPEN = 8
 
 
 @dataclass(frozen=True)
@@ -24,6 +30,7 @@ class Review:
     project: str
     reply: bool  # the agent answered last: a reply is waiting for the owner
     updated: str
+    stale: bool = False  # looks done: old, or beyond the newest ``KEEP_OPEN`` open pages
 
 
 def _title(file: Path) -> str:
@@ -46,8 +53,50 @@ def _project(file: Path, projects: set[str]) -> str:
     return ""
 
 
-def read_reviews(state: Path | None, projects: set[str]) -> list[Review]:
-    """Open sessions, reply-waiting first, then most recently updated. Unreadable state is empty."""
+def state_signature(state: Path | None) -> tuple[int, int] | None:
+    """(mtime, size) of the Lavish state file: one ``stat``, so the live watcher can poll it."""
+    if state is None:
+        return None
+    try:
+        st = state.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def digest(reviews: list[Review]) -> str:
+    """What the Review pages list shows; changes when a page opens, closes or gets a reply."""
+    shown = [(r.key, r.title, r.reply, r.stale) for r in reviews]
+    return hashlib.sha256(repr(shown).encode()).hexdigest()
+
+
+def _age_s(updated: str, now: float) -> float | None:
+    try:
+        return now - datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _mark_stale(reviews: list[Review], now: float) -> list[Review]:
+    """Flag pages that look done: older than two days, plus the oldest ones beyond eight open.
+
+    A page the agent has answered (a reply waits for the owner) is never flagged.
+    """
+    over = max(0, len(reviews) - KEEP_OPEN)
+    flagged = {
+        r.key for r in reviews if not r.reply and (_age_s(r.updated, now) or 0) > STALE_AFTER_S
+    }
+    for r in sorted(reviews, key=lambda r: r.updated):
+        if len(flagged) >= over:
+            break
+        if not r.reply:
+            flagged.add(r.key)
+    return [
+        Review(r.key, r.title, r.project, r.reply, r.updated, r.key in flagged) for r in reviews
+    ]
+
+
+def _sessions(state: Path | None) -> list[dict]:
     if state is None:
         return []
     try:
@@ -56,8 +105,23 @@ def read_reviews(state: Path | None, projects: set[str]) -> list[Review]:
         sessions = json.loads(state.read_text()).get("sessions")
     except (OSError, ValueError, AttributeError):
         return []
+    return (
+        [s for s in sessions.values() if isinstance(s, dict)] if isinstance(sessions, dict) else []
+    )
+
+
+def session_file(state: Path | None, key: str) -> Path | None:
+    """The artifact file of an open session, looked up by key (never taken from a request)."""
+    for s in _sessions(state):
+        if s.get("status") == "open" and s.get("key") == key and isinstance(s.get("file"), str):
+            return Path(s["file"])
+    return None
+
+
+def read_reviews(state: Path | None, projects: set[str], now: float | None = None) -> list[Review]:
+    """Open sessions, reply-waiting first, then most recently updated. Unreadable state is empty."""
     out: list[Review] = []
-    for s in sessions.values() if isinstance(sessions, dict) else []:
+    for s in _sessions(state):
         if not isinstance(s, dict) or s.get("status") != "open":
             continue
         key, file = s.get("key"), s.get("file")
@@ -76,6 +140,7 @@ def read_reviews(state: Path | None, projects: set[str]) -> list[Review]:
                 updated,
             )
         )
+    out = _mark_stale(out, time.time() if now is None else now)
     out.sort(key=lambda r: r.updated, reverse=True)
     out.sort(key=lambda r: not r.reply)
     return out

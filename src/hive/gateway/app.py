@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, quote
@@ -30,7 +32,7 @@ from hive.gateway.live import LiveHub
 from hive.gateway.push import PushService, valid_subscription
 from hive.gateway.quota import Quota, QuotaProvider
 from hive.gateway.repos import RepoNames
-from hive.gateway.reviews import read_reviews
+from hive.gateway.reviews import Review, read_reviews, session_file
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
 from hive.gateway.tail import peek
@@ -47,6 +49,8 @@ SECURITY_HEADERS = {
     ),
 }
 MAX_BODY = 64 * 1024
+REVIEW_ACTIONS = ("review-close", "review-close-old")
+MAX_REVIEW_KEYS = 100
 PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
 ICONS_DIR = Path(__file__).resolve().parents[1] / "web" / "static" / "icons"
 FONTS_DIR = Path(__file__).resolve().parent / "static" / "fonts"
@@ -174,6 +178,7 @@ def create_app(
             quota=q,
             descriptions=_cached_descriptions(describer, desk),
             repos=repos,
+            can_close_reviews=settings.lavish_axi is not None,
         )
 
     async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
@@ -341,6 +346,11 @@ def create_app(
             return forbidden()
         if name == "chat":  # needs no snapshot, so a send never waits on one
             return await _chat(form, settings, nxt, wants_json)
+        if name in REVIEW_ACTIONS:  # Lavish state, not the snapshot
+            keys = parse_qs(body.decode("utf-8", "replace")).get("key", [])
+            return await _review_action(
+                name, form, keys, settings, tokens, runs, nxt, wants_json, hub.publish
+            )
         try:
             snap = await provider.get(fresh=True)
             if snap.data is None:
@@ -380,6 +390,130 @@ async def _chat(
             status_code=202 if result.pending else 200,
         )
     return HTMLResponse(pages.render_outcome(result, nxt))
+
+
+def _step_subject(name: str, keys: list[str]) -> str:
+    """What a confirm step is bound to: the action and exactly the pages it will end."""
+    return f"{name}:{hashlib.sha256(chr(31).join(sorted(keys)).encode()).hexdigest()[:24]}"
+
+
+def _titles(reviews: list[Review], keys: list[str]) -> str:
+    names = {r.key: r.title for r in reviews}
+    shown = [f"“{names.get(k, k)}”" for k in keys[:8]]
+    more = f" and {len(keys) - 8} more" if len(keys) > 8 else ""
+    return ", ".join(shown) + more
+
+
+async def _review_action(
+    name: str,
+    form: dict[str, str],
+    posted: list[str],
+    settings: GatewaySettings,
+    tokens: Tokens,
+    runs: RunOnce,
+    nxt: str,
+    wants_json: bool,
+    publish: Callable[[str], None],
+) -> Response:
+    """End Lavish review sessions: ``review-close`` one page, ``review-close-old`` every page
+    that looks done. Nothing runs until the owner's confirm step returns the step token for
+    exactly these pages. The session's file is read from Lavish's state, never from the request.
+    """
+
+    def fail(exc: ActionError) -> Response:
+        actions.audit(name, "-", "refused", status=exc.status)
+        if wants_json:
+            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
+        return pages_error(name, str(exc), nxt, exc.status)
+
+    def done(summary: str) -> Response:
+        publish("desk")
+        if wants_json:
+            return JSONResponse({"ok": True, "message": summary})
+        return HTMLResponse(pages.render_outcome(Outcome(name, "-", summary), nxt))
+
+    try:
+        reviews = await asyncio.to_thread(read_reviews, settings.lavish_state, set())
+        if name == "review-close":
+            key = actions.check_id(form.get("key", ""), "review page")
+            keys = [key] if any(r.key == key for r in reviews) else []
+            if not keys:
+                return done("That review page is already closed.")
+            label, what = (
+                "Close review page",
+                f"end the Lavish review session {_titles(reviews, keys)}",
+            )
+        else:
+            if "keys" in form:  # the confirmed list, re-checked against what is open now
+                keys = [k for k in form["keys"].split(",") if k]
+                if len(keys) > MAX_REVIEW_KEYS or not all(actions.ID_RE.fullmatch(k) for k in keys):
+                    raise ActionError("invalid review page list")
+            else:
+                keys = [r.key for r in reviews if r.stale]
+            if not keys:
+                return done("No review pages look done.")
+            label, what = (
+                "Close old review pages",
+                (
+                    f"end {len(keys)} Lavish review session{'s' if len(keys) != 1 else ''}: "
+                    f"{_titles(reviews, keys)}"
+                ),
+            )
+        subject = _step_subject(name, keys)
+        rid = form.get("rid", "")
+        if not tokens.check_step_up(form.get("step", ""), "review", subject):
+            step = tokens.step_up("review", subject)
+            rid = rid if actions.REQUEST_ID_RE.fullmatch(rid) else actions.new_request_id()
+            extra = {"keys": ",".join(keys)} if name == "review-close-old" else {}
+            if wants_json:
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "confirm": True,
+                        "step": step,
+                        "rid": rid,
+                        "extra": extra,
+                        "label": "Tap again to close"
+                        if len(keys) == 1
+                        else f"Tap again: close {len(keys)}",
+                    }
+                )
+            ctx = pages.Ctx(tokens.csrf(), True, nxt, settings.board_url, settings.default_tz)
+            return HTMLResponse(
+                pages.render_confirm(
+                    label,
+                    f"This will {what}. The pages themselves are kept.",
+                    name,
+                    ctx,
+                    {"key": keys[0], "rid": rid, "step": step, **extra}
+                    if name == "review-close"
+                    else {"rid": rid, "step": step, **extra},
+                )
+            )
+        if not actions.REQUEST_ID_RE.fullmatch(rid):
+            raise ActionError("invalid request id")
+
+        async def run() -> Outcome:
+            ended = failed = 0
+            for key in keys:
+                file = await asyncio.to_thread(session_file, settings.lavish_state, key)
+                if file is None:  # closed meanwhile: nothing to do
+                    continue
+                if await actions.end_review(settings, key, str(file)):
+                    ended += 1
+                else:
+                    failed += 1
+            text = f"Closed {ended} review page{'s' if ended != 1 else ''}."
+            if failed:
+                text += f" {failed} could not be closed."
+                if not ended:
+                    raise ActionError(text, 502)
+            return Outcome(name, "-", text)
+
+        result = await runs.run(rid, run)
+    except ActionError as exc:
+        return fail(exc)
+    return done(result.summary)
 
 
 def _lane_item(desk: Desk, project: str, item_id: str) -> Item | None:

@@ -58,6 +58,8 @@ class GatewaySettings:
     rate_limits: Path | None = None
     # Lavish's session state, read-only, for the Review pages list; None leaves the list out.
     lavish_state: Path | None = None
+    # The ``lavish-axi`` binary that ends a review session; None hides the Close buttons.
+    lavish_axi: Path | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -84,6 +86,7 @@ class GatewaySettings:
             quota_axi=_quota_axi(env.get("HIVE_GATEWAY_QUOTA_AXI", "").strip()),
             rate_limits=_rate_limits(env.get("HIVE_GATEWAY_RATE_LIMITS", "").strip()),
             lavish_state=_lavish_state(env.get("HIVE_GATEWAY_LAVISH_STATE", "").strip()),
+            lavish_axi=_lavish_axi(env.get("HIVE_GATEWAY_LAVISH_AXI", "").strip()),
         )
 
 
@@ -92,6 +95,19 @@ def _lavish_state(value: str) -> Path | None:
     if value == "off":
         return None
     return Path(value or "~/.lavish-axi/state.json").expanduser()
+
+
+def _lavish_axi(value: str) -> Path | None:
+    """The configured binary, else ``lavish-axi`` on PATH or ``~/.local/bin``; ``off`` disables."""
+    if value == "off":
+        return None
+    if value:
+        return Path(value).expanduser()
+    found = shutil.which("lavish-axi")
+    if found:
+        return Path(found)
+    local = Path("~/.local/bin/lavish-axi").expanduser()
+    return local if local.is_file() else None
 
 
 def _rate_limits(value: str) -> Path | None:

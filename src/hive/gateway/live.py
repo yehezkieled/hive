@@ -23,6 +23,9 @@ from urllib.parse import quote
 from hive.gateway.chat import ChatView, load_chat
 from hive.gateway.desk import Desk, build_desk
 from hive.gateway.push import Alert
+from hive.gateway.reviews import digest as reviews_digest
+from hive.gateway.reviews import read_reviews
+from hive.gateway.reviews import state_signature as reviews_signature
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import SnapshotProvider
 
@@ -39,10 +42,13 @@ _NEED_TITLE = {
 
 
 def status_signature(state_dir: Path) -> tuple:
-    """(name, mtime, size) of every ``*.status`` file: changes when any worker reports."""
+    """(name, mtime, size) of every ``*.status`` file and the backlog: changes when any
+    worker reports or a task or decision moves."""
     sig = []
     try:
-        for entry in sorted(state_dir.glob("*.status")):
+        entries = sorted(state_dir.glob("*.status"))
+        entries.append(state_dir.parent / "data" / "backlog.md")
+        for entry in entries:
             try:
                 st = entry.stat()
             except OSError:
@@ -148,6 +154,8 @@ class LiveHub:
         self._seen: set[str] = set()
         self._baselines: set[str] = set()
         self._task: asyncio.Task | None = None
+        self._reviews_sig: tuple[int, int] | None = None
+        self._reviews_hash: str | None = None
 
     # ---- streams ------------------------------------------------------------------
 
@@ -199,6 +207,7 @@ class LiveHub:
                     if now - last_snap >= MIN_SNAPSHOT_GAP_S:
                         dirty, last_snap = False, now
                         desk_hash = await self._look_at_desk(desk_hash)
+                await self._look_at_reviews()
                 if now - last_receipts >= s.receipts_interval_s:
                     last_receipts = now
                     chat_hash = await self._look_at_chat(chat_hash)
@@ -224,6 +233,20 @@ class LiveHub:
         if digest != before:
             self.publish("desk")
         return digest
+
+    async def _look_at_reviews(self) -> None:
+        """Push ``desk`` when the Review pages list changes. One ``stat`` per pass; the state
+        file is only read when it moved, and nothing here waits on a snapshot."""
+        state = self._settings.lavish_state
+        sig = await asyncio.to_thread(reviews_signature, state)
+        if sig == self._reviews_sig:
+            return
+        self._reviews_sig = sig
+        shown = await asyncio.to_thread(read_reviews, state, set())
+        digest = reviews_digest(shown)
+        before, self._reviews_hash = self._reviews_hash, digest
+        if before is not None and digest != before:
+            self.publish("desk")
 
     async def _look_at_chat(self, before: str) -> str:
         view = await load_chat(self._settings)

@@ -697,10 +697,10 @@ def test_many_reviews_scroll_box_ends_in_the_more_button(tmp_path: Path) -> None
     html = _many_reviews(tmp_path, 25)
     box = html.split("<div class=rv__box>", 1)[1].split("</section>", 1)[0]
     # the scroll box holds the first rows; the "+N more" button is the box's last child
-    scroller = box.split("<div class=rv__list", 1)[1].split("</div>", 1)[0]
+    scroller, tail = box.split("<div class=rv__list", 1)[1].split(
+        "<button type=button class=rv__morebtn", 1
+    )
     assert scroller.count("<a class=rv ") == 10
-    tail = box.split("</div>", 1)[1]
-    assert tail.startswith("<button type=button class=rv__morebtn")
     assert ">+15 more</button>" in tail and "<a class=rv " not in tail.split("</button>", 1)[0]
 
 
@@ -914,6 +914,23 @@ def test_desk_is_one_page_with_independently_scrolling_panels(
         assert r["pcsec"]["bottom"] <= r["rvs"]["top"]
 
 
+BAR_ORDER_DRIVER = """
+R.note=box('.dbar-note');R.stamp=box('.dbar-wrap .stamp');R.form=box('form.dbar');
+R.sw=document.documentElement.scrollWidth;R.iw=innerWidth;
+"""
+
+
+@needs_chrome
+@pytest.mark.parametrize("size", [(390, 844), (820, 1180), (1280, 800)], ids=["390", "820", "1280"])
+def test_helper_and_updated_lines_sit_above_the_describe_bar(
+    tmp_path: Path, size: tuple[int, int]
+) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), BAR_ORDER_DRIVER, size)
+    assert r["note"]["bottom"] <= r["form"]["top"] + 0.5
+    assert r["stamp"]["bottom"] <= r["form"]["top"] + 0.5
+    assert r["sw"] <= r["iw"]  # nothing pushes the page sideways
+
+
 FAKE_LIVE = """
 window.EventSource=function(){var me=this;me.l={};me.readyState=1;window.__es=me;
 me.addEventListener=function(t,f){me.l[t]=f;};me.close=function(){};};
@@ -938,6 +955,27 @@ def test_a_live_refresh_keeps_each_panel_scrolled_where_it_was(tmp_path: Path) -
     r = _in_chrome(tmp_path, _busy_desk(), REFRESH_DRIVER, (1440, 900), prelude=FAKE_LIVE)
     assert r["replaced"]  # the desk really was re-rendered from the new page
     assert all(b > 0 for b in r["before"]) and r["after"] == r["before"]
+
+
+OPEN_SHEET_DRIVER = """
+click(q('.rv__morebtn'));
+window.__next=document.documentElement.outerHTML.replace(' open=""','')
+ .split('Review 7<').join('Review 7 (edited)<');
+var d=q('#rvs-sheet');d.querySelector('.sheet__list').scrollTop=50;
+window.__es.l.desk();
+await new Promise(function(r){setTimeout(r,300);});
+var n=q('#rvs-sheet');
+R.stillOpen=n.open;R.modal=n.matches(':modal');
+R.edited=n.textContent.indexOf('Review 7 (edited)')>=0;
+R.scroll=n.querySelector('.sheet__list').scrollTop;
+"""
+
+
+@needs_chrome
+def test_a_live_refresh_updates_an_open_review_sheet_in_place(tmp_path: Path) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), OPEN_SHEET_DRIVER, (1440, 900), prelude=FAKE_LIVE)
+    assert r["stillOpen"] and r["modal"]  # the popup stays open
+    assert r["edited"] and r["scroll"] == 50  # and shows the new list where it was scrolled
 
 
 # ---- Projects shown by their GitHub repo name -------------------------------------
