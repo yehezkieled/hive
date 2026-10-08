@@ -1220,6 +1220,7 @@ firstmate script with an argument list, never a shell string:
 | answer a captain hold | `fm-captain-hold.sh answers --any-origin --source "hive website (<owner>)"`, one `task<TAB>answer<TAB>Hive desk<TAB>done\|release` row on stdin; the owner-aware intake closes it in whichever home holds the task. Answers are one line, max 512 bytes (the intake's limit) |
 | chat, delegate, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
 | worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
+| close review page(s) | `lavish-axi end <file>` (not a firstmate script), once per page, after a confirm step; see Review pages below |
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
