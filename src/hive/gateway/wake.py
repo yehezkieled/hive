@@ -1,16 +1,20 @@
-"""Wake firstmate: a read-only liveness view and one guarded action.
+"""Wake firstmate: a read-only liveness view and two guarded actions.
 
 Status is read from firstmate's own records and never written: a ``claude`` process
 whose working directory is the firstmate home (the same test ``scripts/fleet-up.sh``
 uses) and the mtime of the watcher's ``state/.last-watcher-beat``. The desk reads it
 from a cache that refreshes in the background, so a page never waits on it.
 
-The action reuses ``scripts/fleet-up.sh --only firstmate`` and nothing else: that step
-is idempotent and never starts a second firstmate, so this module holds no start logic.
-It adds only what a remote control needs: an alive check before the script is run, a
-cross-process rate limit (the desk and the Telegram bot share one state file), and an
-audit line in a Hive-owned log. Callers must have authorised the owner before calling
-``WakeService.wake``; this module does not know who is asking, only what to record.
+Both actions start firstmate through ``scripts/fleet-up.sh --only firstmate`` and
+nothing else: that step is idempotent and never starts a second firstmate, so this
+module holds no start logic. **Wake** is for a dead session: it only runs that step.
+**Restart** is for a session that runs while its watcher is silent (connected but
+wedged): it stops that one ``claude`` process, by pid, and then runs the same step. It
+refuses, stopping nothing, when the session's Claude Code record or transcript shows a
+turn in the last few minutes. Both share a cross-process rate limit (the desk and the
+Telegram bot share one state file) and an audit line in a Hive-owned log. Callers must
+have authorised the owner first; this module does not know who is asking, only what to
+record.
 """
 
 from __future__ import annotations
@@ -18,7 +22,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fcntl
+import json
 import os
+import re
+import signal
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -31,18 +38,29 @@ STATUS_TTL_S = 15.0
 STATUS_TIMEOUT_S = 3.0
 WAKE_COOLDOWN_S = 60.0
 WAKE_TIMEOUT_S = 90.0
+ACTIVE_RECENT_S = 300.0  # a turn this recent means the session may be working, not wedged
+STOP_WAIT_S = 10.0
 _MAX_OUTPUT = 64 * 1024
+CLAUDE_HOME = Path.home() / ".claude"
 
 # (exit code, output) of the fleet-up firstmate step; replaced by a fake in tests.
 Runner = Callable[[], Awaitable[tuple[int, str]]]
+# os.kill's signature; replaced by a fake in tests so no real process is signalled.
+Killer = Callable[[int, int], None]
+# seconds since the session with this pid last showed a turn; None: no sign of one.
+Activity = Callable[[int], float | None]
 
 
 @dataclass(frozen=True)
 class FirstmateStatus:
     state: str  # "alive", "no-beat" (session up, watcher silent), "down" or "unknown"
-    session: bool  # a claude process runs in the firstmate home
+    pids: tuple[int, ...]  # claude processes running in the firstmate home
     beat_age_s: float | None  # seconds since the last watcher beat; None: no beat record
     checked_at: float
+
+    @property
+    def session(self) -> bool:
+        return bool(self.pids)
 
     @property
     def label(self) -> str:
@@ -53,8 +71,12 @@ class FirstmateStatus:
         }.get(self.state, "unknown")
 
     @property
-    def needs_wake(self) -> bool:
-        return self.state != "alive"
+    def can_wake(self) -> bool:
+        return self.state == "down"
+
+    @property
+    def can_restart(self) -> bool:
+        return self.state == "no-beat"
 
     def describe(self) -> str:
         beat = (
@@ -75,24 +97,21 @@ def _ago(seconds: float) -> str:
     return f"{seconds // 3600}h"
 
 
-def _session_running(fm_home: Path, proc_root: Path) -> bool:
-    """A process named ``claude`` has ``fm_home`` as its working directory."""
-    try:
-        want = fm_home.resolve()
-        entries = list(proc_root.iterdir())
-    except OSError:
-        return False
-    for entry in entries:
+def _session_pids(fm_home: Path, proc_root: Path) -> tuple[int, ...]:
+    """Processes named ``claude`` whose working directory is ``fm_home``."""
+    want = fm_home.resolve()
+    pids = []
+    for entry in proc_root.iterdir():
         if not entry.name.isdigit():
             continue
         try:
             if (entry / "comm").read_text().strip() != "claude":
                 continue
             if (entry / "cwd").resolve() == want:
-                return True
+                pids.append(int(entry.name))
         except OSError:
             continue
-    return False
+    return tuple(sorted(pids))
 
 
 def read_status(
@@ -100,19 +119,44 @@ def read_status(
 ) -> FirstmateStatus:
     """Read-only look at firstmate's records. Blocking but bounded: one /proc scan, one stat."""
     now = time.time() if now is None else now
-    session = _session_running(fm_home, proc_root)
+    pids = _session_pids(fm_home, proc_root)
     beat_age: float | None
     try:
         beat_age = max(0.0, now - (fm_home / "state" / ".last-watcher-beat").stat().st_mtime)
     except OSError:
         beat_age = None
-    if not session:
+    if not pids:
         state = "down"
     elif beat_age is not None and beat_age <= BEAT_FRESH_S:
         state = "alive"
     else:
         state = "no-beat"
-    return FirstmateStatus(state, session, beat_age, now)
+    return FirstmateStatus(state, pids, beat_age, now)
+
+
+def last_activity(
+    fm_home: Path, pid: int, now: float | None = None, claude_home: Path = CLAUDE_HOME
+) -> float | None:
+    """Seconds since the session last showed a turn, from Claude Code's own records.
+
+    Two read-only signs: the session record ``sessions/<pid>.json`` saying ``busy``
+    (aged by its ``statusUpdatedAt``), and the newest transcript in the project
+    directory Claude Code keeps for ``fm_home``. None when neither shows anything.
+    """
+    now = time.time() if now is None else now
+    ages = []
+    try:
+        record = json.loads((claude_home / "sessions" / f"{pid}.json").read_text())
+        if record.get("status") == "busy":
+            ages.append(now - float(record["statusUpdatedAt"]) / 1000)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    project = claude_home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(fm_home.resolve()))
+    try:
+        ages.extend(now - t.stat().st_mtime for t in project.glob("*.jsonl"))
+    except OSError:
+        pass
+    return max(0.0, min(ages)) if ages else None
 
 
 class StatusCache:
@@ -141,28 +185,28 @@ class StatusCache:
         return self._value
 
     async def fresh(self) -> FirstmateStatus:
-        """A new read now, bounded by the timeout; ``unknown`` when it does not finish."""
-        await self._refresh()
-        return self._value or FirstmateStatus("unknown", False, None, time.time())
+        """A new read now, bounded by the timeout; ``unknown`` when it fails or times out."""
+        return await self._refresh()
 
-    async def _refresh(self) -> None:
+    async def _refresh(self) -> FirstmateStatus:
         try:
-            self._value = await asyncio.wait_for(
+            value = await asyncio.wait_for(
                 asyncio.to_thread(self._reader, self._settings.fm_home), self._timeout_s
             )
-        except Exception:  # a failed read keeps the last value; never raises into a page
-            if self._value is None:
-                self._value = FirstmateStatus("unknown", False, None, time.time())
+        except Exception:  # a failed read is unknown, never the last value; never raises
+            value = FirstmateStatus("unknown", (), None, time.time())
+        self._value = value
+        return value
 
 
 @dataclass(frozen=True)
 class WakeResult:
-    outcome: str  # "noop", "started", "failed", "rate-limited" or "unavailable"
-    message: str
+    outcome: str  # "noop", "started", "restarted", "refused", "failed", "rate-limited"
+    message: str  # or "unavailable"
 
     @property
     def ok(self) -> bool:
-        return self.outcome in ("noop", "started")
+        return self.outcome in ("noop", "started", "restarted")
 
 
 def _clean(text: str, limit: int = 400) -> str:
@@ -193,7 +237,7 @@ def default_runner(script: Path) -> Runner:
 
 
 class WakeService:
-    """The guarded wake action, shared by the desk and the Telegram bot."""
+    """The guarded wake and restart actions, shared by the desk and the Telegram bot."""
 
     def __init__(
         self,
@@ -201,11 +245,15 @@ class WakeService:
         runner: Runner | None = None,
         status: StatusCache | None = None,
         cooldown_s: float = WAKE_COOLDOWN_S,
+        killer: Killer = os.kill,
+        activity: Activity | None = None,
     ) -> None:
         self.settings = settings
         self.status = status or StatusCache(settings)
         self._runner = runner
         self._cooldown_s = cooldown_s
+        self._kill = killer
+        self._activity = activity or (lambda pid: last_activity(settings.fm_home, pid))
         self._lock = asyncio.Lock()
 
     @property
@@ -224,10 +272,11 @@ class WakeService:
         path = self.settings.fleet_up
         return path if path is not None and path.is_file() else None
 
-    def _audit(self, who: str, via: str, outcome: str, detail: str) -> None:
+    def _audit(self, action: str, who: str, via: str, outcome: str, detail: str) -> None:
         stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         line = (
-            f"{stamp} who={_clean(who, 80) or '-'} via={via} outcome={outcome} {_clean(detail)}\n"
+            f"{stamp} action={action} who={_clean(who, 80) or '-'} via={via} "
+            f"outcome={outcome} {_clean(detail)}\n"
         )
         try:
             self.settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -256,35 +305,117 @@ class WakeService:
             return 0.0
 
     async def wake(self, who: str, via: str) -> WakeResult:
-        """Run the fleet-up firstmate step once, unless firstmate is already alive."""
+        """Run the fleet-up firstmate step once, unless a firstmate session already runs."""
+        return await self._guarded("wake", who, via, self._wake)
+
+    async def restart(self, who: str, via: str) -> WakeResult:
+        """Stop the one running firstmate session whose watcher is silent, then start one."""
+        return await self._guarded("restart", who, via, self._restart)
+
+    async def _guarded(
+        self,
+        action: str,
+        who: str,
+        via: str,
+        step: Callable[[Runner], Awaitable[WakeResult]],
+    ) -> WakeResult:
         async with self._lock:
-            result = await self._wake(who, via)
-        self._audit(who, via, result.outcome, result.message)
+            runner = self._runner
+            if runner is None:
+                script = self._script()
+                runner = default_runner(script) if script is not None else None
+            if runner is None:
+                result = WakeResult("unavailable", "fleet-up script not found")
+            else:
+                result = await step(runner)
+        self._audit(action, who, via, result.outcome, result.message)
         return result
 
-    async def _wake(self, who: str, via: str) -> WakeResult:
-        runner = self._runner
-        if runner is None:
-            script = self._script()
-            if script is None:
-                return WakeResult("unavailable", "fleet-up script not found")
-            runner = default_runner(script)
-        status = await self.status.fresh()
-        if status.state == "alive":
-            return WakeResult("noop", "Firstmate is already alive; nothing to do.")
+    async def _cooldown(self) -> WakeResult | None:
+        """Take the shared slot; a result only when the action must stop here."""
         try:
             wait = await asyncio.to_thread(self._claim, time.time())
         except OSError:
             return WakeResult("unavailable", "could not record the wake cooldown")
         if wait > 0:
             return WakeResult("rate-limited", f"Woken a moment ago; try again in {int(wait) + 1}s.")
+        return None
+
+    async def _start(self, runner: Runner) -> tuple[int, str] | WakeResult:
         try:
             code, out = await runner()
         except OSError as exc:
             return WakeResult("failed", f"could not run fleet-up: {exc.strerror or exc}")
-        detail = _clean(out) or "no output"
         if code != 0:
-            return WakeResult("failed", f"fleet-up exited {code}: {detail}")
+            return WakeResult("failed", f"fleet-up exited {code}: {_clean(out) or 'no output'}")
         await self.status.fresh()  # so the next page shows the result, not the old state
+        return code, out
+
+    async def _wake(self, runner: Runner) -> WakeResult:
+        status = await self.status.fresh()
+        if status.session:
+            return WakeResult(
+                "noop", f"Firstmate's session is already running ({status.label}); nothing to do."
+            )
+        blocked = await self._cooldown()
+        if blocked is not None:
+            return blocked
+        ran = await self._start(runner)
+        if isinstance(ran, WakeResult):
+            return ran
+        _, out = ran
         # fleet-up exits 0 both when it starts a session and when it finds one already running.
-        return WakeResult("started" if "started in pane" in out else "noop", detail)
+        return WakeResult(
+            "started" if "started in pane" in out else "noop", _clean(out) or "no output"
+        )
+
+    async def _restart(self, runner: Runner) -> WakeResult:
+        status = await self.status.fresh()
+        if not status.can_restart:
+            return WakeResult(
+                "refused",
+                f"Restart is only for a running session whose watcher is silent; "
+                f"firstmate is {status.label}. Nothing was stopped.",
+            )
+        if len(status.pids) != 1:
+            return WakeResult(
+                "refused",
+                f"Found {len(status.pids)} claude processes in the firstmate home; "
+                "not guessing which to stop. Nothing was stopped.",
+            )
+        (pid,) = status.pids
+        age = await asyncio.to_thread(self._activity, pid)
+        if age is not None and age < ACTIVE_RECENT_S:
+            return WakeResult(
+                "refused",
+                f"Firstmate was mid-turn {_ago(age)} ago, so it may be working. "
+                "Nothing was stopped; try again later.",
+            )
+        blocked = await self._cooldown()
+        if blocked is not None:
+            return blocked
+        if not await asyncio.to_thread(self._stop, pid):
+            return WakeResult("failed", f"firstmate session (pid {pid}) did not stop")
+        ran = await self._start(runner)
+        if isinstance(ran, WakeResult):
+            return WakeResult(ran.outcome, f"Stopped pid {pid}, then {ran.message}")
+        _, out = ran
+        detail = _clean(out) or "no output"
+        if "started in pane" not in out:
+            return WakeResult("failed", f"Stopped pid {pid}, but no new session started: {detail}")
+        return WakeResult("restarted", f"Stopped pid {pid}; {detail}")
+
+    def _stop(self, pid: int) -> bool:
+        """SIGTERM the one pid, then SIGKILL if it outlives the wait. True once it is gone."""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                self._kill(pid, sig)
+                deadline = time.monotonic() + STOP_WAIT_S
+                while time.monotonic() < deadline:
+                    self._kill(pid, 0)
+                    time.sleep(0.2)
+            except ProcessLookupError:
+                return True
+            except OSError:
+                return False
+        return False

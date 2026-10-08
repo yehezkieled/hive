@@ -55,6 +55,7 @@ logger = logging.getLogger(__name__)
 BRIDGE_COMMANDS: frozenset[str] = KNOWN_COMMANDS | frozenset({"heartbeat", "wake"})
 
 WAKE_CALLBACK = "wake:firstmate"
+RESTART_CALLBACK = "wake:restart"
 
 
 class TelegramBridge:
@@ -268,26 +269,35 @@ class TelegramBridge:
         if update.message is None:
             return
         status = await self.wake.status.fresh()
-        markup = None
-        if status.needs_wake:
-            markup = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("Wake firstmate", callback_data=WAKE_CALLBACK)]]
+        button = None
+        if status.can_wake:
+            button = InlineKeyboardButton("Wake firstmate", callback_data=WAKE_CALLBACK)
+        elif status.can_restart:
+            button = InlineKeyboardButton(
+                "Restart session (stops the running one)", callback_data=RESTART_CALLBACK
             )
+        markup = InlineKeyboardMarkup([[button]]) if button else None
         await update.message.reply_text(f"Firstmate {status.describe()}", reply_markup=markup)
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """The Wake button. Anyone off the allowlist gets no reply and no effect."""
+        """The Wake and Restart buttons. Anyone off the allowlist gets no reply and no effect."""
         query = update.callback_query
         if query is None:
             return
         user_id = update.effective_user.id if update.effective_user else 0
-        if not self._may_wake(user_id) or query.data != WAKE_CALLBACK:
+        actions = {
+            WAKE_CALLBACK: ("Wake firstmate", "Waking firstmate…", self.wake.wake),
+            RESTART_CALLBACK: ("Restart session", "Restarting firstmate…", self.wake.restart),
+        }
+        action = actions.get(query.data or "")
+        if not self._may_wake(user_id) or action is None:
             logger.warning("Unauthorized wake callback from user %d", user_id)
             return
-        await query.answer("Waking firstmate…")
-        result = await self.wake.wake(f"telegram:{user_id}", "telegram")
+        title, ack, run = action
+        await query.answer(ack)
+        result = await run(f"telegram:{user_id}", "telegram")
         if query.message is not None:
-            await query.message.reply_text(f"Wake firstmate: {result.outcome}. {result.message}")
+            await query.message.reply_text(f"{title}: {result.outcome}. {result.message}")
 
     async def _handle_attachment(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle PHOTO + DOCUMENT messages — Sprint 17 file transit.

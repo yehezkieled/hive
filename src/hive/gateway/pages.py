@@ -896,9 +896,10 @@ _FM_DOT = {"alive": "ok", "no-beat": "warn", "down": "hot"}
 
 
 def _fm_chip(ctx: Ctx) -> str:
-    """Firstmate liveness from the cache, and the wake form when it is not alive.
+    """Firstmate liveness from the cache, with Wake when it is down and Restart session when
+    it runs with a silent watcher.
 
-    The form is shown even while the snapshot is unreadable (``always``): that is exactly
+    The forms are shown even while the snapshot is unreadable (``always``): that is exactly
     when firstmate may be down. The action still re-checks and confirms before it runs.
     """
     fm = ctx.firstmate
@@ -906,10 +907,16 @@ def _fm_chip(ctx: Ctx) -> str:
     label = fm.label if fm else "checking"
     detail = esc(fm.describe()) if fm else "Firstmate status has not been read yet."
     wake = ""
-    if ctx.wake_enabled and fm is not None and fm.needs_wake:
+    if ctx.wake_enabled and fm is not None and fm.can_wake:
         wake = ctx.form(
             "wake",
             "<button class=danger type=submit>Wake firstmate</button>",
+            always=True,
+        )
+    elif ctx.wake_enabled and fm is not None and fm.can_restart:
+        wake = ctx.form(
+            "restart",
+            "<button class=danger type=submit>Restart session</button>",
             always=True,
         )
     return (
