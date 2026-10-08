@@ -1220,6 +1220,7 @@ firstmate script with an argument list, never a shell string:
 | answer a captain hold | `fm-captain-hold.sh answers --any-origin --source "hive website (<owner>)"`, one `task<TAB>answer<TAB>Hive desk<TAB>done\|release` row on stdin; the owner-aware intake closes it in whichever home holds the task. Answers are one line, max 512 bytes (the intake's limit) |
 | chat, delegate, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
 | worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
+| close review page(s) | `lavish-axi end <file>` (not a firstmate script), once per page, after a confirm step; see Review pages below |
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
@@ -1284,7 +1285,17 @@ the agent answered last (those sort first, then newest), and a link to
 iPhone or iPad. The link is built from the session key only; the recorded local
 address is never shown. The list is one order (replies first, then newest) in its own scrolling box;
 ten are listed and "+N more", always the last row, opens a sheet listing every
-session. Tapping a card selects it in
+session. Each row has a **Close** button that ends that Lavish session
+(`lavish-axi end <file>`, the file read from Lavish's own state, never from the
+request): the first tap fetches a confirm step from `POST /act/review-close` and the
+button turns into "Tap again to close"; the second tap runs it. Without the page script
+the same POST shows a confirm page. A page looks done when it is older than two days or
+is one of the oldest beyond the newest eight open (a page with a waiting reply never is);
+those carry a "looks done" tag, the section shows "N pages look done: close them?" with
+**Review** (opens the sheet) and **Close N**, and the sheet header has **Close all old**
+(`POST /act/review-close-old`, bound to exactly the listed pages). Both are owner-only
+like every write (loopback peer, Tailscale login, Host/Origin, CSRF), need no snapshot,
+and write one `gateway-audit` line per page ended. Tapping a card selects it in
 place (`/?focus=<project>`) and retargets the bar to that project's first or
 second mate; tapping the selected card opens its detail sheet (status,
 activity, progress, its Needs-you items and an "Open project ↗" link; without
@@ -1296,7 +1307,9 @@ a small secondary label when they differ; routes, links and requests stay keyed
 by the registry name. Sheets are modal dialogs: they close on the X, a tap
 outside or Escape, scroll on touch, return focus to what opened them and skip
 their animation under `prefers-reduced-motion`. With no card
-selected the bar messages the first mate; a sole project is selected on load.
+selected the bar messages the first mate; a sole project is selected on load. Above the bar sit
+its helper line ("Delegate to … · tapping a project card retargets this bar") and the
+"Updated N min ago" stamp.
 With the page script running, the bar sends in place (`Accept: application/json`
 on `POST /act/<name>` returns `{ok, message}` instead of an outcome page): the
 desk stays put, shows the result under the bar and takes a fresh request id
@@ -1345,13 +1358,21 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
+| `HIVE_GATEWAY_LAVISH_AXI` | `lavish-axi` on `PATH`, else `~/.local/bin/lavish-axi` (ends a review session for Close; `off` hides the Close buttons) |
 
 ### Live updates, alerts and live tail
 
 - **SSE.** `GET /events` is one `text/event-stream` per open page. A background
-  watcher (started with the app) stats `$FM_HOME/state/*.status` every 2 s and runs
-  `fm-inbox.sh receipts` every 5 s. When a status file moves it re-runs the snapshot
-  (at most every 5 s, plus a 60 s heartbeat) and sends `desk` or `chat` events. Pages
+  watcher (started with the app) stats `$FM_HOME/state/*.status`, `data/backlog.md` and
+  Lavish's state file every 2 s and runs `fm-inbox.sh receipts` every 5 s. When a status
+  file or the backlog moves it re-runs the snapshot (at most every 5 s, plus a 60 s
+  heartbeat) and sends `desk` or `chat` events. When Lavish's state file moves it
+  re-reads it (one small file, off the request path) and sends `desk` only if the Review
+  pages list changed, so a page closed anywhere leaves the desk within about 2 s; an
+  open Review pages sheet is updated in place, not closed. A PR merged through
+  firstmate's `fm-pr-merge` records the merge and closes the backlog item at once, so it
+  reaches the desk within seconds; a PR merged outside firstmate (on GitHub directly)
+  waits for the 60 s heartbeat snapshot. Pages
   re-fetch themselves and swap in place (same busy rules as before: never while text
   is selected or a form is in use; the refresh then waits). The 30 s (Home/Project)
   and 4 s (Chat) polls only run while the stream is down.

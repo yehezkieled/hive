@@ -362,6 +362,37 @@ async def control(settings: GatewaySettings, task: str, verb: str, note: str | N
     return Outcome("control", subject, _clean(out) or "Done.")
 
 
+LAVISH_END_TIMEOUT_S = 20.0
+
+
+async def end_review(settings: GatewaySettings, key: str, file: str) -> bool:
+    """End one Lavish review session with ``lavish-axi end <file>``. True when it ended.
+
+    ``file`` comes from Lavish's own state for ``key``, never from a request. The page file
+    is left in place; only the session ends. One audit line per call.
+    """
+    binary = settings.lavish_axi
+    if binary is None:
+        audit("review-close", key, "refused", reason="lavish-axi-missing")
+        raise ActionError("Lavish is not available on this desk.", 502)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(binary),
+            "end",
+            file,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), LAVISH_END_TIMEOUT_S)
+    except (OSError, TimeoutError) as exc:
+        audit("review-close", key, "failed", reason=type(exc).__name__)
+        return False
+    ok = (proc.returncode or 0) == 0
+    audit("review-close", key, "done" if ok else "failed", exit=proc.returncode or 0)
+    return ok
+
+
 async def read_json_script(settings: GatewaySettings, script: str, *args: str) -> dict | None:
     """Best-effort read of a JSON-emitting script; None when unavailable."""
     try:

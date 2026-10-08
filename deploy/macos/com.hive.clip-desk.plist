@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hive.clip-desk</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/apps/clip-desk/.venv/bin/clip-desk</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__HOME__/apps/clip-desk</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CLIP_DESK_PORT</key>
+    <string>8492</string>
+    <key>CLIP_DESK_OUT</key>
+    <string>__HOME__/.local/state/clip-desk/out</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>3</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/clip-desk.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/clip-desk.log</string>
+</dict>
+</plist>

@@ -266,16 +266,31 @@ padding:0 4px;min-height:44px}
 .rv__box{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
 .rv__list{display:flex;flex-direction:column;max-height:min(44vh,300px);overflow-y:auto;overflow-x:hidden;
 -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.rv{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;color:inherit;text-decoration:none;
-border-top:1px solid var(--rule-faint);flex:none}
-.rv:first-child{border-top:0}
-.rv:hover{background:var(--paper-soft)}
+.rvrow{display:flex;align-items:stretch;border-top:1px solid var(--rule-faint);flex:none}
+.rvrow:first-child{border-top:0}
+.rvrow:hover{background:var(--paper-soft)}
+.rvrow>form{display:flex;margin:0;flex:none}
+.rv{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:48px;padding:8px 6px 8px 12px;color:inherit;text-decoration:none}
 .rv>*{min-width:0}
 .rv__title{flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rv__proj{font:10px var(--font-mono);color:var(--ink-3);max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rv__reply{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ochre);
 background:var(--honey-soft);border-radius:999px;padding:2px 8px}
 .rv__go{font:10px var(--font-mono);color:var(--ink-4)}
+.rv__done{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
+border:1px solid var(--rule);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.rv__x{min-width:56px;min-height:44px;align-self:center;padding:0 10px;border:0;border-radius:8px;background:transparent;
+color:var(--ink-3);font:700 10px var(--font-mono);cursor:pointer;white-space:nowrap}
+.rv__x:hover{background:var(--paper-soft);color:var(--ink)}
+.rv__x.is-armed{background:var(--accent);color:#fff}
+.rv__x--bulk{border:1.5px solid var(--rule);margin-right:4px}
+form.is-sending .rv__x{opacity:.5}
+.rvs__nudge{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;padding:6px 6px 6px 12px;background:var(--honey-soft);
+border-radius:12px;font-size:12.5px;color:var(--ink)}
+.rvs__nudge>span{flex:1 1 160px;min-width:0}
+.rvs__nudge form{display:flex;margin:0}
+.rv__review{min-height:44px;padding:0 12px;border:1.5px solid var(--rule);border-radius:8px;background:transparent;
+color:var(--ink);font:700 10px var(--font-mono);cursor:pointer}
 .rv__morebtn{display:flex;align-items:center;width:100%;min-height:44px;padding:0 12px;border:0;border-top:1px solid var(--rule-faint);
 border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-mono);cursor:pointer;text-align:left}
 .rv__morebtn:hover{background:var(--paper-soft)}
@@ -283,6 +298,7 @@ border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-m
 background:var(--paper);color:var(--ink);border:1.5px solid var(--rule);border-radius:16px;
 box-shadow:0 16px 48px var(--paper-shadow);overflow:hidden}
 .sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s ease-out}
+.sheet.is-restored[open]{animation:none}
 .sheet{cursor:pointer}.sheet>*{cursor:auto}
 body:has(dialog[open]){overflow:hidden}
 .sheet::backdrop{background:rgba(20,16,12,.5)}
@@ -347,11 +363,13 @@ font:13px var(--font-sans);outline:none;padding:0}
 .dbar__in::placeholder{color:#a79a89}
 .dbar__go{font:700 11px var(--font-mono);border:0;border-radius:10px;padding:0 16px;min-height:44px;
 background:var(--bar-ink);color:var(--bar);cursor:pointer}
-.dbar-note{font:9px var(--font-mono);color:var(--ink-3);margin:6px 4px 0}
-.dbar-flash{font:700 11px var(--font-mono);color:var(--ochre);margin:6px 4px 0}
+.dbar-info{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0 4px 6px}
+.dbar-note{font:9px var(--font-mono);color:var(--ink-3);margin:0}
+.dbar-info .stamp{margin:0}
+.dbar-flash{font:700 11px var(--font-mono);color:var(--ochre);margin:0 4px 6px}
 .dbar-flash--err{color:var(--accent)}
 .dbar-flash[hidden]{display:none}
-.dbar-wrap:has(.dbar-flash:not([hidden])) .dbar-note{display:none}
+.dbar-wrap:has(.dbar-flash:not([hidden])) .dbar-info{display:none}
 .dbar.is-sending{opacity:.7}
 """
 
@@ -378,7 +396,7 @@ function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.le
 function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed);}
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
-if(document.querySelector('details[open],dialog[open]'))return true;
+if(document.querySelector('details[open],dialog[open],.rv__x.is-armed'))return true;
 var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
@@ -407,7 +425,24 @@ var n=doc.getElementById('thread');if(!n||sel())return;
 if(n.innerHTML!==last){last=n.innerHTML;
 var near=atBottom();
 th.innerHTML=n.innerHTML;stamps();lsync();if(near)bottom();else jump(true);}else lsync();});}
-function refreshMain(){if(document.hidden||busy()){want=true;return;}
+function reviewSheetOnly(){var d=document.querySelectorAll('dialog[open]');
+return d.length===1&&d[0].id==='rvs-sheet'&&!document.querySelector('details[open],.rv__x.is-armed')&&!sel();}
+function rsig(e){var a=e.querySelectorAll('a[href]'),h=[];
+for(var i=0;i<a.length;i++)h.push(a[i].getAttribute('href'));return h.join(' ')+' '+e.textContent;}
+function swapReviews(doc){var n=doc.querySelector('.rvs'),o=document.querySelector('.rvs');
+if(!o)return;if(!n){o.parentNode.removeChild(o);return;}
+if(rsig(n)===rsig(o))return;
+var d=o.querySelector('dialog[open]'),sl=d?d.querySelector('.sheet__list'):null,st=sl?sl.scrollTop:0,
+bl=o.querySelector('.rv__list'),bt=bl?bl.scrollTop:0;
+o.outerHTML=n.outerHTML;
+var nl=document.querySelector('.rvs .rv__list');if(nl)nl.scrollTop=bt;
+if(d){var nd=document.getElementById('rvs-sheet');
+if(nd){nd.classList.add('is-restored');if(nd.showModal)nd.showModal();else nd.setAttribute('open','');
+var l=nd.querySelector('.sheet__list');if(l)l.scrollTop=st;var x=nd.querySelector('[data-sheet-close]');if(x)x.focus();}
+else sheetOpener=null;}}
+function refreshMain(){if(document.hidden){want=true;return;}
+if(reviewSheetOnly()){want=true;load(swapReviews);return;}
+if(busy()){want=true;return;}
 want=false;load(function(doc){
 var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
 if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
@@ -429,7 +464,7 @@ if(poll&&th)setInterval(function(){if(!live)refreshThread();},poll);
 else if(every&&c)setInterval(function(){if(!live)refreshMain();},every);
 if(!tail&&((poll&&th)||(every&&c))&&window.EventSource){connect();
 setInterval(function(){if((live&&Date.now()-seen>45000)||es.readyState===2){live=false;es.close();connect();}
-if(want&&!th&&!document.hidden)refreshMain();},2000);
+if(want&&!th&&!document.hidden&&!busy())refreshMain();},2000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&want&&!th)refreshMain();});}
 if(tail){var pre=document.getElementById('tail'),st=document.getElementById('tail-status'),
 url='/w/'+encodeURIComponent(tail)+'/out';
@@ -500,6 +535,30 @@ if(j.ok){fm.elements.text.value='';fm.elements.rid.value=newRid();}
 setFlash(j.message||'Could not send.',!!j.ok);})
 .catch(function(){setFlash('Could not send. Reload the desk.',false);})
 .then(function(){fm.classList.remove('is-sending');});});
+function rvPost(fm,extra,done){var p=new URLSearchParams(new FormData(fm));
+for(var k in extra){if(Object.prototype.hasOwnProperty.call(extra,k))p.set(k,extra[k]);}
+fm.classList.add('is-sending');
+fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},body:p})
+.then(function(r){return r.json();}).catch(function(){return {ok:false,message:'No connection. Reload the desk.'};})
+.then(function(j){fm.classList.remove('is-sending');done(j);});}
+function rvDisarm(fm){var b=fm.querySelector('button');clearTimeout(fm.rvT);
+fm.removeAttribute('data-step');fm.removeAttribute('data-extra');b.classList.remove('is-armed');
+b.textContent=b.getAttribute('data-label');}
+document.addEventListener('submit',function(e){var fm=e.target;
+if(!fm.hasAttribute||!fm.hasAttribute('data-rvclose')||!window.fetch||!window.URLSearchParams)return;
+e.preventDefault();if(fm.classList.contains('is-sending'))return;
+var b=fm.querySelector('button'),step=fm.getAttribute('data-step');
+if(!step){rvPost(fm,{},function(j){
+if(j.ok&&j.confirm){fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
+fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));b.classList.add('is-armed');b.textContent=j.label;
+fm.rvT=setTimeout(function(){rvDisarm(fm);},6000);}
+else if(j.ok){refreshMain();}
+else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});return;}
+var extra={};try{extra=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(x){}
+extra.step=step;extra.rid=fm.getAttribute('data-rid');
+rvPost(fm,extra,function(j){rvDisarm(fm);
+if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bulk')&&row.parentNode)row.parentNode.removeChild(row);refreshMain();}
+else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
 var cf=document.querySelector('form.chatf');
 function lmeta(m,t,err){var b=th&&atBottom(),s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
 if(err){var r=document.createElement('button');r.type='button';r.className='quiet';r.textContent='Retry';
@@ -627,7 +686,9 @@ class Ctx:
         quota: Quota | None = None,
         descriptions: dict[str, str] | None = None,
         repos: dict[str, str] | None = None,
+        can_close_reviews: bool = False,
     ) -> None:
+        self.can_close_reviews = can_close_reviews  # lavish-axi is available to end a session
         self.csrf = csrf
         self.writable = writable
         self.nxt = nxt
@@ -1143,7 +1204,7 @@ def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> s
     )
 
 
-def _dbar(focus: Project | None, ctx: Ctx) -> str:
+def _dbar(focus: Project | None, ctx: Ctx, stamp: str = "") -> str:
     label, field = _target(focus, ctx) if focus else ("first mate", "")
     nxt = "/?focus=" + quote(focus.name, safe="") if focus else "/"
     form = ctx.form(
@@ -1157,26 +1218,38 @@ def _dbar(focus: Project | None, ctx: Ctx) -> str:
         next=nxt,
     )
     if not form:
-        return ""
+        return stamp
     hidden = " hidden" if field else ""
     return (
-        f"<div class=dbar-wrap>{form}<p class=dbar-flash data-flash role=status hidden></p>"
-        f"<p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
+        "<div class=dbar-wrap><p class=dbar-flash data-flash role=status hidden></p>"
+        f"<div class=dbar-info><p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
         f"<span data-nofocus{hidden}> · no project focus</span>"
-        " · tapping a project card retargets this bar</p></div>"
+        f" · tapping a project card retargets this bar</p>{stamp}</div>{form}</div>"
     )
 
 
 _REVIEWS_SHOWN = 10
 
 
+def _review_form(action: str, label: str, ctx: Ctx, cls: str = "rv__x", **hidden: str) -> str:
+    """A POST form that ends review sessions. The page script turns the first tap into an
+    in-place confirm ("Tap again"); without it the server shows a confirm page."""
+    btn = f"<button class='{cls}' data-label='{esc(label)}'>{esc(label)}</button>"
+    form = ctx.form(action, btn, rid=new_request_id(), **hidden)
+    return form.replace("<form ", "<form data-rvclose ", 1) if form else ""
+
+
 def _review(r: Review, ctx: Ctx) -> str:
     href = f"{ctx.board_url}/session/{r.key}"
     reply = "<span class=rv__reply>reply</span>" if r.reply else ""
+    done = "<span class=rv__done>looks done</span>" if r.stale else ""
     where = f"<span class=rv__proj>{esc(ctx.show(r.project))}</span>" if r.project else ""
+    close = _review_form("review-close", "Close", ctx, key=r.key) if ctx.can_close_reviews else ""
     return (
+        f"<div class='rvrow{' rvrow--stale' if r.stale else ''}'>"
         f"<a class=rv href='{esc(href)}' target=_blank rel='noopener noreferrer'>"
-        f"<span class=rv__title>{esc(r.title)}</span>{where}{reply}<span class=rv__go>↗</span></a>"
+        f"<span class=rv__title>{esc(r.title)}</span>{where}{done}{reply}<span class=rv__go>↗</span>"
+        f"</a>{close}</div>"
     )
 
 
@@ -1184,27 +1257,47 @@ def _reviews(reviews: list[Review], ctx: Ctx) -> str:
     """Open Lavish review sessions as tap targets that open on the tailnet board URL.
 
     The first few sit in a scrollable box; "+N more" is always its last row and opens a
-    sheet listing every session (the same unread-replies-first order).
+    sheet listing every session (the same unread-replies-first order). Each row has a Close
+    button; pages that look done (old, or beyond the newest eight) are tagged, nudged about
+    above the list, and closed together by "Close all old".
     """
     if not reviews:
         return ""
     shown = "".join(_review(r, ctx) for r in reviews[:_REVIEWS_SHOWN])
     n = len(reviews)
     rest = n - _REVIEWS_SHOWN
-    more = sheet = ""
+    stale = sum(1 for r in reviews if r.stale)
+    can = ctx.can_close_reviews
+    more = sheet = nudge = ""
     if rest > 0:
         more = (
             "<button type=button class=rv__morebtn data-sheet-open=rvs-sheet aria-haspopup=dialog "
             f"aria-controls=rvs-sheet>+{rest} more</button>"
+        )
+    if stale and can:
+        word = "page looks" if stale == 1 else "pages look"
+        nudge = (
+            f"<div class=rvs__nudge role=status><span>{stale} {word} done: close "
+            f"{'it' if stale == 1 else 'them'}?</span>"
+            "<button type=button class=rv__review data-sheet-open=rvs-sheet aria-haspopup=dialog "
+            "aria-controls=rvs-sheet>Review</button>"
+            f"{_review_form('review-close-old', f'Close {stale}', ctx, 'rv__x rv__x--bulk')}</div>"
+        )
+    if rest > 0 or (stale and can):
+        bulk = (
+            _review_form("review-close-old", "Close all old", ctx, "rv__x rv__x--bulk")
+            if stale and can
+            else ""
         )
         sheet = _sheet(
             "rvs-sheet",
             f"Review pages · {n}",
             f"<div class=sheet__list>{''.join(_review(r, ctx) for r in reviews)}</div>",
             "Close review pages",
+            bulk,
         )
     return (
-        f"<section class=rvs><p class=sec-label>Review pages · {n}</p>"
+        f"<section class=rvs><p class=sec-label>Review pages · {n}</p>{nudge}"
         f"<div class=rv__box><div class=rv__list tabindex=0 role=region "
         f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</section>"
     )
@@ -1241,7 +1334,7 @@ def render_home(
     body = (
         f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
         f"</div><div class=land__col>{projects}{_reviews(reviews or [], ctx)}</div></div>"
-        f"{_dbar(desk.projects.get(focus) if focus else None, ctx)}{stamp}"
+        f"{_dbar(desk.projects.get(focus) if focus else None, ctx, stamp)}"
         "<p class=stamp id=alerts-note></p>"
         + _sheet(
             "desc-sheet",

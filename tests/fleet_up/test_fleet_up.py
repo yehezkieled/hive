@@ -8,6 +8,7 @@ runs only with --only firstmate against the stub.
 import configparser
 import os
 import plistlib
+import shlex
 import shutil
 import stat
 import subprocess
@@ -115,9 +116,9 @@ def test_dry_run_prints_every_step_and_executes_nothing(env, tmp_path):
     r = run(e, "--dry-run")
     assert r.returncode == 0, r.stderr
     out = r.stdout
-    for port in ("8480", "3001", "4388", "8765"):
+    for port in ("8480", "8492", "3001", "4388", "8765"):
         assert f":{port} closed; would run" in out
-    for pair in ("8443", "8444", "8445", "8446"):
+    for pair in ("8443", "8444", "8445", "8446", "8448"):
         assert f"serve --bg --https={pair}" in out
     assert "runtime: not running; would run: systemctl --user start hive-telegram" in out
     for d in ("apps/broke-no-more", "fm-preview-proxy", "fm-preview"):
@@ -129,9 +130,9 @@ def test_dry_run_prints_every_step_and_executes_nothing(env, tmp_path):
 
 def test_open_ports_are_left_alone(env):
     e, _ = env
-    e["FLEET_UP_FAKE_PORTS"] = "8480 3001 4388 8765"
-    r = run(e, "--dry-run", "--only", "gateway,bnm,lavish,preview")
-    assert r.stdout.count("already listening") == 4
+    e["FLEET_UP_FAKE_PORTS"] = "8480 8492 3001 4388 8765"
+    r = run(e, "--dry-run", "--only", "gateway,clipdesk,bnm,lavish,preview")
+    assert r.stdout.count("already listening") == 5
     assert "would run" not in r.stdout
 
 
@@ -247,7 +248,7 @@ def test_script_is_shellcheck_clean():
 
 @pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="no systemd-analyze")
 def test_systemd_units_verify():
-    units = [str(p) for p in sorted((DEPLOY / "systemd").glob("hive-*"))]
+    units = [str(p) for p in sorted((DEPLOY / "systemd").glob("*.service"))]
     r = subprocess.run(
         ["systemd-analyze", "--user", "verify", *units], capture_output=True, text=True
     )
@@ -263,6 +264,20 @@ def _unit(name):
     parser.optionxform = str
     parser.read(DEPLOY / "systemd" / name)
     return parser
+
+
+def _environment(name):
+    """The [Service] Environment= assignments, which systemd accumulates across lines."""
+    env, section = {}, None
+    for line in (DEPLOY / "systemd" / name).read_text().splitlines():
+        line = line.strip()
+        if line.startswith("["):
+            section = line
+        elif section == "[Service]" and line.startswith("Environment="):
+            for pair in shlex.split(line.partition("=")[2]):
+                k, _, v = pair.partition("=")
+                env[k] = v
+    return env
 
 
 def _deps(unit):
@@ -382,11 +397,30 @@ def test_runtime_unit_conflicts_with_hive_service_and_is_independent():
     assert "TELEGRAM_BOT_TOKEN" not in plist.get("EnvironmentVariables", {})
 
 
-@pytest.mark.parametrize("name", ["com.hive.gateway.plist", "com.hive.fleet-up.plist"])
+def test_dry_run_clip_desk_step_and_serve_pair(env):
+    e, _ = env
+    r = run(e, "--dry-run", "--only", "clipdesk,serve")
+    assert "clipdesk: :8492 closed; would run: systemctl --user start clip-desk.service" in r.stdout
+    assert "serve --bg --https=8448 http://127.0.0.1:8492" in r.stdout
+    assert "8490" not in r.stdout
+
+
+def test_clip_desk_units_use_8492_and_restart_always():
+    unit = _unit("clip-desk.service")
+    assert unit["Service"]["Restart"] == "always"
+    assert _environment("clip-desk.service")["CLIP_DESK_PORT"] == "8492"
+    plist = plistlib.loads((DEPLOY / "macos" / "com.hive.clip-desk.plist").read_bytes())
+    assert plist["EnvironmentVariables"]["CLIP_DESK_PORT"] == "8492"
+    assert plist["KeepAlive"] is True
+
+
+@pytest.mark.parametrize(
+    "name", ["com.hive.gateway.plist", "com.hive.clip-desk.plist", "com.hive.fleet-up.plist"]
+)
 def test_plists_are_valid(name):
     data = plistlib.loads((DEPLOY / "macos" / name).read_bytes())
     assert data["RunAtLoad"] is True
-    if name == "com.hive.gateway.plist":
+    if name != "com.hive.fleet-up.plist":
         assert data["KeepAlive"] is True
     else:
         assert data["AbandonProcessGroup"] is True
