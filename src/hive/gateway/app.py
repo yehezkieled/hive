@@ -34,6 +34,7 @@ from hive.gateway.reviews import read_reviews
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider
 from hive.gateway.tail import peek
+from hive.gateway.wake import WakeService
 
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
@@ -118,6 +119,7 @@ def create_app(
     provider: SnapshotProvider | None = None,
     tokens: Tokens | None = None,
     describer: Describer | None = None,
+    wake: WakeService | None = None,
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
@@ -126,6 +128,7 @@ def create_app(
     repo_names = RepoNames(settings.fm_home / "projects")
     tokens = tokens or Tokens()
     runs = RunOnce()
+    wake = wake or WakeService(settings)
     push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
     hub = LiveHub(settings, provider, push.notify)
 
@@ -174,6 +177,8 @@ def create_app(
             quota=q,
             descriptions=_cached_descriptions(describer, desk),
             repos=repos,
+            firstmate=wake.status.peek(),
+            wake_enabled=wake.available,
         )
 
     async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
@@ -340,6 +345,13 @@ def create_app(
         if not tokens.check_csrf(form.get("csrf", "")):
             return forbidden()
         try:
+            if name == "wake":  # must work while firstmate's snapshot is unreadable
+                result = await _wake(form, wake, settings, tokens, runs, nxt)
+                if isinstance(result, HTMLResponse):
+                    return result
+                if wants_json:
+                    return JSONResponse({"ok": True, "message": result.summary})
+                return HTMLResponse(pages.render_outcome(result, nxt))
             snap = await provider.get(fresh=True)
             if snap.data is None:
                 raise ActionError(
@@ -402,6 +414,45 @@ def _need(desk: Desk, kind: str, ref: str):
         if n.kind == kind and n.ref == ref:
             return n
     raise ActionError("That item is no longer waiting on you. Refresh the desk.", 409)
+
+
+WAKE_STATUS = {"rate-limited": 429, "unavailable": 503, "failed": 502}
+
+
+async def _wake(
+    form: dict[str, str],
+    wake: WakeService,
+    settings: GatewaySettings,
+    tokens: Tokens,
+    runs: RunOnce,
+    nxt: str,
+) -> Outcome | HTMLResponse:
+    """Confirm step, then one wake. The owner gate already ran in the middleware."""
+    rid = form.get("rid", "")
+    if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
+        form.get("step", ""), "wake", f"firstmate:{rid}"
+    ):
+        rid = actions.new_request_id()
+        step = tokens.step_up("wake", f"firstmate:{rid}")
+        ctx = pages.Ctx(tokens.csrf(), True, nxt, settings.board_url, settings.default_tz)
+        return HTMLResponse(
+            pages.render_confirm(
+                "Wake firstmate",
+                "This runs the fleet-up firstmate step: it starts a firstmate session only if "
+                "none is running, and never a second one.",
+                "wake",
+                ctx,
+                {"rid": rid, "step": step},
+            )
+        )
+
+    async def run() -> Outcome:
+        result = await wake.wake(settings.owner_login, "desk")
+        if not result.ok:
+            raise ActionError(result.message, WAKE_STATUS.get(result.outcome, 502))
+        return Outcome("wake", "firstmate", result.message)
+
+    return await runs.run(rid, run)
 
 
 async def _dispatch(

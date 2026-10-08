@@ -51,6 +51,42 @@ scripts/fleet-up.sh --dry-run --only serve,firstmate
 
 Logs of started services: `~/.local/state/hive-fleet-up/` (macOS the same).
 
+## Wake firstmate (desk and Telegram)
+
+When firstmate is down, the captain can restart it from the Hive desk or the
+Telegram bot, without a terminal. The control runs exactly
+`scripts/fleet-up.sh --only firstmate` and holds no start logic of its own, so it
+inherits that step's rules: idempotent, never a second firstmate, nothing started
+while a `claude` runs in `FM_DIR`.
+
+**Status** (read only, never written to firstmate's records): a process named
+`claude` whose working directory is firstmate's home, and the mtime of
+`state/.last-watcher-beat`. `alive` is a session with a beat under 5 minutes old;
+`session up, watcher silent` is a session without a fresh beat; `down` is no
+session. The desk reads it from a cache refreshed in the background (15 s), so a
+page never waits on it; the action re-reads it fresh first.
+
+**Desk**: a `firstmate · <state>` chip beside the quota chip on every page. When
+firstmate is not alive it holds a **Wake firstmate** button; the button leads to a
+confirm page, and the result shows inline. `POST /act/wake` goes through the
+gateway's owner gate (tailnet login, loopback peer, Host/Origin, CSRF) plus a
+step-up token, and works while firstmate's snapshot is unreadable.
+
+**Telegram**: `/wake` shows the status and, when firstmate is not alive, a **Wake
+firstmate** button. Only ids in `TELEGRAM_ALLOWED_USER_IDS` are served; an empty
+allowlist serves nobody for this command (the other commands keep their
+behaviour), and anyone else gets no reply and no effect.
+
+**Guards**: one wake per 60 s across the desk and the bot (a shared lock file),
+an immediate no-op when firstmate is already alive, and one audit line per attempt
+(who, when, outcome) in `<HIVE_GATEWAY_DATA_DIR>/wake-audit.log`
+(default `~/.local/state/hive-gateway/`), a Hive-owned file. The bot needs the same
+`HIVE_GATEWAY_*` environment as the gateway so both read the same data dir and
+firstmate home.
+
+Not a repair for a *connected but wedged* session: if `claude` is still running,
+the fleet-up step leaves it alone, and the result says so.
+
 ## Hive runtime with Telegram
 
 `hive-telegram` runs `python -m hive`: the full Hive runtime (Vault rail,

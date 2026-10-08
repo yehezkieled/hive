@@ -16,12 +16,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
 from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
+from hive.gateway.settings import GatewaySettings
+from hive.gateway.wake import WakeService
 from hive.knowledge.attachment_embedder import embed_attachment
 from hive.models.task import TaskStatus
 from hive.notifications import ALERT_KINDS, QUOTA_KINDS, Notification
@@ -44,7 +52,9 @@ logger = logging.getLogger(__name__)
 # (currently just /heartbeat). Source of truth for the /help drift test
 # in tests/test_help.py — keep in sync if a new transport-only command
 # is ever added here.
-BRIDGE_COMMANDS: frozenset[str] = KNOWN_COMMANDS | frozenset({"heartbeat"})
+BRIDGE_COMMANDS: frozenset[str] = KNOWN_COMMANDS | frozenset({"heartbeat", "wake"})
+
+WAKE_CALLBACK = "wake:firstmate"
 
 
 class TelegramBridge:
@@ -66,6 +76,7 @@ class TelegramBridge:
         vault_store: VaultStore | None = None,
         mode_request_store: ModeRequestStore | None = None,
         attachment_store: AttachmentStore | None = None,
+        wake: WakeService | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -77,6 +88,7 @@ class TelegramBridge:
         self.mode_request_store = mode_request_store
         self.attachment_store = attachment_store
         self._app: Application | None = None
+        self.wake = wake or WakeService(GatewaySettings.from_env())
 
         self.dispatcher = CommandDispatcher(
             process_manager=process_manager,
@@ -118,6 +130,7 @@ class TelegramBridge:
         self._app.add_handler(MessageHandler(filters.COMMAND, self._handle_message))
         # Sprint 17 — file transit. Photos arrive as PhotoSize lists (compressed JPEG);
         # documents (any file uploaded as "Send file") arrive via filters.Document.ALL.
+        self._app.add_handler(CallbackQueryHandler(self._handle_callback, pattern="^wake:"))
         self._app.add_handler(MessageHandler(filters.PHOTO, self._handle_attachment))
         self._app.add_handler(MessageHandler(filters.Document.ALL, self._handle_attachment))
 
@@ -223,6 +236,10 @@ class TelegramBridge:
 
         # Parse command
         cmd = parse_command(text)
+        if cmd.name == "wake":
+            if self._may_wake(user_id):
+                await self._send_wake_status(update)
+            return
 
         # Handle command
         actor = f"user:{user_id}"
@@ -242,6 +259,35 @@ class TelegramBridge:
             # Telegram messages have a 4096 char limit
             for chunk in _chunk_text(response, 4096):
                 await update.message.reply_text(chunk)
+
+    def _may_wake(self, user_id: int) -> bool:
+        """Wake is stricter than the other commands: an empty allowlist allows nobody."""
+        return bool(self.allowed_user_ids) and user_id in self.allowed_user_ids
+
+    async def _send_wake_status(self, update: Update) -> None:
+        if update.message is None:
+            return
+        status = await self.wake.status.fresh()
+        markup = None
+        if status.needs_wake:
+            markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Wake firstmate", callback_data=WAKE_CALLBACK)]]
+            )
+        await update.message.reply_text(f"Firstmate {status.describe()}", reply_markup=markup)
+
+    async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """The Wake button. Anyone off the allowlist gets no reply and no effect."""
+        query = update.callback_query
+        if query is None:
+            return
+        user_id = update.effective_user.id if update.effective_user else 0
+        if not self._may_wake(user_id) or query.data != WAKE_CALLBACK:
+            logger.warning("Unauthorized wake callback from user %d", user_id)
+            return
+        await query.answer("Waking firstmate…")
+        result = await self.wake.wake(f"telegram:{user_id}", "telegram")
+        if query.message is not None:
+            await query.message.reply_text(f"Wake firstmate: {result.outcome}. {result.message}")
 
     async def _handle_attachment(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle PHOTO + DOCUMENT messages — Sprint 17 file transit.

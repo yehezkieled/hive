@@ -1336,6 +1336,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
+| `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate action runs its `--only firstmate` step; `off` removes the action) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 
 ### Live updates, alerts and live tail
