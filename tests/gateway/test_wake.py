@@ -65,7 +65,6 @@ class World:
         self.state = state
         self.pids = _status(state, pids).pids
         self.stale_pane = False  # herdr still reports claude on firstmate's pane
-        self.stopped = False  # the killer ended a session; the next start shows a new one
 
     def status(self, _home: Path) -> FirstmateStatus:
         return _status(self.state, self.pids)
@@ -88,14 +87,13 @@ class Killer:
         if sig == signal.SIGTERM and not self.stubborn and self.world is not None:
             self.world.pids = tuple(p for p in self.world.pids if p != pid)
             if not self.world.pids:
-                self.world.state, self.world.stopped = "down", True
+                self.world.state = "down"
 
 
 class Fake:
     """A runner that records calls; like fleet-up, it starts nothing over a stale pane.
 
-    After a restart's stop, a start shows a new session in the shared world, so the
-    restart's verification can see it; a plain wake leaves the world as it is.
+    A start shows a new session in the shared world, so the action's verification sees it.
     """
 
     def __init__(
@@ -111,9 +109,20 @@ class Fake:
         w = self.world
         if w is not None and w.stale_pane:
             return 0, "fleet-up: firstmate: already running in a herdr pane at /x; nothing to do"
-        if w is not None and w.stopped and self.code == 0 and "started in pane" in self.out:
+        if w is not None and w.state == "down" and self.code == 0 and "started in pane" in self.out:
             w.pids, w.state = (NEW_PID,), "no-beat"
         return self.code, self.out
+
+
+@pytest.fixture
+def quick_verify(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("hive.gateway.wake.VERIFY_WAIT_S", 0.05)
+
+
+def _dies(runner: Fake) -> None:
+    """The session a wake started has gone again, so a second wake is not a no-op."""
+    assert runner.world is not None
+    runner.world.state, runner.world.pids = "down", ()
 
 
 class FakeHerdr:
@@ -266,10 +275,29 @@ async def test_slow_read_times_out_to_unknown(tmp_path: Path) -> None:
 
 
 async def test_a_failed_read_is_unknown_not_the_last_value(tmp_path: Path) -> None:
-    reads = iter([_status("alive")])
+    reads = 0
 
     def reader(_home: Path) -> FirstmateStatus:
-        return next(reads)  # the second read raises StopIteration
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            raise OSError("proc scan failed")
+        return _status("alive" if reads == 1 else "no-beat", (NEW_PID,))
+
+    cache = StatusCache(_settings(tmp_path), reader=reader)
+    assert (await cache.fresh()).state == "alive"
+    assert (await cache.fresh()).state == "unknown"
+
+
+async def test_wake_after_a_failed_read_runs_fleet_up_not_a_noop(tmp_path: Path) -> None:
+    reads = 0
+
+    def reader(_home: Path) -> FirstmateStatus:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            raise OSError("proc scan failed")
+        return _status("alive" if reads == 1 else "no-beat", (NEW_PID,))
 
     runner = Fake()
     settings = _settings(tmp_path)
@@ -278,7 +306,6 @@ async def test_a_failed_read_is_unknown_not_the_last_value(tmp_path: Path) -> No
     svc = WakeService(settings, runner=runner, status=cache, killer=Killer())
     result = await svc.wake("a", "desk")
     assert (result.outcome, runner.calls) == ("started", 1)  # never "already alive"
-    assert cache.peek() is not None and cache.peek().state == "unknown"
 
 
 # ---- last activity from Claude Code's records ---------------------------------------
@@ -347,6 +374,7 @@ async def test_rate_limit_blocks_a_second_wake(tmp_path: Path) -> None:
     runner = Fake()
     svc = _service(tmp_path, "down", runner)
     assert (await svc.wake("a", "desk")).outcome == "started"
+    _dies(runner)
     again = await svc.wake("a", "telegram")
     assert (again.outcome, again.ok, runner.calls) == ("rate-limited", False, 1)
     lines = svc.audit_path.read_text().splitlines()
@@ -365,6 +393,7 @@ async def test_cooldown_expires(tmp_path: Path) -> None:
     runner = Fake()
     svc = _service(tmp_path, "down", runner, cooldown=0.05)
     await svc.wake("a", "desk")
+    _dies(runner)
     await asyncio.sleep(0.1)
     assert (await svc.wake("a", "desk")).outcome == "started"
     assert runner.calls == 2
@@ -386,10 +415,16 @@ async def test_wake_leaves_a_running_session_alone(tmp_path: Path) -> None:
     assert (result.outcome, result.ok, runner.calls, killer.sent) == ("noop", True, 0, [])
 
 
-async def test_fleet_up_finding_a_session_is_a_noop_not_a_start(tmp_path: Path) -> None:
-    out = "fleet-up: firstmate: a claude process already runs in /x; not starting a second"
-    result = await _service(tmp_path, "down", Fake(out=out)).wake("a", "desk")
-    assert result.outcome == "noop" and result.ok
+async def test_wake_that_starts_no_session_is_a_failure_not_a_noop(
+    tmp_path: Path, quick_verify: None
+) -> None:
+    out = "fleet-up: firstmate: already running in a herdr pane at /x; nothing to do"
+    svc = _service(tmp_path, "down", Fake(out=out))
+    result = await svc.wake("a", "desk")
+    assert (result.outcome, result.ok) == ("failed", False)
+    assert "no firstmate session started" in result.message and "from a terminal" in result.message
+    assert "action=wake" in svc.audit_path.read_text()
+    assert "outcome=failed" in svc.audit_path.read_text()
 
 
 # ---- restart a wedged session -------------------------------------------------------
@@ -446,13 +481,13 @@ async def test_restart_will_not_guess_between_two_sessions(tmp_path: Path) -> No
     assert (result.outcome, runner.calls, killer.sent) == ("refused", 0, [])
 
 
-@pytest.fixture
-def quick_verify(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hive.gateway.wake.VERIFY_WAIT_S", 0.05)
-
-
-def _pane(pane_id: str, cwd: Path | str, agent: str | None = "claude") -> dict:
-    pane = {"pane_id": pane_id, "cwd": str(cwd), "foreground_cwd": str(cwd)}
+def _pane(
+    pane_id: str,
+    cwd: Path | str,
+    agent: str | None = "claude",
+    foreground: Path | str | None = None,
+) -> dict:
+    pane = {"pane_id": pane_id, "cwd": str(cwd), "foreground_cwd": str(foreground or cwd)}
     if agent is not None:
         pane["agent"] = agent
     return pane
@@ -477,6 +512,8 @@ async def test_restart_releases_only_firstmates_stale_pane_then_starts(tmp_path:
             _pane("w2:p1", home),  # firstmate's pane, still reporting claude after the stop
             _pane("w3:p1", tmp_path / "crew"),  # a crew's claude elsewhere
             _pane("w2:p6", home, agent=None),  # an idle shell in the firstmate home
+            _pane("w4C:p2", home, foreground=tmp_path / "wt" / "a"),  # crews opened in the
+            _pane("w4Q:p2", home, foreground=tmp_path / "wt" / "b"),  # home, run elsewhere
         ]
     )
     runner = Fake()
@@ -495,6 +532,18 @@ async def test_restart_releases_nothing_when_two_panes_claim_firstmate(
     svc = _service(tmp_path, "no-beat", Fake(), herdr=herdr, stale_pane=True)
     result = await svc.restart("a", "desk")
     assert herdr.released == [] and result.outcome == "failed"
+
+
+async def test_a_crew_pane_opened_in_the_home_is_never_released_nor_counted(
+    tmp_path: Path,
+) -> None:
+    home = _settings(tmp_path).fm_home
+    herdr = FakeHerdr([_pane("w4C:p2", home, foreground=tmp_path / "wt" / "a")])
+    runner = Fake()
+    result = await _service(tmp_path, "no-beat", runner, herdr=herdr).restart("a", "desk")
+    assert herdr.released == []
+    assert (result.outcome, runner.calls) == ("restarted", 1)
+    assert "stale" not in result.message
 
 
 async def test_a_failed_release_is_not_fatal(tmp_path: Path) -> None:
@@ -635,6 +684,7 @@ def test_second_wake_within_the_minute_is_429(tmp_path: Path) -> None:
     runner = Fake()
     c = _client(tmp_path, "down", runner)
     assert _post(c, _confirm(c)).status_code == 200
+    _dies(runner)
     again = _post(c, _confirm(c))
     assert again.status_code == 429 and runner.calls == 1
 
@@ -663,11 +713,9 @@ def test_wake_works_while_the_snapshot_is_unreadable(tmp_path: Path) -> None:
     runner = Fake()
     settings = _settings(tmp_path)
     (settings.fm_home / "bin" / "fm-fleet-snapshot.sh").write_text("#!/usr/bin/env bash\nexit 3\n")
-    svc = WakeService(
-        settings,
-        runner=runner,
-        status=StatusCache(settings, reader=lambda _h: _status("down")),
-    )
+    world = World("down")
+    runner.world = world
+    svc = WakeService(settings, runner=runner, status=StatusCache(settings, reader=world.status))
     c = TestClient(create_app(settings, wake=svc), client=("127.0.0.1", 5000))
     assert "Read-only fallback" in c.get("/", headers=GOOD).text
     assert _post(c, _confirm(c)).status_code == 200 and runner.calls == 1
@@ -858,4 +906,5 @@ async def test_telegram_second_tap_is_rate_limited(tmp_path: Path) -> None:
         query = _Query(WAKE_CALLBACK)
         update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
         await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+        _dies(runner)
     assert runner.calls == 1 and "rate-limited" in query.message.replies[0][0]
