@@ -974,17 +974,58 @@ def test_desk_shows_the_repo_name_and_keeps_routing_on_the_registry_name(tmp_pat
     client = _client_with_reviews(tmp_path, LAVISH)
     html = client.get("/", headers=GOOD).text
     card = html.split("data-name='alpha'", 1)[1].split("</a>", 1)[0]
-    assert "<span class=pc__name>renamed_alpha<small class=aka" in card
+    assert "<span class=pc__name>renamed_<wbr>alpha<small class=aka" in card
     assert ">alpha</small>" in card  # the local name, as a small secondary label
     assert "data-label='first mate · renamed_alpha'" in html or "· renamed_alpha'" in html
     assert "data-open='/p/alpha'" in html and "/p/renamed_alpha" not in html
-    assert "<span class=nyg__name>renamed_alpha<small" in html
+    assert "<span class=nyg__name>renamed_<wbr>alpha<small" in html
     assert "<span class=pc__name>beta</span>" in html and "data-name='beta'" in html
     section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
     assert "<span class=rv__proj>renamed_alpha</span>" in section
     page = client.get("/p/alpha", headers=GOOD).text
-    assert "<h1>renamed_alpha<small" in page and "<title>renamed_alpha · Hive desk" in page
+    assert "<h1>renamed_<wbr>alpha<small" in page and "<title>renamed_alpha · Hive desk" in page
     assert "<span class=pc__name>alpha</span>" not in html
+
+
+WRAP_DRIVER = """
+function breaks(el){var out=[],prev=null;
+var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT,{acceptNode:function(n){
+return n.parentElement.closest('.aka')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;}});
+for(var n;(n=w.nextNode());){for(var i=0;i<n.data.length;i++){var r=document.createRange();
+r.setStart(n,i);r.setEnd(n,i+1);var t=r.getBoundingClientRect().top;
+if(prev!==null&&t>prev.t+2)out.push(prev.c);prev={t:t,c:n.data[i]};}}return out;}
+function lines(el){var r=document.createRange();r.selectNodeContents(el);
+var tops={};[].forEach.call(r.getClientRects(),function(b){tops[Math.round(b.top)]=1;});
+return Object.keys(tops).length;}
+var c=q("[data-name='aer-tariff-recon']");
+R.cardBreaks=breaks(c.querySelector('.pc__name'));
+R.cardAka=lines(c.querySelector('.aka'));R.role=lines(c.querySelector('.pc__mae'));
+click(c);click(c);var h=document.getElementById(c.getAttribute('data-detail'))
+.querySelector('[data-sheet-title]');
+R.sheetBreaks=breaks(h);R.sheetAka=lines(h.querySelector('.aka'));
+"""
+
+
+@needs_chrome
+@pytest.mark.parametrize(
+    "size", [(1440, 900), (1180, 820), (820, 1180)], ids=["pc", "ipad-landscape", "ipad-portrait"]
+)
+def test_a_long_repo_name_wraps_only_between_its_words(
+    tmp_path: Path, size: tuple[int, int]
+) -> None:
+    from hive.gateway.pages import render_home
+    from hive.gateway.snapshot import Snapshot
+
+    names = ["aer-tariff-recon", *(f"proj{p}" for p in range(5))]
+    records = [_rec(f"{n}-t{i}", n, "queued") for n in names for i in range(3)]
+    data = _snapshot(backlog={"records": records})
+    ctx = Ctx("t", repos={"aer-tariff-recon": "standardise_network_tariff_tables"})
+    page = render_home(Snapshot(data, data["schema"], None), build_desk(data), ctx, None, [])
+    r = _in_chrome(tmp_path, page, WRAP_DRIVER, size)
+    # the repo name may wrap, but only after a '_' or '-', never mid-word
+    assert set(r["cardBreaks"]) <= {"_", "-"} and set(r["sheetBreaks"]) <= {"_", "-"}, r
+    # the local-name label and the role label each stay on one line
+    assert r["cardAka"] == 1 and r["sheetAka"] == 1 and r["role"] == 1, r
 
 
 async def test_repo_names_serve_a_stale_entry_and_refresh_it_in_the_background(

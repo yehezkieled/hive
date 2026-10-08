@@ -304,9 +304,9 @@ padding:11px 12px;cursor:pointer}
 box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
 .pc__top{display:flex;align-items:center;gap:8px}
 .pc__top>*{min-width:0}
-.aka{font:10px var(--font-mono);color:var(--ink-4);font-weight:400;margin-left:6px}
+.aka{font:10px var(--font-mono);color:var(--ink-4);font-weight:400;margin-left:6px;white-space:nowrap}
 .pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
-.pc__mae{font:10px var(--font-mono);color:var(--ink-3)}
+.pc__mae{font:10px var(--font-mono);color:var(--ink-3);flex:none;white-space:nowrap}
 .pc__status{margin-left:auto;flex:none;white-space:nowrap;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
 border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);background:var(--paper-soft);color:var(--ink-3)}
 .pc--running .pc__status{background:var(--sage-soft);color:var(--sage);border-color:var(--sage-soft)}
@@ -590,7 +590,8 @@ class Ctx:
             if shown != name
             else ""
         )
-        return f"{esc(shown)}{aka}"
+        # a long repo name wraps only between its words, never mid-word
+        return re.sub(r"([_-])", r"\1<wbr>", esc(shown)) + aka
 
     def form(self, action: str, inner: str, cls: str = "", **hidden: str) -> str:
         if not self.writable:
