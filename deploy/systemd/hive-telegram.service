@@ -1,0 +1,22 @@
+[Unit]
+Description=Hive runtime with Telegram (python -m hive; replaces hive.service; only when configured)
+After=network-online.target
+Wants=network-online.target
+# Never two Hive runtimes (two pollers on one bot token): stop hive.service first.
+Conflicts=hive.service
+# Deliberately independent of hive-gateway.service: neither can stop the other.
+
+[Service]
+WorkingDirectory=%h/apps/hive
+# Token and allowlist: the environment, ~/.config/hive/telegram.env (0600) or the
+# checkout's .env (as python -m hive reads it); never committed.
+EnvironmentFile=-%h/.config/hive/telegram.env
+# Exit 1 here means "not configured" or "another Hive runtime runs": the unit is
+# skipped, not failed, and not restarted.
+ExecCondition=%h/apps/hive/scripts/hive-telegram.sh --check
+ExecStart=%h/apps/hive/scripts/hive-telegram.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hive.telegram</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HIVE_DIR__/scripts/hive-telegram.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__HIVE_DIR__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Hive runtime with Telegram (python -m hive). Restart after a crash; a skip
+       (unconfigured, or another Hive runtime running) exits 0 and stays down. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/hive-telegram.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/hive-telegram.log</string>
+</dict>
+</plist>
