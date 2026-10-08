@@ -229,7 +229,7 @@ def test_close_json_flow_and_audit_line(
     first = jpost(client, "review-close", key="a").json()
     assert first["ok"] and first["confirm"] and first["label"] == "Tap again to close"
     done = jpost(client, "review-close", key="a", step=first["step"], rid=first["rid"]).json()
-    assert done == {"ok": True, "message": "Closed 1 review page."}
+    assert done == {"ok": True, "message": "Closed 1 review page.", "pending": False}
     assert any(
         "action=review-close subject=a outcome=done" in r.getMessage() for r in caplog.records
     )
@@ -243,7 +243,7 @@ def test_close_of_an_already_closed_page_is_a_quiet_success(
 ) -> None:
     lavish.write({"a": 60}, {"a": "ended"})
     res = jpost(client, "review-close", key="a").json()
-    assert res == {"ok": True, "message": "That review page is already closed."}
+    assert res == {"ok": True, "message": "That review page is already closed.", "pending": False}
     assert lavish.calls() == []
 
 
@@ -270,14 +270,14 @@ def test_close_all_old_ends_exactly_the_confirmed_old_pages(
     bad = jpost(client, "review-close-old", keys="new", step=first["step"], rid=first["rid"])
     assert bad.json().get("confirm") is True and lavish.calls() == []
     done = jpost(client, "review-close-old", keys=keys, step=first["step"], rid=first["rid"])
-    assert done.json() == {"ok": True, "message": "Closed 2 review pages."}
+    assert done.json() == {"ok": True, "message": "Closed 2 review pages.", "pending": False}
     assert sorted(lavish.ended()) == ["o1", "o2"]
 
 
 def test_close_all_old_with_nothing_old_does_nothing(client: TestClient, lavish: Lavish) -> None:
     lavish.write({"a": 60})
     res = jpost(client, "review-close-old").json()
-    assert res == {"ok": True, "message": "No review pages look done."}
+    assert res == {"ok": True, "message": "No review pages look done.", "pending": False}
     assert lavish.calls() == []
 
 

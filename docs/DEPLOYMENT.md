@@ -1233,10 +1233,19 @@ re-runs the script. Every write logs one
 journal); free text is never logged, only its length. Chat shows receipts
 and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
 the header of every page). A chat send needs no snapshot and holds its response
-at most `NOTE_WAIT_S` (1 s): `fm-inbox.sh note` saves the note and then waits
+at most `NOTE_WAIT_S` (0.8 s): `fm-inbox.sh note` saves the note and then waits
 on firstmate's wake-queue lock, so a slower call finishes in the background and
 the JSON reply is `202 {ok, message, pending: true}`; the page retries the same
-request id, which replays as a plain success. The Chat page is one fixed
+request id, which replays as a plain success. Every other `/act/*` write
+(answer, decision, delegate, ticket, merge, control, review close) works the
+same way: it checks ids against the cached snapshot (never a fresh one; at most
+`SNAPSHOT_WAIT_S` for a first one), runs once per request id and holds its
+response at most `ACT_WAIT_S` (0.8 s). A slower run answers `202 pending`, and
+the page keeps showing "Sent ✓" (a review-close row stays dimmed) while it
+polls the same id; a later failure comes back on that id and the button turns
+to "Failed ✗" ("Failed" on review close) with the message.
+`tests/gateway/test_act_latency.py` times every name in `ACT_NAMES` against a
+slow fake firstmate and fails above 1 s. The Chat page is one fixed
 screen: only the thread scrolls, the box stays pinned above the keyboard, Enter
 sends (Shift+Enter is a newline), and a sent bubble shows at once and is
 replaced by its receipt (matched on `data-rid`, the request id) as it moves

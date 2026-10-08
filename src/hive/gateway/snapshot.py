@@ -236,6 +236,28 @@ class SnapshotProvider:
             self._task = asyncio.create_task(self._refresh_quietly())
         return self._value
 
+    async def quick(self, wait_s: float) -> Snapshot | None:
+        """The last known snapshot without waiting on the script, for the request path of a write.
+
+        A usable value is returned as is (an expired one starts the single background refresh).
+        With no usable value yet this waits at most ``wait_s`` for a fresh run, then gives back
+        whatever exists, which may be None. The run itself keeps going in the background.
+        """
+        value = self._value
+        if value is not None and value.data is not None:
+            if time.monotonic() - self._at > self._settings.snapshot_ttl_s and (
+                self._task is None or self._task.done()
+            ):
+                self._task = asyncio.create_task(self._refresh_quietly())
+            return value
+        try:
+            return await asyncio.wait_for(asyncio.shield(self._refresh_task()), wait_s)
+        except TimeoutError:
+            return self._value
+
+    def _refresh_task(self) -> asyncio.Future[Snapshot]:
+        return asyncio.ensure_future(self._refresh(keep_good=False, fresh=False))
+
     async def _refresh_quietly(self) -> None:
         try:
             await self._refresh(keep_good=True, fresh=False)

@@ -30,7 +30,9 @@ REQUEST_ID_RE = re.compile(r"^web-[0-9a-f]{16}$")
 MAX_ANSWER_BYTES = 512  # the keyed intake keeps only this many bytes of an answer
 MAX_NOTE_CHARS = 4000
 SCRIPT_TIMEOUT_S = 30.0
-NOTE_WAIT_S = 1.0  # how long a chat send may hold its response
+NOTE_WAIT_S = 0.8  # how long a chat send may hold its response
+ACT_WAIT_S = 0.8  # how long any other /act/* may hold its response before answering "pending"
+SNAPSHOT_WAIT_S = 0.6  # longest a write waits for a first snapshot when none is cached yet
 STEP_UP_TTL_S = 180
 TICKET_FIELDS = ("title", "body", "priority")
 CONTROL_VERBS = ("interrupt", "relaunch")
@@ -88,6 +90,9 @@ class Tokens:
         return hmac.compare_digest(mac, self._mac("step", action, subject, exp))
 
 
+PENDING_SUMMARY = "Saving; this can take a few seconds."
+
+
 def new_request_id() -> str:
     return f"web-{secrets.token_hex(8)}"
 
@@ -98,18 +103,58 @@ class RunOnce:
     A repeat POST with the same id awaits the first run and gets its result (or error)
     instead of running the script again. Validate input before calling ``run`` so only a
     started run claims the id. Nothing is persisted; expired ids are pruned.
+
+    With ``wait_s`` the caller is never held longer than that: a run still going answers a
+    pending outcome and keeps running, and the same id asked again later gets the finished
+    result, or the failure, which is how a late error reaches the card.
     """
 
     def __init__(self, ttl_s: float = STEP_UP_TTL_S) -> None:
         self._ttl_s = ttl_s
         self._runs: dict[str, tuple[float, asyncio.Future[Outcome]]] = {}
+        self._answered_pending: set[str] = set()
 
-    async def run(self, request_id: str, start: Callable[[], Awaitable[Outcome]]) -> Outcome:
+    def known(self, request_id: str) -> bool:
+        entry = self._runs.get(request_id)
+        return entry is not None and entry[0] > time.time()
+
+    async def run(
+        self,
+        request_id: str,
+        start: Callable[[], Awaitable[Outcome]] | None,
+        wait_s: float | None = None,
+        pending: tuple[str, str] = ("", ""),
+        on_success: Callable[[], None] | None = None,
+    ) -> Outcome:
         now = time.time()
         self._runs = {k: v for k, v in self._runs.items() if v[0] > now}
+        self._answered_pending &= self._runs.keys()
         if request_id not in self._runs:
-            self._runs[request_id] = (now + self._ttl_s, asyncio.ensure_future(start()))
-        return await asyncio.shield(self._runs[request_id][1])
+            if start is None:
+                raise ActionError("That request has expired. Refresh the desk.", 409)
+            fut = asyncio.ensure_future(start())
+
+            def _settled(f: asyncio.Future[Outcome]) -> None:
+                if f.cancelled() or f.exception() is not None:  # also marks it retrieved
+                    return
+                # Only a caller already answered "pending" needs telling that it finished.
+                if on_success is not None and request_id in self._answered_pending:
+                    on_success()
+
+            fut.add_done_callback(_settled)
+            self._runs[request_id] = (now + self._ttl_s, fut)
+        fut = self._runs[request_id][1]
+        if fut.done():
+            return fut.result()
+        if wait_s is None:
+            return await asyncio.shield(fut)
+        done, _ = await asyncio.wait({fut}, timeout=wait_s)
+        if fut in done:
+            return fut.result()
+        self._answered_pending.add(request_id)
+        action, subject = pending
+        audit(action or "act", subject or "-", "pending", request_id=request_id)
+        return Outcome(action, subject, PENDING_SUMMARY, pending=True)
 
 
 # ---- running scripts --------------------------------------------------------------
@@ -311,7 +356,7 @@ async def send_note_bounded(
 
     task.add_done_callback(_finish)
     audit(action, subject, "pending", request_id=request_id, chars=len(body))
-    return Outcome(action, subject, "Saving; this can take a few seconds.", pending=True)
+    return Outcome(action, subject, PENDING_SUMMARY, pending=True)
 
 
 def answer_body(text: str) -> str:
