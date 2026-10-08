@@ -19,6 +19,7 @@ from hive.gateway.desk import (
     BacklogGroup,
     Crew,
     Desk,
+    Glance,
     NeedsYou,
     Project,
     Row,
@@ -58,7 +59,7 @@ CSS = """
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--font-sans);
 -webkit-font-smoothing:antialiased;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
 button,input,label,summary,a{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-main{max-width:960px;margin:0 auto;padding:12px 0 48px}
+main{max-width:960px;margin:0 auto;padding:12px 0 calc(48px + var(--bar-room,0px) + env(safe-area-inset-bottom))}
 h1{font:900 1.4rem var(--font-display);letter-spacing:-.4px;margin:.6rem 0}
 h2{font:800 1.05rem var(--font-display);margin:1.6rem 0 .6rem}
 a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
@@ -139,6 +140,34 @@ min-width:210px;color:var(--ink-2)}
 .wide .dbar{padding:10px 10px 10px 16px;box-shadow:0 8px 24px var(--paper-shadow)}
 .wide input.dbar__in{font-size:15px}
 }
+/* one-page desk on PC, laptop and tablet: the viewport is the page; each panel scrolls on its own */
+@media (min-width:700px) and (min-height:560px){
+body.wide{height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+.wide .chrome{flex:none;width:100%}
+.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 calc(12px + env(safe-area-inset-bottom))}
+.wide .screen{flex:1;min-height:0;gap:10px}
+.wide .land{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px;align-items:stretch}
+.wide .land__col{min-height:0;gap:10px}
+.wide .nyl{display:flex;flex-direction:column;min-height:0;height:100%}
+.wide .nyl__head{flex:none}
+.wide .nyl__body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.wide .pcsec{display:flex;flex-direction:column;gap:6px;min-height:0;flex:0 1 auto;max-height:55%}
+.wide .pcs{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+align-content:start;grid-auto-rows:max-content;min-height:0;padding-bottom:2px}
+.wide .rvs{flex:1 1 0;min-height:0}
+.wide .rv__box{flex:1;min-height:0}
+.wide .rv__list{flex:1;max-height:none;min-height:0}
+.wide .dbar-wrap{position:static;margin:0;flex:none}
+.wide .stamp{flex:none}
+}
+@media (min-width:1100px) and (min-height:560px){.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr)}}
+@media (min-width:700px) and (min-height:560px) and (max-width:1099px) and (orientation:portrait){
+.wide .land{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1.1fr) minmax(0,1fr)}
+.wide .land__col:last-child{flex-direction:row}
+.wide .land__col:last-child>*{flex:1 1 0;min-width:0}
+.wide .pcs{grid-template-columns:minmax(0,1fr)}
+.wide .pcsec{max-height:none}
+}
 .nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
 box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
 .nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
@@ -200,7 +229,10 @@ display:inline-flex;align-items:center;justify-content:center;padding:0 6px;bord
 .nyx.is-primary .nyx__more{display:block;padding:0 4px}
 .nyx__more>.nyi__summary{margin:2px 0 6px}
 .nyx__desc{margin:0 0 8px;font-size:12.5px;line-height:1.45;color:var(--ink-3);border-left:2px solid var(--rule-faint);
-padding-left:9px}
+padding-left:9px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
+.nyx__desc[data-ready]{cursor:pointer}
+.nyx__desc[data-ready]:hover{color:var(--ink-2)}
+.nyx__desc:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
 .nyx__desc[hidden]{display:none}
 .nyx__desc.is-pending{color:var(--ink-4);animation:nyx-pulse 1.4s ease-in-out infinite}
 .nyx.is-flip{transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
@@ -209,11 +241,14 @@ padding-left:9px}
 @keyframes nyx-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 @keyframes nyx-pulse{50%{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none!important;transition:none!important}}
-.nyq__more{font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;padding:6px 4px;min-height:36px}
+.nyq__more{display:inline-flex;align-items:center;font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;
+padding:0 4px;min-height:44px}
 .rvs{display:flex;flex-direction:column;gap:6px}
-.rv__list{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
+.rv__box{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
+.rv__list{display:flex;flex-direction:column;max-height:min(44vh,300px);overflow-y:auto;overflow-x:hidden;
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .rv{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;color:inherit;text-decoration:none;
-border-top:1px solid var(--rule-faint)}
+border-top:1px solid var(--rule-faint);flex:none}
 .rv:first-child{border-top:0}
 .rv:hover{background:var(--paper-soft)}
 .rv>*{min-width:0}
@@ -222,8 +257,27 @@ border-top:1px solid var(--rule-faint)}
 .rv__reply{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ochre);
 background:var(--honey-soft);border-radius:999px;padding:2px 8px}
 .rv__go{font:10px var(--font-mono);color:var(--ink-4)}
-.rv__more summary{min-height:44px;display:flex;align-items:center;padding:0 12px;font:10px var(--font-mono);
-color:var(--ink-3);cursor:pointer;border-top:1px solid var(--rule-faint)}
+.rv__morebtn{display:flex;align-items:center;width:100%;min-height:44px;padding:0 12px;border:0;border-top:1px solid var(--rule-faint);
+border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-mono);cursor:pointer;text-align:left}
+.rv__morebtn:hover{background:var(--paper-soft)}
+.sheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
+background:var(--paper);color:var(--ink);border:1.5px solid var(--rule);border-radius:16px;
+box-shadow:0 16px 48px var(--paper-shadow);overflow:hidden}
+.sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s ease-out}
+.sheet{cursor:pointer}.sheet>*{cursor:auto}
+body:has(dialog[open]){overflow:hidden}
+.sheet::backdrop{background:rgba(20,16,12,.5)}
+.sheet__head{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;border-bottom:1.5px solid var(--rule);flex:none}
+.sheet__head>*{min-width:0}
+.sheet__head h2{flex:1;margin:0;font:800 .95rem var(--font-display);overflow-wrap:anywhere}
+.sheet__x{min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:26px;line-height:1}
+.sheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom)}
+.sheet__meta{margin:0;padding:10px 16px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--rule-faint);flex:none}
+.sheet__text{margin:0;padding:14px 16px;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.sheet__empty{margin:0;padding:14px 16px;font:10px var(--font-mono);color:var(--ink-3)}
+@keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.sheet[open]{animation:none}}
 .nyi__reply::placeholder{color:var(--ink-4)}
 .btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
 border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
@@ -250,9 +304,10 @@ padding:11px 12px;cursor:pointer}
 box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
 .pc__top{display:flex;align-items:center;gap:8px}
 .pc__top>*{min-width:0}
+.aka{font:10px var(--font-mono);color:var(--ink-4);font-weight:400;margin-left:6px;white-space:nowrap}
 .pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
-.pc__mae{font:10px var(--font-mono);color:var(--ink-3)}
-.pc__status{margin-left:auto;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
+.pc__mae{font:10px var(--font-mono);color:var(--ink-3);flex:none;white-space:nowrap}
+.pc__status{margin-left:auto;flex:none;white-space:nowrap;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
 border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);background:var(--paper-soft);color:var(--ink-3)}
 .pc--running .pc__status{background:var(--sage-soft);color:var(--sage);border-color:var(--sage-soft)}
 .pc--blocked .pc__status{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-soft)}
@@ -304,7 +359,7 @@ function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.le
 function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed);}
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
-if(document.querySelector('details[open]'))return true;
+if(document.querySelector('details[open],dialog[open]'))return true;
 var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
@@ -329,7 +384,10 @@ var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
 if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
 if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
-var y=window.scrollY;c.innerHTML=m.innerHTML;restore();stamps();showFlash();window.scrollTo(0,y);});}
+var y=window.scrollY,ps=panels();c.innerHTML=m.innerHTML;restore();panels(ps);stamps();showFlash();
+window.scrollTo(0,y);});}
+function panels(v){return ['.nyl__body','.pcs','.rv__list'].map(function(s,i){var e=c.querySelector(s);
+if(!e)return 0;if(v)e.scrollTop=v[i];return e.scrollTop;});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
 function connect(){es=new EventSource('/events');
 es.onopen=function(){live=true;seen=Date.now();};
@@ -393,8 +451,9 @@ var fm=s.querySelector('form.dbar');
 if(fm){fm.elements.project.value=proj;fm.elements.next.value=card.getAttribute('data-next');}
 try{history.replaceState(null,'',card.getAttribute('data-next'));}catch(e){}}
 document.addEventListener('click',function(e){var a=e.target.closest?e.target.closest('[data-card]'):null;
-if(!a||a.classList.contains('is-selected')||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
-e.preventDefault();focus(a);});
+if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+e.preventDefault();if(a.classList.contains('is-selected'))sheetOpen(document.getElementById(a.getAttribute('data-detail')),a);
+else focus(a);});
 var flash=null,flashT;
 function showFlash(){var e=document.querySelector('[data-flash]');if(!e||!flash)return;
 e.textContent=flash.t;e.hidden=false;e.className='dbar-flash'+(flash.ok?'':' dbar-flash--err');}
@@ -422,7 +481,8 @@ function describe(it,n){var p=it.querySelector('.nyx__desc'),u=it.getAttribute('
 if(!p||!u||!it.classList.contains('is-primary')||p.getAttribute('data-ready')||p.busy)return;
 p.busy=true;if(!p.textContent){p.hidden=false;p.className='nyx__desc is-pending';p.textContent='Reading the backlog item\u2026';}
 fetch(u,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.ok?r.json():{};}).then(function(j){
-p.busy=false;if(j.state==='ready'&&j.text){p.className='nyx__desc';p.textContent=j.text;p.setAttribute('data-ready','1');p.hidden=false;}
+p.busy=false;if(j.state==='ready'&&j.text){p.className='nyx__desc';p.textContent=j.text;p.setAttribute('data-ready','1');
+p.setAttribute('tabindex','0');p.setAttribute('role','button');p.setAttribute('aria-haspopup','dialog');p.hidden=false;}
 else if(j.state==='pending'&&(n||0)<20)setTimeout(function(){describe(it,(n||0)+1);},2000);
 else{p.hidden=true;p.textContent='';}}).catch(function(){p.busy=false;p.hidden=true;p.textContent='';});}
 function describeAll(){var a=document.querySelectorAll('.nyx.is-primary');for(var i=0;i<a.length;i++)describe(a[i]);}
@@ -444,7 +504,7 @@ r.style.transition='';r.style.transform='';});},340);}
 function restore(){var g=groups();for(var i=0;i<g.length;i++){var k=g[i].getAttribute('data-group'),id=picks[k];
 if(id!==undefined){var its=g[i].querySelectorAll('.nyx'),hit=null;
 for(var j=0;j<its.length;j++)if(its[j].getAttribute('data-item')===id)hit=its[j];
-if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();}
+if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();barRoom();}
 document.addEventListener('click',function(e){
 var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
@@ -455,6 +515,32 @@ if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primar
 (it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
 lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
 pick(g,it,!calm());describe(it);});
+var sheetOpener=null;
+function sheetOpen(d,b){if(!d||d.open)return;sheetOpener=b;
+if(d.showModal)d.showModal();else d.setAttribute('open','');
+var l=d.querySelector('.sheet__list');if(l)l.scrollTop=0;var x=d.querySelector('[data-sheet-close]');if(x)x.focus();}
+function sheetClose(d){if(d.close)d.close();else d.removeAttribute('open');
+if(sheetOpener&&document.contains(sheetOpener))sheetOpener.focus();sheetOpener=null;}
+function descOpen(p){var d=document.getElementById('desc-sheet'),it=p.closest('.nyx');if(!d)return;
+d.querySelector('[data-sheet-title]').textContent=it?it.getAttribute('data-item'):'';
+d.querySelector('[data-sheet-text]').textContent=p.textContent;sheetOpen(d,p);}
+document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;
+var o=t.closest('[data-sheet-open]');
+if(o){if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
+e.preventDefault();sheetOpen(document.getElementById(o.getAttribute('data-sheet-open')),o);return;}
+var p=t.closest('.nyx__desc[data-ready]');if(p){e.preventDefault();descOpen(p);return;}
+var d=t.closest('[data-sheet]');
+if(t.closest('[data-sheet-close]')){e.preventDefault();sheetClose(d);return;}
+if(t.hasAttribute&&t.hasAttribute('data-sheet'))sheetClose(t);});
+document.addEventListener('cancel',function(e){var d=e.target;
+if(d&&d.hasAttribute&&d.hasAttribute('data-sheet')){e.preventDefault();sheetClose(d);}},true);
+document.addEventListener('keydown',function(e){var t=e.target;
+if(e.key==='Escape'){var d=document.querySelector('[data-sheet][open]');if(d){e.preventDefault();sheetClose(d);}return;}
+if((e.key==='Enter'||e.key===' ')&&t&&t.matches&&t.matches('.nyx__desc[data-ready]')){e.preventDefault();descOpen(t);}});
+function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
+document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
+try{barRoom();window.addEventListener('resize',barRoom);
+if(window.ResizeObserver){var bw=document.querySelector('.dbar-wrap,.dock');if(bw)new ResizeObserver(barRoom).observe(bw);}}catch(e){}
 restore();stamps();setInterval(stamps,30000);
 })();
 """
@@ -481,6 +567,7 @@ class Ctx:
         tz: str = DEFAULT_TZ,
         quota: Quota | None = None,
         descriptions: dict[str, str] | None = None,
+        repos: dict[str, str] | None = None,
     ) -> None:
         self.csrf = csrf
         self.writable = writable
@@ -489,6 +576,22 @@ class Ctx:
         self.tz = tz
         self.quota = quota  # None: quota-axi did not answer
         self.descriptions = descriptions or {}  # "project/item" -> cached agent description
+        self.repos = repos or {}  # registry name -> GitHub repo name (when it differs)
+
+    def show(self, name: str) -> str:
+        """The project's display name: its GitHub repo name, else the registry name."""
+        return self.repos.get(name) or name
+
+    def name_html(self, name: str) -> str:
+        """Display name, plus the local registry name as a small secondary label if it differs."""
+        shown = self.show(name)
+        aka = (
+            f"<small class=aka title='local clone name'>{esc(name)}</small>"
+            if shown != name
+            else ""
+        )
+        # a long repo name wraps only between its words, never mid-word
+        return re.sub(r"([_-])", r"\1<wbr>", esc(shown)) + aka
 
     def form(self, action: str, inner: str, cls: str = "", **hidden: str) -> str:
         if not self.writable:
@@ -689,7 +792,7 @@ def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
     """A captain hold's lane parts: row class, state dot, badge, summary and the answer form."""
     row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
     ref = n.ref.partition("/")[0]
-    entity = f"{n.project} · {ref}"  # the reply label; the lane's group header names the project
+    entity = f"{ctx.show(n.project)} · {ref}"  # the reply label; the lane's group header names the project
     if n.title and n.text and n.title != n.text:
         summary = f"<b>{ctx.plain(n.title)}</b> — {ctx.plain(n.text)}"
     else:
@@ -785,7 +888,8 @@ def _nyx(
     text = ctx.descriptions.get(f"{group.project}/{item_id}")
     desc_url = "/describe?" + urlencode({"p": group.project, "id": item_id})
     desc = (
-        f"<p class=nyx__desc data-ready=1>{esc(text)}</p>"
+        "<p class=nyx__desc data-ready=1 tabindex=0 role=button aria-haspopup=dialog>"
+        f"{esc(text)}</p>"
         if text
         else "<p class=nyx__desc hidden></p>"
     )
@@ -802,13 +906,62 @@ def _nyx(
     )
 
 
-def _group(g: BacklogGroup, ctx: Ctx) -> str:
+def _sheet(sid: str, title: str, body: str, close: str, head: str = "") -> str:
+    """A modal sheet (``<dialog>``) the page script opens from any ``data-sheet-open=<sid>``
+    and closes on its X, a tap outside or Escape. ``title`` and ``body`` are HTML."""
+    return (
+        f"<dialog id={sid} class=sheet aria-labelledby={sid}-title data-sheet>"
+        f"<div class=sheet__head><h2 id={sid}-title data-sheet-title>{title}</h2>{head}"
+        f"<button type=button class=sheet__x data-sheet-close aria-label='{esc(close)}'>×</button>"
+        f"</div>{body}</dialog>"
+    )
+
+
+def _open_project(href: str) -> str:
+    return f"<a class='btn btn--deny' href='{esc(href)}'>Open project ↗</a>"
+
+
+def _sheet_row(href: str, item_id: str, title: str, tag: str) -> str:
+    badge = f"<span class=rv__reply>{esc(tag)}</span>" if tag else ""
+    return (
+        f"<a class=rv href='{esc(href)}'><span class=rv__title>{esc(title or item_id)}</span>"
+        f"<span class=rv__proj>{esc(item_id)}</span>{badge}<span class=rv__go>↗</span></a>"
+    )
+
+
+def _items_list(g: BacklogGroup | None, ctx: Ctx) -> str:
+    """Every item of a project's Needs-you slice (held first, then queued), for a sheet."""
+    if g is None or not g.count:
+        return "<p class=sheet__empty>Nothing waiting on you or queued.</p>"
+    href = "/p/" + quote(g.project, safe="")
+    rows = [
+        _sheet_row(href, n.ref, n.title or n.text, _LANE.get(n.kind, ("", "", n.kind))[2])
+        for n in g.waiting
+    ]
+    rows += [_sheet_row(href, r.id, r.title, _row_parts(r, href, ctx)[1]) for r in g.queued]
+    return f"<div class=sheet__list>{''.join(rows)}</div>"
+
+
+def _group(g: BacklogGroup, ctx: Ctx, sid: str) -> str:
     """One project's slice: the first held item is the card, the rest are rows; picking a row
-    (page script) swaps it into the card slot. Without the script every row opens the project."""
+    (page script) swaps it into the card slot. Without the script every row opens the project.
+    "+N more" opens a sheet listing the whole slice (without the script, the project page)."""
     href = "/p/" + quote(g.project, safe="")
     shown = g.queued[:_QUEUED_SHOWN]
     rest = len(g.queued) - len(shown)
-    more = f"<a class=nyq__more href='{esc(href)}'>+{rest} more ↗</a>" if rest else ""
+    more = (
+        f"<a class=nyq__more href='{esc(href)}' data-sheet-open={sid} aria-haspopup=dialog "
+        f"aria-controls={sid}>+{rest} more</a>"
+        + _sheet(
+            sid,
+            f"{ctx.name_html(g.project)} · {g.count}",
+            _items_list(g, ctx),
+            f"Close {ctx.show(g.project)}",
+            _open_project(href),
+        )
+        if rest
+        else ""
+    )
     waiting = f"<span class=nyg__wait>{len(g.waiting)} waiting on you</span>" if g.waiting else ""
     items = []
     for i, n in enumerate(g.waiting):
@@ -848,7 +1001,7 @@ def _group(g: BacklogGroup, ctx: Ctx) -> str:
     return (
         f"<section class=nyg data-group='{esc(g.project)}' data-open='{esc(href)}'>"
         f"<a class=nyg__head href='{esc(href)}'>"
-        f"<span class=nyg__name>{esc(g.project)}</span>"
+        f"<span class=nyg__name>{ctx.name_html(g.project)}</span>"
         f"<span class=nyg__mate>{'second mate' if g.mate else 'first mate'}</span>{waiting}"
         f"<span class=nyg__count>{g.count}</span></a>"
         f"<div class=nyg__items>{''.join(items)}</div>{more}</section>"
@@ -869,46 +1022,70 @@ def _lane(desk: Desk, ctx: Ctx) -> str:
             f"<p class=calm__line>✓ all clear · {n} loop{'' if n == 1 else 's'} running</p>"
             "<p class=calm__sub>backlog is empty</p></div></section>"
         )
-    groups = "".join(_group(g, ctx) for g in desk.backlog)
+    groups = "".join(_group(g, ctx, f"nys-{i}") for i, g in enumerate(desk.backlog))
     return f"<section class=nyl>{head}<div class=nyl__body>{groups}</div></section>"
 
 
 _DOT = {"blocked": "error", "running": "active", "idle": "idle"}
 
 
-def _target(p: Project) -> tuple[str, str]:
+def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
     """(delegate-bar label, project field) for a focused card."""
     if p.name == NO_PROJECT:
         return "first mate", ""
-    return f"{'second mate' if p.mate else 'first mate'} · {p.name}", p.name
+    return f"{'second mate' if p.mate else 'first mate'} · {ctx.show(p.name)}", p.name
 
 
-def _card(p: Project, selected: bool) -> str:
+def _card_text(p: Project) -> tuple[Glance, str, str]:
+    """A card's glance, its activity line (HTML) and its progress label."""
     g = glance(p)
-    label, field = _target(p)
+    prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
+    now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
+    return g, now, prog
+
+
+def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
+    """A project card: a tap focuses it (retargets the delegate bar); a tap on the focused card
+    opens its detail sheet ``sid``. Without the script the focused card opens the project."""
+    g, now, prog = _card_text(p)
+    label, field = _target(p, ctx)
     nxt = "/?focus=" + quote(p.name, safe="")
     open_href = "/p/" + quote(p.name, safe="")
     pct = round(100 * g.done / g.total) if g.total else 0
-    prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
-    now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
     sel = " is-selected" if selected else ""
     return (
         f"<a class='pc pc--{g.status}{sel}' href='{esc(open_href if selected else nxt)}' "
         f"data-card data-name='{esc(p.name)}' data-label='{esc(label)}' "
-        f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}'"
-        f"{' aria-current=true' if selected else ''}>"
+        f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}' "
+        f"data-detail={sid}{' aria-current=true' if selected else ''}>"
         f"<span class=pc__top><span class='state-dot state-dot--{_DOT[g.status]}'></span>"
-        f"<span class=pc__name>{esc(p.name)}</span>"
+        f"<span class=pc__name>{ctx.name_html(p.name)}</span>"
         f"<span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span>"
         f"<span class=pc__status>{g.status}</span></span>"
         f"<p class=pc__now>{now}</p>"
         f"<span class=pc__prog><span class=pc__track><i style='width:{pct}%'></i></span>{prog}"
-        "<span class=pc__open>· opens project ↗</span></span></a>"
+        "<span class=pc__open>· tap for details</span></span></a>"
+    )
+
+
+def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> str:
+    """The focused card's detail: status, activity, progress and its Needs-you items."""
+    g, now, prog = _card_text(p)
+    meta = (
+        f"<p class=sheet__meta><b>{g.status}</b> · {'second mate' if p.mate else 'first mate'}"
+        f" · {prog}<br>{now}</p>"
+    )
+    return _sheet(
+        sid,
+        ctx.name_html(p.name),
+        meta + _items_list(group, ctx),
+        f"Close {ctx.show(p.name)}",
+        _open_project("/p/" + quote(p.name, safe="")),
     )
 
 
 def _dbar(focus: Project | None, ctx: Ctx) -> str:
-    label, field = _target(focus) if focus else ("first mate", "")
+    label, field = _target(focus, ctx) if focus else ("first mate", "")
     nxt = "/?focus=" + quote(focus.name, safe="") if focus else "/"
     form = ctx.form(
         "delegate",
@@ -931,13 +1108,13 @@ def _dbar(focus: Project | None, ctx: Ctx) -> str:
     )
 
 
-_REVIEWS_SHOWN = 6
+_REVIEWS_SHOWN = 10
 
 
 def _review(r: Review, ctx: Ctx) -> str:
     href = f"{ctx.board_url}/session/{r.key}"
     reply = "<span class=rv__reply>reply</span>" if r.reply else ""
-    where = f"<span class=rv__proj>{esc(r.project)}</span>" if r.project else ""
+    where = f"<span class=rv__proj>{esc(ctx.show(r.project))}</span>" if r.project else ""
     return (
         f"<a class=rv href='{esc(href)}' target=_blank rel='noopener noreferrer'>"
         f"<span class=rv__title>{esc(r.title)}</span>{where}{reply}<span class=rv__go>↗</span></a>"
@@ -945,20 +1122,32 @@ def _review(r: Review, ctx: Ctx) -> str:
 
 
 def _reviews(reviews: list[Review], ctx: Ctx) -> str:
-    """Open Lavish review sessions as tap targets that open on the tailnet board URL."""
+    """Open Lavish review sessions as tap targets that open on the tailnet board URL.
+
+    The first few sit in a scrollable box; "+N more" is always its last row and opens a
+    sheet listing every session (the same unread-replies-first order).
+    """
     if not reviews:
         return ""
     shown = "".join(_review(r, ctx) for r in reviews[:_REVIEWS_SHOWN])
-    rest = reviews[_REVIEWS_SHOWN:]
-    more = (
-        f"<details class=rv__more><summary>+{len(rest)} more</summary>"
-        f"{''.join(_review(r, ctx) for r in rest)}</details>"
-        if rest
-        else ""
-    )
+    n = len(reviews)
+    rest = n - _REVIEWS_SHOWN
+    more = sheet = ""
+    if rest > 0:
+        more = (
+            "<button type=button class=rv__morebtn data-sheet-open=rvs-sheet aria-haspopup=dialog "
+            f"aria-controls=rvs-sheet>+{rest} more</button>"
+        )
+        sheet = _sheet(
+            "rvs-sheet",
+            f"Review pages · {n}",
+            f"<div class=sheet__list>{''.join(_review(r, ctx) for r in reviews)}</div>",
+            "Close review pages",
+        )
     return (
-        f"<section class=rvs><p class=sec-label>Review pages · {len(reviews)}</p>"
-        f"<div class=rv__list>{shown}{more}</div></section>"
+        f"<section class=rvs><p class=sec-label>Review pages · {n}</p>"
+        f"<div class=rv__box><div class=rv__list tabindex=0 role=region "
+        f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</section>"
     )
 
 
@@ -974,22 +1163,34 @@ def render_home(
         return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
     if focus not in desk.projects:
         focus = desk.default_focus()
-    cards = "".join(_card(p, p.name == focus) for p in desk.projects.values())
-    projects = (
-        f"<p class=sec-label>Projects · tap to focus</p><div class=pcs>{cards}</div>"
-        if cards
-        else "<p class=sec-label>No projects yet</p>"
-    )
-    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
+    groups = {g.project: g for g in desk.backlog}
+    cards = details = ""
+    for i, p in enumerate(desk.projects.values()):
+        cards += _card(p, p.name == focus, ctx, f"pcs-{i}")
+        details += _card_sheet(p, groups.get(p.name), ctx, f"pcs-{i}")
     more = "".join(
         f"<p class=stamp>+{n} more owned by {esc(owner)}, not shown</p>"
         for owner, n in desk.more.items()
     )
+    projects = (
+        f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
+        f"<div class=pcs>{cards}</div>{details}{more}</section>"
+        if cards
+        else f"<section class=pcsec><p class=sec-label>No projects yet</p>{more}</section>"
+    )
+    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
     body = (
         f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
-        f"</div><div class=land__col>{projects}{more}{_reviews(reviews or [], ctx)}</div></div>"
+        f"</div><div class=land__col>{projects}{_reviews(reviews or [], ctx)}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx)}{stamp}"
-        "<p class=stamp id=alerts-note></p></div>"
+        "<p class=stamp id=alerts-note></p>"
+        + _sheet(
+            "desc-sheet",
+            "",
+            "<div class=sheet__list><p class=sheet__text data-sheet-text></p></div>",
+            "Close description",
+        )
+        + "</div>"
     )
     return _page("Hive desk", body, "desk", attrs, ctx)
 
@@ -1074,8 +1275,8 @@ def render_project(
         )
     crews = "".join(_crew(c, ctx) for c in project.crews) or "<p class=mute>No live crews.</p>"
     return _page(
-        f"{name} · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>{esc(name)}</h1>"
+        f"{ctx.show(name)} · Hive desk",
+        f"<p><a href='/'>← Desk</a></p><h1>{ctx.name_html(name)}</h1>"
         f"<h2>Needs you ({len(project.needs_you)})</h2>"
         f"{needs}<h2>Crews</h2>{crews}<h2>Backlog ({len(project.rows)})</h2>"
         f"{_new_ticket(project.name, ctx)}{''.join(rows) or '<p class=mute>Empty.</p>'}",
