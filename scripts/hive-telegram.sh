@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Run the Hive Telegram bot (python -m hive) only when its config is present.
+# Run the Hive runtime with Telegram (python -m hive: the full runtime, not a
+# bot-only process) only when its config is present and no other Hive runtime
+# is running (never two pollers on one bot token).
 #
-#   hive-telegram.sh          run the bot; exit 0 with a log line when unconfigured
-#   hive-telegram.sh --check  exit 0 if configured, 1 (with a log line) if not
+#   hive-telegram.sh          run it; exit 0 with a log line when it must not start
+#   hive-telegram.sh --check  exit 0 if it may start, 1 (with a log line) if not
 #
 # The token and allowlist come from the environment or from the env file
 # HIVE_TELEGRAM_ENV_FILE (default ~/.config/hive/telegram.env, mode 0600,
@@ -11,6 +13,9 @@ set -u
 
 ENV_FILE="${HIVE_TELEGRAM_ENV_FILE:-$HOME/.config/hive/telegram.env}"
 HIVE_DIR="${HIVE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# Command-line pattern of a running Hive runtime (hive.service or this one).
+RUNTIME_PATTERN=' -m hive$'
+RUNTIME_PATTERN="${HIVE_RUNTIME_PATTERN:-$RUNTIME_PATTERN}"
 
 log() { printf 'hive-telegram: %s\n' "$*" >&2; }
 
@@ -23,6 +28,13 @@ fi
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_ALLOWED_USER_IDS:-}" ]; then
   log "skipping: TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_USER_IDS must both be set (env or $ENV_FILE)"
+  [ "${1:-}" = "--check" ] && exit 1
+  exit 0
+fi
+
+other="$(pgrep -f "$RUNTIME_PATTERN" 2>/dev/null | tr '\n' ' ')"
+if [ -n "$other" ]; then
+  log "skipping: a Hive runtime is already running (pid ${other% }); never two pollers on one bot token"
   [ "${1:-}" = "--check" ] && exit 1
   exit 0
 fi

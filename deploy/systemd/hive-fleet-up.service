@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Started services are detached (setsid); do not kill them when this oneshot ends.
+# Started services are detached; do not kill them when this oneshot ends.
 KillMode=process
 WorkingDirectory=%h/apps/hive
 ExecStart=%h/apps/hive/scripts/fleet-up.sh

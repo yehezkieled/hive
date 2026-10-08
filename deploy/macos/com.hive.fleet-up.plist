@@ -14,6 +14,9 @@
     <key>PATH</key>
     <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>
+  <!-- fleet-up leaves started services running; launchd must not reap them. -->
+  <key>AbandonProcessGroup</key>
+  <true/>
   <key>RunAtLoad</key>
   <true/>
   <key>StartInterval</key>

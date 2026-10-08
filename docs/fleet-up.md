@@ -14,25 +14,29 @@ Files (all shipped in this repo, none installed by it):
 | `deploy/systemd/hive-gateway.service` | Gateway, `Restart=always`. |
 | `deploy/systemd/hive-fleet-up.{service,timer}` | Runs fleet-up at boot and every 5 minutes. |
 | `deploy/windows/Register-HiveWsl.ps1` | Task Scheduler task that starts and holds WSL. |
-| `deploy/systemd/hive-telegram.service` | Telegram bot, `Restart=always`, only if configured. |
-| `scripts/hive-telegram.sh` | Wrapper: loads the env file, skips cleanly when token/allowlist are missing. |
-| `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the bot, `KeepAlive` on crash only. |
+| `deploy/systemd/hive-telegram.service` | Hive runtime with Telegram (`python -m hive`), `Restart=always`, only if configured; `Conflicts=hive.service`. |
+| `scripts/hive-telegram.sh` | Wrapper: loads the env file, skips cleanly when token/allowlist are missing or another Hive runtime runs. |
+| `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Hive runtime with Telegram, `KeepAlive` on crash only. |
 | `deploy/macos/com.hive.gateway.plist` | LaunchAgent, `RunAtLoad` + `KeepAlive`. |
-| `deploy/macos/com.hive.fleet-up.plist` | LaunchAgent, `RunAtLoad` + every 5 minutes. |
+| `deploy/macos/com.hive.fleet-up.plist` | LaunchAgent, `RunAtLoad` + every 5 minutes, `AbandonProcessGroup` so started services outlive it. |
 
 ## What fleet-up does
 
-In order: Hive gateway (:8480, via the service manager), broke-no-more (:3001),
-the Lavish bridge (`node lavish-proxy.js`, :4388), the preview server (:8765),
-the Telegram bot (via its service), then `tailscale serve --bg --https=8443..8446` to the local ports (tailnet
-only, never `funnel`), then firstmate.
+In order: Hive gateway (:8480, via the service manager), the Hive runtime with
+Telegram (via its service), broke-no-more (:3001), the Lavish bridge
+(`node lavish-proxy.js`, :4388), the preview server (:8765), then
+`tailscale serve --bg --https=8443..8446` to the local ports (tailnet only,
+never `funnel`), then firstmate. Step names for `--only`: `gateway runtime bnm
+lavish preview serve firstmate`.
 
 Each service step probes its port and only starts what is closed. The
 firstmate step exits without doing anything when either a herdr pane in
 `FM_DIR` runs the `claude` agent or a `claude` process has `FM_DIR` as its
 working directory, so it never starts a second firstmate. Otherwise it makes
-sure the herdr server is up, creates a `firstmate` workspace at `FM_DIR`, and
-runs `claude` in it (the launch command in firstmate's README, "Install and
+sure the herdr server is up and runs `claude` in a pane of an earlier
+`firstmate` workspace whose `claude` has exited (for example no network at
+boot), so each rerun retries the same session; only when there is no such
+workspace does it create one at `FM_DIR`. It runs `claude` (the launch command in firstmate's README, "Install and
 launch"). [UNSURE] Starting the herdr server with `herdr server` when it is
 down was not exercised here; if it needs a different command, set it by
 bringing herdr up first and the step skips the start.
@@ -46,11 +50,20 @@ scripts/fleet-up.sh --dry-run --only serve,firstmate
 
 Logs of started services: `~/.local/state/hive-fleet-up/` (macOS the same).
 
-## Telegram bot
+## Hive runtime with Telegram
 
-`hive-telegram` runs `python -m hive` (the bot; ADR 0033 keeps Telegram as an
-optional backup channel). It is its own unit: no dependency on the gateway in
-either direction, so a bot crash or missing config never stops the desk.
+`hive-telegram` runs `python -m hive`: the full Hive runtime (Vault rail,
+quota and health monitors, the legacy web app when `HIVE_WEB_PORT` is set) with
+Telegram as its optional backup channel (ADR 0033). It is not a bot-only
+process. It **replaces `hive.service`**, which runs the same thing: never run
+both, or two runtimes share one database and two pollers fight over one bot
+token (Telegram answers `409 Conflict`). The unit has `Conflicts=hive.service`,
+and the wrapper skips with a log line (`hive-telegram: skipping: a Hive runtime
+is already running ...`) whenever any `python -m hive` process already runs, so
+fleet-up, launchd and systemd never start a second one.
+
+It is its own unit: no dependency on the gateway in either direction, so a
+runtime crash or missing config never stops the desk.
 
 Config is never committed. Create `~/.config/hive/telegram.env` (mode 0600):
 
@@ -76,6 +89,9 @@ Prerequisites, once, inside WSL:
 #   systemd=true
 # then, from PowerShell: wsl --shutdown
 sudo loginctl enable-linger "$USER"
+
+# hive-telegram.service replaces hive.service: stop and disable it first.
+systemctl --user disable --now hive.service 2>/dev/null || true
 
 mkdir -p ~/.config/systemd/user ~/.config/hive
 cp ~/apps/hive/deploy/systemd/hive-* ~/.config/systemd/user/
@@ -123,8 +139,9 @@ mkdir -p ~/.config/hive ~/Library/LaunchAgents
 cp deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 # in that file, set the gateway start for launchd:
 #   GATEWAY_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.gateway'
-#   TELEGRAM_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.telegram'
-#   TELEGRAM_STATUS_CMD='launchctl print gui/$(id -u)/com.hive.telegram'
+#   RUNTIME_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.telegram'
+#   RUNTIME_STATUS_CMD='launchctl print gui/$(id -u)/com.hive.telegram | grep -q "pid = "'
+# Stop any other Hive runtime (python -m hive) first; the job skips while one runs.
 for f in com.hive.gateway com.hive.telegram com.hive.fleet-up; do
   sed -e "s#__HIVE_DIR__#$HOME/apps/hive#g" -e "s#__HOME__#$HOME#g" \
     deploy/macos/$f.plist > ~/Library/LaunchAgents/$f.plist
