@@ -58,7 +58,9 @@ without a terminal. Two separate actions, each offered only in its own state:
 
 - **Wake firstmate** (state `down`): runs exactly `scripts/fleet-up.sh --only
   firstmate` and holds no start logic of its own, so it inherits that step's
-  rules: idempotent, never a second firstmate. A no-op if a session runs. It
+  rules: idempotent, never a second firstmate. A no-op if a session runs. When
+  the process table shows firstmate down, it first releases a stale herdr
+  `claude` report on firstmate's own pane, the same way Restart does (below). It
   reports success only once a new firstmate process is seen (up to 10 s), else a
   failure saying to run the step from a terminal.
 - **Restart session** (state `session up, watcher silent`, a connected but wedged
