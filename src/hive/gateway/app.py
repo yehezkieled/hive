@@ -34,7 +34,7 @@ from hive.gateway.quota import Quota, QuotaProvider
 from hive.gateway.repos import RepoNames
 from hive.gateway.reviews import Review, read_reviews, session_file
 from hive.gateway.settings import GatewaySettings
-from hive.gateway.snapshot import Snapshot, SnapshotProvider
+from hive.gateway.snapshot import Snapshot, SnapshotProvider, project_notes
 from hive.gateway.tail import peek
 
 SECURITY_HEADERS = {
@@ -179,6 +179,7 @@ def create_app(
             descriptions=_cached_descriptions(describer, desk),
             repos=repos,
             can_close_reviews=settings.lavish_axi is not None,
+            project_notes=project_notes(snap),
         )
 
     async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
