@@ -399,11 +399,14 @@ class WakeService:
         ran = await self._start(runner)
         if isinstance(ran, WakeResult):
             return ran
-        _, out = ran
-        # fleet-up exits 0 both when it starts a session and when it finds one already running.
-        return WakeResult(
-            "started" if "started in pane" in out else "noop", _clean(out) or "no output"
-        )
+        detail = _clean(ran[1]) or "no output"
+        if not await self._session_seen():
+            return WakeResult(
+                "failed",
+                "fleet-up ran but no firstmate session started; run "
+                f"scripts/fleet-up.sh --only firstmate from a terminal. fleet-up: {detail}",
+            )
+        return WakeResult("started", detail)
 
     async def _restart(self, runner: Runner) -> WakeResult:
         status = await self.status.fresh()
@@ -455,8 +458,10 @@ class WakeService:
     def _release_stale_pane(self) -> str:
         """Release herdr's ``claude`` report on the one pane at the firstmate home, if any.
 
-        Called only once no firstmate ``claude`` runs, so such a report is stale. Never
-        touches any other pane; a failure is logged and left to the start step to show.
+        Called only once no firstmate ``claude`` runs, so such a report is stale. A pane is
+        firstmate's only when both its cwd and its foreground cwd (if reported) are the
+        firstmate home: a crew pane opened there keeps that cwd but runs in its worktree.
+        Never touches any other pane; a failure is logged and left to the start step to show.
         """
         homes = {str(self.settings.fm_home), str(self.settings.fm_home.resolve())}
         try:
@@ -464,7 +469,8 @@ class WakeService:
                 p
                 for p in self._herdr.panes()
                 if p.get("agent") == "claude"
-                and (p.get("cwd") in homes or p.get("foreground_cwd") in homes)
+                and p.get("cwd") in homes
+                and (p.get("foreground_cwd") or p.get("cwd")) in homes
             ]
             if len(stale) != 1:
                 return "" if not stale else f"{len(stale)} stale herdr panes, none released. "

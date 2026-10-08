@@ -160,12 +160,13 @@ step_serve() {
 
 # --- firstmate ---------------------------------------------------------------
 
-# fm_pane_running: a herdr pane already runs claude in $FM_DIR.
+# fm_pane_running: a herdr pane already runs claude in $FM_DIR. A crew pane opened
+# in $FM_DIR keeps that cwd but has its worktree as foreground_cwd, so both count.
 fm_pane_running() {
   local out
   out="$("$HERDR_BIN" pane list 2>/dev/null)" || return 1
   printf '%s' "$out" | jq -e --arg d "$FM_DIR" \
-    '[.result.panes[]? | select((.cwd == $d or .foreground_cwd == $d) and (.agent == "claude"))] | length > 0' \
+    '[.result.panes[]? | select(.cwd == $d and (.foreground_cwd // $d) == $d and .agent == "claude")] | length > 0' \
     >/dev/null 2>&1
 }
 

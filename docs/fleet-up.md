@@ -58,14 +58,18 @@ without a terminal. Two separate actions, each offered only in its own state:
 
 - **Wake firstmate** (state `down`): runs exactly `scripts/fleet-up.sh --only
   firstmate` and holds no start logic of its own, so it inherits that step's
-  rules: idempotent, never a second firstmate. A no-op if a session runs.
+  rules: idempotent, never a second firstmate. A no-op if a session runs. It
+  reports success only once a new firstmate process is seen (up to 10 s), else a
+  failure saying to run the step from a terminal.
 - **Restart session** (state `session up, watcher silent`, a connected but wedged
   session): stops that one firstmate session and then runs the same fleet-up
   step to start a fresh one. It signals only the single `claude` process whose
   working directory is firstmate's home, by pid (SIGTERM, then SIGKILL after 10 s);
   never a worker, a crew or a broad `pkill`. Once the process table shows no
   firstmate `claude` left, a herdr pane at firstmate's home that still reports
-  `agent: claude` is stale (a killed session never sends its release), and
+  `agent: claude` (with its foreground cwd, if reported, also the home: a crew
+  pane opened in the home keeps that cwd but runs in its worktree, and is never
+  counted) is stale (a killed session never sends its release), and
   fleet-up would take it for a running firstmate. So that one pane's report is
   released with `herdr pane release-agent --source hive-wake --agent claude
   <pane>` (no other pane; a failed release is logged, not fatal). After the
