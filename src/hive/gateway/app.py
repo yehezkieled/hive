@@ -7,8 +7,9 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, quote
 
@@ -50,6 +51,17 @@ SECURITY_HEADERS = {
 }
 MAX_BODY = 64 * 1024
 REVIEW_ACTIONS = ("review-close", "review-close-old")
+# Every name `POST /act/{name}` answers to. A test times each one; add new actions here.
+ACT_NAMES = (
+    "chat",
+    "answer",
+    "decision",
+    "delegate",
+    "ticket",
+    "merge",
+    "control",
+    *REVIEW_ACTIONS,
+)
 MAX_REVIEW_KEYS = 100
 PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
 ICONS_DIR = Path(__file__).resolve().parents[1] / "web" / "static" / "icons"
@@ -351,23 +363,46 @@ def create_app(
             return await _review_action(
                 name, form, settings, tokens, runs, nxt, wants_json, hub.publish
             )
+        rid = form.get("rid", "")
         try:
-            snap = await provider.get(fresh=True)
-            if snap.data is None:
-                raise ActionError(
-                    "The desk is read-only until firstmate's snapshot is readable.", 503
+            try:
+                # The cached snapshot is enough to check an id against; a write never waits on a
+                # fresh fleet snapshot (about 5 s on a real fleet).
+                snap = await provider.quick(actions.SNAPSHOT_WAIT_S)
+                if snap is None or snap.data is None:
+                    raise ActionError(
+                        "The desk is read-only until firstmate's snapshot is readable.", 503
+                    )
+                result = await _dispatch(
+                    name,
+                    form,
+                    build_desk(snap.data),
+                    settings,
+                    tokens,
+                    runs,
+                    nxt,
+                    lambda: hub.publish("desk"),
                 )
-            desk = build_desk(snap.data)
-            result = await _dispatch(name, form, desk, settings, tokens, runs, nxt)
+            except ActionError as exc:
+                # A repeat of a request already taken (the card is gone by now, or the snapshot
+                # moved on) reports that request's outcome instead of a stale refusal.
+                if exc.status not in (409, 503) or not runs.known(rid):
+                    raise
+                result = await runs.run(rid, None, actions.ACT_WAIT_S)
         except ActionError as exc:
             actions.audit(name, "-", "refused", status=exc.status)
             if wants_json:
                 return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
             return pages_error(name, str(exc), nxt, exc.status)
-        if isinstance(result, HTMLResponse):  # a confirm page
-            return result
+        if isinstance(result, Outcome) and not result.pending:
+            hub.publish("desk")
+        if isinstance(result, Confirm):
+            return confirm_response(result, nxt, tokens, wants_json)
         if wants_json:
-            return JSONResponse({"ok": True, "message": result.summary})
+            return JSONResponse(
+                {"ok": True, "message": result.summary, "pending": result.pending},
+                status_code=202 if result.pending else 200,
+            )
         return HTMLResponse(pages.render_outcome(result, nxt))
 
     return app
@@ -425,10 +460,14 @@ async def _review_action(
             return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
         return pages_error(name, str(exc), nxt, exc.status)
 
-    def done(summary: str) -> Response:
-        publish("desk")
+    def done(summary: str, pending: bool = False) -> Response:
+        if not pending:
+            publish("desk")
         if wants_json:
-            return JSONResponse({"ok": True, "message": summary})
+            return JSONResponse(
+                {"ok": True, "message": summary, "pending": pending},
+                status_code=202 if pending else 200,
+            )
         return HTMLResponse(pages.render_outcome(Outcome(name, "-", summary), nxt))
 
     try:
@@ -509,10 +548,10 @@ async def _review_action(
                     raise ActionError(text, 502)
             return Outcome(name, "-", text)
 
-        result = await runs.run(rid, run)
+        result = await runs.run(rid, run, actions.ACT_WAIT_S, (name, "-"), lambda: publish("desk"))
     except ActionError as exc:
         return fail(exc)
-    return done(result.summary)
+    return done(result.summary, result.pending)
 
 
 def _lane_item(desk: Desk, project: str, item_id: str) -> Item | None:
@@ -558,6 +597,34 @@ def _need(desk: Desk, kind: str, ref: str):
     raise ActionError("That item is no longer waiting on you. Refresh the desk.", 409)
 
 
+@dataclass(frozen=True)
+class Confirm:
+    """A step-up the owner must pass before an action runs: a page, or JSON for the page script."""
+
+    title: str
+    detail: str
+    action: str
+    hidden: dict[str, str]  # carries ``step`` and ``rid``; the rest is echoed back unchanged
+    label: str  # the armed button's text
+
+
+def confirm_response(c: Confirm, nxt: str, tokens: Tokens, wants_json: bool) -> Response:
+    if wants_json:
+        extra = {k: v for k, v in c.hidden.items() if k not in ("step", "rid")}
+        return JSONResponse(
+            {
+                "ok": True,
+                "confirm": True,
+                "step": c.hidden["step"],
+                "rid": c.hidden["rid"],
+                "extra": extra,
+                "label": c.label,
+            }
+        )
+    ctx = pages.Ctx(tokens.csrf(), True, nxt, "", "")
+    return HTMLResponse(pages.render_confirm(c.title, c.detail, c.action, ctx, c.hidden))
+
+
 async def _dispatch(
     name: str,
     form: dict[str, str],
@@ -566,18 +633,29 @@ async def _dispatch(
     tokens: Tokens,
     runs: RunOnce,
     nxt: str,
-) -> Outcome | HTMLResponse:
-    """Run one action. Returns its outcome, or a confirm page for step-up actions."""
+    publish: Callable[[], None],
+) -> Outcome | Confirm:
+    """Run one action. Returns its outcome, or a ``Confirm`` for step-up actions.
+
+    Nothing here waits longer than ``ACT_WAIT_S``: the work runs once per request id in
+    ``runs``, and a run still going answers a pending outcome. The same id asked again gets
+    the finished result, or the failure.
+    """
     owner = settings.owner_login
     rid = form.get("rid", "")
 
-    def ctx() -> pages.Ctx:
-        return pages.Ctx(tokens.csrf(), True, nxt, settings.board_url, settings.default_tz)
+    def submit(action: str, subject: str, start: Callable[[], Awaitable[Outcome]]):
+        if not actions.REQUEST_ID_RE.fullmatch(rid):
+            raise ActionError("invalid request id")
+        return runs.run(rid, start, actions.ACT_WAIT_S, (action, subject), publish)
+
+    def note(body: str, action: str, subject: str):
+        return submit(
+            action, subject, lambda: actions.send_note(settings, body, rid, action, subject)
+        )
 
     if name == "answer":
         task = actions.check_id(form.get("task", ""), "task id")
-        if not actions.REQUEST_ID_RE.fullmatch(rid):
-            raise ActionError("invalid request id")
         release = form.get("release") == "1"
         answer_body = actions.answer_body(form.get("text", ""))
 
@@ -585,7 +663,7 @@ async def _dispatch(
             _need(desk, "hold", task)
             return await actions.answer_hold(settings, task, answer_body, release)
 
-        return await runs.run(rid, answer)
+        return await submit("answer", f"{task}{' release' if release else ''}", answer)
 
     if name == "decision":
         task = actions.check_id(form.get("task", ""), "task id")
@@ -593,41 +671,42 @@ async def _dispatch(
         _need(desk, "decision", f"{task}/{key}")
         text = actions.check_text(form.get("text", ""), "answer")
         body = actions.decision_note_body(task, key, text, owner)
-        return await actions.send_note(settings, body, rid, "decision", f"{task}/{key}")
+        return await note(body, "decision", f"{task}/{key}")
 
     if name == "delegate":
         text = actions.check_text(form.get("text", ""), "goal")
         focus = form.get("project", "")
         if not focus:  # no project focus: a plain message to the first mate
-            return await actions.send_note(settings, text, rid, "delegate", "-")
+            return await note(text, "delegate", "-")
         project = desk.projects.get(focus)
         if project is None:
             raise ActionError("Unknown project. Refresh the desk.", 404)
         to = "second mate" if project.mate else "first mate"
         body = actions.delegate_body(project.name, to, text, owner)
-        return await actions.send_note(settings, body, rid, "delegate", project.name)
+        return await note(body, "delegate", project.name)
 
     if name == "ticket":
-        return await _ticket(form, desk, settings)
+        return await _ticket(form, desk, settings, note)
 
     if name == "merge":
         task = actions.check_id(form.get("task", ""), "task id")
         need = _need(desk, "merge", task)
         if not tokens.check_step_up(form.get("step", ""), "merge", task):
-            step = tokens.step_up("merge", task)
-            return HTMLResponse(
-                pages.render_confirm(
-                    "Give merge word",
-                    f"This records your word to merge {task}"
-                    f"{' (' + need.url + ')' if need.url else ''} as a note to the first mate. "
-                    "The website never merges; the first mate does.",
-                    "merge",
-                    ctx(),
-                    {"task": task, "rid": rid or actions.new_request_id(), "step": step},
-                )
+            return Confirm(
+                "Give merge word",
+                f"This records your word to merge {task}"
+                f"{' (' + need.url + ')' if need.url else ''} as a note to the first mate. "
+                "The website never merges; the first mate does.",
+                "merge",
+                {
+                    "task": task,
+                    "rid": rid or actions.new_request_id(),
+                    "step": tokens.step_up("merge", task),
+                },
+                "Tap again to give the merge word",
             )
         body = actions.merge_word_body(task, need.url or "", owner)
-        return await actions.send_note(settings, body, rid, "merge", task)
+        return await note(body, "merge", task)
 
     if name == "control":
         task = actions.check_id(form.get("task", ""), "task id")
@@ -641,34 +720,37 @@ async def _dispatch(
         ):
             rid = actions.new_request_id()
             step = tokens.step_up("control", f"{task}:{verb}:{rid}")
-            extra = {}
-            inner_note = ""
+            hidden = {"task": task, "verb": verb, "rid": rid, "step": step}
             if verb == "relaunch":
-                inner_note = form.get("note") or "Relaunched from the Hive website by the owner."
-                extra["note"] = inner_note
-            return HTMLResponse(
-                pages.render_confirm(
-                    f"{verb.capitalize()} {task}",
-                    f"This will {verb} the worker {task}."
-                    + (
-                        " Its agent is replaced in the same worktree." if verb == "relaunch" else ""
-                    ),
-                    "control",
-                    ctx(),
-                    {"task": task, "verb": verb, "rid": rid, "step": step, **extra},
+                hidden["note"] = (
+                    form.get("note") or "Relaunched from the Hive website by the owner."
                 )
+            return Confirm(
+                f"{verb.capitalize()} {task}",
+                f"This will {verb} the worker {task}."
+                + (" Its agent is replaced in the same worktree." if verb == "relaunch" else ""),
+                "control",
+                hidden,
+                f"Tap again to {verb}",
             )
-        note = (
+        note_text = (
             actions.check_text(form.get("note", ""), "relaunch note", 1000)
             if verb == "relaunch"
             else None
         )
-        return await runs.run(rid, lambda: actions.control(settings, task, verb, note))
+        return await submit(
+            "control", f"{task} {verb}", lambda: actions.control(settings, task, verb, note_text)
+        )
 
     raise ActionError("unknown action", 404)
 
 
-async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings) -> Outcome:
+async def _ticket(
+    form: dict[str, str],
+    desk: Desk,
+    settings: GatewaySettings,
+    note: Callable[[str, str, str], Awaitable[Outcome]],
+) -> Outcome:
     mode = form.get("mode", "")
     project = desk.projects.get(form.get("project", ""))
     if project is None:
@@ -680,9 +762,7 @@ async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings) -
         body = actions.ticket_request_body(
             "create", "(new)", project.name, "new", text, settings.owner_login
         )
-        return await actions.send_note(
-            settings, body, form.get("rid", ""), "ticket-create", project.name
-        )
+        return await note(body, "ticket-create", project.name)
     if mode == "edit":
         ticket = actions.check_id(form.get("ticket", ""), "ticket id")
         row = next((r for r in project.rows if r.id == ticket and r.state != "done"), None)
@@ -695,5 +775,5 @@ async def _ticket(form: dict[str, str], desk: Desk, settings: GatewaySettings) -
         body = actions.ticket_request_body(
             "edit", ticket, project.name, field, text, settings.owner_login
         )
-        return await actions.send_note(settings, body, form.get("rid", ""), "ticket-edit", ticket)
+        return await note(body, "ticket-edit", ticket)
     raise ActionError("unknown ticket action")

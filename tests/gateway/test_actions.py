@@ -644,7 +644,7 @@ def test_delegate_answers_a_fetch_with_json_so_the_desk_stays_put(
     headers = {**GOOD, "accept": "application/json"}
     res = client.post("/act/delegate", content=urlencode(data), headers=headers)
     assert res.status_code == 200
-    assert res.json() == {"ok": True, "message": "Sent to the first mate."}
+    assert res.json() == {"ok": True, "message": "Sent to the first mate.", "pending": False}
     blank = urlencode({**data, "text": " "})
     refused = client.post("/act/delegate", content=blank, headers=headers)
     assert refused.status_code == 400 and refused.json()["ok"] is False

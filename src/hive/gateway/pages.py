@@ -388,6 +388,8 @@ background:var(--bar-ink);color:var(--bar);cursor:pointer}
 .dbar-flash[hidden]{display:none}
 .dbar-wrap:has(.dbar-flash:not([hidden])) .dbar-info{display:none}
 .dbar.is-sending{opacity:.7}
+form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
+.act-err{font:700 11px var(--font-mono);color:var(--accent);margin:6px 0 0}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -538,16 +540,21 @@ function setFlash(t,ok){flash={t:t,ok:ok};showFlash();clearTimeout(flashT);
 flashT=setTimeout(function(){flash=null;var e=document.querySelector('[data-flash]');if(e)e.hidden=true;},8000);}
 function newRid(){var a=new Uint8Array(8),s='web-';crypto.getRandomValues(a);
 for(var i=0;i<8;i++)s+=('0'+a[i].toString(16)).slice(-2);return s;}
+function actFetch(fm,p,cb){fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},body:p})
+.then(function(r){return r.json().catch(function(){return {ok:false,message:'The desk answered '+r.status};});})
+.catch(function(){return {ok:false,net:true,message:'No connection. Reload the desk.'};}).then(cb);}
+function actSettle(fm,p,cb,n){actFetch(fm,p,function(j){
+if(j.ok&&j.pending&&n<20){setTimeout(function(){actSettle(fm,p,cb,n+1);},1500);return;}cb(j);});}
+function freshRid(fm){var r=fm.elements.rid;if(r)r.value=newRid();}
 document.addEventListener('submit',function(e){var fm=e.target;
 if(!fm.classList||!fm.classList.contains('dbar')||!window.fetch||!window.URLSearchParams)return;
 e.preventDefault();if(fm.classList.contains('is-sending'))return;fm.classList.add('is-sending');
-fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},
-body:new URLSearchParams(new FormData(fm))})
-.then(function(r){return r.json();}).then(function(j){
-if(j.ok){fm.elements.text.value='';fm.elements.rid.value=newRid();}
-setFlash(j.message||'Could not send.',!!j.ok);})
-.catch(function(){setFlash('Could not send. Reload the desk.',false);})
-.then(function(){fm.classList.remove('is-sending');});});
+var go=fm.querySelector('.dbar__go'),was=go.textContent,txt=fm.elements.text.value,p=new URLSearchParams(new FormData(fm));
+go.textContent='Sent ✓';fm.elements.text.value='';
+actSettle(fm,p,function(j){fm.classList.remove('is-sending');
+if(j.ok){freshRid(fm);setFlash(j.pending?'Sent. Still saving; it will arrive shortly.':(j.message||'Sent.'),true);
+setTimeout(function(){go.textContent=was;},1800);return;}
+if(!j.net)freshRid(fm);fm.elements.text.value=txt;go.textContent=was;setFlash(j.message||'Could not send.',false);},0);});
 function rvPost(fm,extra,done){var p=new URLSearchParams(new FormData(fm));
 for(var k in extra){if(Object.prototype.hasOwnProperty.call(extra,k))p.set(k,extra[k]);}
 fm.classList.add('is-sending');
@@ -572,6 +579,38 @@ extra.step=step;extra.rid=fm.getAttribute('data-rid');
 rvPost(fm,extra,function(j){rvDisarm(fm);
 if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bulk')&&row.parentNode)row.parentNode.removeChild(row);refreshMain();}
 else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
+var CONFIRMED={merge:1,control:1};
+function actName(fm){return (fm.getAttribute('action')||'').replace('/act/','');}
+function actDisarm(fm,b){clearTimeout(fm.acT);fm.removeAttribute('data-step');fm.removeAttribute('data-extra');
+b.classList.remove('is-armed');b.textContent=b.getAttribute('data-was')||b.textContent;}
+document.addEventListener('submit',function(e){var fm=e.target;
+if(e.defaultPrevented||!fm.getAttribute||!window.fetch||!window.URLSearchParams)return;
+var act=actName(fm),ok=(fm.getAttribute('action')||'').indexOf('/act/')===0&&act!=='chat'&&!fm.hasAttribute('data-rvclose');
+if(!ok||fm.classList.contains('dbar'))return;
+e.preventDefault();if(fm.classList.contains('is-sending')||fm.classList.contains('is-sent'))return;
+var b=e.submitter||fm.querySelector('button');if(!b)return;
+var p=new URLSearchParams(new FormData(fm));if(b.name)p.set(b.name,b.value);
+var step=fm.getAttribute('data-step');
+if(!b.getAttribute('data-was'))b.setAttribute('data-was',b.textContent);
+if(step){p.set('step',step);var x={};try{x=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(_){}
+for(var k in x){if(Object.prototype.hasOwnProperty.call(x,k))p.set(k,x[k]);}
+p.set('rid',fm.getAttribute('data-rid')||p.get('rid'));}
+var two=CONFIRMED[act]&&!step;
+fm.classList.add('is-sending');
+if(!two){b.textContent='Sent ✓';b.classList.add('is-sent');}
+actSettle(fm,p,function(j){fm.classList.remove('is-sending');
+if(j.ok&&j.confirm){b.classList.remove('is-sent');fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
+fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));b.classList.add('is-armed');b.textContent=j.label||'Tap again';
+fm.acT=setTimeout(function(){actDisarm(fm,b);},8000);return;}
+if(j.ok){fm.classList.add('is-sent');b.textContent=j.pending?'Sent ✓ saving…':'Sent ✓';
+b.classList.remove('is-armed');b.classList.add('is-sent');
+var t=fm.querySelector('textarea,input[type=text]');if(t)t.value='';
+if(act==='ticket')setTimeout(function(){fm.classList.remove('is-sent');b.classList.remove('is-sent');b.textContent=b.getAttribute('data-was');freshRid(fm);},2500);return;}
+b.classList.remove('is-sent','is-armed');b.textContent='Failed ✗';b.title=j.message||'';
+var m=fm.querySelector('.act-err');if(!m){m=document.createElement('p');m.className='act-err';m.setAttribute('role','alert');fm.appendChild(m);}
+m.textContent=j.message||'Could not send.';
+fm.removeAttribute('data-step');fm.removeAttribute('data-extra');if(!j.net)freshRid(fm);
+setTimeout(function(){b.textContent=b.getAttribute('data-was');},3000);},0);});
 var cf=document.querySelector('form.chatf');
 function lmeta(m,t,err){var b=th&&atBottom(),s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
 if(err){var r=document.createElement('button');r.type='button';r.className='quiet';r.textContent='Retry';
