@@ -16,6 +16,7 @@ DEFAULT_PORT = 8480
 DEFAULT_ORIGIN = "https://desktop-lfme032.tailfb3900.ts.net:8446"
 DEFAULT_BOARD_URL = "https://desktop-lfme032.tailfb3900.ts.net:8445"
 DEFAULT_TZ = "Australia/Sydney"
+DEFAULT_FLEET_UP = Path(__file__).resolve().parents[3] / "scripts" / "fleet-up.sh"
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
 
 
@@ -61,6 +62,9 @@ class GatewaySettings:
     # The ``lavish-axi`` binary that ends a review session; None hides the Close buttons.
     lavish_axi: Path | None = None
 
+    # The idempotent fleet-up script whose firstmate step the wake control runs; None: off.
+    fleet_up: Path | None = DEFAULT_FLEET_UP
+
     @property
     def state_dir(self) -> Path:
         return self.fm_home / "state"
@@ -87,7 +91,15 @@ class GatewaySettings:
             rate_limits=_rate_limits(env.get("HIVE_GATEWAY_RATE_LIMITS", "").strip()),
             lavish_state=_lavish_state(env.get("HIVE_GATEWAY_LAVISH_STATE", "").strip()),
             lavish_axi=_lavish_axi(env.get("HIVE_GATEWAY_LAVISH_AXI", "").strip()),
+            fleet_up=_fleet_up(env.get("HIVE_GATEWAY_FLEET_UP", "").strip()),
         )
+
+
+def _fleet_up(value: str) -> Path | None:
+    """The fleet-up script; ``off`` removes the wake control's action."""
+    if value == "off":
+        return None
+    return Path(value).expanduser() if value else DEFAULT_FLEET_UP
 
 
 def _lavish_state(value: str) -> Path | None:

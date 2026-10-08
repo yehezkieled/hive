@@ -30,6 +30,7 @@ from hive.gateway.quota import STALE_AFTER_S, Quota
 from hive.gateway.reviews import Review
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
+from hive.gateway.wake import FirstmateStatus
 
 CSS = """
 @font-face{font-family:"IBM Plex Mono";font-weight:400;font-display:swap;src:url(/fonts/ibm-plex-mono-400.woff2) format("woff2")}
@@ -145,6 +146,7 @@ min-width:210px;color:var(--ink-2)}
 .qpop__alerts p{margin:0 0 4px}.qpop__alerts ol{margin:0 0 4px;padding-left:18px}.qpop__alerts li{padding:2px 0}
 .qpop__alerts #alerts-note:empty{display:none}
 .qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
+.fmpop{white-space:normal;max-width:min(300px,86vw)}.fmpop p{margin:0 0 8px}.fmpop form{margin:0}
 .qpop b{color:var(--ink)}.qpop span,.qpop b{white-space:nowrap}.qpop .qpop__note{color:var(--ink-4)}
 /* the Stack home (docs/design/T002-stack-home.html) */
 .screen{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.4}
@@ -463,9 +465,9 @@ function refreshMain(){if(document.hidden){want=true;return;}
 if(reviewSheetOnly()){want=true;load(swapReviews);return;}
 if(busy()){want=true;return;}
 want=false;load(function(doc){
-var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
+['qchip','fmchip'].forEach(function(id){var q=doc.getElementById(id),oq=document.getElementById(id);
 if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
-if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;
+if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;});
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
 var y=window.scrollY,ps=panels();c.innerHTML=m.innerHTML;restore();panels(ps);stamps();showFlash();
 window.scrollTo(0,y);});}
@@ -743,6 +745,8 @@ class Ctx:
         repos: dict[str, str] | None = None,
         can_close_reviews: bool = False,
         project_notes: dict[str, str] | None = None,
+        firstmate: FirstmateStatus | None = None,
+        wake_enabled: bool = False,
     ) -> None:
         self.can_close_reviews = can_close_reviews  # lavish-axi is available to end a session
         self.csrf = csrf
@@ -754,6 +758,8 @@ class Ctx:
         self.descriptions = descriptions or {}  # "project/item" -> cached agent description
         self.project_notes = project_notes or {}  # registry name -> one-line project description
         self.repos = repos or {}  # registry name -> GitHub repo name (when it differs)
+        self.firstmate = firstmate  # cached liveness; None: not read yet
+        self.wake_enabled = wake_enabled  # the wake form is shown (the action may still refuse)
 
     def show(self, name: str) -> str:
         """The project's display name: its GitHub repo name, else the registry name."""
@@ -770,8 +776,10 @@ class Ctx:
         # a long repo name wraps only between its words, never mid-word
         return re.sub(r"([_-])", r"\1<wbr>", esc(shown)) + aka
 
-    def form(self, action: str, inner: str, cls: str = "", **hidden: str) -> str:
-        if not self.writable:
+    def form(
+        self, action: str, inner: str, cls: str = "", always: bool = False, **hidden: str
+    ) -> str:
+        if not self.writable and not always:
             return ""
         fields = {"csrf": self.csrf, "next": self.nxt, **hidden}
         hid = "".join(
@@ -884,11 +892,40 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
     )
 
 
+_FM_DOT = {"alive": "ok", "no-beat": "warn", "down": "hot"}
+
+
+def _fm_chip(ctx: Ctx) -> str:
+    """Firstmate liveness from the cache, and the wake form when it is not alive.
+
+    The form is shown even while the snapshot is unreadable (``always``): that is exactly
+    when firstmate may be down. The action still re-checks and confirms before it runs.
+    """
+    fm = ctx.firstmate
+    state = fm.state if fm else "unknown"
+    label = fm.label if fm else "checking"
+    detail = esc(fm.describe()) if fm else "Firstmate status has not been read yet."
+    wake = ""
+    if ctx.wake_enabled and fm is not None and fm.needs_wake:
+        wake = ctx.form(
+            "wake",
+            "<button class=danger type=submit>Wake firstmate</button>",
+            always=True,
+        )
+    return (
+        "<details class=qwrap id=fmchip>"
+        f"<summary class='qchip qchip--{_FM_DOT.get(state, 'unknown')}' "
+        f"aria-label='Firstmate {esc(label)}'>"
+        f"<span class=qchip__bar><i style='width:100%'></i></span>firstmate · {esc(label)}</summary>"
+        f"<div class='qpop fmpop'><p>{detail}</p>{wake}</div></details>"
+    )
+
+
 def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | None = None) -> str:
     def cur(name: str) -> str:
         return " aria-current=page" if active == name else ""
 
-    chip = _chip(ctx) if ctx is not None else ""
+    chip = (_fm_chip(ctx) + _chip(ctx)) if ctx is not None else ""
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
