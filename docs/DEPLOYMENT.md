@@ -1368,7 +1368,10 @@ no cross-site `Sec-Fetch-Site`.
   heartbeat) and sends `desk` or `chat` events. When Lavish's state file moves it
   re-reads it (one small file, off the request path) and sends `desk` only if the Review
   pages list changed, so a page closed anywhere leaves the desk within about 2 s; an
-  open Review pages sheet is updated in place, not closed. Pages
+  open Review pages sheet is updated in place, not closed. A PR merged through
+  firstmate's `fm-pr-merge` records the merge and closes the backlog item at once, so it
+  reaches the desk within seconds; a PR merged outside firstmate (on GitHub directly)
+  waits for the 60 s heartbeat snapshot. Pages
   re-fetch themselves and swap in place (same busy rules as before: never while text
   is selected or a form is in use; the refresh then waits). The 30 s (Home/Project)
   and 4 s (Chat) polls only run while the stream is down.

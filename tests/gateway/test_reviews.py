@@ -350,7 +350,6 @@ def test_the_close_action_publishes_a_desk_event(tmp_path: Path, lavish: Lavish)
         return await _review_action(
             "review-close",
             {"key": "a", "rid": RID, **form},
-            [],
             settings,
             CSRF,
             runs,

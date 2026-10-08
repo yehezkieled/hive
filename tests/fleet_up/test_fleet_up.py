@@ -8,6 +8,7 @@ runs only with --only firstmate against the stub.
 import configparser
 import os
 import plistlib
+import shlex
 import shutil
 import stat
 import subprocess
@@ -265,6 +266,20 @@ def _unit(name):
     return parser
 
 
+def _environment(name):
+    """The [Service] Environment= assignments, which systemd accumulates across lines."""
+    env, section = {}, None
+    for line in (DEPLOY / "systemd" / name).read_text().splitlines():
+        line = line.strip()
+        if line.startswith("["):
+            section = line
+        elif section == "[Service]" and line.startswith("Environment="):
+            for pair in shlex.split(line.partition("=")[2]):
+                k, _, v = pair.partition("=")
+                env[k] = v
+    return env
+
+
 def _deps(unit):
     keys = ("Requires", "Requisite", "BindsTo", "PartOf", "Wants", "Upholds")
     return " ".join(unit["Unit"].get(k, "") for k in keys).split()
@@ -393,9 +408,7 @@ def test_dry_run_clip_desk_step_and_serve_pair(env):
 def test_clip_desk_units_use_8492_and_restart_always():
     unit = _unit("clip-desk.service")
     assert unit["Service"]["Restart"] == "always"
-    text = (DEPLOY / "systemd" / "clip-desk.service").read_text()
-    assert "Environment=CLIP_DESK_PORT=8492" in text
-    assert "8490" not in text
+    assert _environment("clip-desk.service")["CLIP_DESK_PORT"] == "8492"
     plist = plistlib.loads((DEPLOY / "macos" / "com.hive.clip-desk.plist").read_bytes())
     assert plist["EnvironmentVariables"]["CLIP_DESK_PORT"] == "8492"
     assert plist["KeepAlive"] is True

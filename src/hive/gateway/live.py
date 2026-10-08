@@ -43,7 +43,11 @@ _NEED_TITLE = {
 
 def status_signature(state_dir: Path) -> tuple:
     """(name, mtime, size) of every ``*.status`` file and the backlog: changes when any
-    worker reports or a task or decision moves."""
+    worker reports or a task or decision moves.
+
+    A PR merge has no source of its own: one merged through firstmate's ``fm-pr-merge``
+    records the merge and closes the backlog item at once, so it is pushed within seconds;
+    one merged outside firstmate shows up on the ``HEARTBEAT_S`` snapshot."""
     sig = []
     try:
         entries = sorted(state_dir.glob("*.status"))

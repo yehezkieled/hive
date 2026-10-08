@@ -347,9 +347,8 @@ def create_app(
         if name == "chat":  # needs no snapshot, so a send never waits on one
             return await _chat(form, settings, nxt, wants_json)
         if name in REVIEW_ACTIONS:  # Lavish state, not the snapshot
-            keys = parse_qs(body.decode("utf-8", "replace")).get("key", [])
             return await _review_action(
-                name, form, keys, settings, tokens, runs, nxt, wants_json, hub.publish
+                name, form, settings, tokens, runs, nxt, wants_json, hub.publish
             )
         try:
             snap = await provider.get(fresh=True)
@@ -407,7 +406,6 @@ def _titles(reviews: list[Review], keys: list[str]) -> str:
 async def _review_action(
     name: str,
     form: dict[str, str],
-    posted: list[str],
     settings: GatewaySettings,
     tokens: Tokens,
     runs: RunOnce,
@@ -444,7 +442,7 @@ async def _review_action(
                 f"end the Lavish review session {_titles(reviews, keys)}",
             )
         else:
-            if "keys" in form:  # the confirmed list, re-checked against what is open now
+            if "keys" in form:  # the confirmed list; pages closed since are skipped in run()
                 keys = [k for k in form["keys"].split(",") if k]
                 if len(keys) > MAX_REVIEW_KEYS or not all(actions.ID_RE.fullmatch(k) for k in keys):
                     raise ActionError("invalid review page list")
