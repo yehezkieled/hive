@@ -20,7 +20,7 @@ Header values are single lines; `from:` records the owner login.
 HIVE-WEB TICKET REQUEST v1
 action: edit | create
 ticket: <task id> | (new)
-project: <project name as shown on the desk>
+project: <project registry name (the desk may show its GitHub repo name instead)>
 field: title | body | priority | new
 from: hive web (<owner login>)
 ---
@@ -65,7 +65,7 @@ the owner-aware `fm-captain-hold.sh answers` intake (web provenance goes in `--s
 
 ```
 HIVE-WEB DELEGATE v1
-project: <project name as shown on the desk>
+project: <project registry name (the desk may show its GitHub repo name instead)>
 to: first mate | second mate
 from: hive web (<owner login>)
 ---

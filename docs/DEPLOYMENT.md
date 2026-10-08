@@ -1201,9 +1201,13 @@ become no-ops — Hive still boots.
 `python -m hive.gateway` serves the desk (Home, Project and Chat pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
-Claude adapter, imported lazily to write item descriptions (below). Each page load runs firstmate's
-`$HIVE_GATEWAY_FM_HOME/bin/fm-fleet-snapshot.sh --json` (cached 5 s) and
-pins schema major `fm-fleet-snapshot.v1`; any other schema, a failed run or
+Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
+`$HIVE_GATEWAY_FM_HOME/bin/fm-fleet-snapshot.sh --json` (about 3 s per run)
+through a stale-while-revalidate cache (5 s TTL): once a value exists a page
+never waits on the script, an expired value is served while one background
+refresh runs, and only the first load, an action and the live watcher wait for
+a fresh run; a failed background refresh keeps the last good value for up to
+2 minutes. It pins schema major `fm-fleet-snapshot.v1`; any other schema, a failed run or
 bad JSON shows a read-only fallback banner with every write button removed
 (and every write refused). It never edits a backlog or any firstmate file.
 
@@ -1232,7 +1236,9 @@ Home is the **Stack home** (`docs/design/T002-stack-home.html`): the needs-you
 lane as the hero, one card per project and the delegate bar. The lane is the
 backlog across every project (the first mate's and each second mate's), grouped
 by project: captain holds first, marked "waiting on you", then queued tickets (a
-few per project, the rest behind "+N more" to the Project page). Per project the
+few per project, the rest behind "+N more", which opens a sheet listing the
+group's every item with an "open project" link; without the script it links to
+the Project page). Per project the
 first hold is the expanded card (its answer form unchanged); every other item is
 a compact row. Picking a row (click or tap) animates it into the card slot and
 the old card drops into the row's place (a short FLIP move; none under
@@ -1242,7 +1248,8 @@ first (where the old card now sits), opens the project; a quick click on another
 row picks that row instead. Every item has an explicit "open ↗" (and a card has
 "Open project ↗") for touch, where there is no double click.
 Without the script every row is a plain link to the project. The card shows a
-one-to-two sentence plain description of the item (what it is, why it is
+short clamp of a one-to-two sentence plain description (tap it, or Enter, for the
+full text in a sheet) of the item (what it is, why it is
 parked, what is next), written by one `claude-haiku-4-5-20251001` turn on Hive's
 headless Claude adapter (plan-billed `claude -p`, API-key env stripped, every
 built-in tool denied, no MCP servers; the user's settings, hooks and CLAUDE.md
@@ -1266,15 +1273,30 @@ the file name), the project when a path component names one, a "reply" tag when
 the agent answered last (those sort first, then newest), and a link to
 `$HIVE_GATEWAY_BOARD_URL/session/<id>`, so it opens on the tailnet from an
 iPhone or iPad. The link is built from the session key only; the recorded local
-address is never shown. Six are listed, the rest fold under "+N more". Tapping a card selects it in
+address is never shown. The list is one order (replies first, then newest) in its own scrolling box;
+ten are listed and "+N more", always the last row, opens a sheet listing every
+session. Tapping a card selects it in
 place (`/?focus=<project>`) and retargets the bar to that project's first or
-second mate; tapping the selected card opens its Project page. With no card
+second mate; tapping the selected card opens its detail sheet (status,
+activity, progress, its Needs-you items and an "Open project ↗" link; without
+the script it opens the Project page). Cards and Review pages show a project by
+its GitHub repo name, read (no git subprocess, cached 60 s, refreshed off the
+request path) from the `origin` remote in
+`$HIVE_GATEWAY_FM_HOME/projects/<name>/.git/config`, with the registry name as
+a small secondary label when they differ; routes, links and requests stay keyed
+by the registry name. Sheets are modal dialogs: they close on the X, a tap
+outside or Escape, scroll on touch, return focus to what opened them and skip
+their animation under `prefers-reduced-motion`. With no card
 selected the bar messages the first mate; a sole project is selected on load.
 With the page script running, the bar sends in place (`Accept: application/json`
 on `POST /act/<name>` returns `{ok, message}` instead of an outcome page): the
 desk stays put, shows the result under the bar and takes a fresh request id
-for the next goal. On wide screens (1100px and up) the desk widens to two
-columns; the phone layout is unchanged.
+for the next goal. From 700×560 px up (PC, laptop, iPad) the desk is one page that
+fits the viewport: Needs you, Projects and Review pages each scroll on their own
+(stacked in two rows on a portrait tablet), a live refresh keeps each panel's
+scroll position, and anything that would grow opens in a sheet. Below that the
+page scrolls as before; every page pads its bottom by the fixed delegate bar's
+height so no row hides behind it.
 The chrome on every page carries the quota chip: the percent **used** in the
 busier of the Claude plan's 5-hour and 7-day windows (calm below 60%, warn from
 60%, hot above 85%). Tapping it lists both plus the Fable week, each with its
