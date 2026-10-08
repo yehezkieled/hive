@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
+
 from hive.gateway.cards import parse_card
+from hive.gateway.pages import SCRIPT
 from hive.gateway.snapshot import project_descriptions, project_notes
 from tests.gateway.test_stack_home import GOOD, _calm, _client, _rec, _snapshot
 
@@ -30,6 +35,18 @@ def test_parenthesised_letters_and_recommended_colon() -> None:
     card = parse_card("Which harness? (A) Codex (B) Claude Code, recommended: A")
     assert [o.letter for o in card.options] == ["A", "B"]
     assert card.options[0].recommended and not card.options[1].recommended
+
+
+def test_lowercase_article_after_recommend_is_not_an_option() -> None:
+    card = parse_card(
+        "Hide merged PRs? A) hide them B) show greyed out. I recommend a quick look first."
+    )
+    assert [(o.label, o.recommended) for o in card.options] == [
+        ("hide them", False),
+        ("show greyed out", False),
+    ]
+    assert parse_card("Pick? A) one B) two, recommendation: b").options[1].recommended is False
+    assert parse_card("Pick? A) one B) two. RECOMMEND B").options[1].recommended is True
 
 
 def test_unstructured_text_is_first_sentence_plus_more() -> None:
@@ -122,3 +139,29 @@ def test_alerts_tip_lives_in_the_usage_menu(tmp_path: Path) -> None:
     assert html.count("id=alerts-note") == 1
     assert "stamp id=alerts-note" not in html
     json.dumps(html)  # rendered, not an error page
+
+
+def test_rendered_usage_menu_starts_closed(tmp_path: Path) -> None:
+    html = _client(tmp_path, _snapshot()).get("/", headers=GOOD).text
+    assert "<details class=qwrap id=qchip>" in html
+
+
+ALERTS_DOM = Path(__file__).parent / "alerts_dom.js"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.parametrize(("platform", "push"), [("ios", "nopush"), ("desktop", "push")])
+def test_alert_notes_never_open_the_usage_menu(tmp_path: Path, platform: str, push: str) -> None:
+    js = tmp_path / "page.js"
+    js.write_text(SCRIPT)
+    out = subprocess.run(
+        ["node", str(ALERTS_DOM), str(js), platform, push],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    run = json.loads(out.stdout)
+    assert run["loaded"] == {"open": False, "note": ""}
+    assert run["tapped"]["open"] is False
+    if push == "push":
+        assert run["tapped"]["note"] == "Alerts are not set up on the server."

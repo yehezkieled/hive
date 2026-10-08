@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 _MARK = re.compile(r"(?:(?<=\s)|^)\(?([A-Z])[).:]\s+(?=\S)")
 _REC = re.compile(
-    r"\brecommend(?:ed|s|ation)?\b[\s:=-]*(?:option\s+|choice\s+)?\(?([A-Z])\b(?![a-z])", re.I
+    r"(?i:\brecommend(?:ed|s|ation)?\b)[\s:=-]*(?i:(?:option|choice)\s+)?\(?([A-Z])\b(?![a-z])"
 )
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'])")
 _LEAD_IN = re.compile(r"[\s:;,-]*\b(?:options?|choices?)\b[\s:;,-]*$", re.I)
@@ -88,7 +88,7 @@ def parse_card(text: str) -> Card:
     if found is not None:
         start, raw = found
         rec_m = _REC.search(text[start:])
-        rec = rec_m[1].upper() if rec_m else None
+        rec = rec_m[1] if rec_m else None
         question = _LEAD_IN.sub("", text[:start]).strip()
         if not question:
             question = "Pick an option"

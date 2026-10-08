@@ -498,13 +498,8 @@ function key(s){s=s.replace(/-/g,'+').replace(/_/g,'/');s+='='.repeat((4-s.lengt
 var r=atob(s),a=new Uint8Array(r.length);for(var i=0;i<r.length;i++)a[i]=r.charCodeAt(i);return a;}
 function post(path,obj,csrf){return fetch(path,{method:'POST',credentials:'same-origin',
 headers:{'content-type':'application/json','x-csrf':csrf},body:JSON.stringify(obj)});}
-function note(t){var an=document.getElementById('alerts-note');if(an)an.textContent=t;
-var qc=document.getElementById('qchip');if(t&&qc)qc.open=true;}
-if(ab){var ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-var standalone=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
-if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){
-if(ios&&!standalone)note('To get alerts on iPhone or iPad, add the desk to the Home Screen (Share, Add to Home Screen; iOS 16.4 or later), then open it from there.');
-}else{
+function note(t){var an=document.getElementById('alerts-note');if(an)an.textContent=t;}
+if(ab&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window){
 navigator.serviceWorker.register('/sw.js').then(function(reg){
 function show(on){ab.hidden=false;ab.textContent=on?'Alerts on':'Alerts off';ab.setAttribute('aria-pressed',on?'true':'false');}
 reg.pushManager.getSubscription().then(function(sub){show(!!sub);});
@@ -519,7 +514,7 @@ return reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(
 return post('/push/subscribe',s.toJSON(),k.csrf).then(function(r){
 if(!r.ok){s.unsubscribe();note('Could not save the subscription.');return;}show(true);note('');});});});
 });}).catch(function(){note('Could not change alerts. Try again.');});};
-}).catch(function(){});}}
+}).catch(function(){});}
 function focus(card){var s=document.querySelector('[data-stack]');if(!s)return;
 var cards=s.querySelectorAll('[data-card]');
 for(var i=0;i<cards.length;i++){cards[i].classList.remove('is-selected');cards[i].removeAttribute('aria-current');
