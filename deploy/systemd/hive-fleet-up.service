@@ -1,0 +1,15 @@
+[Unit]
+Description=Hive fleet up - bring up the fleet and firstmate (idempotent)
+After=network-online.target hive-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Started services are detached (setsid); do not kill them when this oneshot ends.
+KillMode=process
+WorkingDirectory=%h/apps/hive
+ExecStart=%h/apps/hive/scripts/fleet-up.sh
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

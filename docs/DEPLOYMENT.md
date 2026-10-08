@@ -1375,13 +1375,17 @@ tailscale serve --bg --https=8446 http://127.0.0.1:8480
 tailscale serve status        # every line must say "(tailnet only)"; never use funnel
 ```
 
-Install and run it as a user service (`deploy/hive-gateway.service`; edit
+Install and run it as a user service (`deploy/systemd/hive-gateway.service`; edit
 `WorkingDirectory` if the checkout is elsewhere):
 
 ```
-mkdir -p ~/.config/systemd/user && cp deploy/hive-gateway.service ~/.config/systemd/user/
+mkdir -p ~/.config/systemd/user && cp deploy/systemd/hive-gateway.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now hive-gateway.service
 ```
+
+The unit restarts the gateway on any exit (`Restart=always`). Boot auto-start,
+the fleet-up script and the macOS/Windows equivalents are in
+[`fleet-up.md`](fleet-up.md).
 
 Update after a merge to `main`:
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=Hive Telegram bot (starts only when its token and allowlist are configured)
+After=network-online.target
+Wants=network-online.target
+# Deliberately independent of hive-gateway.service: neither can stop the other.
+
+[Service]
+WorkingDirectory=%h/apps/hive
+# Token and allowlist: ~/.config/hive/telegram.env (0600), never committed.
+EnvironmentFile=-%h/.config/hive/telegram.env
+# Exit 1 here means "not configured": the unit is skipped, not failed, and not restarted.
+ExecCondition=%h/apps/hive/scripts/hive-telegram.sh --check
+ExecStart=%h/apps/hive/scripts/hive-telegram.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

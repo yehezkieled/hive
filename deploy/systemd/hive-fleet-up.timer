@@ -1,0 +1,10 @@
+[Unit]
+Description=Re-run Hive fleet up (restarts anything that died)
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5min
+Unit=hive-fleet-up.service
+
+[Install]
+WantedBy=timers.target
