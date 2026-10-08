@@ -109,7 +109,7 @@ break gate detection in the fleet and never show in dev.
   actually resolved:
 
   ```bash
-  journalctl --user -u hive.service | grep "on claude"
+  journalctl --user -u hive.service | grep "on claude"  # hive-telegram.service on a host migrated per fleet-up.md
   # … PtySession: worker-3 on claude 2.1.162 (…/versions/2.1.162)
   ```
 
@@ -320,7 +320,7 @@ One-time setup on the VPS:
 tailscale serve --bg https / http://127.0.0.1:8080
 
 # 4. Apply and verify
-systemctl --user restart hive.service
+systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
 tailscale serve status        # shows the https://<node>.<tailnet>.ts.net mapping
 ```
 
@@ -350,8 +350,8 @@ One-time setup on the VPS:
 #   HIVE_VAPID_SUBJECT=mailto:you@example.com   # contact the push services require
 
 # 3. Restart and confirm the channel comes up enabled (not "inert — no VAPID keys"):
-systemctl --user restart hive.service
-journalctl --user -u hive.service -n 30 | grep -i "web push"
+systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+journalctl --user -u hive.service -n 30 | grep -i "web push"  # hive-telegram.service on a host migrated per fleet-up.md
 ```
 
 Then, in the **installed** PWA on the iPad, allow notifications when prompted —
@@ -396,7 +396,7 @@ Endpoints that accept input from the browser tab:
 # user for it on first send and caches it in sessionStorage.
 HIVE_WEB_TOKEN=$(openssl rand -hex 32)
 echo "HIVE_WEB_TOKEN=$HIVE_WEB_TOKEN" >> .env
-systemctl --user restart hive.service
+systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
 ```
 
 Smoke-test from any tailnet device:
@@ -424,7 +424,8 @@ events and flushes when either threshold trips:
 **Console mode**: when `HIVE_SMTP_HOST` is unset the digest logs the
 rendered body instead of sending. Useful on dev hosts and as a smoke
 test before wiring real SMTP. Logs land in `journalctl --user -u
-hive.service -g "Email digest"`.
+hive.service -g "Email digest"` (`-u hive-telegram.service` on a host migrated
+per [`fleet-up.md`](fleet-up.md)).
 
 For a real SMTP backend (Gmail app password, Mailgun, AWS SES, etc.):
 
@@ -1020,7 +1021,7 @@ accidentally truncated:
 
 ```bash
 # 1. Stop the orchestrator so it doesn't write to the DB during restore.
-systemctl --user stop hive.service
+systemctl --user stop hive.service  # hive-telegram.service on a host migrated per fleet-up.md
 
 # 2. Pick a dump.
 ls -lt ~/backups/hive/
@@ -1043,7 +1044,7 @@ docker exec hive-postgres psql -U hive -d hive -c \
             (SELECT COUNT(*) FROM messages) AS messages;"
 
 # 6. Restart hive.
-systemctl --user start hive.service
+systemctl --user start hive.service  # hive-telegram.service on a host migrated per fleet-up.md
 ```
 
 The dump is captured with `--no-owner --no-acl`, so it replays cleanly

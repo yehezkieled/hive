@@ -65,7 +65,10 @@ fleet-up, launchd and systemd never start a second one.
 It is its own unit: no dependency on the gateway in either direction, so a
 runtime crash or missing config never stops the desk.
 
-Config is never committed. Create `~/.config/hive/telegram.env` (mode 0600):
+Config is never committed. The wrapper finds the token and allowlist in the
+environment, in `~/.config/hive/telegram.env` (mode 0600), or in Hive's own
+`.env` in the checkout (the file `python -m hive` already loads; see
+`docs/DEPLOYMENT.md`), so an existing install needs no second copy:
 
 ```
 TELEGRAM_BOT_TOKEN=...
@@ -74,10 +77,13 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 
 Without both values the unit is skipped (systemd `ExecCondition`) or exits 0
 (launchd, not restarted) and logs `hive-telegram: skipping: ...`.
-`python -m hive` also reads the rest of Hive's configuration (database, see
-`docs/DEPLOYMENT.md`) from the same environment; add those lines to the env
-file if they are not already provided. [UNSURE] Whether the bot needs more
-than the Postgres DSN beyond the token and allowlist was not tested here.
+`python -m hive` reads the rest of its configuration (database) from the
+environment and the checkout's `.env` as before.
+
+On a host migrated to this unit, every `hive.service` command in
+`docs/DEPLOYMENT.md` (restart after a deploy, `journalctl -u`, stop/start for
+a restore) targets `hive-telegram.service` instead. Starting `hive.service`
+again stops `hive-telegram.service` (`Conflicts=` works both ways).
 
 ## Windows (WSL) install
 

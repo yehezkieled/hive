@@ -187,14 +187,17 @@ fm_process_running() {
   return 1
 }
 
-# fm_idle_pane: a pane in an earlier $FM_WORKSPACE_LABEL workspace whose claude
-# has exited (e.g. no network at boot), so a rerun retries it in place.
+# fm_idle_pane: an idle shell pane (no agent) at $FM_DIR in an earlier
+# $FM_WORKSPACE_LABEL workspace, left when claude exited (e.g. no network at
+# boot), so a rerun retries it in place. Crew panes (an agent, or another cwd)
+# are never chosen.
 fm_idle_pane() {
   local ids
   ids="$("$HERDR_BIN" workspace list 2>/dev/null | jq -c --arg l "$FM_WORKSPACE_LABEL" \
     '[.result.workspaces[]? | select(.label == $l) | .workspace_id]' 2>/dev/null)" || return 0
-  "$HERDR_BIN" pane list 2>/dev/null | jq -r --argjson ids "${ids:-[]}" \
-    '[.result.panes[]? | select((.workspace_id as $w | $ids | index($w)) and (.agent != "claude")) | .pane_id][0] // empty' \
+  "$HERDR_BIN" pane list 2>/dev/null | jq -r --argjson ids "${ids:-[]}" --arg d "$FM_DIR" \
+    '[.result.panes[]? | select((.workspace_id as $w | $ids | index($w))
+      and .agent == null and .cwd == $d and (.foreground_cwd // $d) == $d) | .pane_id][0] // empty' \
     2>/dev/null
 }
 

@@ -33,8 +33,10 @@ case "$1 $2" in
     else
       agent=null
       [ -f "$STUB_DIR/running" ] && agent='"claude"'
-      printf '{"result":{"panes":[{"agent":%s,"cwd":"%s","pane_id":"w1:p1","workspace_id":"w1"}]}}'\
-        "$agent" "$FM_DIR"
+      crew=""
+      [ -f "$STUB_DIR/crew" ] && crew="$(cat "$STUB_DIR/crew"),"
+      fm='{"agent":%s,"cwd":"%s","pane_id":"w1:p1","workspace_id":"w1"}'
+      printf "{\"result\":{\"panes\":[%s$fm]}}" "$crew" "$agent" "${STUB_FM_CWD:-$FM_DIR}"
     fi ;;
   "workspace list")
     if [ -f "$STUB_DIR/created" ]; then
@@ -73,6 +75,7 @@ def env(tmp_path):
         "FLEET_UP_FAKE_FM_PROCESS": "0",
         "RUNTIME_STATUS_CMD": "false",
         "HIVE_RUNTIME_PATTERN": NO_RUNTIME,
+        "HIVE_DIR": str(tmp_path),
         "TAILSCALE_BIN": str(tmp_path / "no-such-tailscale"),
     }
     return e, stub_dir
@@ -173,6 +176,36 @@ def test_exited_firstmate_is_retried_in_its_pane_not_a_new_workspace(env):
     c = calls(stub)
     assert sum(x.startswith("workspace create") for x in c) == 1
     assert [x for x in c if x.startswith("pane run")] == ["pane run w1:p1 claude"] * 4
+
+
+@pytest.mark.parametrize(
+    "crew",
+    [
+        '{"agent":"codex","cwd":"/wt/task","pane_id":"w1:p9","workspace_id":"w1"}',
+        '{"agent":"pi","cwd":"FM","pane_id":"w1:p9","workspace_id":"w1"}',
+        '{"agent":null,"cwd":"/wt/task","pane_id":"w1:p9","workspace_id":"w1"}',
+    ],
+)
+def test_exited_firstmate_never_reuses_a_crew_pane(env, crew):
+    e, stub = env
+    (stub / "created").touch()
+    (stub / "crew").write_text(crew.replace('"FM"', f'"{e["FM_DIR"]}"'))
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert [x for x in calls(stub) if x.startswith("pane run")] == ["pane run w1:p1 claude"]
+
+
+def test_firstmate_workspace_without_an_idle_fm_pane_gets_a_new_one(env):
+    e, stub = env
+    (stub / "created").touch()
+    crew = '{"agent":"codex","cwd":"/wt/task","pane_id":"w1:p9","workspace_id":"w1"}'
+    (stub / "crew").write_text(crew)
+    e["STUB_FM_CWD"] = "/home/someone/elsewhere"  # an idle shell, but not at FM_DIR
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 0, r.stdout + r.stderr
+    c = calls(stub)
+    assert sum(x.startswith("workspace create") for x in c) == 1
+    assert not any(x.startswith("pane run w1:p9") for x in c)
 
 
 def _bin_without_setsid(tmp_path):
@@ -279,7 +312,8 @@ def test_runtime_failure_never_fails_fleet_up(env):
 
 def _telegram(tmp_path, *args, **extra):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("TELEGRAM_", "HIVE_"))}
-    e.update({"HOME": str(tmp_path), "HIVE_RUNTIME_PATTERN": NO_RUNTIME, **extra})
+    base = {"HOME": str(tmp_path), "HIVE_DIR": str(tmp_path), "HIVE_RUNTIME_PATTERN": NO_RUNTIME}
+    e.update({**base, **extra})
     script = ROOT / "scripts" / "hive-telegram.sh"
     return subprocess.run(["bash", str(script), *args], env=e, capture_output=True, text=True)
 
@@ -303,13 +337,36 @@ def test_telegram_check_passes_from_env_file(tmp_path):
     assert _telegram(tmp_path, "--check").returncode == 0
 
 
+@pytest.mark.parametrize(
+    "dotenv",
+    [
+        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_ALLOWED_USER_IDS=1\n",
+        "# hive\nexport TELEGRAM_BOT_TOKEN='t'\nTELEGRAM_ALLOWED_USER_IDS = \"1,2\"\n"
+        "HIVE_DB=postgresql://u:p@h/db?a=1&b=2\n",
+    ],
+)
+def test_telegram_check_passes_from_hive_dotenv(tmp_path, dotenv):
+    hive_dir = tmp_path / "hive"
+    hive_dir.mkdir()
+    (hive_dir / ".env").write_text(dotenv)
+    assert _telegram(tmp_path, "--check", HIVE_DIR=str(hive_dir)).returncode == 0
+
+
+def test_telegram_dotenv_without_allowlist_is_unconfigured(tmp_path):
+    hive_dir = tmp_path / "hive"
+    hive_dir.mkdir()
+    (hive_dir / ".env").write_text("TELEGRAM_BOT_TOKEN=t\n# TELEGRAM_ALLOWED_USER_IDS=1\n")
+    r = _telegram(tmp_path, "--check", HIVE_DIR=str(hive_dir))
+    assert r.returncode == 1 and "skipping" in r.stderr
+
+
 def test_telegram_wrapper_never_starts_a_second_runtime(tmp_path, fake_runtime):
     pattern, pid = fake_runtime
     creds = {"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_ALLOWED_USER_IDS": "1"}
     r = _telegram(tmp_path, "--check", **creds, HIVE_RUNTIME_PATTERN=pattern)
     assert r.returncode == 1 and f"already running (pid {pid})" in r.stderr
     # run mode: a clean exit before exec, so launchd/systemd do not restart it
-    r = _telegram(tmp_path, **creds, HIVE_RUNTIME_PATTERN=pattern, HIVE_DIR=str(tmp_path))
+    r = _telegram(tmp_path, **creds, HIVE_RUNTIME_PATTERN=pattern)
     assert r.returncode == 0 and "already running" in r.stderr
 
 
