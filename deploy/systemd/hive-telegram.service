@@ -8,7 +8,8 @@ Conflicts=hive.service
 
 [Service]
 WorkingDirectory=%h/apps/hive
-# Token and allowlist: ~/.config/hive/telegram.env (0600), never committed.
+# Token and allowlist: the environment, ~/.config/hive/telegram.env (0600) or the
+# checkout's .env (as python -m hive reads it); never committed.
 EnvironmentFile=-%h/.config/hive/telegram.env
 # Exit 1 here means "not configured" or "another Hive runtime runs": the unit is
 # skipped, not failed, and not restarted.
