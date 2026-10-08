@@ -31,7 +31,8 @@ lavish preview serve firstmate`.
 
 Each service step probes its port and only starts what is closed. The
 firstmate step exits without doing anything when either a herdr pane in
-`FM_DIR` runs the `claude` agent or a `claude` process has `FM_DIR` as its
+`FM_DIR` runs the `claude` agent (a crew pane opened there but running in its
+worktree does not count) or a `claude` process has `FM_DIR` as its
 working directory, so it never starts a second firstmate. Otherwise it makes
 sure the herdr server is up and runs `claude` in an idle shell pane (no agent,
 cwd `FM_DIR`) of an earlier `firstmate` workspace, left when `claude` exited

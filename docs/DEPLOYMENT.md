@@ -1337,7 +1337,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate and Restart session actions run its `--only firstmate` step; `off` removes both) |
-| `HIVE_GATEWAY_HERDR` | `herdr` on `PATH`, else `~/.local/bin/herdr` (Restart session releases a stale `claude` report on firstmate's one herdr pane with it) |
+| `HIVE_GATEWAY_HERDR` | `herdr` on `PATH`, else `~/.local/bin/herdr` (Wake firstmate and Restart session release a stale `claude` report on firstmate's one herdr pane with it) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 
 ### Live updates, alerts and live tail
