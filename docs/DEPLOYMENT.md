@@ -1241,8 +1241,9 @@ request id, which replays as a plain success. Every other `/act/*` write
 same way: it checks ids against the cached snapshot (never a fresh one; at most
 `SNAPSHOT_WAIT_S` for a first one), runs once per request id and holds its
 response at most `ACT_WAIT_S` (0.8 s). A slower run answers `202 pending`, and
-the page keeps showing "Sent ✓" while it polls the same id; a later failure
-comes back on that id and the button turns to "Failed ✗" with the message.
+the page keeps showing "Sent ✓" (a review-close row stays dimmed) while it
+polls the same id; a later failure comes back on that id and the button turns
+to "Failed ✗" ("Failed" on review close) with the message.
 `tests/gateway/test_act_latency.py` times every name in `ACT_NAMES` against a
 slow fake firstmate and fails above 1 s. The Chat page is one fixed
 screen: only the thread scrolls, the box stays pinned above the keyboard, Enter

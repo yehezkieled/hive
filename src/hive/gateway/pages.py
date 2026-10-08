@@ -415,7 +415,7 @@ function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.le
 function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed);}
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
-if(document.querySelector('details[open],dialog[open],.rv__x.is-armed'))return true;
+if(document.querySelector('details[open],dialog[open],button.is-armed,form.is-sending'))return true;
 var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
@@ -558,9 +558,7 @@ if(!j.net)freshRid(fm);fm.elements.text.value=txt;go.textContent=was;setFlash(j.
 function rvPost(fm,extra,done){var p=new URLSearchParams(new FormData(fm));
 for(var k in extra){if(Object.prototype.hasOwnProperty.call(extra,k))p.set(k,extra[k]);}
 fm.classList.add('is-sending');
-fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},body:p})
-.then(function(r){return r.json();}).catch(function(){return {ok:false,message:'No connection. Reload the desk.'};})
-.then(function(j){fm.classList.remove('is-sending');done(j);});}
+actSettle(fm,p,function(j){fm.classList.remove('is-sending');done(j);},0);}
 function rvDisarm(fm){var b=fm.querySelector('button');clearTimeout(fm.rvT);
 fm.removeAttribute('data-step');fm.removeAttribute('data-extra');b.classList.remove('is-armed');
 b.textContent=b.getAttribute('data-label');}
@@ -593,7 +591,7 @@ var p=new URLSearchParams(new FormData(fm));if(b.name)p.set(b.name,b.value);
 var step=fm.getAttribute('data-step'),sig=b.name+'='+b.value;
 if(step&&fm.acBtn!==sig){actDisarm(fm,fm.acEl||b);step=null;}
 if(!b.getAttribute('data-was'))b.setAttribute('data-was',b.textContent);
-if(step){p.set('step',step);var x={};try{x=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(_){}
+if(step){clearTimeout(fm.acT);b.classList.remove('is-armed');p.set('step',step);var x={};try{x=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(_){}
 for(var k in x){if(Object.prototype.hasOwnProperty.call(x,k))p.set(k,x[k]);}
 p.set('rid',fm.getAttribute('data-rid')||p.get('rid'));}
 var two=CONFIRMED[act]&&!step;
