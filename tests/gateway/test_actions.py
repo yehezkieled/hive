@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import re
 import stat
+import time
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
 
+from hive.gateway import actions
 from hive.gateway.actions import Tokens
 from hive.gateway.app import create_app
 from hive.gateway.settings import GatewaySettings
@@ -142,7 +145,7 @@ def test_writes_refused_when_snapshot_unusable(tmp_path: Path) -> None:
     _script(tmp_path, "fm-inbox.sh", 'rec "$@"')
     settings = GatewaySettings(owner_login=OWNER, allowed_hosts=(HOST,), fm_home=tmp_path)
     c = TestClient(create_app(settings, tokens=CSRF), client=("127.0.0.1", 5000))
-    res = post(c, "chat", text="hi")
+    res = post(c, "delegate", text="hi")
     assert res.status_code == 503
     assert _calls(tmp_path) == []
 
@@ -260,7 +263,7 @@ def test_chat_sends_note_with_request_id(client: TestClient, home: Path) -> None
     ("reply", "shown"),
     [
         ('echo \'{"outcome":"created"}\'; exit 3', "has not been woken yet"),
-        ('echo \'{"outcome":"replay"}\'', "Already sent"),
+        ('echo \'{"outcome":"replay"}\'', "Sent to the first mate."),  # same as the first call
     ],
 )
 def test_chat_shows_the_inbox_outcome(
@@ -269,6 +272,104 @@ def test_chat_shows_the_inbox_outcome(
     _script(home, "fm-inbox.sh", f'case "$1" in\n  note) cat >/dev/null; {reply} ;;\nesac')
     res = post(client, "chat", text="status please")
     assert res.status_code == 200 and shown in res.text
+
+
+def _json_post(client: TestClient, **fields: str):
+    data = {"csrf": CSRF.csrf(), "next": "/chat", "rid": RID, **fields}
+    return client.post(
+        "/act/chat", content=urlencode(data), headers={**GOOD, "accept": "application/json"}
+    )
+
+
+def test_chat_json_answers_sent(client: TestClient) -> None:
+    res = _json_post(client, text="hello")
+    assert res.status_code == 200
+    assert res.json() == {"ok": True, "message": "Sent to the first mate.", "pending": False}
+
+
+def test_chat_replay_is_success_in_json_and_html(client: TestClient, home: Path) -> None:
+    _script(
+        home,
+        "fm-inbox.sh",
+        'case "$1" in\n  note) cat >/dev/null; echo \'{"outcome":"replay","id":"n1"}\' ;;\nesac',
+    )
+    res = _json_post(client, text="hello")
+    assert res.status_code == 200 and res.json()["ok"] is True
+    html = post(client, "chat", text="hello")
+    assert html.status_code == 200 and "Sent to the first mate." in html.text
+    assert "Already sent" not in html.text
+
+
+def test_chat_never_waits_for_the_snapshot(client: TestClient, home: Path) -> None:
+    _script(home, "fm-fleet-snapshot.sh", "sleep 30")
+    start = time.monotonic()
+    res = _json_post(client, text="hello")
+    assert res.status_code == 200 and time.monotonic() - start < 5
+
+
+def test_chat_slow_inbox_does_not_hold_the_response(
+    client: TestClient, home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(actions, "NOTE_WAIT_S", 0.3)
+    _script(
+        home,
+        "fm-inbox.sh",
+        'case "$1" in\n  note) cat >/dev/null; sleep 3; '
+        'echo \'{"outcome":"created","id":"n9"}\' ;;\nesac',
+    )
+    start = time.monotonic()
+    res = _json_post(client, text="hello")
+    took = time.monotonic() - start
+    assert took < 2, took
+    assert res.status_code == 202
+    assert res.json()["ok"] is True and res.json()["pending"] is True
+
+
+def test_chat_inbox_failure_is_a_json_error(client: TestClient, home: Path) -> None:
+    _script(home, "fm-inbox.sh", 'cat >/dev/null; echo "disk full"; exit 1')
+    res = _json_post(client, text="hello")
+    assert res.status_code == 502
+    assert res.json()["ok"] is False and "disk full" in res.json()["message"]
+
+
+def test_chat_empty_message_is_a_json_error(client: TestClient, home: Path) -> None:
+    res = _json_post(client, text="  ")
+    assert res.status_code == 400 and res.json()["ok"] is False
+    assert _calls(home) == []
+
+
+class _Tags(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append((tag, dict(attrs)))
+
+    def find(self, tag: str, **want: str) -> list[dict[str, str | None]]:
+        return [
+            a
+            for t, a in self.tags
+            if t == tag
+            and all(
+                v in (a.get("class") or "").split() if k == "class_" else a.get(k) == v
+                for k, v in want.items()
+            )
+        ]
+
+
+def _tags(html: str) -> _Tags:
+    p = _Tags()
+    p.feed(html)
+    return p
+
+
+def test_chat_page_is_a_send_form_with_a_send_key(client: TestClient) -> None:
+    tags = _tags(client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text)
+    (form,) = tags.find("form", class_="chatf")
+    assert form["action"] == "/act/chat" and form["method"].lower() == "post"
+    (box,) = tags.find("textarea", name="text")
+    assert box["enterkeyhint"] == "send" and "required" in box
 
 
 def test_chat_rejects_bad_request_id_and_empty(client: TestClient, home: Path) -> None:
@@ -284,6 +385,7 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
             {
                 "id": "n2",
                 "at": "2030-01-02T00:00:02Z",
+                "request_id": "web-00000000000000a2",
                 "body": "later <b>note</b>",
                 "acknowledged": False,
                 "reply": None,
@@ -310,7 +412,9 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
     (home / "receipts.json").write_text(json.dumps(receipts))
     html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
     assert "done, applied" in html and "Answered" in html
-    assert "waiting for the first mate" in html and "ticket request" in html
+    assert "Sent" in html and "ticket request" in html
+    mine = _tags(html).find("div", class_="me")
+    assert [m.get("data-rid") for m in mine] == [None, "web-00000000000000a2", None]
     assert "<b>note</b>" not in html and "&lt;b&gt;note&lt;/b&gt;" in html
     assert re.search(r"/act/chat", html)
     # a conversation: oldest first, the reply right after its message, newest last
@@ -550,3 +654,13 @@ def test_delegate_answers_a_fetch_with_json_so_the_desk_stays_put(
 def test_a_fresh_desk_render_carries_a_fresh_delegate_request_id(client: TestClient) -> None:
     rids = {_hidden(client.get("/", headers=GOOD).text, "rid") for _ in range(2)}
     assert len(rids) == 2
+
+
+def test_chat_is_one_screen_with_a_thread_dock_and_jump_button(client: TestClient) -> None:
+    tags = _tags(client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text)
+    (body,) = tags.find("body", class_="chatpage")
+    assert body["data-poll"] == "4000"
+    assert tags.find("div", id="thread", class_="thread")
+    (jump,) = tags.find("button", id="jump")
+    assert jump["type"] == "button" and "hidden" in jump
+    assert tags.find("div", class_="dock")

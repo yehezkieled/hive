@@ -101,9 +101,28 @@ min-height:32px}
 background:var(--card)}
 .msg.me{align-self:flex-end;border-color:var(--acc)}.msg.fm{align-self:flex-start;border-color:var(--ok)}
 .msg .meta{display:block;color:var(--mute);font-size:.78rem;margin-top:4px}
+.msg.is-err{border-color:var(--accent)}.msg.is-err .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.msg .meta button{min-height:44px;padding:0 16px}
 .dock{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(8px + env(safe-area-inset-bottom));
 border-top:1px solid var(--line)}
 .dock form{margin:0}.dock textarea{min-height:3rem}
+/* chat: one full-height screen; only the message list scrolls, the box stays put */
+body.chatpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
+display:flex;flex-direction:column}
+.chatpage .chrome{flex:none;width:100%;padding-left:12px;padding-right:12px;box-sizing:border-box}
+.chatpage main{flex:1;min-height:0;width:100%;box-sizing:border-box;display:flex;flex-direction:column;
+position:relative;padding:0 12px}
+.chatpage h1{flex:none;font-size:1.15rem;margin:8px 0 0}.chatpage .banner{flex:none}
+.chatpage .thread{flex:1;min-height:0;margin:0;padding:12px 0;overflow-y:auto;overflow-x:hidden;
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.chatpage .dock{flex:none;position:static;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
+.chatpage .dock form{display:flex;gap:8px;align-items:flex-end}
+.chatpage .dock label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.chatpage .dock textarea{flex:1;min-height:44px;max-height:30vh;resize:none;margin:0;font-size:16px}
+.chatpage .dock button{flex:none;min-height:44px;min-width:64px}
+#jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
+min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
+#jump[hidden]{display:none}
 @media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}}
 /* quota chip: the busier of the two plan windows, as percent used; tap shows both */
 .qwrap{position:relative;margin:0}
@@ -372,12 +391,22 @@ var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('
 var tail=b.getAttribute('data-tail');
 var th=document.getElementById('thread'),c=document.querySelector('main');
 var last=th?th.innerHTML:c?c.textContent:null,live=false,want=false,es,seen=0;
-function bottom(){window.scrollTo(0,document.documentElement.scrollHeight);}
+function bottom(){if(th)th.scrollTop=th.scrollHeight;else window.scrollTo(0,document.documentElement.scrollHeight);}
+function atBottom(){return th.scrollHeight-th.scrollTop-th.clientHeight<80;}
+var jb=document.getElementById('jump');
+function jump(on){if(jb)jb.hidden=!on;}
+if(th&&jb){jb.onclick=function(){bottom();jump(false);};th.addEventListener('scroll',function(){if(atBottom())jump(false);});}
 if(th)bottom();
+var locals=[];
+function hasRid(rid){var a=th.children;for(var i=0;i<a.length;i++)if(a[i].getAttribute('data-rid')===rid)return true;return false;}
+function lsync(){for(var i=locals.length-1;i>=0;i--){var m=locals[i];
+if(hasRid(m.rid)){if(m.el.parentNode)m.el.parentNode.removeChild(m.el);locals.splice(i,1);}
+else if(m.el.parentNode!==th)th.appendChild(m.el);}}
 function refreshThread(){if(document.hidden||sel())return;load(function(doc){
-var n=doc.getElementById('thread');if(!n||n.innerHTML===last||sel())return;last=n.innerHTML;
-var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-120;
-th.innerHTML=n.innerHTML;stamps();if(near)bottom();});}
+var n=doc.getElementById('thread');if(!n||sel())return;
+if(n.innerHTML!==last){last=n.innerHTML;
+var near=atBottom();
+th.innerHTML=n.innerHTML;stamps();lsync();if(near)bottom();else jump(true);}else lsync();});}
 function refreshMain(){if(document.hidden||busy()){want=true;return;}
 want=false;load(function(doc){
 var q=doc.getElementById('qchip'),oq=document.getElementById('qchip');
@@ -471,6 +500,31 @@ if(j.ok){fm.elements.text.value='';fm.elements.rid.value=newRid();}
 setFlash(j.message||'Could not send.',!!j.ok);})
 .catch(function(){setFlash('Could not send. Reload the desk.',false);})
 .then(function(){fm.classList.remove('is-sending');});});
+var cf=document.querySelector('form.chatf');
+function lmeta(m,t,err){var b=th&&atBottom(),s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
+if(err){var r=document.createElement('button');r.type='button';r.className='quiet';r.textContent='Retry';
+r.onclick=function(){send(m,0);};s.appendChild(r);}if(b)bottom();}
+function send(m,n){if(locals.indexOf(m)<0)return;lmeta(m,'Sending\u2026');
+fetch(cf.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},
+body:new URLSearchParams({text:m.text,rid:m.rid,csrf:cf.elements.csrf.value,next:'/chat'})})
+.then(function(r){if((r.headers.get('content-type')||'').indexOf('application/json')<0)throw r.status;
+return r.json();}).then(function(j){if(locals.indexOf(m)<0)return;
+if(!j.ok){lmeta(m,'Not sent: '+(j.message||'try again'),true);return;}
+if(j.pending){if(n<4)setTimeout(function(){send(m,n+1);},3000);
+else lmeta(m,'Not confirmed. It may still arrive.',true);refreshThread();return;}
+lmeta(m,'Sent');refreshThread();})
+.catch(function(s){lmeta(m,s===403?'Not sent: this page has expired. Reload it.':
+typeof s==='number'?'Not sent: the desk answered '+s:'Not sent: no connection',true);});}
+function chatSend(){var ta=cf.elements.text,text=ta.value.trim();if(!text)return;
+var rid=cf.elements.rid.value,el=document.createElement('div');
+el.className='msg me local';el.innerHTML='<div class=bubble></div><span class=meta></span>';
+el.firstChild.textContent=text;var m={el:el,text:text,rid:rid};locals.push(m);
+var e=th.querySelector('p.empty');if(e)th.removeChild(e);
+th.appendChild(el);bottom();jump(false);ta.value='';cf.elements.rid.value=newRid();ta.focus();send(m,0);}
+if(cf&&th&&window.fetch&&window.URLSearchParams){
+cf.addEventListener('submit',function(e){e.preventDefault();chatSend();});
+cf.elements.text.addEventListener('keydown',function(e){
+if(e.key!=='Enter'||e.shiftKey||e.isComposing||e.keyCode===229)return;e.preventDefault();chatSend();});}
 var picks={},lastPick=null;
 function calm(){return !(window.matchMedia&&matchMedia('(prefers-reduced-motion: no-preference)').matches);}
 function groups(){return document.querySelectorAll('[data-group]');}
@@ -541,6 +595,11 @@ function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
 document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
 try{barRoom();window.addEventListener('resize',barRoom);
 if(window.ResizeObserver){var bw=document.querySelector('.dbar-wrap,.dock');if(bw)new ResizeObserver(barRoom).observe(bw);}}catch(e){}
+if(th&&window.visualViewport){var vv=window.visualViewport;
+function fit(){var was=atBottom();document.documentElement.style.setProperty('--app-h',vv.height+'px');
+var d=document.querySelector('.dock');if(d)document.documentElement.style.setProperty('--dock-h',d.offsetHeight+'px');
+window.scrollTo(0,0);if(was)bottom();}
+vv.addEventListener('resize',fit);vv.addEventListener('scroll',function(){window.scrollTo(0,0);});fit();}
 restore();stamps();setInterval(stamps,30000);
 })();
 """
@@ -717,7 +776,7 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         "<link rel=icon href='/icons/icon-192.png'>"
         "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
         f"<title>{esc(title)}</title><style>{CSS}</style></head>"
-        f"<body{attrs}{' class=wide' if active == 'desk' else ''}><header class=chrome>"
+        f"<body{attrs}{' class=wide' if active == 'desk' else ' class=chatpage' if active == 'chat' else ''}><header class=chrome>"
         "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
         f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
@@ -1294,8 +1353,8 @@ _KIND_LABEL = {
     "delegate": "delegated",
 }
 _STATE_LABEL = {
-    "pending": "Sent · waiting for the first mate",
-    "seen": "Read by the first mate",
+    "pending": "Sent",
+    "seen": "Seen",
     "replied": "Answered",
 }
 
@@ -1306,8 +1365,9 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
     msgs = []
     for r in sorted(view.receipts, key=lambda r: r.at):  # oldest first, newest at the bottom
         kind = f"<span class=tag>{esc(_KIND_LABEL[r.kind])}</span>" if _KIND_LABEL[r.kind] else ""
+        rid = f" data-rid='{esc(r.request_id)}'" if r.request_id else ""
         msgs.append(
-            f"<div class='msg me'>{kind}<div class=bubble>{esc(r.body)}</div>"
+            f"<div class='msg me'{rid}>{kind}<div class=bubble>{esc(r.body)}</div>"
             f"<span class=meta>{ctx.time(r.at)} · {esc(_STATE_LABEL[r.state])}</span></div>"
         )
         if r.reply is not None:
@@ -1316,7 +1376,7 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
                 f"<div class=bubble>{esc(r.reply)}</div>"
                 f"<span class=meta>{ctx.time(r.reply_at)}</span></div>"
             )
-    out = "".join(msgs) or "<p class=mute>No messages yet. Say hello below.</p>"
+    out = "".join(msgs) or "<p class='mute empty'>No messages yet. Say hello below.</p>"
     if view.omitted:
         out = "<p class=mute>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>" + out
     return out
@@ -1347,14 +1407,16 @@ def render_chat(view: ChatView, ctx: Ctx) -> str:
     form = ctx.form(
         "chat",
         "<label for=chat-text>Message the first mate</label><textarea id=chat-text name=text "
-        "required maxlength=4000 placeholder='Ask, delegate, or steer…'></textarea>"
-        "<button>Send</button>",
+        "required maxlength=4000 enterkeyhint=send placeholder='Ask, delegate, or steer…'>"
+        "</textarea><button>Send</button>",
+        "chatf",
         rid=new_request_id(),
     )
     return _page(
         "Chat · Hive desk",
         f"<h1>Chat with the first mate</h1>{status}"
         f"<div class=thread id=thread aria-live=polite>{_thread(view, ctx)}</div>"
+        "<button id=jump type=button hidden>New messages \u2193</button>"
         f"<div class=dock>{form}</div>",
         "chat",
         " data-poll=4000",

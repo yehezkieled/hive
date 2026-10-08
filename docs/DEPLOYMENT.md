@@ -1231,7 +1231,15 @@ re-runs the script. Every write logs one
 `gateway-audit action=... subject=... outcome=...` line to stderr (the
 journal); free text is never logged, only its length. Chat shows receipts
 and replies from `fm-inbox.sh receipts` as a conversation thread (Chat is in
-the header of every page).
+the header of every page). A chat send needs no snapshot and holds its response
+at most `NOTE_WAIT_S` (1 s): `fm-inbox.sh note` saves the note and then waits
+on firstmate's wake-queue lock, so a slower call finishes in the background and
+the JSON reply is `202 {ok, message, pending: true}`; the page retries the same
+request id, which replays as a plain success. The Chat page is one fixed
+screen: only the thread scrolls, the box stays pinned above the keyboard, Enter
+sends (Shift+Enter is a newline), and a sent bubble shows at once and is
+replaced by its receipt (matched on `data-rid`, the request id) as it moves
+from Sent to Seen to Answered.
 
 Home is the **Stack home** (`docs/design/T002-stack-home.html`): the needs-you
 lane as the hero, one card per project and the delegate bar. The lane is the

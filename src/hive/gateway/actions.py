@@ -30,6 +30,7 @@ REQUEST_ID_RE = re.compile(r"^web-[0-9a-f]{16}$")
 MAX_ANSWER_BYTES = 512  # the keyed intake keeps only this many bytes of an answer
 MAX_NOTE_CHARS = 4000
 SCRIPT_TIMEOUT_S = 30.0
+NOTE_WAIT_S = 1.0  # how long a chat send may hold its response
 STEP_UP_TTL_S = 180
 TICKET_FIELDS = ("title", "body", "priority")
 CONTROL_VERBS = ("interrupt", "relaunch")
@@ -48,6 +49,7 @@ class Outcome:
     action: str
     subject: str
     summary: str  # sanitised script output, safe to show
+    pending: bool = False  # still being recorded in the background
 
 
 # ---- CSRF and step-up tokens ------------------------------------------------------
@@ -268,13 +270,48 @@ async def send_note(
         info = {}
     outcome = info.get("outcome") if isinstance(info, dict) else None
     audit(action, subject, outcome or "sent", exit=code, request_id=request_id, chars=len(body))
-    if outcome == "replay":
-        summary = "Already sent (this request was recorded before)."
-    elif code == 3:
+    if code == 3:
         summary = "Saved; the first mate has not been woken yet and will see it on its next pass."
-    else:
+    else:  # a replay reads exactly like the first call: the owner asked for it once, it is sent
         summary = "Sent to the first mate."
     return Outcome(action, subject, summary)
+
+
+_background: set[asyncio.Task] = set()
+
+
+async def send_note_bounded(
+    settings: GatewaySettings,
+    body: str,
+    request_id: str,
+    action: str,
+    subject: str,
+) -> Outcome:
+    """``send_note``, but never holds the caller longer than ``NOTE_WAIT_S``.
+
+    ``fm-inbox.sh note`` saves the note and then waits for firstmate's wake-queue lock, which
+    can take seconds on a busy fleet. A slower call keeps running to its own timeout and the
+    caller gets a pending outcome; the same request id then replays safely.
+    """
+    task = asyncio.ensure_future(send_note(settings, body, request_id, action, subject))
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    done, _ = await asyncio.wait({task}, timeout=NOTE_WAIT_S)
+    if task in done:
+        return task.result()
+
+    def _finish(t: asyncio.Task) -> None:
+        exc = None if t.cancelled() else t.exception()
+        if isinstance(exc, ActionError):
+            audit(
+                action, subject, "failed-late", request_id=request_id, error=_first_line(str(exc))
+            )
+        elif exc is not None:
+            audit_log.error("late note failure", exc_info=exc)
+
+    task.add_done_callback(_finish)
+    audit(action, subject, "pending", request_id=request_id, chars=len(body))
+    return Outcome(action, subject, "Saving; this can take a few seconds.", pending=True)
 
 
 def answer_body(text: str) -> str:
