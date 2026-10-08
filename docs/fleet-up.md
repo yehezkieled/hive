@@ -33,11 +33,12 @@ Each service step probes its port and only starts what is closed. The
 firstmate step exits without doing anything when either a herdr pane in
 `FM_DIR` runs the `claude` agent or a `claude` process has `FM_DIR` as its
 working directory, so it never starts a second firstmate. Otherwise it makes
-sure the herdr server is up and runs `claude` in a pane of an earlier
-`firstmate` workspace whose `claude` has exited (for example no network at
-boot), so each rerun retries the same session; only when there is no such
-workspace does it create one at `FM_DIR`. It runs `claude` (the launch command in firstmate's README, "Install and
-launch"). [UNSURE] Starting the herdr server with `herdr server` when it is
+sure the herdr server is up and runs `claude` in an idle shell pane (no agent,
+cwd `FM_DIR`) of an earlier `firstmate` workspace, left when `claude` exited
+(for example no network at boot), so each rerun retries in place. Crew panes
+(any agent, or another cwd) are never reused; with no idle pane it creates a
+new workspace at `FM_DIR`. It runs `claude` (the launch command in firstmate's
+README, "Install and launch"). [UNSURE] Starting the herdr server with `herdr server` when it is
 down was not exercised here; if it needs a different command, set it by
 bringing herdr up first and the step skips the start.
 
