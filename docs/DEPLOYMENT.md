@@ -1270,7 +1270,13 @@ when it has some and otherwise fills it in, so a page load never waits. The
 cache is `descriptions.json` (mode 0600) under `HIVE_GATEWAY_DATA_DIR`, keyed per
 item and refreshed when its title, notes, hold reason, state or blockers change;
 a failed turn is retried no sooner than 5 minutes later. The item text is passed
-as quoted data and the reply is only ever shown as escaped text. Worker questions, task decisions and merge approvals are not in
+as quoted data and the reply is only ever shown as escaped text.
+A hold's or decision's own text is shown structured, never as one paragraph: a
+one-line question, then its lettered options (`A)`, `B:` …, a consecutive run
+of at least two) as a short list of a few words each with the recommended one
+marked ("recommend B"), and the full wording behind a native **More**
+disclosure. Text without such a list shows its first sentence, the rest behind
+More. Worker questions, task decisions and merge approvals are not in
 the lane; they show on the Project page. An empty backlog shows a calm "all
 clear · N loops running". Cards come from the snapshot plus every project named
 in `data/projects.md` of the first mate's home and of each second mate home on
@@ -1297,9 +1303,13 @@ those carry a "looks done" tag, the section shows "N pages look done: close them
 like every write (loopback peer, Tailscale login, Host/Origin, CSRF), need no snapshot,
 and write one `gateway-audit` line per page ended. Tapping a card selects it in
 place (`/?focus=<project>`) and retargets the bar to that project's first or
-second mate; tapping the selected card opens its detail sheet (status,
-activity, progress, its Needs-you items and an "Open project ↗" link; without
-the script it opens the Project page). Cards and Review pages show a project by
+second mate; tapping the selected card opens its detail sheet (a one-line
+project description, then status, activity, progress, its Needs-you items and an
+"Open project ↗" link; without the script it opens the Project page). The
+description is the second mate's first `# Charter` sentence in
+`data/charter.md` for the projects it owns, else the entry text after the name
+in the first mate's `data/projects.md`, clipped to 240 characters; none is shown
+when neither has one. Cards and Review pages show a project by
 its GitHub repo name, read (no git subprocess, cached 60 s, refreshed off the
 request path) from the `origin` remote in
 `$HIVE_GATEWAY_FM_HOME/projects/<name>/.git/config`, with the registry name as
@@ -1331,7 +1341,9 @@ that file is missing or unreadable, or both its windows have reset, the headline
 windows come from `quota-axi --provider claude --json --no-credential-refresh`
 (used = 100 − percentRemaining); the Fable week always does (cached 60 s,
 refreshed in the background). A window past its reset time is not shown; "—"
-when no 5-hour or 7-day figure is left. The desk's fonts
+when no 5-hour or 7-day figure is left. The popover ends with a **Get alerts**
+section (the iPhone/iPad Home Screen steps and any Alerts status message); it
+opens only when the chip is tapped and closes on a tap outside or Escape. The desk's fonts
 (IBM Plex Mono, Nunito, Nunito Sans; OFL) are served from `/fonts/`, so the
 CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
