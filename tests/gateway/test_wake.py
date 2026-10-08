@@ -534,6 +534,40 @@ async def test_restart_releases_nothing_when_two_panes_claim_firstmate(
     assert herdr.released == [] and result.outcome == "failed"
 
 
+async def test_wake_releases_only_firstmates_stale_pane_then_starts(tmp_path: Path) -> None:
+    home = _settings(tmp_path).fm_home
+    herdr = FakeHerdr(
+        [
+            _pane("w2:p1", home),
+            _pane("w4C:p2", home, foreground=tmp_path / "wt" / "a"),
+            _pane("w3:p1", tmp_path / "crew"),
+        ]
+    )
+    runner = Fake()
+    svc = _service(tmp_path, "down", runner, herdr=herdr, stale_pane=True)
+    result = await svc.wake("a", "desk")
+    assert herdr.released == [("w2:p1", "claude")]
+    assert (result.outcome, runner.calls) == ("started", 1)
+
+
+async def test_wake_after_an_unknown_read_releases_nothing(
+    tmp_path: Path, quick_verify: None
+) -> None:
+    home = _settings(tmp_path).fm_home
+    herdr = FakeHerdr([_pane("w2:p1", home)])
+    svc = _service(tmp_path, "unknown", Fake(), herdr=herdr, stale_pane=True)
+    result = await svc.wake("a", "desk")
+    assert herdr.released == [] and result.outcome == "failed"
+
+
+async def test_a_failed_wake_release_is_not_fatal(tmp_path: Path) -> None:
+    runner = Fake()
+    svc = _service(tmp_path, "down", runner, herdr=FakeHerdr(fail=True))
+    result = await svc.wake("a", "desk")
+    assert (result.outcome, runner.calls) == ("started", 1)
+    assert "Could not release" in result.message
+
+
 async def test_a_crew_pane_opened_in_the_home_is_never_released_nor_counted(
     tmp_path: Path,
 ) -> None:

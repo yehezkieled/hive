@@ -175,8 +175,9 @@ step_serve() {
 
 # --- firstmate ---------------------------------------------------------------
 
-# fm_pane_running: a herdr pane already runs claude in $FM_DIR. A crew pane opened
-# in $FM_DIR keeps that cwd but has its worktree as foreground_cwd, so both count.
+# fm_pane_running: a herdr pane already runs claude in $FM_DIR. Only a pane whose
+# cwd and foreground_cwd (if reported) are both $FM_DIR counts; a crew opened there
+# runs in its worktree and is ignored.
 fm_pane_running() {
   local out
   out="$("$HERDR_BIN" pane list 2>/dev/null)" || return 1

@@ -396,17 +396,18 @@ class WakeService:
         blocked = await self._cooldown()
         if blocked is not None:
             return blocked
+        note = await asyncio.to_thread(self._release_stale_pane) if status.state == "down" else ""
         ran = await self._start(runner)
         if isinstance(ran, WakeResult):
-            return ran
+            return WakeResult(ran.outcome, f"{note}{ran.message}")
         detail = _clean(ran[1]) or "no output"
         if not await self._session_seen():
             return WakeResult(
                 "failed",
-                "fleet-up ran but no firstmate session started; run "
-                f"scripts/fleet-up.sh --only firstmate from a terminal. fleet-up: {detail}",
+                "fleet-up ran but no firstmate session started; run scripts/fleet-up.sh "
+                f"--only firstmate from a terminal. {note}fleet-up: {detail}",
             )
-        return WakeResult("started", detail)
+        return WakeResult("started", f"{note}{detail}")
 
     async def _restart(self, runner: Runner) -> WakeResult:
         status = await self.status.fresh()
