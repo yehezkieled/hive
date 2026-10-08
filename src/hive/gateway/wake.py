@@ -251,9 +251,12 @@ class Herdr:
     def __init__(self, binary: Path | None) -> None:
         self._binary = binary
 
+    @property
+    def available(self) -> bool:
+        """herdr is installed; without it there is no pane to release."""
+        return self._binary is not None and self._binary.is_file()
+
     def _run(self, *args: str) -> str:
-        if self._binary is None:
-            raise OSError("herdr not found")
         return subprocess.run(
             [str(self._binary), *args],
             capture_output=True,
@@ -464,6 +467,8 @@ class WakeService:
         firstmate home: a crew pane opened there keeps that cwd but runs in its worktree.
         Never touches any other pane; a failure is logged and left to the start step to show.
         """
+        if not self._herdr.available:
+            return ""
         homes = {str(self.settings.fm_home), str(self.settings.fm_home.resolve())}
         try:
             stale = [
