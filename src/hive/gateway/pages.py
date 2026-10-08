@@ -590,7 +590,8 @@ if(!ok||fm.classList.contains('dbar'))return;
 e.preventDefault();if(fm.classList.contains('is-sending')||fm.classList.contains('is-sent'))return;
 var b=e.submitter||fm.querySelector('button');if(!b)return;
 var p=new URLSearchParams(new FormData(fm));if(b.name)p.set(b.name,b.value);
-var step=fm.getAttribute('data-step');
+var step=fm.getAttribute('data-step'),sig=b.name+'='+b.value;
+if(step&&fm.acBtn!==sig){actDisarm(fm,fm.acEl||b);step=null;}
 if(!b.getAttribute('data-was'))b.setAttribute('data-was',b.textContent);
 if(step){p.set('step',step);var x={};try{x=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(_){}
 for(var k in x){if(Object.prototype.hasOwnProperty.call(x,k))p.set(k,x[k]);}
@@ -600,7 +601,7 @@ fm.classList.add('is-sending');
 if(!two){b.textContent='Sent ✓';b.classList.add('is-sent');}
 actSettle(fm,p,function(j){fm.classList.remove('is-sending');
 if(j.ok&&j.confirm){b.classList.remove('is-sent');fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
-fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));b.classList.add('is-armed');b.textContent=j.label||'Tap again';
+fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));fm.acBtn=sig;fm.acEl=b;b.classList.add('is-armed');b.textContent=j.label||'Tap again';
 fm.acT=setTimeout(function(){actDisarm(fm,b);},8000);return;}
 if(j.ok){fm.classList.add('is-sent');b.textContent=j.pending?'Sent ✓ saving…':'Sent ✓';
 b.classList.remove('is-armed');b.classList.add('is-sent');
