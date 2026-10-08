@@ -7,8 +7,8 @@ markers below are structured; the first mate applies them with `tasks-axi`
 (or does the merge) and answers with `fm-inbox.sh reply <note-id> <text>`.
 
 The website shows each note's state from `fm-inbox.sh receipts`:
-**waiting** (not acknowledged), **picked up** (acknowledged, no reply),
-**answered** (a reply exists; the reply text is shown). Acknowledge, then reply
+**Sent** (not acknowledged), **Seen** (acknowledged, no reply),
+**Answered** (a reply exists; the reply text is shown). Acknowledge, then reply
 with what was applied (or why not) so the owner sees "applied" on the page.
 
 Shape: marker line, `key: value` header lines, a line `---`, then free text.
