@@ -9,7 +9,9 @@ Both actions start firstmate through ``scripts/fleet-up.sh --only firstmate`` an
 nothing else: that step is idempotent and never starts a second firstmate, so this
 module holds no start logic. **Wake** is for a dead session: it only runs that step.
 **Restart** is for a session that runs while its watcher is silent (connected but
-wedged): it stops that one ``claude`` process, by pid, and then runs the same step. It
+wedged): it stops that one ``claude`` process, by pid, confirms none is left, releases
+herdr's stale ``claude`` report on that one pane (else fleet-up would think it still
+runs), runs the same step, and reports success only once a new session is seen. It
 refuses, stopping nothing, when the session's Claude Code record or transcript shows a
 turn in the last few minutes. Both share a cross-process rate limit (the desk and the
 Telegram bot share one state file) and an audit line in a Hive-owned log. Callers must
@@ -23,15 +25,19 @@ import asyncio
 import contextlib
 import fcntl
 import json
+import logging
 import os
 import re
 import signal
+import subprocess
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from hive.gateway.settings import GatewaySettings
+
+logger = logging.getLogger(__name__)
 
 BEAT_FRESH_S = 300.0  # the watcher touches its beat every poll; older means it stopped
 STATUS_TTL_S = 15.0
@@ -40,6 +46,9 @@ WAKE_COOLDOWN_S = 60.0
 WAKE_TIMEOUT_S = 90.0
 ACTIVE_RECENT_S = 300.0  # a turn this recent means the session may be working, not wedged
 STOP_WAIT_S = 10.0
+VERIFY_WAIT_S = 10.0  # how long a restart waits to see the new session's process
+HERDR_TIMEOUT_S = 10.0
+HERDR_SOURCE = "hive-wake"  # the source id Hive's stale-pane release reports to herdr
 _MAX_OUTPUT = 64 * 1024
 CLAUDE_HOME = Path.home() / ".claude"
 
@@ -236,6 +245,31 @@ def default_runner(script: Path) -> Runner:
     return run
 
 
+class Herdr:
+    """herdr's CLI, used only to list panes and release one stale agent report."""
+
+    def __init__(self, binary: Path | None) -> None:
+        self._binary = binary
+
+    def _run(self, *args: str) -> str:
+        if self._binary is None:
+            raise OSError("herdr not found")
+        return subprocess.run(
+            [str(self._binary), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=HERDR_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,
+        ).stdout
+
+    def panes(self) -> list[dict]:
+        return json.loads(self._run("pane", "list"))["result"]["panes"]
+
+    def release(self, pane_id: str, agent: str) -> None:
+        self._run("pane", "release-agent", "--source", HERDR_SOURCE, "--agent", agent, pane_id)
+
+
 class WakeService:
     """The guarded wake and restart actions, shared by the desk and the Telegram bot."""
 
@@ -247,6 +281,7 @@ class WakeService:
         cooldown_s: float = WAKE_COOLDOWN_S,
         killer: Killer = os.kill,
         activity: Activity | None = None,
+        herdr: Herdr | None = None,
     ) -> None:
         self.settings = settings
         self.status = status or StatusCache(settings)
@@ -254,6 +289,7 @@ class WakeService:
         self._cooldown_s = cooldown_s
         self._kill = killer
         self._activity = activity or (lambda pid: last_activity(settings.fm_home, pid))
+        self._herdr = herdr or Herdr(settings.herdr)
         self._lock = asyncio.Lock()
 
     @property
@@ -396,14 +432,58 @@ class WakeService:
             return blocked
         if not await asyncio.to_thread(self._stop, pid):
             return WakeResult("failed", f"firstmate session (pid {pid}) did not stop")
+        after = await self.status.fresh()
+        if after.state != "down":
+            return WakeResult(
+                "failed",
+                f"Stopped pid {pid}, but the process table does not show firstmate down "
+                f"({after.label}); not starting another.",
+            )
+        note = await asyncio.to_thread(self._release_stale_pane)
         ran = await self._start(runner)
         if isinstance(ran, WakeResult):
             return WakeResult(ran.outcome, f"Stopped pid {pid}, then {ran.message}")
-        _, out = ran
-        detail = _clean(out) or "no output"
-        if "started in pane" not in out:
-            return WakeResult("failed", f"Stopped pid {pid}, but no new session started: {detail}")
-        return WakeResult("restarted", f"Stopped pid {pid}; {detail}")
+        detail = _clean(ran[1]) or "no output"
+        if not await self._session_seen():
+            return WakeResult(
+                "failed",
+                f"Stopped the old session (pid {pid}) but a new one did not start; run "
+                f"scripts/fleet-up.sh --only firstmate from a terminal. {note}fleet-up: {detail}",
+            )
+        return WakeResult("restarted", f"Stopped pid {pid}; {note}{detail}")
+
+    def _release_stale_pane(self) -> str:
+        """Release herdr's ``claude`` report on the one pane at the firstmate home, if any.
+
+        Called only once no firstmate ``claude`` runs, so such a report is stale. Never
+        touches any other pane; a failure is logged and left to the start step to show.
+        """
+        homes = {str(self.settings.fm_home), str(self.settings.fm_home.resolve())}
+        try:
+            stale = [
+                p
+                for p in self._herdr.panes()
+                if p.get("agent") == "claude"
+                and (p.get("cwd") in homes or p.get("foreground_cwd") in homes)
+            ]
+            if len(stale) != 1:
+                return "" if not stale else f"{len(stale)} stale herdr panes, none released. "
+            pane = stale[0]
+            self._herdr.release(pane["pane_id"], pane["agent"])
+            return f"Released herdr pane {pane['pane_id']}. "
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+            logger.warning("wake: could not release the stale firstmate herdr pane: %s", exc)
+            return "Could not release the stale herdr pane. "
+
+    async def _session_seen(self) -> bool:
+        """A fresh process check finds a firstmate session within ``VERIFY_WAIT_S``."""
+        deadline = time.monotonic() + VERIFY_WAIT_S
+        while True:
+            if (await self.status.fresh()).session:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.5)
 
     def _stop(self, pid: int) -> bool:
         """SIGTERM the one pid, then SIGKILL if it outlives the wait. True once it is gone."""
