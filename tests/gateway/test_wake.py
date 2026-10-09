@@ -1011,7 +1011,7 @@ def test_runner_returns_when_the_script_exits_though_a_detached_child_lives_on(
     uvloop = pytest.importorskip("uvloop")
     script, pids = tmp_path / "fleet-up.sh", tmp_path / "pids"
     script.write_text(
-        f"#!/usr/bin/env bash\nsleep 30 & echo $! > {pids}\n" 'echo "started firstmate $*"\n'
+        f'#!/usr/bin/env bash\nsleep 30 & echo $! > {pids}\necho "started firstmate $*"\n'
     )
     script.chmod(0o755)
     start = time.monotonic()
