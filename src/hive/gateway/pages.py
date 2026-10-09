@@ -12,6 +12,7 @@ from html import escape as esc
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
+from hive.gateway import fmconfig
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
 from hive.gateway.cards import parse_card
 from hive.gateway.chat import ChatView
@@ -354,6 +355,19 @@ white-space:nowrap;text-decoration:none}
 .nyl--calm .nyl__head{border-bottom-color:var(--rule-faint)}
 .nyl--calm .nyl__glyph{color:var(--sage)}
 .nyl--calm .nyl__count{background:var(--sage-soft);color:var(--ochre)}
+.cfg h2{margin:1.2rem 0 .4rem}
+.cfg .tblw{overflow-x:auto;border:1.5px solid var(--rule-soft);border-radius:10px;background:var(--paper)}
+.cfg table{border-collapse:collapse;width:100%;font-size:.88rem}
+.cfg th,.cfg td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule-faint);vertical-align:top;overflow-wrap:anywhere}
+.cfg th{font:700 9.5px var(--font-mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3)}
+.cfg th{white-space:nowrap}.cfg td:first-child{white-space:nowrap}
+.cfg tr:last-child td{border-bottom:0}
+.cfg .unk{color:var(--accent);font-weight:700}
+.cfg ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.cfg li{background:var(--paper);border:1.5px solid var(--rule-soft);border-radius:10px;padding:9px 11px;min-width:0}
+.cfg .when{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:.88rem}
+.cfg .prof{font:11px var(--font-mono);color:var(--ink-2);margin-top:4px;overflow-wrap:anywhere}
+.cfg .kv{font:12px var(--font-mono);display:flex;flex-wrap:wrap;gap:4px 14px;margin:0}
 .sec-label{font:700 9.5px var(--font-mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);margin:2px 2px -4px}
 .pcs{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 .pc{display:flex;flex-direction:column;gap:7px;text-align:left;width:100%;min-height:44px;font:inherit;color:inherit;
@@ -760,7 +774,9 @@ class Ctx:
         project_notes: dict[str, str] | None = None,
         firstmate: FirstmateStatus | None = None,
         wake_enabled: bool = False,
+        postures: fmconfig.Projects | None = None,
     ) -> None:
+        self.postures = postures  # firstmate's project registry; None: not read
         self.can_close_reviews = can_close_reviews  # lavish-axi is available to end a session
         self.csrf = csrf
         self.writable = writable
@@ -960,6 +976,7 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         f"<body{attrs}{' class=wide' if active == 'desk' else ' class=chatpage' if active == 'chat' else ''}><header class=chrome>"
         "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
+        f"<a href='/config'{cur('config')}>Config</a>"
         f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
         f"</header><main>{body}</main><script>{SCRIPT}</script></body></html>"
     )
@@ -1002,6 +1019,14 @@ def _structured(text: str, ctx: Ctx) -> str:
 _NEED_LABEL = {"hold": "Question on hold", "decision": "Decision", "merge": "Merge approval"}
 
 
+def _posture_tag(project: str, ctx: Ctx) -> str:
+    """Firstmate's merge posture for the card's project, read-only; ``unknown`` says why."""
+    if ctx.postures is None:
+        return ""
+    label = fmconfig.posture_label(ctx.postures, project)
+    return f"<span class=sub>Merge posture: {esc(label)} · <a href='/config'>config</a></span>"
+
+
 def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
     url = ctx.link(n.url)
     link = f' <a href="{esc(url)}" rel="noopener noreferrer">Open PR</a>' if url else ""
@@ -1039,7 +1064,7 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
             "<button class=quiet>Give merge word…</button>",
             task=n.ref,
             rid=new_request_id(),
-        )
+        ) + _posture_tag(n.project, ctx)
     detail = f"{_NEED_LABEL.get(n.kind, n.kind)} · {n.ref}"
     return (
         f"<div class=need><span class=what>{esc(lead)}</span>{link}"
@@ -1109,7 +1134,7 @@ def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
             "nyi__actions",
             task=n.ref,
             rid=new_request_id(),
-        )
+        ) + _posture_tag(n.project, ctx)
     else:
         act = f"<div class=nyi__actions>{extra}</div>" if extra else ""
     return row, dot, badge, summary, act
@@ -1661,6 +1686,74 @@ def render_chat(view: ChatView, ctx: Ctx) -> str:
         f"<div class=dock>{form}</div>",
         "chat",
         " data-poll=4000",
+        ctx,
+    )
+
+
+def _cfg_note(error: str) -> str:
+    return f"<p class=unk>unknown: {esc(error)}</p>"
+
+
+def _profile_line(p: fmconfig.Profile) -> str:
+    parts = (p.harness, p.model or "harness default model", p.effort or "default effort")
+    return " · ".join(esc(x) for x in parts)
+
+
+def render_config(cfg: fmconfig.FmConfig, ctx: Ctx) -> str:
+    """Firstmate's merge posture and worker profiles, read-only. A source that cannot be
+    read shows ``unknown`` with the reason; the page itself never fails."""
+    pr = cfg.projects
+    if pr.error:
+        merge = _cfg_note(pr.error)
+    else:
+        rows = [
+            f"<tr><td>{esc(n)}</td><td>{esc(p.mode)}</td><td>{'on' if p.yolo else 'off'}</td></tr>"
+            for n, p in sorted(pr.postures.items())
+        ] + [
+            f"<tr><td>{esc(n)}</td><td colspan=2 class=unk>unknown: {esc(why)}</td></tr>"
+            for n, why in sorted(pr.ambiguous.items())
+        ]
+        merge = (
+            "<div class=tblw><table><thead><tr><th>Project</th><th>Delivery</th><th>Yolo</th>"
+            f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+        )
+    d = cfg.dispatch
+    if d.error:
+        profiles = _cfg_note(d.error)
+    else:
+        items = [
+            f"<li><div class=when title='{esc(r.when)}'>{esc(r.when)}</div>"
+            f"<div class=prof>{'<br>'.join(_profile_line(p) for p in r.profiles)}</div></li>"
+            for r in d.rules
+        ]
+        if d.default:
+            items.append(
+                "<li><div class=when>Anything else (default)</div>"
+                f"<div class=prof>{'<br>'.join(_profile_line(p) for p in d.default)}</div></li>"
+            )
+        profiles = f"<ul>{''.join(items)}</ul>"
+    harness = _cfg_note(cfg.harness.error) if cfg.harness.error else esc(cfg.harness.text)
+    if cfg.harness.absent:
+        harness = "not set"
+    perm = _cfg_note(cfg.permission.error) if cfg.permission.error else esc(cfg.permission.text)
+    if cfg.permission.absent:
+        perm += " (default)"
+    gate = cfg.workers_ready
+    ready = (
+        f"<p class=unk>Workers will not start: {esc(gate)}</p>"
+        if gate
+        else "<p class=mute>Workers can start from these settings.</p>"
+    )
+    return _page(
+        "Config · Hive desk",
+        "<div class=cfg><h1>Firstmate config</h1>"
+        "<p class=mute>Read from firstmate on each load. Hive keeps no copy and cannot edit it.</p>"
+        f"<h2>Merge posture</h2>{merge}"
+        f"<h2>Worker profiles</h2>{profiles}"
+        f"<h2>Worker launch</h2><p class=kv><span>Crew harness: {harness}</span>"
+        f"<span>Claude permission mode: {perm}</span></p>{ready}</div>",
+        "config",
+        "",
         ctx,
     )
 

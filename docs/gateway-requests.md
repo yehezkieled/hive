@@ -38,13 +38,19 @@ from: hive web (<owner login>)
 HIVE-WEB MERGE WORD v1
 task: <task id>
 pr: <url or (none)>
+posture: <mode>[ +yolo] | unknown (<reason>)
+self-merge: no (the website cannot see checks; firstmate decides)
 from: hive web (<owner login>)
 ---
 <fixed sentence>
 ```
 
 The owner's explicit word to merge that PR (the page showed a confirm step).
-It is a record, not an action: the first mate still merges.
+It is a record, not an action: the first mate still merges. `posture:` is the
+project's row in firstmate's `data/projects.md`, read at send time and relayed,
+never interpreted: a missing, unparsable or ambiguous row reads `unknown (...)`.
+`self-merge:` is this fixed line: Hive carries no merge-authority rule and
+never claims firstmate may merge on its own; firstmate decides.
 
 ## `HIVE-WEB DECISION ANSWER v1`
 
@@ -78,3 +84,14 @@ when one owns it (route the goal to that home), else `first mate`. With no
 project selected the bar sends a plain chat note instead.
 
 Plain chat messages are unstructured notes with no marker.
+
+## Worker settings gate
+
+`delegate` to a selected project and ticket `create` are the requests that can
+start a worker (a plain note with no project is not gated). The
+website reads firstmate's `config/crew-dispatch.json`, `config/crew-harness`
+and `config/claude-permission-mode` before sending (`gateway/fmconfig.py`),
+and refuses with "ask the captain" when they are unusable: the dispatch file
+unparsable, or absent with no valid `crew-harness`, or an invalid permission
+token. It sends no harness, model or effort of its own; the first mate resolves
+the profile. The read-only view is `/config`.

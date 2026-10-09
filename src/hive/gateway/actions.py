@@ -253,11 +253,15 @@ def ticket_request_body(
     )
 
 
-def merge_word_body(task: str, pr_url: str, owner: str) -> str:
+def merge_word_body(task: str, pr_url: str, owner: str, posture: str, self_merge: str) -> str:
+    """``posture`` and ``self_merge`` come from firstmate's own config (``fmconfig``); the
+    website only relays them, so a missing or unreadable posture reads ``unknown (...)``."""
     return (
         "HIVE-WEB MERGE WORD v1\n"
         f"task: {task}\n"
         f"pr: {pr_url or '(none)'}\n"
+        f"posture: {posture}\n"
+        f"self-merge: {self_merge}\n"
         f"from: hive web ({owner})\n"
         "---\n"
         "The owner gives the merge word for this PR. Record it and merge; "

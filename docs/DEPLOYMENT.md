@@ -1199,7 +1199,7 @@ become no-ops — Hive still boots.
 
 ## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the desk (Home, Project and Chat pages)
+`python -m hive.gateway` serves the desk (Home, Project, Chat and Config pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
 Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
@@ -1221,6 +1221,16 @@ firstmate script with an argument list, never a shell string:
 | chat, delegate, ticket create/edit, merge word, task-decision answer | `fm-inbox.sh note --request-id web-<hex> --json -` (body on stdin; shapes in `docs/gateway-requests.md`) |
 | worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
 | close review page(s) | `lavish-axi end <file>` (not a firstmate script), once per page, after a confirm step; see Review pages below |
+
+**Firstmate config (`/config`).** Hive keeps no merge rules or worker settings of its
+own. `gateway/fmconfig.py` reads, on every request and read-only, `data/projects.md`
+(delivery mode and `+yolo` per project), `config/crew-dispatch.json`,
+`config/crew-harness` and `config/claude-permission-mode` under
+`HIVE_GATEWAY_FM_HOME`. `/config` shows them; a missing or unparsable source reads
+`unknown` with the reason. Fail-safe: the merge-word note carries the project's
+posture (`unknown (...)` when unreadable) and never claims a self-merge, and
+`delegate` / ticket create are refused with "ask the captain" when the worker
+settings are unusable. See `docs/gateway-requests.md`.
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
