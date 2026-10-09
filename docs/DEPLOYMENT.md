@@ -1332,12 +1332,15 @@ its helper line ("Delegate to … · tapping a project card retargets this bar")
 With the page script running, the bar sends in place (`Accept: application/json`
 on `POST /act/<name>` returns `{ok, message}` instead of an outcome page): the
 desk stays put, shows the result under the bar and takes a fresh request id
-for the next goal. From 700×560 px up (PC, laptop, iPad) the desk is one page that
-fits the viewport: Needs you, Projects and Review pages each scroll on their own
-(stacked in two rows on a portrait tablet), a live refresh keeps each panel's
-scroll position, and anything that would grow opens in a sheet. Below that the
-page scrolls as before; every page pads its bottom by the fixed delegate bar's
-height so no row hides behind it.
+for the next goal. At every size the desk is one screen that fits the viewport
+(sized to the visual viewport, so it holds with the on-screen keyboard open): only
+the content scrolls, and the delegate bar is its last row, flush with the viewport
+bottom (the safe-area inset is padding inside it). From 700×560 px up (PC, laptop,
+iPad) Needs you, Projects and Review pages each scroll on their own (stacked in
+two rows on a portrait tablet), a live refresh keeps each panel's scroll
+position, and anything that would grow opens in a sheet; below that the content
+scrolls as one column. Every other page pads its bottom by the fixed delegate
+bar's height so no row hides behind it.
 The chrome on every page carries the quota chip: the percent **used** in the
 busier of the Claude plan's 5-hour and 7-day windows (calm below 60%, warn from
 60%, hot above 85%). Tapping it lists both plus the Fable week, each with its
