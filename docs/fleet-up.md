@@ -97,8 +97,9 @@ re-reads it fresh first.
 
 **Desk**: a `firstmate · <state>` chip beside the quota chip on every page. It
 holds **Wake firstmate** when firstmate is down and **Restart session** when its
-watcher is silent; each leads to a confirm page (the restart's says plainly that
-it stops the running session), and the result shows inline. `POST /act/wake` and
+watcher is silent; each needs a second tap, with the confirm text shown beside
+the armed button (a confirm page without JavaScript; the restart's says plainly
+that it stops the running session), and the result shows inline. `POST /act/wake` and
 `POST /act/restart` go through the gateway's owner gate (tailnet login, loopback
 peer, Host/Origin, CSRF) plus a step-up token, and work while firstmate's snapshot
 is unreadable.
