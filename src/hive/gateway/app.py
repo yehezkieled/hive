@@ -23,7 +23,7 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from hive.gateway import actions, pages
+from hive.gateway import actions, fmconfig, pages
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
 from hive.gateway.chat import load_chat
@@ -119,7 +119,7 @@ self.addEventListener('notificationclick', function(e){
   }));
 });
 """
-NEXT_RE = re.compile(r"^/(chat|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$")
+NEXT_RE = re.compile(r"^/(chat|config|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$")
 
 
 def _safe_next(value: str) -> str:
@@ -195,6 +195,7 @@ def create_app(
             repos=repos,
             can_close_reviews=settings.lavish_axi is not None,
             project_notes=project_notes(snap),
+            postures=fmconfig.read_projects(settings.fm_home),
             firstmate=wake.status.peek(),
             wake_enabled=wake.available,
         )
@@ -236,6 +237,12 @@ def create_app(
         status = 200 if (proj or desk is None) else 404
         ctx = await ctx_for(snap, _quote_project(name), [name])
         return HTMLResponse(pages.render_project(name, snap, proj, ctx), status_code=status)
+
+    @app.get("/config", response_class=HTMLResponse)
+    async def config() -> HTMLResponse:
+        snap = await provider.get()
+        cfg = await asyncio.to_thread(fmconfig.load, settings.fm_home)
+        return HTMLResponse(pages.render_config(cfg, await ctx_for(snap, "/config")))
 
     @app.get("/chat", response_class=HTMLResponse)
     async def chat() -> HTMLResponse:
@@ -738,6 +745,7 @@ async def _dispatch(
         return await note(body, "decision", f"{task}/{key}")
 
     if name == "delegate":
+        await _worker_gate(settings)
         text = actions.check_text(form.get("text", ""), "goal")
         focus = form.get("project", "")
         if not focus:  # no project focus: a plain message to the first mate
@@ -769,7 +777,19 @@ async def _dispatch(
                 },
                 "Tap again to give the merge word",
             )
-        body = actions.merge_word_body(task, need.url or "", owner)
+        projects = await asyncio.to_thread(fmconfig.read_projects, settings.fm_home)
+        # The gateway cannot see checks, so it never claims a self-merge: the note records the
+        # captain's word plus firstmate's own posture, and firstmate decides the rest.
+        verdict = fmconfig.merge_decision(
+            projects, need.project, checks_red=None, destructive=None, security_sensitive=None
+        )
+        body = actions.merge_word_body(
+            task,
+            need.url or "",
+            owner,
+            fmconfig.posture_label(projects, need.project),
+            "no (" + verdict.reason + ")",
+        )
         return await note(body, "merge", task)
 
     if name == "control":
@@ -809,6 +829,20 @@ async def _dispatch(
     raise ActionError("unknown action", 404)
 
 
+async def _worker_gate(settings: GatewaySettings) -> None:
+    """A request that can start a worker is refused, not guessed, when firstmate's worker
+    settings are missing or unreadable. The captain is told to fix the config."""
+    cfg = await asyncio.to_thread(fmconfig.load, settings.fm_home)
+    why = cfg.workers_ready
+    if why:
+        actions.audit("worker-config", "-", "refused", reason=why[:120])
+        raise ActionError(
+            f"Not sent: firstmate's worker settings are unusable ({why}). "
+            "Ask the captain to fix them; Hive will not pick a harness or model itself.",
+            409,
+        )
+
+
 async def _ticket(
     form: dict[str, str],
     desk: Desk,
@@ -820,6 +854,7 @@ async def _ticket(
     if project is None:
         raise ActionError("Unknown project.", 404)
     if mode == "create":
+        await _worker_gate(settings)
         title = actions.check_line(form.get("title", ""), "title")
         details = form.get("text", "").replace("\r\n", "\n").strip()
         text = actions.check_text(f"{title}\n\n{details}" if details else title, "ticket")

@@ -17,6 +17,7 @@ from hive.gateway import actions
 from hive.gateway.actions import Tokens
 from hive.gateway.app import create_app
 from hive.gateway.settings import GatewaySettings
+from tests.gateway.fmcfg import write_config
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
 OWNER = "owner@example.test"
@@ -75,7 +76,7 @@ def home(tmp_path: Path) -> Path:
         "esac",
     )
     _script(tmp_path, "fm-control.sh", 'rec "$@"; echo "ok: $2"')
-    return tmp_path
+    return write_config(tmp_path)
 
 
 def _calls(home: Path) -> list[dict]:

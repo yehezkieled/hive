@@ -22,6 +22,7 @@ from hive.gateway import actions
 from hive.gateway.actions import Tokens
 from hive.gateway.app import ACT_NAMES, _step_subject, create_app
 from hive.gateway.settings import GatewaySettings
+from tests.gateway.fmcfg import write_config
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
 OWNER = "owner@example.test"
@@ -71,7 +72,7 @@ def home(tmp_path: Path) -> Path:
     (tmp_path / "lavish-state.json").write_text(json.dumps({"sessions": sessions}))
     # lavish-axi is not run with FM_HOME, so its switch is an absolute path
     _write(tmp_path / "lavish-axi", f"[ -e '{tmp_path}/slow' ] && sleep {SLOW_S}\nexit 0")
-    return tmp_path
+    return write_config(tmp_path)
 
 
 @pytest.fixture
