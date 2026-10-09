@@ -104,7 +104,10 @@ peer, Host/Origin, CSRF) plus a step-up token, and work while firstmate's snapsh
 is unreadable.
 
 **Telegram**: `/wake` shows the status and the matching button (Wake when down,
-Restart session when the watcher is silent). Only ids in
+Restart session when the watcher is silent). A tapped button is removed. Restart
+first posts "This stops the running firstmate session and starts a new one.
+Confirm?" with Confirm and Cancel; only Confirm restarts, once, within 2 minutes,
+on that same message in that same chat. Only ids in
 `TELEGRAM_ALLOWED_USER_IDS` are served; an empty allowlist serves nobody for this
 command (the other commands keep their behaviour), and anyone else gets no reply
 and no effect.

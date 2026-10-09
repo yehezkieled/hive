@@ -35,7 +35,12 @@ from hive.gateway.wake import (
     last_activity,
     read_status,
 )
-from hive.telegram.bridge import RESTART_CALLBACK, WAKE_CALLBACK, TelegramBridge
+from hive.telegram.bridge import (
+    RESTART_CALLBACK,
+    RESTART_CONFIRM_TEXT,
+    WAKE_CALLBACK,
+    TelegramBridge,
+)
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
 OWNER = "owner@example.test"
@@ -876,22 +881,35 @@ def test_wake_cannot_be_triggered_by_get(tmp_path: Path) -> None:
 
 
 class _Msg:
-    def __init__(self, text: str | None = None) -> None:
-        self.text = text
-        self.replies: list[tuple[str, object]] = []
+    _ids = iter(range(100, 10_000))
 
-    async def reply_text(self, text: str, reply_markup: object = None) -> None:
+    def __init__(self, text: str | None = None, chat_id: int = 1) -> None:
+        self.text = text
+        self.chat_id = chat_id
+        self.message_id = next(self._ids)
+        self.replies: list[tuple[str, object]] = []
+        self.sent: list[_Msg] = []
+
+    async def reply_text(self, text: str, reply_markup: object = None) -> _Msg:
         self.replies.append((text, reply_markup))
+        sent = _Msg(text, chat_id=self.chat_id)
+        self.sent.append(sent)
+        return sent
 
 
 class _Query:
-    def __init__(self, data: str) -> None:
+    def __init__(self, data: str, message: _Msg | None = None) -> None:
         self.data = data
-        self.message = _Msg()
+        self.message = message or _Msg()
         self.answers: list[str] = []
+        self.keyboard_removed = False
 
     async def answer(self, text: str = "") -> None:
         self.answers.append(text)
+
+    async def edit_message_reply_markup(self, reply_markup: object = None) -> None:
+        assert reply_markup is None
+        self.keyboard_removed = True
 
 
 def _bridge(
@@ -900,7 +918,25 @@ def _bridge(
     bridge = TelegramBridge.__new__(TelegramBridge)
     bridge.allowed_user_ids = allowed
     bridge.wake = _service(tmp_path, state, runner, killer=killer)
+    bridge._restart_confirms = {}
     return bridge
+
+
+async def _tap(bridge: TelegramBridge, data: str, message: _Msg | None = None) -> _Query:
+    query = _Query(data, message)
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
+    await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+    return query
+
+
+async def _restart_confirm(bridge: TelegramBridge) -> tuple[_Query, _Msg, str, str]:
+    """Tap Restart; return that tap, the confirm message it posted and its two callbacks."""
+    first = await _tap(bridge, RESTART_CALLBACK)
+    ((text, markup),) = first.message.replies
+    assert text == RESTART_CONFIRM_TEXT
+    confirm, cancel = markup.inline_keyboard[0]
+    assert (confirm.text, cancel.text) == ("Confirm", "Cancel")
+    return first, first.message.sent[0], confirm.callback_data, cancel.callback_data
 
 
 def _message_update(user_id: int, text: str) -> SimpleNamespace:
@@ -926,17 +962,72 @@ async def test_telegram_silent_watcher_offers_restart_only(tmp_path: Path) -> No
     assert [b.callback_data for b in markup.inline_keyboard[0]] == [RESTART_CALLBACK]
 
 
-async def test_telegram_restart_button_stops_and_starts_for_the_allowlisted(
+async def test_telegram_restart_first_tap_only_asks_and_confirm_restarts_once(
     tmp_path: Path,
 ) -> None:
     runner, killer = Fake(), Killer()
     bridge = _bridge(tmp_path, "no-beat", runner, [42], killer=killer)
-    query = _Query(RESTART_CALLBACK)
-    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
-    await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+    first, confirm_msg, confirm, _cancel = await _restart_confirm(bridge)
+    assert first.keyboard_removed and killer.sent == [] and runner.calls == 0
+
+    done = await _tap(bridge, confirm, confirm_msg)
+    assert done.keyboard_removed
     assert killer.sent == [(FM_PID, signal.SIGTERM)] and runner.calls == 1
-    assert "restarted" in query.message.replies[0][0]
+    assert "restarted" in done.message.replies[0][0]
     assert "action=restart who=telegram:42 via=telegram" in bridge.wake.audit_path.read_text()
+
+    again = await _tap(bridge, confirm, confirm_msg)
+    assert killer.sent == [(FM_PID, signal.SIGTERM)] and runner.calls == 1
+    assert "already used" in again.message.replies[-1][0]
+
+
+async def test_telegram_restart_cancel_stops_nothing(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "no-beat", runner, [42], killer=killer)
+    _first, confirm_msg, confirm, cancel = await _restart_confirm(bridge)
+    cancelled = await _tap(bridge, cancel, confirm_msg)
+    assert "cancelled" in cancelled.message.replies[0][0] and cancelled.keyboard_removed
+    late = await _tap(bridge, confirm, confirm_msg)
+    assert "Nothing was stopped" in late.message.replies[-1][0]
+    assert (runner.calls, killer.sent) == (0, [])
+    assert not bridge.wake.audit_path.exists()
+
+
+async def test_telegram_expired_restart_confirm_stops_nothing(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "no-beat", runner, [42], killer=killer)
+    _first, confirm_msg, confirm, _cancel = await _restart_confirm(bridge)
+    bridge._restart_confirms = {
+        t: (chat, msg, time.monotonic() - 1)
+        for t, (chat, msg, _) in bridge._restart_confirms.items()
+    }
+    late = await _tap(bridge, confirm, confirm_msg)
+    assert "expired" in late.message.replies[0][0]
+    assert (runner.calls, killer.sent) == (0, [])
+
+
+@pytest.mark.parametrize("where", ["other-chat", "other-message"])
+async def test_telegram_restart_confirm_elsewhere_stops_nothing(tmp_path: Path, where: str) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "no-beat", runner, [42], killer=killer)
+    _first, confirm_msg, confirm, _cancel = await _restart_confirm(bridge)
+    elsewhere = _Msg(chat_id=999) if where == "other-chat" else _Msg(chat_id=confirm_msg.chat_id)
+    foreign = await _tap(bridge, confirm, elsewhere)
+    assert "another chat" in foreign.message.replies[0][0]
+    assert (runner.calls, killer.sent) == (0, [])
+    done = await _tap(bridge, confirm, confirm_msg)
+    assert runner.calls == 1 and "restarted" in done.message.replies[-1][0]
+
+
+async def test_telegram_restart_tap_after_the_state_changed_offers_no_confirm(
+    tmp_path: Path,
+) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "alive", runner, [42], killer=killer)
+    first = await _tap(bridge, RESTART_CALLBACK)
+    ((text, markup),) = first.message.replies
+    assert first.keyboard_removed and markup is None and "no longer offered" in text
+    assert (runner.calls, killer.sent, bridge._restart_confirms) == (0, [], {})
 
 
 @pytest.mark.parametrize("allowed", [[7], []])
@@ -950,6 +1041,16 @@ async def test_telegram_restart_from_a_stranger_stops_nothing(
     await bridge._handle_callback(update, None)  # type: ignore[arg-type]
     assert (runner.calls, killer.sent, query.answers, query.message.replies) == (0, [], [], [])
     assert not bridge.wake.audit_path.exists()
+
+
+async def test_telegram_restart_confirm_from_a_stranger_stops_nothing(tmp_path: Path) -> None:
+    runner, killer = Fake(), Killer()
+    bridge = _bridge(tmp_path, "no-beat", runner, [42], killer=killer)
+    _first, confirm_msg, confirm, _cancel = await _restart_confirm(bridge)
+    query = _Query(confirm, confirm_msg)
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=7))
+    await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+    assert (runner.calls, killer.sent, query.answers, query.keyboard_removed) == (0, [], [], False)
 
 
 async def test_telegram_alive_has_no_button(tmp_path: Path) -> None:

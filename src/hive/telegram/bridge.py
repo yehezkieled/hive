@@ -9,14 +9,17 @@ sink — lives here.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import mimetypes
+import secrets
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
@@ -56,6 +59,10 @@ BRIDGE_COMMANDS: frozenset[str] = KNOWN_COMMANDS | frozenset({"heartbeat", "wake
 
 WAKE_CALLBACK = "wake:firstmate"
 RESTART_CALLBACK = "wake:restart"
+RESTART_CONFIRM_PREFIX = "wake:restart:confirm:"
+RESTART_CANCEL_PREFIX = "wake:restart:cancel:"
+RESTART_CONFIRM_TTL_S = 120.0
+RESTART_CONFIRM_TEXT = "This stops the running firstmate session and starts a new one. Confirm?"
 
 
 class TelegramBridge:
@@ -90,6 +97,8 @@ class TelegramBridge:
         self.attachment_store = attachment_store
         self._app: Application | None = None
         self.wake = wake or WakeService(GatewaySettings.from_env())
+        # Pending Restart confirms: token -> (chat id, confirm message id, monotonic expiry)
+        self._restart_confirms: dict[str, tuple[int, int, float]] = {}
 
         self.dispatcher = CommandDispatcher(
             process_manager=process_manager,
@@ -280,24 +289,76 @@ class TelegramBridge:
         await update.message.reply_text(f"Firstmate {status.describe()}", reply_markup=markup)
 
     async def _handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """The Wake and Restart buttons. Anyone off the allowlist gets no reply and no effect."""
+        """The Wake and Restart buttons. Anyone off the allowlist gets no reply and no effect.
+
+        Every tapped button is removed. Restart never runs on the first tap: it posts a confirm
+        bound to its chat and message, and only that confirm, once and within
+        RESTART_CONFIRM_TTL_S, restarts.
+        """
         query = update.callback_query
         if query is None:
             return
         user_id = update.effective_user.id if update.effective_user else 0
-        actions = {
-            WAKE_CALLBACK: ("Wake firstmate", "Waking firstmate…", self.wake.wake),
-            RESTART_CALLBACK: ("Restart session", "Restarting firstmate…", self.wake.restart),
-        }
-        action = actions.get(query.data or "")
-        if not self._may_wake(user_id) or action is None:
+        data = query.data or ""
+        known = data in (WAKE_CALLBACK, RESTART_CALLBACK) or data.startswith(
+            (RESTART_CONFIRM_PREFIX, RESTART_CANCEL_PREFIX)
+        )
+        if not self._may_wake(user_id) or not known:
             logger.warning("Unauthorized wake callback from user %d", user_id)
             return
-        title, ack, run = action
-        await query.answer(ack)
-        result = await run(f"telegram:{user_id}", "telegram")
-        if query.message is not None:
-            await query.message.reply_text(f"{title}: {result.outcome}. {result.message}")
+        await query.answer("Waking firstmate…" if data == WAKE_CALLBACK else "")
+        with contextlib.suppress(TelegramError):
+            await query.edit_message_reply_markup(reply_markup=None)
+        message = query.message
+        if message is None:
+            return
+        who = f"telegram:{user_id}"
+        if data == WAKE_CALLBACK:
+            result = await self.wake.wake(who, "telegram")
+            await message.reply_text(f"Wake firstmate: {result.outcome}. {result.message}")
+        elif data == RESTART_CALLBACK:
+            await self._ask_restart_confirm(message)
+        elif not self._take_restart_confirm(data.rsplit(":", 1)[1], message):
+            await message.reply_text(
+                "This restart confirm has expired, was already used or belongs to another "
+                "chat. Nothing was stopped. Send /wake to start again."
+            )
+        elif data.startswith(RESTART_CANCEL_PREFIX):
+            await message.reply_text("Restart cancelled. Nothing was stopped.")
+        else:
+            result = await self.wake.restart(who, "telegram")
+            await message.reply_text(f"Restart session: {result.outcome}. {result.message}")
+
+    async def _ask_restart_confirm(self, message: Message) -> None:
+        status = await self.wake.status.fresh()
+        if not status.can_restart:
+            await message.reply_text(
+                f"Firstmate {status.describe()}. Restart is no longer offered; send /wake again."
+            )
+            return
+        now = time.monotonic()
+        self._restart_confirms = {
+            t: entry for t, entry in self._restart_confirms.items() if entry[2] > now
+        }
+        token = secrets.token_urlsafe(16)
+        markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Confirm", callback_data=RESTART_CONFIRM_PREFIX + token),
+                    InlineKeyboardButton("Cancel", callback_data=RESTART_CANCEL_PREFIX + token),
+                ]
+            ]
+        )
+        sent = await message.reply_text(RESTART_CONFIRM_TEXT, reply_markup=markup)
+        self._restart_confirms[token] = (sent.chat_id, sent.message_id, now + RESTART_CONFIRM_TTL_S)
+
+    def _take_restart_confirm(self, token: str, message: Message) -> bool:
+        """Spend a live confirm token issued on this very message; anything else spends nothing."""
+        entry = self._restart_confirms.get(token)
+        if entry is None or entry[:2] != (message.chat_id, message.message_id):
+            return False
+        del self._restart_confirms[token]
+        return time.monotonic() < entry[2]
 
     async def _handle_attachment(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle PHOTO + DOCUMENT messages — Sprint 17 file transit.
