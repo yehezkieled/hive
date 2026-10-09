@@ -618,21 +618,23 @@ class Confirm:
     action: str
     hidden: dict[str, str]  # carries ``step`` and ``rid``; the rest is echoed back unchanged
     label: str  # the armed button's text
+    warn: bool = False  # the page script shows ``detail`` beside the armed button
 
 
 def confirm_response(c: Confirm, nxt: str, tokens: Tokens, wants_json: bool) -> Response:
     if wants_json:
         extra = {k: v for k, v in c.hidden.items() if k not in ("step", "rid")}
-        return JSONResponse(
-            {
-                "ok": True,
-                "confirm": True,
-                "step": c.hidden["step"],
-                "rid": c.hidden["rid"],
-                "extra": extra,
-                "label": c.label,
-            }
-        )
+        body = {
+            "ok": True,
+            "confirm": True,
+            "step": c.hidden["step"],
+            "rid": c.hidden["rid"],
+            "extra": extra,
+            "label": c.label,
+        }
+        if c.warn:
+            body["detail"] = c.detail
+        return JSONResponse(body)
     ctx = pages.Ctx(tokens.csrf(), True, nxt, "", "")
     return HTMLResponse(pages.render_confirm(c.title, c.detail, c.action, ctx, c.hidden))
 
@@ -675,7 +677,7 @@ async def _firstmate(
         rid = actions.new_request_id()
         step = tokens.step_up(name, f"firstmate:{rid}")
         title, detail, label = FIRSTMATE_ACTIONS[name]
-        return Confirm(title, detail, name, {"rid": rid, "step": step}, label)
+        return Confirm(title, detail, name, {"rid": rid, "step": step}, label, warn=True)
 
     async def run() -> Outcome:
         act = wake.restart if name == "restart" else wake.wake

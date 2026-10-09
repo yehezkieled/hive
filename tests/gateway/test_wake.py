@@ -785,19 +785,24 @@ def test_a_step_token_for_another_request_is_not_accepted(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    ("action", "state", "label"),
-    [("wake", "down", "Tap again to wake"), ("restart", "no-beat", "Tap again to restart")],
+    ("action", "state", "label", "warning"),
+    [
+        ("wake", "down", "Tap again to wake", "never a second one"),
+        ("restart", "no-beat", "Tap again to restart", "This STOPS the running firstmate session"),
+    ],
 )
 def test_desk_script_gets_a_json_confirm_then_the_json_result(
-    tmp_path: Path, action: str, state: str, label: str
+    tmp_path: Path, action: str, state: str, label: str, warning: str
 ) -> None:
-    # the desk's page script posts with accept: application/json and arms the button in place
+    # the desk's page script posts with accept: application/json and arms the button in place,
+    # showing the confirm text beside it (Restart's stronger wording must reach the JS flow too)
     runner = Fake()
     c = _client(tmp_path, state, runner, killer=Killer())
     js = {**GOOD, "accept": "application/json"}
     first = _post(c, _form(c), js, action)
     body = first.json()
     assert (body["ok"], body["confirm"], body["label"], runner.calls) == (True, True, label, 0)
+    assert warning in body["detail"]
     res = _post(c, _form(c, step=body["step"], rid=body["rid"]), js, action)
     assert res.status_code == 200 and res.json()["ok"] and runner.calls == 1
     assert "started in pane" in res.json()["message"]

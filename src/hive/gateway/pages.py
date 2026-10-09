@@ -125,7 +125,11 @@ position:relative;padding:0 12px}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
 min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
 #jump[hidden]{display:none}
-@media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}}
+@media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}
+/* phone: the two chips get their own right-aligned row; the firstmate label may wrap */
+.chrome{flex-wrap:wrap;row-gap:0;position:relative}.chrome::after{content:'';flex-basis:100%;order:1}
+#fmchip,#qchip{order:2;margin-top:6px}#fmchip{flex:1 1 min-content;text-align:right;position:static}
+#fmchip .qchip{white-space:normal;line-height:1.25;padding:4px 12px}#fmchip>*{text-align:left}#fmchip .fmpop{top:auto;margin-top:6px}}
 /* quota chip: the busier of the two plan windows, as percent used; tap shows both */
 .qwrap{position:relative;margin:0}
 .qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
@@ -392,6 +396,7 @@ background:var(--bar-ink);color:var(--bar);cursor:pointer}
 .dbar.is-sending{opacity:.7}
 form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
 .act-err{font:700 11px var(--font-mono);color:var(--accent);margin:6px 0 0}
+.act-warn{font:700 11px/1.4 var(--font-mono);color:var(--accent);margin:8px 0 0;white-space:normal}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -581,7 +586,9 @@ if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bul
 else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
 var CONFIRMED={merge:1,control:1};
 function actName(fm){return (fm.getAttribute('action')||'').replace('/act/','');}
-function actDisarm(fm,b){clearTimeout(fm.acT);fm.removeAttribute('data-step');fm.removeAttribute('data-extra');
+function actWarn(fm,t){var w=fm.querySelector('.act-warn');if(!t){if(w)w.parentNode.removeChild(w);return;}
+if(!w){w=document.createElement('p');w.className='act-warn';w.setAttribute('role','alert');fm.appendChild(w);}w.textContent=t;}
+function actDisarm(fm,b){clearTimeout(fm.acT);actWarn(fm,'');fm.removeAttribute('data-step');fm.removeAttribute('data-extra');
 b.classList.remove('is-armed');b.textContent=b.getAttribute('data-was')||b.textContent;}
 document.addEventListener('submit',function(e){var fm=e.target;
 if(e.defaultPrevented||!fm.getAttribute||!window.fetch||!window.URLSearchParams)return;
@@ -593,7 +600,7 @@ var p=new URLSearchParams(new FormData(fm));if(b.name)p.set(b.name,b.value);
 var step=fm.getAttribute('data-step'),sig=b.name+'='+b.value;
 if(step&&fm.acBtn!==sig){actDisarm(fm,fm.acEl||b);step=null;}
 if(!b.getAttribute('data-was'))b.setAttribute('data-was',b.textContent);
-if(step){clearTimeout(fm.acT);b.classList.remove('is-armed');p.set('step',step);var x={};try{x=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(_){}
+if(step){clearTimeout(fm.acT);actWarn(fm,'');b.classList.remove('is-armed');p.set('step',step);var x={};try{x=JSON.parse(fm.getAttribute('data-extra')||'{}');}catch(_){}
 for(var k in x){if(Object.prototype.hasOwnProperty.call(x,k))p.set(k,x[k]);}
 p.set('rid',fm.getAttribute('data-rid')||p.get('rid'));}
 var two=CONFIRMED[act]&&!step;
@@ -601,8 +608,8 @@ fm.classList.add('is-sending');
 if(!two){b.textContent='Sent ✓';b.classList.add('is-sent');}
 actSettle(fm,p,function(j){fm.classList.remove('is-sending');
 if(j.ok&&j.confirm){b.classList.remove('is-sent');fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
-fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));fm.acBtn=sig;fm.acEl=b;b.classList.add('is-armed');b.textContent=j.label||'Tap again';
-fm.acT=setTimeout(function(){actDisarm(fm,b);},8000);return;}
+fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));fm.acBtn=sig;fm.acEl=b;b.classList.add('is-armed');b.textContent=j.label||'Tap again';actWarn(fm,j.detail);
+fm.acT=setTimeout(function(){actDisarm(fm,b);},j.detail?15000:8000);return;}
 if(j.ok){fm.classList.add('is-sent');b.textContent=j.pending?'Sent ✓ saving…':'Sent ✓';
 b.classList.remove('is-armed');b.classList.add('is-sent');
 var t=fm.querySelector('textarea,input[type=text]');if(t)t.value='';
