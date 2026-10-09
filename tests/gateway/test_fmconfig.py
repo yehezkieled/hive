@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from hive.gateway import fmconfig
-from tests.gateway.fmcfg import DISPATCH, PROJECTS, write_config
+from tests.gateway.fmcfg import PROJECTS, write_config
 from tests.gateway.test_actions import (  # noqa: F401  (fixtures and helpers)
     CSRF,
     GOOD,
@@ -115,25 +115,6 @@ def test_harness_and_permission_sources(tmp_path: Path) -> None:
 
 # ---- fail-safe: merge -------------------------------------------------------------
 
-CLEAN = {"checks_red": False, "destructive": False, "security_sensitive": False}
-
-
-def test_merge_self_only_for_explicit_yolo_with_clean_flags(tmp_path: Path) -> None:
-    p = fmconfig.read_projects(write_config(tmp_path))
-    assert fmconfig.merge_decision(p, "alpha", **CLEAN).self_merge
-    assert fmconfig.merge_decision(p, "gamma", **CLEAN).self_merge
-    for name in ("beta", "legacy"):  # no +yolo: the captain's call
-        d = fmconfig.merge_decision(p, name, **CLEAN)
-        assert d.ask_captain and "without yolo" in d.reason
-
-
-@pytest.mark.parametrize("flag", ["checks_red", "destructive", "security_sensitive"])
-@pytest.mark.parametrize("value", [True, None])
-def test_merge_risk_flags_always_go_to_the_captain(tmp_path: Path, flag: str, value) -> None:
-    p = fmconfig.read_projects(write_config(tmp_path))
-    d = fmconfig.merge_decision(p, "alpha", **{**CLEAN, flag: value})
-    assert d.ask_captain and "captain approval required" in d.reason
-
 
 @pytest.mark.parametrize(
     "projects,name",
@@ -145,14 +126,17 @@ def test_merge_risk_flags_always_go_to_the_captain(tmp_path: Path, flag: str, va
         ("- a [no-mistakes +yolo] - x\n- a [no-mistakes +yolo] - y\n", "a"),  # duplicate
     ],
 )
-def test_merge_unknown_or_ambiguous_posture_never_self_merges(
+def test_unknown_or_ambiguous_posture_reads_unknown(
     tmp_path: Path, projects: str | None, name: str
 ) -> None:
     p = fmconfig.read_projects(write_config(tmp_path, projects=projects))
-    d = fmconfig.merge_decision(p, name, **CLEAN)
-    assert d.ask_captain and not d.self_merge
-    assert "unknown" in d.reason or "ambiguous" in d.reason
     assert fmconfig.posture_label(p, name).startswith("unknown (")
+
+
+def test_posture_label_relays_the_registry(tmp_path: Path) -> None:
+    p = fmconfig.read_projects(write_config(tmp_path))
+    assert fmconfig.posture_label(p, "alpha") == "no-mistakes +yolo"
+    assert fmconfig.posture_label(p, "beta") == "direct-PR"
 
 
 def test_merge_word_note_carries_posture_and_never_claims_self_merge(
@@ -164,7 +148,7 @@ def test_merge_word_note_carries_posture_and_never_claims_self_merge(
     assert done.status_code == 200
     (call,) = _calls(home)
     assert "\nposture: no-mistakes +yolo\n" in call["stdin"]
-    assert "\nself-merge: no (" in call["stdin"]
+    assert "\nself-merge: no (the website cannot see checks; firstmate decides)\n" in call["stdin"]
 
 
 @pytest.mark.parametrize("projects", [None, "garbage\n", "- alpha [bogus] - x\n"])
@@ -214,6 +198,12 @@ def test_no_worker_request_is_sent_without_usable_worker_settings(
     assert res.status_code == 409
     assert "Ask the captain" in res.text and "will not pick a harness or model" in res.text
     assert _calls(home) == []  # nothing reached the first mate
+
+
+def test_plain_note_to_the_first_mate_is_not_gated(client: TestClient, home: Path) -> None:
+    write_config(home, dispatch="{nope")
+    assert post(client, "delegate", text="Fix your crew-dispatch.json").status_code == 200
+    assert len(_calls(home)) == 1
 
 
 @pytest.mark.parametrize("make", [_delegate, _ticket_create])
@@ -329,7 +319,3 @@ def test_desk_merge_card_shows_the_posture(client: TestClient, home: Path) -> No
     assert "Merge posture: no-mistakes +yolo" in client.get("/p/alpha", headers=GOOD).text
     write_config(home, projects=None)
     assert "Merge posture: unknown (" in client.get("/p/alpha", headers=GOOD).text
-
-
-def test_sample_dispatch_shape_is_the_documented_one() -> None:
-    assert set(DISPATCH) == {"rules", "default"}  # fixture mirrors firstmate's schema

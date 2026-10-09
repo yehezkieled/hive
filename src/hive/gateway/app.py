@@ -181,6 +181,7 @@ def create_app(
         snap: Snapshot,
         nxt: str,
         q: Quota | None,
+        postures: fmconfig.Projects,
         desk: Desk | None = None,
         repos: dict[str, str] | None = None,
     ) -> pages.Ctx:
@@ -195,14 +196,15 @@ def create_app(
             repos=repos,
             can_close_reviews=settings.lavish_axi is not None,
             project_notes=project_notes(snap),
-            postures=fmconfig.read_projects(settings.fm_home),
+            postures=postures,
             firstmate=wake.status.peek(),
             wake_enabled=wake.available,
         )
 
     async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
         repos = await repo_names.get(names or [])
-        return make_ctx(snap, nxt, await quota.get(), repos=repos)
+        postures = await asyncio.to_thread(fmconfig.read_projects, settings.fm_home)
+        return make_ctx(snap, nxt, await quota.get(), postures, repos=repos)
 
     @app.get("/", response_class=HTMLResponse)
     async def home(focus: str = "") -> HTMLResponse:
@@ -211,7 +213,8 @@ def create_app(
         selected = focus if desk is not None and focus in desk.projects else None
         nxt = "/?focus=" + quote(selected, safe="") if selected else "/"
         names = set(desk.projects) if desk else set()
-        ctx = make_ctx(snap, nxt, q, desk, await repo_names.get(names))
+        postures = await asyncio.to_thread(fmconfig.read_projects, settings.fm_home)
+        ctx = make_ctx(snap, nxt, q, postures, desk, await repo_names.get(names))
         reviews = await asyncio.to_thread(read_reviews, settings.lavish_state, names)
         return HTMLResponse(pages.render_home(snap, desk, ctx, selected, reviews))
 
@@ -745,11 +748,11 @@ async def _dispatch(
         return await note(body, "decision", f"{task}/{key}")
 
     if name == "delegate":
-        await _worker_gate(settings)
         text = actions.check_text(form.get("text", ""), "goal")
         focus = form.get("project", "")
         if not focus:  # no project focus: a plain message to the first mate
             return await note(text, "delegate", "-")
+        await _worker_gate(settings)
         project = desk.projects.get(focus)
         if project is None:
             raise ActionError("Unknown project. Refresh the desk.", 404)
@@ -778,17 +781,12 @@ async def _dispatch(
                 "Tap again to give the merge word",
             )
         projects = await asyncio.to_thread(fmconfig.read_projects, settings.fm_home)
-        # The gateway cannot see checks, so it never claims a self-merge: the note records the
-        # captain's word plus firstmate's own posture, and firstmate decides the rest.
-        verdict = fmconfig.merge_decision(
-            projects, need.project, checks_red=None, destructive=None, security_sensitive=None
-        )
         body = actions.merge_word_body(
             task,
             need.url or "",
             owner,
             fmconfig.posture_label(projects, need.project),
-            "no (" + verdict.reason + ")",
+            "no (the website cannot see checks; firstmate decides)",
         )
         return await note(body, "merge", task)
 

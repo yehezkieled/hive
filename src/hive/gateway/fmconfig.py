@@ -10,8 +10,8 @@ what they say, or why they cannot be read. Nothing is cached, written or guessed
   the worker profiles (schema owned by firstmate's ``docs/configuration.md``).
 
 Where firstmate falls back to a default for a missing or unknown value, this module does
-not: a missing, unparsable or ambiguous source is an ``error`` and every gate built on it
-(``merge_decision``, ``worker_gate``) answers "ask the captain".
+not: a missing, unparsable or ambiguous source is an ``error``; the merge posture then
+reads ``unknown`` and ``worker_gate`` answers "ask the captain".
 """
 
 from __future__ import annotations
@@ -204,64 +204,24 @@ def load(fm_home: Path) -> FmConfig:
 # ---- gates ------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class MergeDecision:
-    """``self_merge`` is True only when firstmate's own posture says it may merge this on
-    its own. Anything else is the captain's call, with ``reason`` saying why."""
-
-    self_merge: bool
-    reason: str
-
-    @property
-    def ask_captain(self) -> bool:
-        return not self.self_merge
-
-
-def merge_decision(
-    projects: Projects,
-    project: str,
-    *,
-    checks_red: bool | None,
-    destructive: bool | None,
-    security_sensitive: bool | None,
-) -> MergeDecision:
-    """May this merge happen without the captain's word? Fail-safe: only an explicit
-    ``+yolo`` on a readable, unambiguous row, with every risk flag known to be False.
-    A flag of ``None`` means "not known", which is treated as true."""
-    if projects.error:
-        return MergeDecision(False, f"merge posture unknown: {projects.error}")
-    if project in projects.ambiguous:
-        return MergeDecision(False, f"merge posture ambiguous: {projects.ambiguous[project]}")
-    posture = projects.postures.get(project)
-    if posture is None:
-        return MergeDecision(False, "merge posture unknown: project not in projects.md")
-    for flag, why in (
-        (checks_red, "checks are red or not known green"),
-        (destructive, "destructive or not known safe"),
-        (security_sensitive, "security-sensitive or not known safe"),
-    ):
-        if flag is not False:
-            return MergeDecision(False, f"captain approval required: {why}")
-    if not posture.yolo:
-        return MergeDecision(False, f"{posture.mode} without yolo: captain approval required")
-    return MergeDecision(True, f"{posture.mode} +yolo: firstmate may merge green, in-scope work")
-
-
 def posture_label(projects: Projects, project: str) -> str:
-    """One short word group for a note or a tag: ``no-mistakes +yolo`` or ``unknown (why)``."""
-    d = merge_decision(
-        projects, project, checks_red=None, destructive=None, security_sensitive=None
-    )
-    if project in projects.ambiguous or projects.error or project not in projects.postures:
-        return "unknown (" + d.reason.split(": ", 1)[-1] + ")"
-    p = projects.postures[project]
+    """One short word group for a note or a tag: ``no-mistakes +yolo`` or ``unknown (why)``.
+    Relayed as firstmate wrote it, never interpreted."""
+    if projects.error:
+        return f"unknown ({projects.error})"
+    if project in projects.ambiguous:
+        return f"unknown (ambiguous: {projects.ambiguous[project]})"
+    p = projects.postures.get(project)
+    if p is None:
+        return "unknown (project not in projects.md)"
     return f"{p.mode}{' +yolo' if p.yolo else ''}"
 
 
 def worker_gate(cfg: FmConfig) -> str:
-    """Empty when workers may be created, else why not. Mirrors firstmate's own rule: a
-    dispatch file, when present, must parse; with none, ``crew-harness`` must name the
-    adapter. The permission token must be valid either way."""
+    """Empty when workers may be created, else why not. A dispatch file, when present, must
+    parse; with none, ``crew-harness`` must name the adapter. The permission token must be
+    valid either way. Deliberately stricter than firstmate, which mirrors its own harness
+    when both are absent: Hive refuses rather than guess."""
     if cfg.permission.error:
         return cfg.permission.error
     if not cfg.dispatch.error:
