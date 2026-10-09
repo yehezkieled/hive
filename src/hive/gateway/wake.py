@@ -465,7 +465,9 @@ class WakeService:
         Called only once no firstmate ``claude`` runs, so such a report is stale. A pane is
         firstmate's only when both its cwd and its foreground cwd (if reported) are the
         firstmate home: a crew pane opened there keeps that cwd but runs in its worktree.
-        Never touches any other pane; a failure is logged and left to the start step to show.
+        Never touches any other pane. No herdr, or no herdr server to list panes (as after
+        a reboot, until the start step starts it), holds no stale report, so that is silent;
+        a failed release is logged and noted.
         """
         if not self._herdr.available:
             return ""
@@ -478,12 +480,16 @@ class WakeService:
                 and p.get("cwd") in homes
                 and (p.get("foreground_cwd") or p.get("cwd")) in homes
             ]
-            if len(stale) != 1:
-                return "" if not stale else f"{len(stale)} stale herdr panes, none released. "
-            pane = stale[0]
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+            logger.debug("wake: herdr pane list unavailable, nothing to release: %s", exc)
+            return ""
+        if len(stale) != 1:
+            return "" if not stale else f"{len(stale)} stale herdr panes, none released. "
+        pane = stale[0]
+        try:
             self._herdr.release(pane["pane_id"], pane["agent"])
             return f"Released herdr pane {pane['pane_id']}. "
-        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        except (OSError, KeyError, subprocess.SubprocessError) as exc:
             logger.warning("wake: could not release the stale firstmate herdr pane: %s", exc)
             return "Could not release the stale herdr pane. "
 

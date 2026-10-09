@@ -13,6 +13,7 @@ import os
 import re
 import signal
 import stat
+import subprocess
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,11 +131,16 @@ class FakeHerdr:
     """Pane list and release-agent, recorded; a release clears the shared stale pane."""
 
     def __init__(
-        self, panes: list[dict] | None = None, fail: bool = False, available: bool = True
+        self,
+        panes: list[dict] | None = None,
+        fail: bool = False,
+        available: bool = True,
+        release_fails: bool = False,
     ) -> None:
         self._panes = panes or []
         self.fail = fail
         self.available = available
+        self.release_fails = release_fails
         self.released: list[tuple[str, str]] = []
         self.world: World | None = None
 
@@ -145,6 +151,8 @@ class FakeHerdr:
 
     def release(self, pane_id: str, agent: str) -> None:
         self.released.append((pane_id, agent))
+        if self.release_fails:
+            raise subprocess.CalledProcessError(1, ["herdr", "pane", "release-agent"])
         if self.world is not None:
             self.world.stale_pane = False
 
@@ -580,10 +588,20 @@ def test_herdr_without_a_binary_is_not_available(tmp_path: Path) -> None:
     assert not Herdr(tmp_path / "no-such-herdr").available
 
 
+@pytest.mark.parametrize("action", ["wake", "restart"])
+async def test_herdr_server_down_skips_the_release_silently(tmp_path: Path, action: str) -> None:
+    runner = Fake()
+    herdr = FakeHerdr(fail=True)  # installed, but `pane list` fails: no server yet
+    state = "down" if action == "wake" else "no-beat"
+    result = await getattr(_service(tmp_path, state, runner, herdr=herdr), action)("a", "desk")
+    assert result.ok and runner.calls == 1
+    assert "herdr" not in result.message and herdr.released == []
+
+
 async def test_a_failed_wake_release_is_not_fatal(tmp_path: Path) -> None:
     runner = Fake()
-    svc = _service(tmp_path, "down", runner, herdr=FakeHerdr(fail=True))
-    result = await svc.wake("a", "desk")
+    herdr = FakeHerdr([_pane("w2:p1", _settings(tmp_path).fm_home)], release_fails=True)
+    result = await _service(tmp_path, "down", runner, herdr=herdr).wake("a", "desk")
     assert (result.outcome, runner.calls) == ("started", 1)
     assert "Could not release" in result.message
 
@@ -602,7 +620,8 @@ async def test_a_crew_pane_opened_in_the_home_is_never_released_nor_counted(
 
 async def test_a_failed_release_is_not_fatal(tmp_path: Path) -> None:
     runner = Fake()
-    svc = _service(tmp_path, "no-beat", runner, herdr=FakeHerdr(fail=True))
+    herdr = FakeHerdr([_pane("w2:p1", _settings(tmp_path).fm_home)], release_fails=True)
+    svc = _service(tmp_path, "no-beat", runner, herdr=herdr)
     result = await svc.restart("a", "desk")
     assert (result.outcome, runner.calls) == ("restarted", 1)
     assert "Could not release" in result.message
