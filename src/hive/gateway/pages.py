@@ -167,17 +167,21 @@ min-width:210px;color:var(--ink-2)}
 .wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr);gap:20px}
 .wide .land__col{gap:16px}
 .wide .pcs{grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-.wide .dbar-wrap{margin-top:auto;position:sticky;bottom:12px}
 .wide .dbar{padding:10px 10px 10px 16px;box-shadow:0 8px 24px var(--paper-shadow)}
 .wide input.dbar__in{font-size:15px}
 }
-/* one-page desk on PC, laptop and tablet: the viewport is the page; each panel scrolls on its own */
-@media (min-width:700px) and (min-height:560px){
-body.wide{height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+/* the desk is one screen at every size: the viewport is the page, only the content scrolls, and the
+   delegate bar is its last row, flush with the viewport bottom (the safe-area inset lives inside it) */
+body.wide{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
+display:flex;flex-direction:column;padding-bottom:0}
 .wide .chrome{flex:none;width:100%}
-.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 calc(12px + env(safe-area-inset-bottom))}
+.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 0}
 .wide .screen{flex:1;min-height:0;gap:10px}
-.wide .land{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px;align-items:stretch}
+.wide .land{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.wide .dbar-wrap{position:static;margin:0;flex:none;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+/* on PC, laptop and tablet each panel scrolls on its own */
+@media (min-width:700px) and (min-height:560px){
+.wide .land{overflow:visible;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px;align-items:stretch}
 .wide .land__col{min-height:0;gap:10px}
 .wide .nyl{display:flex;flex-direction:column;min-height:0;height:100%}
 .wide .nyl__head{flex:none}
@@ -188,7 +192,6 @@ align-content:start;grid-auto-rows:max-content;min-height:0;padding-bottom:2px}
 .wide .rvs{flex:1 1 0;min-height:0}
 .wide .rv__box{flex:1;min-height:0}
 .wide .rv__list{flex:1;max-height:none;min-height:0}
-.wide .dbar-wrap{position:static;margin:0;flex:none}
 .wide .stamp{flex:none}
 }
 @media (min-width:1100px) and (min-height:560px){.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr)}}
@@ -718,6 +721,9 @@ function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
 document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
 try{barRoom();window.addEventListener('resize',barRoom);
 if(window.ResizeObserver){var bw=document.querySelector('.dbar-wrap,.dock');if(bw)new ResizeObserver(barRoom).observe(bw);}}catch(e){}
+if(!th&&document.body&&document.body.classList&&document.body.classList.contains('wide')&&window.visualViewport){var dv=window.visualViewport;
+function dfit(){document.documentElement.style.setProperty('--app-h',dv.height+'px');window.scrollTo(0,0);}
+dv.addEventListener('resize',dfit);dv.addEventListener('scroll',function(){window.scrollTo(0,0);});dfit();}
 if(th&&window.visualViewport){var vv=window.visualViewport;
 function fit(){var was=atBottom();document.documentElement.style.setProperty('--app-h',vv.height+'px');
 var d=document.querySelector('.dock');if(d)document.documentElement.style.setProperty('--dock-h',d.offsetHeight+'px');

@@ -101,7 +101,7 @@ def test_home_page_from_fixture(client: TestClient) -> None:
         "blocked",  # alpha-docs, a row
     ]
     assert re.findall(r"data-item='([^']*)'", lane) == ["beta-hold", "alpha-docs", "misc"]
-    assert "decision" not in lane and "Decision" not in lane
+    assert "needs-decision" not in lane  # the held task's own description may say "decision"
 
 
 def test_referrer_policy_keeps_origin_on_same_origin_posts(client: TestClient) -> None:
