@@ -584,7 +584,7 @@ clearTimeout(fm.rvT);extra.step=step;extra.rid=fm.getAttribute('data-rid');
 rvPost(fm,extra,function(j){rvDisarm(fm);
 if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bulk')&&row.parentNode)row.parentNode.removeChild(row);refreshMain();}
 else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
-var CONFIRMED={merge:1,control:1};
+var CONFIRMED={merge:1,control:1,wake:1,restart:1};
 function actName(fm){return (fm.getAttribute('action')||'').replace('/act/','');}
 function actWarn(fm,t){var w=fm.querySelector('.act-warn');if(!t){if(w)w.parentNode.removeChild(w);return;}
 if(!w){w=document.createElement('p');w.className='act-warn';w.setAttribute('role','alert');fm.appendChild(w);}w.textContent=t;}
