@@ -31,6 +31,7 @@ from hive.gateway.wake import (
     Herdr,
     StatusCache,
     WakeService,
+    default_runner,
     last_activity,
     read_status,
 )
@@ -778,6 +779,25 @@ def test_a_step_token_for_another_request_is_not_accepted(tmp_path: Path) -> Non
     assert "step" in _confirm_page_fields(res.text) and runner.calls == 0
 
 
+@pytest.mark.parametrize(
+    ("action", "state", "label"),
+    [("wake", "down", "Tap again to wake"), ("restart", "no-beat", "Tap again to restart")],
+)
+def test_desk_script_gets_a_json_confirm_then_the_json_result(
+    tmp_path: Path, action: str, state: str, label: str
+) -> None:
+    # the desk's page script posts with accept: application/json and arms the button in place
+    runner = Fake()
+    c = _client(tmp_path, state, runner, killer=Killer())
+    js = {**GOOD, "accept": "application/json"}
+    first = _post(c, _form(c), js, action)
+    body = first.json()
+    assert (body["ok"], body["confirm"], body["label"], runner.calls) == (True, True, label, 0)
+    res = _post(c, _form(c, step=body["step"], rid=body["rid"]), js, action)
+    assert res.status_code == 200 and res.json()["ok"] and runner.calls == 1
+    assert "started in pane" in res.json()["message"]
+
+
 def _confirm_page_fields(html: str) -> set[str]:
     return set(re.findall(r"name=(\w+) value=", html))
 
@@ -981,3 +1001,23 @@ async def test_telegram_second_tap_is_rate_limited(tmp_path: Path) -> None:
         await bridge._handle_callback(update, None)  # type: ignore[arg-type]
         _dies(runner)
     assert runner.calls == 1 and "rate-limited" in query.message.replies[0][0]
+
+
+def test_runner_returns_when_the_script_exits_though_a_detached_child_lives_on(
+    tmp_path: Path,
+) -> None:
+    # fleet-up detaches the herdr server, which inherits stdout; under uvloop (uvicorn's loop)
+    # a pipe would stay open until that server exits
+    uvloop = pytest.importorskip("uvloop")
+    script, pids = tmp_path / "fleet-up.sh", tmp_path / "pids"
+    script.write_text(
+        f"#!/usr/bin/env bash\nsleep 30 & echo $! > {pids}\n" 'echo "started firstmate $*"\n'
+    )
+    script.chmod(0o755)
+    start = time.monotonic()
+    try:
+        code, out = uvloop.run(asyncio.wait_for(default_runner(script)(), 10))
+    finally:
+        os.kill(int(pids.read_text()), signal.SIGKILL)
+    assert (code, out.strip()) == (0, "started firstmate --only firstmate")
+    assert time.monotonic() - start < 5

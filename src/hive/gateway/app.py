@@ -371,9 +371,9 @@ def create_app(
         rid = form.get("rid", "")
         try:
             if name in FIRSTMATE_ACTIONS:  # must work while firstmate's snapshot is unreadable
-                result = await _firstmate(name, form, wake, settings, tokens, runs, nxt)
-                if isinstance(result, HTMLResponse):
-                    return result
+                result = await _firstmate(name, form, wake, settings, tokens, runs)
+                if isinstance(result, Confirm):
+                    return confirm_response(result, nxt, tokens, wants_json)
                 if wants_json:
                     return JSONResponse({"ok": True, "message": result.summary})
                 return HTMLResponse(pages.render_outcome(result, nxt))
@@ -639,12 +639,14 @@ def confirm_response(c: Confirm, nxt: str, tokens: Tokens, wants_json: bool) -> 
 
 WAKE_STATUS = {"refused": 409, "rate-limited": 429, "unavailable": 503, "failed": 502}
 
-# action -> (confirm title, confirm text); both run through the same owner gate and step-up.
+# action -> (confirm title, confirm text, armed button label); both run through the same owner
+# gate and step-up.
 FIRSTMATE_ACTIONS = {
     "wake": (
         "Wake firstmate",
         "This runs the fleet-up firstmate step: it starts a firstmate session only if "
         "none is running, and never a second one.",
+        "Tap again to wake",
     ),
     "restart": (
         "Restart firstmate session",
@@ -652,6 +654,7 @@ FIRSTMATE_ACTIONS = {
         "home; no worker or crew is touched) and then starts a fresh one with the fleet-up "
         "firstmate step. Anything it was doing in that session is lost. It refuses, "
         "stopping nothing, if firstmate was mid-turn in the last few minutes.",
+        "Tap again to restart",
     ),
 }
 
@@ -663,8 +666,7 @@ async def _firstmate(
     settings: GatewaySettings,
     tokens: Tokens,
     runs: RunOnce,
-    nxt: str,
-) -> Outcome | HTMLResponse:
+) -> Outcome | Confirm:
     """Confirm step, then one wake or restart. The owner gate already ran in the middleware."""
     rid = form.get("rid", "")
     if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
@@ -672,11 +674,8 @@ async def _firstmate(
     ):
         rid = actions.new_request_id()
         step = tokens.step_up(name, f"firstmate:{rid}")
-        ctx = pages.Ctx(tokens.csrf(), True, nxt, settings.board_url, settings.default_tz)
-        title, detail = FIRSTMATE_ACTIONS[name]
-        return HTMLResponse(
-            pages.render_confirm(title, detail, name, ctx, {"rid": rid, "step": step})
-        )
+        title, detail, label = FIRSTMATE_ACTIONS[name]
+        return Confirm(title, detail, name, {"rid": rid, "step": step}, label)
 
     async def run() -> Outcome:
         act = wake.restart if name == "restart" else wake.wake

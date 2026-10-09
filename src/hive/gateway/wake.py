@@ -30,6 +30,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -225,22 +226,27 @@ def _clean(text: str, limit: int = 400) -> str:
 
 def default_runner(script: Path) -> Runner:
     async def run() -> tuple[int, str]:
-        proc = await asyncio.create_subprocess_exec(
-            str(script),
-            "--only",
-            "firstmate",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,
-        )
-        try:
-            out, _ = await asyncio.wait_for(proc.communicate(), WAKE_TIMEOUT_S)
-        except TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return 124, "fleet-up timed out"
-        return proc.returncode or 0, out[:_MAX_OUTPUT].decode("utf-8", "replace")
+        # Output goes to a file, not a pipe: fleet-up detaches the herdr server, which inherits
+        # the script's stdout, so waiting for EOF on a pipe would wait on that server.
+        with tempfile.TemporaryFile() as out:
+            proc = await asyncio.create_subprocess_exec(
+                str(script),
+                "--only",
+                "firstmate",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            try:
+                await asyncio.wait_for(proc.wait(), WAKE_TIMEOUT_S)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                await proc.wait()
+                return 124, "fleet-up timed out"
+            out.seek(0)
+            return proc.returncode or 0, out.read(_MAX_OUTPUT).decode("utf-8", "replace")
 
     return run
 
