@@ -185,6 +185,9 @@ def test_exited_firstmate_is_retried_in_its_pane_not_a_new_workspace(env):
         '{"agent":"codex","cwd":"/wt/task","pane_id":"w1:p9","workspace_id":"w1"}',
         '{"agent":"pi","cwd":"FM","pane_id":"w1:p9","workspace_id":"w1"}',
         '{"agent":null,"cwd":"/wt/task","pane_id":"w1:p9","workspace_id":"w1"}',
+        # a crew opened in FM_DIR: same cwd, but it runs claude in its own worktree
+        '{"agent":"claude","cwd":"FM","foreground_cwd":"/wt/task","pane_id":"w1:p9",'
+        '"workspace_id":"w1"}',
     ],
 )
 def test_exited_firstmate_never_reuses_a_crew_pane(env, crew):

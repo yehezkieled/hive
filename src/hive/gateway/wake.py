@@ -1,0 +1,525 @@
+"""Wake firstmate: a read-only liveness view and two guarded actions.
+
+Status is read from firstmate's own records and never written: a ``claude`` process
+whose working directory is the firstmate home (the same test ``scripts/fleet-up.sh``
+uses) and the mtime of the watcher's ``state/.last-watcher-beat``. The desk reads it
+from a cache that refreshes in the background, so a page never waits on it.
+
+Both actions start firstmate through ``scripts/fleet-up.sh --only firstmate`` and
+nothing else: that step is idempotent and never starts a second firstmate, so this
+module holds no start logic. **Wake** is for a dead session: it only runs that step.
+**Restart** is for a session that runs while its watcher is silent (connected but
+wedged): it stops that one ``claude`` process, by pid, confirms none is left, releases
+herdr's stale ``claude`` report on that one pane (else fleet-up would think it still
+runs), runs the same step, and reports success only once a new session is seen. It
+refuses, stopping nothing, when the session's Claude Code record or transcript shows a
+turn in the last few minutes. Both share a cross-process rate limit (the desk and the
+Telegram bot share one state file) and an audit line in a Hive-owned log. Callers must
+have authorised the owner first; this module does not know who is asking, only what to
+record.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import fcntl
+import json
+import logging
+import os
+import re
+import signal
+import subprocess
+import tempfile
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+from hive.gateway.settings import GatewaySettings
+
+logger = logging.getLogger(__name__)
+
+BEAT_FRESH_S = 300.0  # the watcher touches its beat every poll; older means it stopped
+STATUS_TTL_S = 15.0
+STATUS_TIMEOUT_S = 3.0
+WAKE_COOLDOWN_S = 60.0
+WAKE_TIMEOUT_S = 90.0
+ACTIVE_RECENT_S = 300.0  # a turn this recent means the session may be working, not wedged
+STOP_WAIT_S = 10.0
+VERIFY_WAIT_S = 10.0  # how long a restart waits to see the new session's process
+HERDR_TIMEOUT_S = 10.0
+HERDR_SOURCE = "hive-wake"  # the source id Hive's stale-pane release reports to herdr
+_MAX_OUTPUT = 64 * 1024
+CLAUDE_HOME = Path.home() / ".claude"
+
+# (exit code, output) of the fleet-up firstmate step; replaced by a fake in tests.
+Runner = Callable[[], Awaitable[tuple[int, str]]]
+# os.kill's signature; replaced by a fake in tests so no real process is signalled.
+Killer = Callable[[int, int], None]
+# seconds since the session with this pid last showed a turn; None: no sign of one.
+Activity = Callable[[int], float | None]
+
+
+@dataclass(frozen=True)
+class FirstmateStatus:
+    state: str  # "alive", "no-beat" (session up, watcher silent), "down" or "unknown"
+    pids: tuple[int, ...]  # claude processes running in the firstmate home
+    beat_age_s: float | None  # seconds since the last watcher beat; None: no beat record
+    checked_at: float
+
+    @property
+    def session(self) -> bool:
+        return bool(self.pids)
+
+    @property
+    def label(self) -> str:
+        return {
+            "alive": "alive",
+            "no-beat": "session up, watcher silent",
+            "down": "down",
+        }.get(self.state, "unknown")
+
+    @property
+    def can_wake(self) -> bool:
+        return self.state == "down"
+
+    @property
+    def can_restart(self) -> bool:
+        return self.state == "no-beat"
+
+    def describe(self) -> str:
+        beat = (
+            "no watcher beat record"
+            if self.beat_age_s is None
+            else f"last watcher beat {_ago(self.beat_age_s)} ago"
+        )
+        session = "session running" if self.session else "no session process"
+        return f"{self.label}: {session}, {beat}"
+
+
+def _ago(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return f"{seconds}s"
+    if seconds < 5400:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h"
+
+
+def _session_pids(fm_home: Path, proc_root: Path) -> tuple[int, ...]:
+    """Processes named ``claude`` whose working directory is ``fm_home``."""
+    want = fm_home.resolve()
+    pids = []
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if (entry / "comm").read_text().strip() != "claude":
+                continue
+            if (entry / "cwd").resolve() == want:
+                pids.append(int(entry.name))
+        except OSError:
+            continue
+    return tuple(sorted(pids))
+
+
+def read_status(
+    fm_home: Path, now: float | None = None, proc_root: Path = Path("/proc")
+) -> FirstmateStatus:
+    """Read-only look at firstmate's records. Blocking but bounded: one /proc scan, one stat."""
+    now = time.time() if now is None else now
+    pids = _session_pids(fm_home, proc_root)
+    beat_age: float | None
+    try:
+        beat_age = max(0.0, now - (fm_home / "state" / ".last-watcher-beat").stat().st_mtime)
+    except OSError:
+        beat_age = None
+    if not pids:
+        state = "down"
+    elif beat_age is not None and beat_age <= BEAT_FRESH_S:
+        state = "alive"
+    else:
+        state = "no-beat"
+    return FirstmateStatus(state, pids, beat_age, now)
+
+
+def last_activity(
+    fm_home: Path, pid: int, now: float | None = None, claude_home: Path = CLAUDE_HOME
+) -> float | None:
+    """Seconds since the session last showed a turn, from Claude Code's own records.
+
+    Two read-only signs: the session record ``sessions/<pid>.json`` saying ``busy``
+    (aged by its ``statusUpdatedAt``), and the newest transcript in the project
+    directory Claude Code keeps for ``fm_home``. None when neither shows anything.
+    """
+    now = time.time() if now is None else now
+    ages = []
+    try:
+        record = json.loads((claude_home / "sessions" / f"{pid}.json").read_text())
+        if record.get("status") == "busy":
+            ages.append(now - float(record["statusUpdatedAt"]) / 1000)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    project = claude_home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(fm_home.resolve()))
+    try:
+        ages.extend(now - t.stat().st_mtime for t in project.glob("*.jsonl"))
+    except OSError:
+        pass
+    return max(0.0, min(ages)) if ages else None
+
+
+class StatusCache:
+    """Stale-while-revalidate: ``peek`` answers from memory at once and refreshes behind it."""
+
+    def __init__(
+        self,
+        settings: GatewaySettings,
+        reader: Callable[[Path], FirstmateStatus] = read_status,
+        ttl_s: float = STATUS_TTL_S,
+        timeout_s: float = STATUS_TIMEOUT_S,
+    ) -> None:
+        self._settings = settings
+        self._reader = reader
+        self._ttl_s = ttl_s
+        self._timeout_s = timeout_s
+        self._value: FirstmateStatus | None = None
+        self._task: asyncio.Task[None] | None = None
+
+    def peek(self) -> FirstmateStatus | None:
+        """The last known status (None before the first read lands); never waits."""
+        stale = self._value is None or time.time() - self._value.checked_at > self._ttl_s
+        if stale and (self._task is None or self._task.done()):
+            with contextlib.suppress(RuntimeError):  # no running loop: caller is not async
+                self._task = asyncio.get_running_loop().create_task(self._refresh())
+        return self._value
+
+    async def fresh(self) -> FirstmateStatus:
+        """A new read now, bounded by the timeout; ``unknown`` when it fails or times out."""
+        return await self._refresh()
+
+    async def _refresh(self) -> FirstmateStatus:
+        try:
+            value = await asyncio.wait_for(
+                asyncio.to_thread(self._reader, self._settings.fm_home), self._timeout_s
+            )
+        except Exception:  # a failed read is unknown, never the last value; never raises
+            value = FirstmateStatus("unknown", (), None, time.time())
+        self._value = value
+        return value
+
+
+@dataclass(frozen=True)
+class WakeResult:
+    outcome: str  # "noop", "started", "restarted", "refused", "failed", "rate-limited"
+    message: str  # or "unavailable"
+
+    @property
+    def ok(self) -> bool:
+        return self.outcome in ("noop", "started", "restarted")
+
+
+def _clean(text: str, limit: int = 400) -> str:
+    text = "".join(c if c.isprintable() or c in "\n\t" else " " for c in text).strip()
+    return " | ".join(ln.strip() for ln in text.splitlines() if ln.strip())[-limit:]
+
+
+def default_runner(script: Path) -> Runner:
+    async def run() -> tuple[int, str]:
+        # Output goes to a file, not a pipe: fleet-up detaches the herdr server, which inherits
+        # the script's stdout, so waiting for EOF on a pipe would wait on that server.
+        with tempfile.TemporaryFile() as out:
+            proc = await asyncio.create_subprocess_exec(
+                str(script),
+                "--only",
+                "firstmate",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            try:
+                await asyncio.wait_for(proc.wait(), WAKE_TIMEOUT_S)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                await proc.wait()
+                return 124, "fleet-up timed out"
+            out.seek(0)
+            return proc.returncode or 0, out.read(_MAX_OUTPUT).decode("utf-8", "replace")
+
+    return run
+
+
+class Herdr:
+    """herdr's CLI, used only to list panes and release one stale agent report."""
+
+    def __init__(self, binary: Path | None) -> None:
+        self._binary = binary
+
+    @property
+    def available(self) -> bool:
+        """herdr is installed; without it there is no pane to release."""
+        return self._binary is not None and self._binary.is_file()
+
+    def _run(self, *args: str) -> str:
+        return subprocess.run(
+            [str(self._binary), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=HERDR_TIMEOUT_S,
+            stdin=subprocess.DEVNULL,
+        ).stdout
+
+    def panes(self) -> list[dict]:
+        return json.loads(self._run("pane", "list"))["result"]["panes"]
+
+    def release(self, pane_id: str, agent: str) -> None:
+        self._run("pane", "release-agent", "--source", HERDR_SOURCE, "--agent", agent, pane_id)
+
+
+class WakeService:
+    """The guarded wake and restart actions, shared by the desk and the Telegram bot."""
+
+    def __init__(
+        self,
+        settings: GatewaySettings,
+        runner: Runner | None = None,
+        status: StatusCache | None = None,
+        cooldown_s: float = WAKE_COOLDOWN_S,
+        killer: Killer = os.kill,
+        activity: Activity | None = None,
+        herdr: Herdr | None = None,
+    ) -> None:
+        self.settings = settings
+        self.status = status or StatusCache(settings)
+        self._runner = runner
+        self._cooldown_s = cooldown_s
+        self._kill = killer
+        self._activity = activity or (lambda pid: last_activity(settings.fm_home, pid))
+        self._herdr = herdr or Herdr(settings.herdr)
+        self._lock = asyncio.Lock()
+
+    @property
+    def audit_path(self) -> Path:
+        return self.settings.data_dir / "wake-audit.log"
+
+    @property
+    def _state_path(self) -> Path:
+        return self.settings.data_dir / "wake-state"
+
+    @property
+    def available(self) -> bool:
+        return self._runner is not None or self._script() is not None
+
+    def _script(self) -> Path | None:
+        path = self.settings.fleet_up
+        return path if path is not None and path.is_file() else None
+
+    def _audit(self, action: str, who: str, via: str, outcome: str, detail: str) -> None:
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        line = (
+            f"{stamp} action={action} who={_clean(who, 80) or '-'} via={via} "
+            f"outcome={outcome} {_clean(detail)}\n"
+        )
+        try:
+            self.settings.data_dir.mkdir(parents=True, exist_ok=True)
+            fd = os.open(self.audit_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a") as fh:
+                fh.write(line)
+        except OSError:
+            pass  # an unwritable log must not turn a wake into a failure
+
+    def _claim(self, now: float) -> float:
+        """Take the cooldown slot across processes. Returns 0 when taken, else seconds to wait."""
+        self.settings.data_dir.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self._state_path, os.O_RDWR | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "r+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                last = float(fh.read().strip() or 0)
+            except ValueError:
+                last = 0.0
+            wait = last + self._cooldown_s - now
+            if wait > 0:
+                return wait
+            fh.seek(0)
+            fh.truncate()
+            fh.write(str(now))
+            return 0.0
+
+    async def wake(self, who: str, via: str) -> WakeResult:
+        """Run the fleet-up firstmate step once, unless a firstmate session already runs."""
+        return await self._guarded("wake", who, via, self._wake)
+
+    async def restart(self, who: str, via: str) -> WakeResult:
+        """Stop the one running firstmate session whose watcher is silent, then start one."""
+        return await self._guarded("restart", who, via, self._restart)
+
+    async def _guarded(
+        self,
+        action: str,
+        who: str,
+        via: str,
+        step: Callable[[Runner], Awaitable[WakeResult]],
+    ) -> WakeResult:
+        async with self._lock:
+            runner = self._runner
+            if runner is None:
+                script = self._script()
+                runner = default_runner(script) if script is not None else None
+            if runner is None:
+                result = WakeResult("unavailable", "fleet-up script not found")
+            else:
+                result = await step(runner)
+        self._audit(action, who, via, result.outcome, result.message)
+        return result
+
+    async def _cooldown(self) -> WakeResult | None:
+        """Take the shared slot; a result only when the action must stop here."""
+        try:
+            wait = await asyncio.to_thread(self._claim, time.time())
+        except OSError:
+            return WakeResult("unavailable", "could not record the wake cooldown")
+        if wait > 0:
+            return WakeResult("rate-limited", f"Woken a moment ago; try again in {int(wait) + 1}s.")
+        return None
+
+    async def _start(self, runner: Runner) -> tuple[int, str] | WakeResult:
+        try:
+            code, out = await runner()
+        except OSError as exc:
+            return WakeResult("failed", f"could not run fleet-up: {exc.strerror or exc}")
+        if code != 0:
+            return WakeResult("failed", f"fleet-up exited {code}: {_clean(out) or 'no output'}")
+        await self.status.fresh()  # so the next page shows the result, not the old state
+        return code, out
+
+    async def _wake(self, runner: Runner) -> WakeResult:
+        status = await self.status.fresh()
+        if status.session:
+            return WakeResult(
+                "noop", f"Firstmate's session is already running ({status.label}); nothing to do."
+            )
+        blocked = await self._cooldown()
+        if blocked is not None:
+            return blocked
+        note = await asyncio.to_thread(self._release_stale_pane) if status.state == "down" else ""
+        ran = await self._start(runner)
+        if isinstance(ran, WakeResult):
+            return WakeResult(ran.outcome, f"{note}{ran.message}")
+        detail = _clean(ran[1]) or "no output"
+        if not await self._session_seen():
+            return WakeResult(
+                "failed",
+                "fleet-up ran but no firstmate session started; run scripts/fleet-up.sh "
+                f"--only firstmate from a terminal. {note}fleet-up: {detail}",
+            )
+        return WakeResult("started", f"{note}{detail}")
+
+    async def _restart(self, runner: Runner) -> WakeResult:
+        status = await self.status.fresh()
+        if not status.can_restart:
+            return WakeResult(
+                "refused",
+                f"Restart is only for a running session whose watcher is silent; "
+                f"firstmate is {status.label}. Nothing was stopped.",
+            )
+        if len(status.pids) != 1:
+            return WakeResult(
+                "refused",
+                f"Found {len(status.pids)} claude processes in the firstmate home; "
+                "not guessing which to stop. Nothing was stopped.",
+            )
+        (pid,) = status.pids
+        age = await asyncio.to_thread(self._activity, pid)
+        if age is not None and age < ACTIVE_RECENT_S:
+            return WakeResult(
+                "refused",
+                f"Firstmate was mid-turn {_ago(age)} ago, so it may be working. "
+                "Nothing was stopped; try again later.",
+            )
+        blocked = await self._cooldown()
+        if blocked is not None:
+            return blocked
+        if not await asyncio.to_thread(self._stop, pid):
+            return WakeResult("failed", f"firstmate session (pid {pid}) did not stop")
+        after = await self.status.fresh()
+        if after.state != "down":
+            return WakeResult(
+                "failed",
+                f"Stopped pid {pid}, but the process table does not show firstmate down "
+                f"({after.label}); not starting another.",
+            )
+        note = await asyncio.to_thread(self._release_stale_pane)
+        ran = await self._start(runner)
+        if isinstance(ran, WakeResult):
+            return WakeResult(ran.outcome, f"Stopped pid {pid}, then {ran.message}")
+        detail = _clean(ran[1]) or "no output"
+        if not await self._session_seen():
+            return WakeResult(
+                "failed",
+                f"Stopped the old session (pid {pid}) but a new one did not start; run "
+                f"scripts/fleet-up.sh --only firstmate from a terminal. {note}fleet-up: {detail}",
+            )
+        return WakeResult("restarted", f"Stopped pid {pid}; {note}{detail}")
+
+    def _release_stale_pane(self) -> str:
+        """Release herdr's ``claude`` report on the one pane at the firstmate home, if any.
+
+        Called only once no firstmate ``claude`` runs, so such a report is stale. A pane is
+        firstmate's only when both its cwd and its foreground cwd (if reported) are the
+        firstmate home: a crew pane opened there keeps that cwd but runs in its worktree.
+        Never touches any other pane. No herdr, or no herdr server to list panes (as after
+        a reboot, until the start step starts it), holds no stale report, so that is silent;
+        a failed release is logged and noted.
+        """
+        if not self._herdr.available:
+            return ""
+        homes = {str(self.settings.fm_home), str(self.settings.fm_home.resolve())}
+        try:
+            stale = [
+                p
+                for p in self._herdr.panes()
+                if p.get("agent") == "claude"
+                and p.get("cwd") in homes
+                and (p.get("foreground_cwd") or p.get("cwd")) in homes
+            ]
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+            logger.debug("wake: herdr pane list unavailable, nothing to release: %s", exc)
+            return ""
+        if len(stale) != 1:
+            return "" if not stale else f"{len(stale)} stale herdr panes, none released. "
+        pane = stale[0]
+        try:
+            self._herdr.release(pane["pane_id"], pane["agent"])
+            return f"Released herdr pane {pane['pane_id']}. "
+        except (OSError, KeyError, subprocess.SubprocessError) as exc:
+            logger.warning("wake: could not release the stale firstmate herdr pane: %s", exc)
+            return "Could not release the stale herdr pane. "
+
+    async def _session_seen(self) -> bool:
+        """A fresh process check finds a firstmate session within ``VERIFY_WAIT_S``."""
+        deadline = time.monotonic() + VERIFY_WAIT_S
+        while True:
+            if (await self.status.fresh()).session:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.5)
+
+    def _stop(self, pid: int) -> bool:
+        """SIGTERM the one pid, then SIGKILL if it outlives the wait. True once it is gone."""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                self._kill(pid, sig)
+                deadline = time.monotonic() + STOP_WAIT_S
+                while time.monotonic() < deadline:
+                    self._kill(pid, 0)
+                    time.sleep(0.2)
+            except ProcessLookupError:
+                return True
+            except OSError:
+                return False
+        return False

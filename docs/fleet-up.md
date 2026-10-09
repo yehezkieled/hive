@@ -34,7 +34,8 @@ lavish preview serve firstmate`.
 
 Each service step probes its port and only starts what is closed. The
 firstmate step exits without doing anything when either a herdr pane in
-`FM_DIR` runs the `claude` agent or a `claude` process has `FM_DIR` as its
+`FM_DIR` runs the `claude` agent (a crew pane opened there but running in its
+worktree does not count) or a `claude` process has `FM_DIR` as its
 working directory, so it never starts a second firstmate. Otherwise it makes
 sure the herdr server is up and runs `claude` in an idle shell pane (no agent,
 cwd `FM_DIR`) of an earlier `firstmate` workspace, left when `claude` exited
@@ -53,6 +54,71 @@ scripts/fleet-up.sh --dry-run --only serve,firstmate
 ```
 
 Logs of started services: `~/.local/state/hive-fleet-up/` (macOS the same).
+
+## Wake firstmate (desk and Telegram)
+
+The captain can bring firstmate back from the Hive desk or the Telegram bot,
+without a terminal. Two separate actions, each offered only in its own state:
+
+- **Wake firstmate** (state `down`): runs exactly `scripts/fleet-up.sh --only
+  firstmate` and holds no start logic of its own, so it inherits that step's
+  rules: idempotent, never a second firstmate. A no-op if a session runs. When
+  the process table shows firstmate down, it first releases a stale herdr
+  `claude` report on firstmate's own pane, the same way Restart does (below). It
+  reports success only once a new firstmate process is seen (up to 10 s), else a
+  failure saying to run the step from a terminal.
+- **Restart session** (state `session up, watcher silent`, a connected but wedged
+  session): stops that one firstmate session and then runs the same fleet-up
+  step to start a fresh one. It signals only the single `claude` process whose
+  working directory is firstmate's home, by pid (SIGTERM, then SIGKILL after 10 s);
+  never a worker, a crew or a broad `pkill`. Once the process table shows no
+  firstmate `claude` left, a herdr pane at firstmate's home that still reports
+  `agent: claude` (with its foreground cwd, if reported, also the home: a crew
+  pane opened in the home keeps that cwd but runs in its worktree, and is never
+  counted) is stale (a killed session never sends its release), and
+  fleet-up would take it for a running firstmate. So that one pane's report is
+  released with `herdr pane release-agent --source hive-wake --agent claude
+  <pane>` (no other pane; a failed release is logged, not fatal). After the
+  start step it waits up to 10 s for a new firstmate process, and reports
+  success only then; otherwise it says the old session was stopped but a new one
+  did not start, to run `scripts/fleet-up.sh --only firstmate` from a terminal. It refuses, stopping nothing, when
+  more than one such process runs, or when Claude Code's records show a turn in
+  the last 5 minutes (the session's `~/.claude/sessions/<pid>.json` saying
+  `busy`, or a transcript under `~/.claude/projects/<firstmate home>/` written
+  that recently).
+
+**Status** (read only, never written to firstmate's records): a process named
+`claude` whose working directory is firstmate's home, and the mtime of
+`state/.last-watcher-beat`. `alive` is a session with a beat under 5 minutes old;
+`session up, watcher silent` is a session without a fresh beat; `down` is no
+session; `unknown` is a read that failed or timed out. The desk reads it from a
+cache refreshed in the background (15 s), so a page never waits on it; each action
+re-reads it fresh first.
+
+**Desk**: a `firstmate · <state>` chip beside the quota chip on every page. It
+holds **Wake firstmate** when firstmate is down and **Restart session** when its
+watcher is silent; each needs a second tap, with the confirm text shown beside
+the armed button (a confirm page without JavaScript; the restart's says plainly
+that it stops the running session), and the result shows inline. `POST /act/wake` and
+`POST /act/restart` go through the gateway's owner gate (tailnet login, loopback
+peer, Host/Origin, CSRF) plus a step-up token, and work while firstmate's snapshot
+is unreadable.
+
+**Telegram**: `/wake` shows the status and the matching button (Wake when down,
+Restart session when the watcher is silent). A tapped button is removed. Restart
+first posts "This stops the running firstmate session and starts a new one.
+Confirm?" with Confirm and Cancel; only Confirm restarts, once, within 2 minutes,
+on that same message in that same chat. Only ids in
+`TELEGRAM_ALLOWED_USER_IDS` are served; an empty allowlist serves nobody for this
+command (the other commands keep their behaviour), and anyone else gets no reply
+and no effect.
+
+**Guards**: one wake or restart per 60 s across both actions, the desk and the
+bot (a shared lock file), and one audit line per attempt (action, who, when,
+outcome) in `<HIVE_GATEWAY_DATA_DIR>/wake-audit.log` (default
+`~/.local/state/hive-gateway/`), a Hive-owned file. The bot needs the same
+`HIVE_GATEWAY_*` environment as the gateway so both read the same data dir and
+firstmate home.
 
 ## Hive runtime with Telegram
 
