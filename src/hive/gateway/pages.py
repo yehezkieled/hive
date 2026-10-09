@@ -175,7 +175,7 @@ min-width:210px;color:var(--ink-2)}
 body.wide{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
 display:flex;flex-direction:column;padding-bottom:0}
 .wide .chrome{flex:none;width:100%}
-.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 0}
+.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 0;overflow-y:auto}
 .wide .screen{flex:1;min-height:0;gap:10px}
 .wide .land{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .wide .dbar-wrap{position:static;margin:0;flex:none;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
