@@ -152,7 +152,10 @@ in-flight ticket in firstmate's snapshot):
 
 T2 and T3 count from step 1, not from the beat's age, so a beat that is already
 hours old when you switch it on (or when the gateway comes back) still gets
-step 1 first (a Wake, or the announcement and grace), never a Restart or halt; a missing beat record only ages while work is under way.
+step 1 first (a Wake, or the announcement and grace), never a Restart or halt; a missing beat record only ages while work is under way. When work stops (or
+firstmate beats again) the episode ends: the next silence starts at step 1 with
+a fresh grace, while the 6 h restart cap and the cooldown carry over (a halt
+stays until firstmate beats, you act by hand, or you switch it off and on).
 
 **Guards**: every action is `WakeService.wake` / `restart`, so it runs
 fleet-up's firstmate step and nothing else, never starts a second firstmate, and

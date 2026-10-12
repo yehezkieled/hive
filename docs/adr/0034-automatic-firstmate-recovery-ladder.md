@@ -29,7 +29,9 @@ rules. Firstmate's own settings are read-only through `fmconfig`; missing or
 unparsable settings, or an unusable Hive watchdog config, mean do nothing and
 alert. Thresholds live in Hive's `watchdog.json`. Ladder state is persisted and
 claimed before an action runs, so a gateway restart cannot repeat a step. A
-manual Wake or Restart resets the ladder.
+manual Wake or Restart resets the ladder; so does the end of a silence episode
+(no work under way), but the automatic-restart history, and so the cap and the
+cooldown, carries over.
 
 ## Consequences
 

@@ -147,6 +147,9 @@ class Rig:
     def kinds(self) -> list[str]:
         return [e["kind"] for e in self.store.events()]
 
+    def kinds_text(self) -> list[str]:
+        return [e["text"] for e in self.store.events()]
+
 
 @pytest.fixture
 def rig(tmp_path: Path) -> Rig:
@@ -386,6 +389,86 @@ async def test_a_blocked_second_rung_still_halts_at_t3(rig: Rig) -> None:
     await rig.at(21)
     await rig.at(41)
     assert rig.wake.calls == [] and rig.store.view().halted
+
+
+async def test_work_stopping_ends_the_episode_and_the_next_gets_a_fresh_grace(rig: Rig) -> None:
+    rig.on()
+    rig.begin(11)
+    await rig.tick()  # rung one: session up, announced
+    rig.work = False
+    await rig.at(15)
+    assert rig.store.view().stage == 0
+    rig.work = True
+    await rig.at(5 * 60)  # hours later, the watcher still silent
+    assert rig.wake.calls == [] and rig.kinds() == ["silent", "silent"]
+    await rig.at(5 * 60 + 9)
+    assert rig.wake.calls == []  # a fresh T2 grace, not an immediate Restart
+    await rig.at(5 * 60 + 10)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+
+
+async def test_unknowable_work_keeps_the_episode(rig: Rig) -> None:
+    rig.on()
+    rig.begin(11)
+    await rig.tick()
+    rig.work = None
+    await rig.at(15)
+    assert rig.store.view().stage == 1
+    rig.work = True
+    await rig.at(21)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+
+
+async def test_the_cooldown_holds_across_an_episode_boundary(rig: Rig) -> None:
+    rig.on(restart_cooldown_s=3600, give_up_after_s=7200)
+    rig.begin(11)
+    await rig.tick()
+    await rig.at(21)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+    rig.work = False
+    await rig.at(25)
+    rig.work = True
+    await rig.at(30)  # a new episode: rung one again
+    await rig.at(45)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]  # 24 min after the last restart
+    assert rig.kinds()[-1] == "cooldown"
+    await rig.at(82)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"] * 2
+
+
+async def test_the_restart_cap_holds_across_episode_boundaries(rig: Rig) -> None:
+    rig.on(restart_cooldown_s=60)
+    rig.begin(11)
+    await rig.tick()
+    for start in (0, 30):
+        if start:
+            rig.work = False
+            await rig.at(start - 1)
+            rig.work = True
+            await rig.at(start + 11)
+        await rig.at(start + 21)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"] * 2
+    rig.work = False
+    await rig.at(59)
+    rig.work = True
+    await rig.at(71)
+    await rig.at(81)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"] * 2  # no third in 6 h
+    assert rig.store.view().halted and "2 automatic restarts" in rig.kinds_text()[-1]
+
+
+async def test_a_halt_survives_the_end_of_an_episode(rig: Rig) -> None:
+    rig.on()
+    rig.begin(11)
+    await rig.tick()
+    await rig.at(21)
+    await rig.at(41)
+    rig.work = False
+    await rig.at(50)
+    rig.work = True
+    await rig.at(80)
+    assert rig.store.view().halted
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
 
 
 async def test_thresholds_come_from_hive_config(rig: Rig) -> None:

@@ -13,6 +13,9 @@ the watchdog climbs a short ladder, one rung at a time, and then stops:
    rung given T2 to work), or ``max_restarts`` automatic restarts already in ``window_s``:
    **halt**, alert the captain, and make no further attempt.
 
+A silence episode ends when no work is under way or firstmate beats again; the next one starts
+a fresh ladder, while the automatic-restart history (cap and cooldown) carries over.
+
 T2 and T3 count from the first rung (the ladder start), never from the watcher beat's age, so
 a beat that is already very old when the switch goes on or the gateway comes back still gets
 the first rung (Wake, or the announcement that starts the grace) before any Restart or halt.
@@ -384,8 +387,9 @@ class Watchdog:
         if status.state == "alive":
             await self._recovered(now)
             return
-        if await self._work() is not True:  # nothing under way (or unknowable): nothing to do
-            await self._mutate(_forget_silence)
+        work = await self._work()
+        if work is not True:  # nothing under way (or unknowable): nothing to do
+            await self._mutate(_end_episode if work is False else _forget_silence)
             return
         age = await self._silent_age(status, now)
         if age < cfg.silent_after_s:
@@ -622,6 +626,15 @@ class Watchdog:
 
 def _forget_silence(ladder: Ladder, events: list[dict], seq: list[int]) -> None:
     ladder.silent_since = 0.0
+
+
+def _end_episode(ladder: Ladder, events: list[dict], seq: list[int]) -> None:
+    """No work under way: the next silence starts a fresh ladder. A halt and the restart
+    history (the cap and the cooldown) stay."""
+    _forget_silence(ladder, events, seq)
+    if not ladder.halted and ladder.stage:
+        ladder.stage, ladder.started_at = 0, 0.0
+        ladder.once.clear()
 
 
 def _copy(ladder: Ladder) -> Ladder:
