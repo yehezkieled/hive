@@ -3,8 +3,9 @@
 Hive is the backup captain. When firstmate's watcher goes silent while work is under way,
 the watchdog climbs a short ladder, one rung at a time, and then stops:
 
-1. silent for ``silent_after_s`` (T1): **Wake**, only if no session runs; a session that
-   runs with a silent watcher is only announced.
+1. silent for ``silent_after_s`` (T1): **Wake** at once if no session runs. A session that
+   runs with a silent watcher is never restarted on this rung: it is announced and gets
+   T2 of grace first.
 2. still silent ``restart_after_s`` (T2) after the first rung: **one Restart session** (or,
    if the session is down again, one more Wake). Restart's own mid-turn refusal applies
    unchanged; a held-back Restart is announced once and tried again.
@@ -14,7 +15,7 @@ the watchdog climbs a short ladder, one rung at a time, and then stops:
 
 T2 and T3 count from the first rung (the ladder start), never from the watcher beat's age, so
 a beat that is already very old when the switch goes on or the gateway comes back still gets
-the first rung before any halt.
+the first rung (Wake, or the announcement that starts the grace) before any Restart or halt.
 
 It starts nothing and stops nothing itself: every action is ``WakeService.wake`` or
 ``WakeService.restart`` (fleet-up's firstmate step), so Hive holds no start logic and no

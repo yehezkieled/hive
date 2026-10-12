@@ -16,9 +16,11 @@ said yes. It is security-sensitive: Hive stops and starts a session unattended.
 ## Decision
 
 The gateway runs a watchdog (`gateway/watchdog.py`) that climbs a fixed ladder,
-only while work is under way: Wake after T1 of silence if firstmate is dead, one
-Restart session after T2 more, then stop and alert after T3 or after 2 automatic
-restarts in 6 hours. It is **off by default**; the owner switches it on from the
+only while work is under way: after T1 of silence, Wake at once if firstmate is
+dead, or only announce a running but silent session (its grace starts); one
+Restart session T2 after that first rung; then stop and alert after T3 or after 2
+automatic restarts in 6 hours. T2 and T3 count from the first rung, not from the
+watcher beat's age, so an old beat always gets the first rung before any halt. It is **off by default**; the owner switches it on from the
 desk or an allowlisted Telegram chat, and the same switch is the kill switch.
 
 It reuses `WakeService.wake` / `restart` and so fleet-up's firstmate step, the

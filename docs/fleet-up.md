@@ -139,8 +139,9 @@ Switching it off then on also clears a halt.
 **The ladder** (it only looks while work is under way: a working crew or an
 in-flight ticket in firstmate's snapshot):
 
-1. watcher beat older than **T1 = 10 min**: **Wake**, only if no firstmate
-   session runs (a running session with a silent watcher is only announced);
+1. watcher beat older than **T1 = 10 min**: **Wake** at once if no firstmate
+   session runs; a running session with a silent watcher is not restarted
+   here, only announced, which starts its T2 grace;
 2. still silent **T2 = 10 min** after step 1: **one Restart session** (one more
    Wake if the session is down again);
 3. still silent **30 min** after step 1 (T3 = 40 min counted as T1 + 30), with
@@ -151,7 +152,7 @@ in-flight ticket in firstmate's snapshot):
 
 T2 and T3 count from step 1, not from the beat's age, so a beat that is already
 hours old when you switch it on (or when the gateway comes back) still gets
-step 1 first; a missing beat record only ages while work is under way.
+step 1 first (a Wake, or the announcement and grace), never a Restart or halt; a missing beat record only ages while work is under way.
 
 **Guards**: every action is `WakeService.wake` / `restart`, so it runs
 fleet-up's firstmate step and nothing else, never starts a second firstmate, and

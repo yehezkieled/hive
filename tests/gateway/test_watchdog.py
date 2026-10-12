@@ -302,8 +302,12 @@ async def test_a_very_old_beat_at_switch_on_climbs_before_it_can_halt(rig: Rig) 
     assert not rig.store.view().halted and rig.store.view().stage == 1
 
 
-async def test_the_gateway_back_after_40_minutes_climbs_first(rig: Rig) -> None:
-    """The gateway was down while firstmate went silent: the first look takes rung one."""
+async def test_gateway_back_after_40_min_announces_a_running_session_then_restarts_after_t2(
+    rig: Rig,
+) -> None:
+    """The gateway was down while firstmate went silent. Its session runs, so the first look
+    only announces it and starts the T2 grace (no immediate Restart, no halt); the Restart
+    comes T2 after that ladder start."""
     rig.on()
     rig.begin(5)
     await rig.tick()  # below T1: nothing
