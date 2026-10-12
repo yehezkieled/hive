@@ -9,6 +9,7 @@ sink — lives here.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import mimetypes
@@ -33,6 +34,7 @@ from hive.commands.dispatch import KNOWN_COMMANDS, CommandDispatcher
 from hive.config import UPLOAD_MAX_BYTES, UPLOADS_DIR
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.wake import WakeService
+from hive.gateway.watchdog import ConfigError, WatchdogStore
 from hive.knowledge.attachment_embedder import embed_attachment
 from hive.models.task import TaskStatus
 from hive.notifications import ALERT_KINDS, QUOTA_KINDS, Notification
@@ -55,13 +57,15 @@ logger = logging.getLogger(__name__)
 # (currently just /heartbeat). Source of truth for the /help drift test
 # in tests/test_help.py — keep in sync if a new transport-only command
 # is ever added here.
-BRIDGE_COMMANDS: frozenset[str] = KNOWN_COMMANDS | frozenset({"heartbeat", "wake"})
+BRIDGE_COMMANDS: frozenset[str] = KNOWN_COMMANDS | frozenset({"heartbeat", "wake", "watchdog"})
 
 WAKE_CALLBACK = "wake:firstmate"
 RESTART_CALLBACK = "wake:restart"
 RESTART_CONFIRM_PREFIX = "wake:restart:confirm:"
 RESTART_CANCEL_PREFIX = "wake:restart:cancel:"
 RESTART_CONFIRM_TTL_S = 120.0
+WATCHDOG_RELAY_S = 15.0
+WATCHDOG_CURSOR = "watchdog-telegram-cursor"  # the last watchdog event this bot has sent
 RESTART_CONFIRM_TEXT = "This stops the running firstmate session and starts a new one. Confirm?"
 
 
@@ -85,6 +89,7 @@ class TelegramBridge:
         mode_request_store: ModeRequestStore | None = None,
         attachment_store: AttachmentStore | None = None,
         wake: WakeService | None = None,
+        watchdog_store: WatchdogStore | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.allowed_user_ids = allowed_user_ids
@@ -97,6 +102,8 @@ class TelegramBridge:
         self.attachment_store = attachment_store
         self._app: Application | None = None
         self.wake = wake or WakeService(GatewaySettings.from_env())
+        self.watchdog_store = watchdog_store or WatchdogStore(self.wake.settings.data_dir)
+        self._relay_task: asyncio.Task[None] | None = None
         # Pending Restart confirms: token -> (chat id, confirm message id, monotonic expiry)
         self._restart_confirms: dict[str, tuple[int, int, float]] = {}
 
@@ -148,6 +155,7 @@ class TelegramBridge:
         await self._app.start()
         await self._app.updater.start_polling(drop_pending_updates=True)  # type: ignore[union-attr]
         logger.info("Telegram bridge started, polling for updates")
+        self._relay_task = asyncio.get_running_loop().create_task(self._relay_watchdog())
 
     async def send(self, notification: Notification) -> None:
         """NotificationChannel implementation — delivers to the Telegram chat.
@@ -225,6 +233,11 @@ class TelegramBridge:
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
+        if self._relay_task is not None:
+            self._relay_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._relay_task
+            self._relay_task = None
         if self._app:
             await self._app.updater.stop()  # type: ignore[union-attr]
             await self._app.stop()
@@ -251,6 +264,11 @@ class TelegramBridge:
                 await self._send_wake_status(update)
             return
 
+        if cmd.name == "watchdog":
+            if self._may_wake(user_id):
+                await update.message.reply_text(await self._watchdog_command(cmd.args, user_id))
+            return
+
         # Handle command
         actor = f"user:{user_id}"
         response = await self._execute_command(cmd, actor=actor)
@@ -269,6 +287,74 @@ class TelegramBridge:
             # Telegram messages have a 4096 char limit
             for chunk in _chunk_text(response, 4096):
                 await update.message.reply_text(chunk)
+
+    async def _watchdog_command(self, args: str | None, user_id: int) -> str:
+        """``/watchdog on|off|status``: the allowlisted chat's switch for automatic recovery."""
+        word = (args or "status").strip().lower()
+        if word not in ("on", "off", "status"):
+            return "Usage: /watchdog on|off|status"
+        if word == "status":
+            view = await asyncio.to_thread(self.watchdog_store.view)
+            extra = view.config_error or view.halted_reason
+            return f"Automatic recovery: {view.label}" + (f" ({extra})" if extra else "")
+        who = f"telegram:{user_id}"
+        try:
+            text = await asyncio.to_thread(
+                self.watchdog_store.set_enabled, word == "on", who, "telegram"
+            )
+        except ConfigError as exc:
+            return f"Not turned on: {exc}. Fix the watchdog config first."
+        self.wake.audit("watchdog-switch", who, "telegram", word, text)
+        return text
+
+    def _relay_targets(self) -> list[int]:
+        from hive.config import SUMMARY_CHAT_ID
+
+        return [int(SUMMARY_CHAT_ID)] if SUMMARY_CHAT_ID else list(self.allowed_user_ids)
+
+    async def _relay_watchdog(self) -> None:
+        """Send each new watchdog event to the chat. The gateway writes them, this bot (which
+        owns the token) delivers them; the cursor file makes a restart neither skip nor repeat."""
+        while True:
+            try:
+                await self._relay_watchdog_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("watchdog relay failed")
+            await asyncio.sleep(WATCHDOG_RELAY_S)
+
+    async def _relay_watchdog_once(self) -> None:
+        cursor_path = self.wake.settings.data_dir / WATCHDOG_CURSOR
+        store = self.watchdog_store
+        try:
+            cursor = int(cursor_path.read_text().strip())
+        except (OSError, ValueError):
+            # First run: start from now, so history is not replayed into the chat.
+            cursor = await asyncio.to_thread(store.last_event_id)
+            await asyncio.to_thread(self._save_cursor, cursor_path, cursor)
+        for event in await asyncio.to_thread(store.events, cursor):
+            text = f"Hive watchdog: {event.get('text', '')}"
+            sent = False
+            for chat_id in self._relay_targets():
+                if self._app is None:
+                    return
+                try:
+                    await self._app.bot.send_message(chat_id=chat_id, text=text)
+                    sent = True
+                except TelegramError:
+                    logger.exception("could not send a watchdog event to chat %s", chat_id)
+            if not sent:
+                return  # try this event again on the next round
+            cursor = int(event["id"])
+            await asyncio.to_thread(self._save_cursor, cursor_path, cursor)
+
+    @staticmethod
+    def _save_cursor(path: Path, value: int) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(str(value))
+        tmp.replace(path)
 
     def _may_wake(self, user_id: int) -> bool:
         """Wake is stricter than the other commands: an empty allowlist allows nobody."""
