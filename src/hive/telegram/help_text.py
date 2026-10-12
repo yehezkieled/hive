@@ -74,7 +74,7 @@ HELP_TEXT: dict[str, HelpEntry] = {
     "watchdog": HelpEntry(
         category="Status",
         usage="/watchdog on|off|status",
-        description="Switch firstmate's automatic recovery on or off (off by default), or show it.",
+        description="Turn firstmate's automatic recovery on (after a confirm) or off, or show it.",
         examples=("/watchdog status", "/watchdog on", "/watchdog off"),
     ),
     # Messaging — message (the /a: addressing form folds in here)

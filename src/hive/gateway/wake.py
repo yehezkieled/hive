@@ -52,6 +52,8 @@ HERDR_TIMEOUT_S = 10.0
 HERDR_SOURCE = "hive-wake"  # the source id Hive's stale-pane release reports to herdr
 _MAX_OUTPUT = 64 * 1024
 MANUAL_MARK = "watchdog-manual"  # touched by every manual wake or restart, for the watchdog
+# Outcomes that stopped and started nothing; the watchdog announces these itself, once.
+HELD_BACK = ("refused", "rate-limited", "unavailable")
 CLAUDE_HOME = Path.home() / ".claude"
 
 # (exit code, output) of the fleet-up firstmate step; replaced by a fake in tests.
@@ -386,9 +388,11 @@ class WakeService:
                 result = WakeResult("unavailable", "fleet-up script not found")
             else:
                 result = await step(runner)
-        self.audit(action, who, via, result.outcome, result.message)
         if via != "watchdog":
+            self.audit(action, who, via, result.outcome, result.message)
             self._mark_manual()
+        elif result.outcome not in HELD_BACK:
+            self.audit(action, who, via, result.outcome, result.message)
         return result
 
     async def _cooldown(self) -> WakeResult | None:

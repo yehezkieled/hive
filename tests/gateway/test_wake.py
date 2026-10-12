@@ -924,6 +924,7 @@ def _bridge(
     bridge.allowed_user_ids = allowed
     bridge.wake = _service(tmp_path, state, runner, killer=killer)
     bridge._restart_confirms = {}
+    bridge._watchdog_confirms = {}
     return bridge
 
 

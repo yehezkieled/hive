@@ -5,10 +5,16 @@ the watchdog climbs a short ladder, one rung at a time, and then stops:
 
 1. silent for ``silent_after_s`` (T1): **Wake**, only if no session runs; a session that
    runs with a silent watcher is only announced.
-2. still silent ``restart_after_s`` (T2) later: **one Restart session** (or, if the session
-   is down again, one more Wake). Restart's own mid-turn refusal applies unchanged.
-3. silent for ``give_up_after_s`` (T3), or ``max_restarts`` automatic restarts already in
-   ``window_s``: **halt**, alert the captain, and make no further attempt.
+2. still silent ``restart_after_s`` (T2) after the first rung: **one Restart session** (or,
+   if the session is down again, one more Wake). Restart's own mid-turn refusal applies
+   unchanged; a held-back Restart is announced once and tried again.
+3. still silent ``give_up_after_s - silent_after_s`` after the first rung (T3, with the last
+   rung given T2 to work), or ``max_restarts`` automatic restarts already in ``window_s``:
+   **halt**, alert the captain, and make no further attempt.
+
+T2 and T3 count from the first rung (the ladder start), never from the watcher beat's age, so
+a beat that is already very old when the switch goes on or the gateway comes back still gets
+the first rung before any halt.
 
 It starts nothing and stops nothing itself: every action is ``WakeService.wake`` or
 ``WakeService.restart`` (fleet-up's firstmate step), so Hive holds no start logic and no
@@ -37,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hive.gateway import fmconfig
-from hive.gateway.wake import MANUAL_MARK, FirstmateStatus, WakeResult, WakeService
+from hive.gateway.wake import HELD_BACK, MANUAL_MARK, FirstmateStatus, WakeResult, WakeService
 
 log = logging.getLogger("hive.gateway.watchdog")
 
@@ -58,6 +64,14 @@ _FIELDS: tuple[tuple[str, float, type], ...] = (
     ("window_s", 6 * 3600.0, float),
 )
 
+ON_DETAIL = (
+    "Hive will then wake or restart the firstmate session by itself when its watcher stays "
+    "silent while work is under way: one Wake after 10 minutes, one Restart session after 10 "
+    "more, then it stops and alerts you. At most 2 automatic restarts in 6 hours, never while "
+    "firstmate is mid-turn. It touches no worker, merges nothing and decides nothing. "
+    "Switching it off stops it at once."
+)
+
 # Is work under way? True/False, or None when it cannot be told (nothing is done then).
 WorkProbe = Callable[[], Awaitable[bool | None]]
 # Called with each new event so the desk can refresh and push it.
@@ -72,8 +86,8 @@ class ConfigError(Exception):
 class WatchdogConfig:
     enabled: bool = False
     silent_after_s: float = 600.0  # T1: the watcher beat's age that starts the ladder
-    restart_after_s: float = 600.0  # T2: more silence, after the first rung, before Restart
-    give_up_after_s: float = 2400.0  # T3: beat age at which the ladder stops and alerts
+    restart_after_s: float = 600.0  # T2: time after the first rung before Restart
+    give_up_after_s: float = 2400.0  # T3: T1 plus the time after the first rung to stop
     restart_cooldown_s: float = 900.0  # gap between two automatic restarts
     max_restarts: int = 2  # automatic restarts allowed per ``window_s``
     window_s: float = 6 * 3600.0
@@ -92,7 +106,8 @@ class Ladder:
     stage: int = 0  # 0 watching, 1 first rung taken, 2 second rung taken
     halted: bool = False
     halted_reason: str = ""
-    last_action_at: float = 0.0
+    started_at: float = 0.0  # when the first rung was taken: T2 and T3 count from here
+    last_action_at: float = 0.0  # when the latest rung was taken
     restarts: list[float] = field(default_factory=list)  # automatic restarts, newest last
     manual_seen: float = 0.0  # the manual-action mark already handled
     silent_since: float = 0.0  # when a missing beat record was first noticed
@@ -223,6 +238,7 @@ class WatchdogStore:
                 stage=int(lad.get("stage", 0)),
                 halted=bool(lad.get("halted", False)),
                 halted_reason=str(lad.get("halted_reason", "")),
+                started_at=float(lad.get("started_at", 0.0)),
                 last_action_at=float(lad.get("last_action_at", 0.0)),
                 restarts=[float(t) for t in lad.get("restarts", [])],
                 manual_seen=float(lad.get("manual_seen", 0.0)),
@@ -244,6 +260,7 @@ class WatchdogStore:
                 "stage": ladder.stage,
                 "halted": ladder.halted,
                 "halted_reason": ladder.halted_reason,
+                "started_at": ladder.started_at,
                 "last_action_at": ladder.last_action_at,
                 "restarts": ladder.restarts,
                 "manual_seen": ladder.manual_seen,
@@ -366,10 +383,11 @@ class Watchdog:
         if status.state == "alive":
             await self._recovered(now)
             return
+        if await self._work() is not True:  # nothing under way (or unknowable): nothing to do
+            await self._mutate(_forget_silence)
+            return
         age = await self._silent_age(status, now)
         if age < cfg.silent_after_s:
-            return
-        if await self._work() is not True:  # nothing under way (or unknowable): nothing to do
             return
         await self._climb(cfg, status, age, now)
 
@@ -414,7 +432,7 @@ class Watchdog:
 
     async def _recovered(self, now: float) -> None:
         def step(ladder: Ladder, events: list[dict], seq: list[int]) -> dict | None:
-            ladder.silent_since = 0.0
+            _forget_silence(ladder, events, seq)
             if not (ladder.stage or ladder.halted or ladder.once):
                 return None
             was = "halted" if ladder.halted else f"on rung {ladder.stage}"
@@ -434,14 +452,18 @@ class Watchdog:
         ladder = await self._mutate(lambda lad, ev, seq: _copy(lad))
         if ladder.halted:
             return
-        if age >= cfg.give_up_after_s:
-            await self._halt(f"firstmate still silent after {_mins(age)}")
-            return
         if ladder.stage == 0:
             await self._first_rung(status, age, now)
-        elif ladder.stage == 1 and age >= cfg.silent_after_s + cfg.restart_after_s:
-            if now - ladder.last_action_at >= cfg.restart_after_s:
-                await self._second_rung(cfg, status, age, now)
+            return
+        since_start = now - ladder.started_at
+        if ladder.stage == 1 and since_start >= cfg.restart_after_s:
+            if await self._second_rung(cfg, status, now):
+                return
+        if (
+            since_start >= cfg.give_up_after_s - cfg.silent_after_s
+            and now - ladder.last_action_at >= cfg.restart_after_s
+        ):
+            await self._halt(f"firstmate still silent after {_mins(age)}")
 
     async def _first_rung(self, status: FirstmateStatus, age: float, now: float) -> None:
         """Wake if there is no session; otherwise just announce. Claimed before it acts."""
@@ -450,7 +472,7 @@ class Watchdog:
         def claim(ladder: Ladder, events: list[dict], seq: list[int]) -> dict | None:
             if ladder.stage != 0:
                 return None
-            ladder.stage, ladder.last_action_at = 1, now
+            ladder.stage, ladder.started_at, ladder.last_action_at = 1, now, now
             what = "waking it" if down else "its session is up, so not waking it"
             return self.store._add(
                 events,
@@ -465,21 +487,21 @@ class Watchdog:
             return  # another process already took this rung
         await self._emit(event)
         if down:
-            await self._act("wake", "Wake")
+            await self._wake("Wake")
 
-    async def _second_rung(
-        self, cfg: WatchdogConfig, status: FirstmateStatus, age: float, now: float
-    ) -> None:
+    async def _second_rung(self, cfg: WatchdogConfig, status: FirstmateStatus, now: float) -> bool:
+        """Take the second rung if it can be taken now; True when it was."""
         if status.state == "down":
-            if await self._claim_second(cfg, now, restart=False):
-                await self._act("wake", "Wake (retry)")
-            return
+            if not await self._claim_second(cfg, now, restart=False):
+                return False
+            await self._wake("Wake (retry)")
+            return True
         recent = [t for t in (await self._restarts()) if now - t < cfg.window_s]
         if len(recent) >= cfg.max_restarts:
             await self._halt(
                 f"{len(recent)} automatic restarts already in the last {_mins(cfg.window_s)}"
             )
-            return
+            return False
         if recent and now - recent[-1] < cfg.restart_cooldown_s:
             wait = cfg.restart_cooldown_s - (now - recent[-1])
             await self._once(
@@ -489,19 +511,23 @@ class Watchdog:
                 "cooldown",
                 f"Restart is cooling down after the last automatic one; waiting {_mins(wait)}.",
             )
-            return
-        if await self._claim_second(cfg, now, restart=True):
-            result = await self._act("restart", "Restart session")
-            if result is not None and result.outcome in ("refused", "rate-limited", "unavailable"):
-                await self._release_second(now)  # nothing was stopped: give the rung back
-                await self._once(
-                    "deferred",
-                    result.outcome,
-                    "info",
-                    "deferred",
-                    f"Restart held back ({result.outcome}): {result.message} "
-                    "It will be tried again.",
-                )
+            return False
+        if not await self._claim_second(cfg, now, restart=True):
+            return False
+        result = await self.wake.restart(WHO, "watchdog")
+        if result.outcome in HELD_BACK:
+            await self._release_second(now)  # nothing was stopped: give the rung back
+            await self._once(
+                "deferred",
+                "x",
+                "info",
+                "deferred",
+                f"Restart held back ({result.outcome}): {result.message} "
+                "It will be tried again until the ladder gives up.",
+            )
+            return False
+        await self._record("restart", "Restart session", result)
+        return True
 
     async def _claim_second(self, cfg: WatchdogConfig, now: float, restart: bool) -> bool:
         def claim(ladder: Ladder, events: list[dict], seq: list[int]) -> bool:
@@ -520,7 +546,7 @@ class Watchdog:
                 ladder.restarts.pop()
             if ladder.stage == 2:
                 ladder.stage = 1
-                ladder.last_action_at = 0.0
+                ladder.last_action_at = ladder.started_at
 
         await self._mutate(release)
 
@@ -544,10 +570,11 @@ class Watchdog:
         event = await self._mutate(stop)
         await self._emit(event)
 
-    async def _act(self, which: str, label: str) -> WakeResult | None:
-        """Run the real guarded action (never anything else) and announce its result."""
-        act = self.wake.restart if which == "restart" else self.wake.wake
-        result = await act(WHO, "watchdog")
+    async def _wake(self, label: str) -> None:
+        """Run the real guarded Wake (never anything else) and announce its result."""
+        await self._record("wake", label, await self.wake.wake(WHO, "watchdog"))
+
+    async def _record(self, which: str, label: str, result: WakeResult) -> None:
         level = "info" if result.ok else "warn"
         text = f"{label}: {result.outcome}. {result.message}"
 
@@ -555,7 +582,6 @@ class Watchdog:
             return self.store._add(events, seq, level, which, text)
 
         await self._emit(await self._mutate(record))
-        return result
 
     # ---- helpers --------------------------------------------------------------------
 
@@ -593,11 +619,16 @@ class Watchdog:
                 await self._announce(event)
 
 
+def _forget_silence(ladder: Ladder, events: list[dict], seq: list[int]) -> None:
+    ladder.silent_since = 0.0
+
+
 def _copy(ladder: Ladder) -> Ladder:
     return Ladder(
         ladder.stage,
         ladder.halted,
         ladder.halted_reason,
+        ladder.started_at,
         ladder.last_action_at,
         list(ladder.restarts),
         ladder.manual_seen,

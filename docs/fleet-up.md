@@ -130,8 +130,9 @@ default**; nothing below runs until the owner switches it on.
 *Automatic recovery: off/on/halted*, the latest events and a **Turn on** /
 **Turn off** button (owner-only; turning on takes a second tap, turning off is
 immediate and is the kill switch). The same switch on Telegram, for ids in
-`TELEGRAM_ALLOWED_USER_IDS` only: `/watchdog on`, `/watchdog off`,
-`/watchdog status`. The switch lives in `<HIVE_GATEWAY_DATA_DIR>/watchdog.json`
+`TELEGRAM_ALLOWED_USER_IDS` only: `/watchdog on` (answers with a Confirm /
+Cancel button bound to that chat and message, valid once for 2 minutes),
+`/watchdog off` (immediate), `/watchdog status`. The switch lives in `<HIVE_GATEWAY_DATA_DIR>/watchdog.json`
 (mode 0600, Hive's own file, never firstmate's), and every flip is audited.
 Switching it off then on also clears a halt.
 
@@ -140,17 +141,22 @@ in-flight ticket in firstmate's snapshot):
 
 1. watcher beat older than **T1 = 10 min**: **Wake**, only if no firstmate
    session runs (a running session with a silent watcher is only announced);
-2. still silent **T2 = 10 min** later: **one Restart session** (one more Wake if
-   the session is down again);
-3. beat older than **T3 = 40 min**, or **2 automatic restarts in 6 h** already
-   used: it **stops** and alerts you on Telegram, the desk and Web Push. No
-   more attempts until firstmate beats again, you Wake or Restart it by hand,
-   or you switch it off and on.
+2. still silent **T2 = 10 min** after step 1: **one Restart session** (one more
+   Wake if the session is down again);
+3. still silent **30 min** after step 1 (T3 = 40 min counted as T1 + 30), with
+   the last step given at least T2 to work, or **2 automatic restarts in 6 h**
+   already used: it **stops** and alerts you on Telegram, the desk and Web Push.
+   No more attempts until firstmate beats again, you Wake or Restart it by
+   hand, or you switch it off and on.
+
+T2 and T3 count from step 1, not from the beat's age, so a beat that is already
+hours old when you switch it on (or when the gateway comes back) still gets
+step 1 first; a missing beat record only ages while work is under way.
 
 **Guards**: every action is `WakeService.wake` / `restart`, so it runs
 fleet-up's firstmate step and nothing else, never starts a second firstmate, and
 never restarts a session that was mid-turn in the last 5 minutes (Restart's own
-refusal; the rung is then handed back and retried). At least 15 min between two
+refusal; the rung is then handed back and retried, announced once per episode). At least 15 min between two
 automatic restarts. A manual Wake or Restart resets the ladder. It never touches
 a worker, never merges, never decides. Firstmate's settings
 (`data/projects.md`, `config/crew-dispatch.json`, `config/crew-harness`,

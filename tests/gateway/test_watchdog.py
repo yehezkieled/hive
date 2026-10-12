@@ -29,7 +29,12 @@ from hive.gateway.watchdog import (
     WatchdogStore,
     parse_config,
 )
-from hive.telegram.bridge import WATCHDOG_CURSOR, TelegramBridge
+from hive.telegram.bridge import (
+    RESTART_CONFIRM_PREFIX,
+    WATCHDOG_CONFIRM_TEXT,
+    WATCHDOG_CURSOR,
+    TelegramBridge,
+)
 from tests.gateway.fmcfg import write_config
 from tests.gateway.test_wake import (
     FM_PID,
@@ -37,8 +42,11 @@ from tests.gateway.test_wake import (
     Killer,
     _bridge,
     _message_update,
+    _Msg,
+    _Query,
     _service,
     _settings,
+    _tap,
 )
 
 OWNER = "owner@example.test"
@@ -284,6 +292,98 @@ async def test_halts_at_t3_and_attempts_nothing_more(rig: Rig) -> None:
     assert rig.kinds().count("halted") == 1
 
 
+async def test_a_very_old_beat_at_switch_on_climbs_before_it_can_halt(rig: Rig) -> None:
+    """Off while firstmate died 45 min ago: switching on wakes it, it does not give up."""
+    rig.wake.state = "down"
+    rig.begin(45)
+    await rig.dog.set_enabled(True, OWNER, "desk")
+    await rig.tick()
+    assert rig.wake.calls == ["wake:watchdog:watchdog"]
+    assert not rig.store.view().halted and rig.store.view().stage == 1
+
+
+async def test_the_gateway_back_after_40_minutes_climbs_first(rig: Rig) -> None:
+    """The gateway was down while firstmate went silent: the first look takes rung one."""
+    rig.on()
+    rig.begin(5)
+    await rig.tick()  # below T1: nothing
+    rig.dog = rig.make()  # the gateway comes back 40 minutes later
+    await rig.at(47)
+    assert rig.kinds() == ["silent"] and not rig.store.view().halted
+    await rig.at(57)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+    assert not rig.store.view().halted
+
+
+async def test_t2_and_t3_count_from_the_ladder_start(rig: Rig) -> None:
+    rig.on()
+    rig.begin(60)  # an hour-old beat at the first look
+    await rig.tick()  # rung one at beat age 60
+    await rig.at(69)
+    assert rig.wake.calls == [] and not rig.store.view().halted
+    await rig.at(70)  # T2 after the ladder start
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+    await rig.at(89)
+    assert not rig.store.view().halted  # 29 minutes after the ladder start
+    await rig.at(90)  # T3 - T1 = 30 minutes after the ladder start
+    assert rig.store.view().halted and rig.kinds()[-1] == "halted"
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+
+
+async def test_the_ladder_start_survives_a_gateway_restart(rig: Rig) -> None:
+    rig.on()
+    rig.begin(11)
+    await rig.tick()
+    rig.dog = rig.make()
+    await rig.at(21)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+    rig.dog = rig.make()
+    await rig.at(41)
+    assert rig.store.view().halted  # not reset to rung one, and no rung repeated
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+
+
+async def test_a_manual_reset_rearms_a_ladder_with_an_old_beat(rig: Rig) -> None:
+    rig.on()
+    rig.begin(11)
+    await rig.tick()
+    await rig.at(21)
+    await rig.at(41)
+    assert rig.store.view().halted
+    (rig.store.dir / MANUAL_MARK).write_text(str(time.time()))
+    await rig.at(42)  # the reset
+    rig.wake.state = "down"
+    await rig.at(43)  # beat still 43 minutes old: rung one again, not a halt
+    assert rig.wake.calls[-1] == "wake:watchdog:watchdog"
+    assert not rig.store.view().halted
+
+
+async def test_halt_after_the_restart_rung_waits_t2_for_it_to_work(rig: Rig) -> None:
+    """A restart taken late (cooldown) still gets T2 before the ladder gives up."""
+    rig.on(restart_cooldown_s=25 * MIN)
+    _seed_restarts(rig, [0])
+    rig.begin(11)
+    await rig.tick()
+    await rig.at(21)
+    assert rig.wake.calls == [] and rig.kinds()[-1] == "cooldown"
+    await rig.at(37)  # cooldown over, 26 minutes after the ladder start
+    assert rig.wake.calls == ["restart:watchdog:watchdog"]
+    await rig.at(41)
+    assert not rig.store.view().halted
+    await rig.at(47)
+    assert rig.store.view().halted
+
+
+async def test_a_blocked_second_rung_still_halts_at_t3(rig: Rig) -> None:
+    rig.on(restart_cooldown_s=3 * 3600)
+    _seed_restarts(rig, [0])
+    rig.begin(11)
+    await rig.tick()
+    await rig.at(21)
+    await rig.at(41)
+    assert rig.wake.calls == [] and rig.store.view().halted
+
+
 async def test_thresholds_come_from_hive_config(rig: Rig) -> None:
     rig.on(silent_after_s=120, restart_after_s=60, give_up_after_s=600)
     rig.wake.silent_for(121)
@@ -316,6 +416,25 @@ async def test_alive_or_unknown_firstmate_is_left_alone(rig: Rig) -> None:
     rig.wake.beat_at = rig.clock()
     await rig.tick()
     assert rig.wake.calls == [] and rig.store.events() == []
+
+
+async def test_a_missing_beat_record_only_ages_while_work_is_under_way(rig: Rig) -> None:
+    rig.on()
+    rig.wake.state = "down"
+    rig.wake.beat_at = None
+    rig.work = False
+    await rig.tick()
+    rig.clock.advance(60 * MIN)
+    await rig.tick()
+    rig.work = True
+    await rig.tick()
+    assert rig.wake.calls == []  # an hour idle did not count as silence
+    rig.clock.advance(9 * MIN)
+    await rig.tick()
+    assert rig.wake.calls == []
+    rig.clock.advance(2 * MIN)
+    await rig.tick()
+    assert rig.wake.calls == ["wake:watchdog:watchdog"]
 
 
 async def test_a_missing_beat_record_ages_from_the_first_look(rig: Rig) -> None:
@@ -397,12 +516,33 @@ async def test_a_refused_restart_is_given_back_and_retried(rig: Rig) -> None:
     await rig.tick()
     await rig.at(21)
     await rig.at(22)
-    assert rig.wake.calls == ["restart:watchdog:watchdog"] * 2  # tried again, not given up
-    assert rig.store._read()[0].restarts == []  # a refusal costs no restart
-    assert rig.kinds().count("deferred") == 1
-    rig.wake.results["restart"] = WakeResult("restarted", "ok")
     await rig.at(23)
+    assert rig.wake.calls == ["restart:watchdog:watchdog"] * 3  # tried again, not given up
+    assert rig.store._read()[0].restarts == []  # a refusal costs no restart
+    assert rig.kinds() == ["silent", "deferred"]  # said once per episode, not every tick
+    assert [e["kind"] for e in rig.announced] == ["silent", "deferred"]
+    assert [a for a, _ in rig.wake.audits] == ["watchdog-silent", "watchdog-deferred"]
+    rig.wake.results["restart"] = WakeResult("rate-limited", "Woken a moment ago")
+    await rig.at(24)
+    assert rig.kinds() == ["silent", "deferred"]
+    rig.wake.results["restart"] = WakeResult("restarted", "ok")
+    await rig.at(25)
     assert len(rig.store._read()[0].restarts) == 1
+    assert rig.kinds()[-1] == "restart"
+
+
+async def test_a_refusal_past_t3_halts_once_and_tries_nothing_more(rig: Rig) -> None:
+    rig.on()
+    rig.wake.results["restart"] = WakeResult("refused", "Found 2 claude processes")
+    rig.begin(11)
+    await rig.tick()
+    for m in range(21, 45):
+        await rig.at(m)
+    assert rig.store.view().halted
+    tries = len(rig.wake.calls)
+    await rig.at(50)
+    assert len(rig.wake.calls) == tries
+    assert rig.kinds() == ["silent", "deferred", "halted"]
 
 
 async def test_a_restart_that_ran_counts_even_when_it_failed(rig: Rig) -> None:
@@ -442,9 +582,9 @@ async def test_mid_turn_session_is_never_restarted_with_the_real_wake_service(
     await dog.tick()
     assert killer.sent == [] and runner.calls == 0
     assert store._read()[0].restarts == []
-    assert (
-        "action=restart who=watchdog via=watchdog outcome=refused" in service.audit_path.read_text()
-    )
+    audit = service.audit_path.read_text()
+    assert audit.count("action=watchdog-deferred") == 1  # one line, not one per try
+    assert "action=restart " not in audit
 
 
 async def test_restart_goes_through_when_idle_with_the_real_wake_service(tmp_path: Path) -> None:
@@ -831,21 +971,107 @@ def _tg(tmp_path: Path, allowed: list[int]) -> TelegramBridge:
     return bridge
 
 
-async def test_telegram_toggle_for_the_allowlisted_chat(tmp_path: Path) -> None:
+async def _ask_on(bridge: TelegramBridge) -> tuple[object, str, str]:
+    """Send /watchdog on; return the confirm message it posted and its two callbacks."""
+    update = _message_update(42, "/watchdog on")
+    await bridge._handle_message(update, None)  # type: ignore[arg-type]
+    ((text, markup),) = update.message.replies
+    assert text == WATCHDOG_CONFIRM_TEXT and "stop and start the firstmate session" in text
+    confirm, cancel = markup.inline_keyboard[0]
+    assert (confirm.text, cancel.text) == ("Confirm", "Cancel")
+    return update.message.sent[0], confirm.callback_data, cancel.callback_data
+
+
+async def test_telegram_on_asks_to_confirm_and_the_confirm_turns_it_on_once(
+    tmp_path: Path,
+) -> None:
     bridge = _tg(tmp_path, [42])
-    for text, enabled in (("/watchdog on", True), ("/watchdog off", False)):
-        update = _message_update(42, text)
-        await bridge._handle_message(update, None)  # type: ignore[arg-type]
-        assert bridge.watchdog_store.view().enabled is enabled
-        assert "switched" in update.message.replies[0][0]
+    msg, confirm, _cancel = await _ask_on(bridge)
+    assert not bridge.watchdog_store.view().enabled  # the command alone changed nothing
+    done = await _tap(bridge, confirm, msg)
+    assert done.keyboard_removed and "switched ON" in done.message.replies[0][0]
+    assert bridge.watchdog_store.view().enabled
+    off = _message_update(42, "/watchdog off")
+    await bridge._handle_message(off, None)  # type: ignore[arg-type]
+    assert "switched OFF" in off.message.replies[0][0] and off.message.replies[0][1] is None
+    assert not bridge.watchdog_store.view().enabled  # off is one step
+    again = await _tap(bridge, confirm, msg)  # a reused token does nothing
+    assert "already used" in again.message.replies[-1][0]
+    assert not bridge.watchdog_store.view().enabled
+    audit = bridge.wake.audit_path.read_text()
+    assert audit.count("action=watchdog-switch") == 2 and "via=telegram" in audit
+
+
+async def test_telegram_on_cancel_changes_nothing(tmp_path: Path) -> None:
+    bridge = _tg(tmp_path, [42])
+    msg, confirm, cancel = await _ask_on(bridge)
+    cancelled = await _tap(bridge, cancel, msg)
+    assert "not changed" in cancelled.message.replies[0][0]
+    late = await _tap(bridge, confirm, msg)
+    assert "already used" in late.message.replies[-1][0]
+    assert not bridge.watchdog_store.view().enabled
+    assert not bridge.wake.audit_path.exists()
+
+
+async def test_telegram_expired_on_confirm_changes_nothing(tmp_path: Path) -> None:
+    bridge = _tg(tmp_path, [42])
+    msg, confirm, _cancel = await _ask_on(bridge)
+    bridge._watchdog_confirms = {
+        t: (chat, m, time.monotonic() - 1) for t, (chat, m, _) in bridge._watchdog_confirms.items()
+    }
+    late = await _tap(bridge, confirm, msg)
+    assert "expired" in late.message.replies[0][0]
+    assert not bridge.watchdog_store.view().enabled
+
+
+@pytest.mark.parametrize("where", ["other-chat", "other-message", "restart-token"])
+async def test_telegram_on_confirm_elsewhere_changes_nothing(tmp_path: Path, where: str) -> None:
+    bridge = _tg(tmp_path, [42])
+    msg, confirm, _cancel = await _ask_on(bridge)
+    data, target = confirm, msg
+    if where == "other-chat":
+        target = _Msg(chat_id=999)
+    elif where == "other-message":
+        target = _Msg(chat_id=msg.chat_id)  # type: ignore[attr-defined]
+    else:  # a watchdog token presented as a Restart confirm is not a restart token
+        data = RESTART_CONFIRM_PREFIX + confirm.rsplit(":", 1)[1]
+    foreign = await _tap(bridge, data, target)
+    assert "another chat" in foreign.message.replies[0][0]
+    assert not bridge.watchdog_store.view().enabled
+    done = await _tap(bridge, confirm, msg)
+    assert "switched ON" in done.message.replies[-1][0]
+
+
+async def test_telegram_on_confirm_from_a_stranger_changes_nothing(tmp_path: Path) -> None:
+    bridge = _tg(tmp_path, [42])
+    msg, confirm, _cancel = await _ask_on(bridge)
+    query = _Query(confirm, msg)  # type: ignore[arg-type]
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=7))
+    await bridge._handle_callback(update, None)  # type: ignore[arg-type]
+    assert (query.answers, query.message.replies) == ([], [])
+    assert not bridge.watchdog_store.view().enabled
+
+
+async def test_telegram_on_with_an_unusable_config_offers_no_confirm(tmp_path: Path) -> None:
+    bridge = _tg(tmp_path, [42])
+    store = bridge.watchdog_store
+    store.dir.mkdir(parents=True, exist_ok=True)
+    store.config_path.write_text("{nope")
+    update = _message_update(42, "/watchdog on")
+    await bridge._handle_message(update, None)  # type: ignore[arg-type]
+    ((text, markup),) = update.message.replies
+    assert "Not turned on" in text and markup is None
+    assert bridge._watchdog_confirms == {}
+
+
+async def test_telegram_status_and_usage(tmp_path: Path) -> None:
+    bridge = _tg(tmp_path, [42])
     update = _message_update(42, "/watchdog status")
     await bridge._handle_message(update, None)  # type: ignore[arg-type]
     assert update.message.replies[0][0] == "Automatic recovery: off"
     update = _message_update(42, "/watchdog sideways")
     await bridge._handle_message(update, None)  # type: ignore[arg-type]
     assert "Usage" in update.message.replies[0][0]
-    audit = bridge.wake.audit_path.read_text()
-    assert audit.count("action=watchdog-switch") == 2 and "via=telegram" in audit
 
 
 @pytest.mark.parametrize("allowed", [[], [7]])
@@ -856,6 +1082,7 @@ async def test_telegram_toggle_is_not_for_strangers_or_an_empty_allowlist(
     update = _message_update(42, "/watchdog on")
     await bridge._handle_message(update, None)  # type: ignore[arg-type]
     assert update.message.replies == [] and not bridge.watchdog_store.view().enabled
+    assert bridge._watchdog_confirms == {}
 
 
 async def test_telegram_relays_each_event_once_across_restarts(

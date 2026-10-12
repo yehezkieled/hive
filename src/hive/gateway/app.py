@@ -38,7 +38,7 @@ from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider, project_notes
 from hive.gateway.tail import peek
 from hive.gateway.wake import WakeService
-from hive.gateway.watchdog import ConfigError, Watchdog, WatchdogStore
+from hive.gateway.watchdog import ON_DETAIL, ConfigError, Watchdog, WatchdogStore
 
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
@@ -727,15 +727,6 @@ async def _firstmate(
     return await runs.run(rid, run)
 
 
-WATCHDOG_ON_DETAIL = (
-    "Hive will then wake or restart the firstmate session by itself when its watcher stays "
-    "silent while work is under way: one Wake after 10 minutes, one Restart session after 10 "
-    "more, then it stops and alerts you. At most 2 automatic restarts in 6 hours, never while "
-    "firstmate is mid-turn. It touches no worker, merges nothing and decides nothing. "
-    "Switching it off here stops it at once."
-)
-
-
 async def _watchdog(
     form: dict[str, str],
     watchdog: Watchdog,
@@ -756,7 +747,7 @@ async def _watchdog(
         step = tokens.step_up("watchdog", f"firstmate:{rid}")
         return Confirm(
             "Turn on automatic recovery",
-            WATCHDOG_ON_DETAIL,
+            ON_DETAIL,
             "watchdog",
             {"rid": rid, "step": step, "to": "on"},
             "Tap again to turn on",
