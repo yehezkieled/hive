@@ -30,7 +30,7 @@ from hive.gateway.chat import load_chat
 from hive.gateway.describe import Describer, Item
 from hive.gateway.desk import Desk, build_desk
 from hive.gateway.live import LiveHub
-from hive.gateway.push import PushService, valid_subscription
+from hive.gateway.push import Alert, PushService, valid_subscription
 from hive.gateway.quota import Quota, QuotaProvider
 from hive.gateway.repos import RepoNames
 from hive.gateway.reviews import Review, read_reviews, session_file
@@ -38,6 +38,7 @@ from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import Snapshot, SnapshotProvider, project_notes
 from hive.gateway.tail import peek
 from hive.gateway.wake import WakeService
+from hive.gateway.watchdog import ON_DETAIL, ConfigError, Watchdog, WatchdogStore
 
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
@@ -136,6 +137,7 @@ def create_app(
     tokens: Tokens | None = None,
     describer: Describer | None = None,
     wake: WakeService | None = None,
+    watchdog: Watchdog | None = None,
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
@@ -148,13 +150,31 @@ def create_app(
     push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
     hub = LiveHub(settings, provider, push.notify)
 
+    async def work_underway() -> bool | None:
+        """Loops running or tickets in flight, from the cached snapshot; None if unreadable."""
+        snap = await provider.get()
+        if snap.data is None:
+            return None
+        desk = build_desk(snap.data)
+        return any(p.running or p.count("in_flight") for p in desk.projects.values())
+
+    async def announce(event: dict) -> None:
+        """A watchdog event: refresh open desks, and push the ones that need the captain."""
+        hub.publish("desk")
+        if event.get("level") in ("warn", "alert") and event.get("text"):
+            await push.notify(Alert("watchdog", "Firstmate recovery", str(event["text"]), "/"))
+
+    watchdog = watchdog or Watchdog(wake, WatchdogStore(settings.data_dir), work_underway, announce)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if settings.live:
             hub.start()
+            watchdog.start()
         try:
             yield
         finally:
+            await watchdog.stop()
             await hub.stop()
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -199,6 +219,7 @@ def create_app(
             postures=postures,
             firstmate=wake.status.peek(),
             wake_enabled=wake.available,
+            watchdog=watchdog.store.view(),
         )
 
     async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
@@ -380,6 +401,13 @@ def create_app(
             )
         rid = form.get("rid", "")
         try:
+            if name == "watchdog":  # the recovery switch; needs no snapshot either
+                result = await _watchdog(form, watchdog, settings, tokens, runs)
+                if isinstance(result, Confirm):
+                    return confirm_response(result, nxt, tokens, wants_json)
+                if wants_json:
+                    return JSONResponse({"ok": True, "message": result.summary})
+                return HTMLResponse(pages.render_outcome(result, nxt))
             if name in FIRSTMATE_ACTIONS:  # must work while firstmate's snapshot is unreadable
                 result = await _firstmate(name, form, wake, settings, tokens, runs)
                 if isinstance(result, Confirm):
@@ -695,6 +723,45 @@ async def _firstmate(
         if not result.ok:
             raise ActionError(result.message, WAKE_STATUS.get(result.outcome, 502))
         return Outcome(name, "firstmate", result.message)
+
+    return await runs.run(rid, run)
+
+
+async def _watchdog(
+    form: dict[str, str],
+    watchdog: Watchdog,
+    settings: GatewaySettings,
+    tokens: Tokens,
+    runs: RunOnce,
+) -> Outcome | Confirm:
+    """Turn automatic recovery on (after a confirm step) or off (at once: the kill switch)."""
+    rid = form.get("rid", "")
+    on = form.get("to") == "on"
+    if form.get("to") not in ("on", "off"):
+        raise ActionError("Choose on or off.", 400)
+    if on and (
+        not actions.REQUEST_ID_RE.fullmatch(rid)
+        or not tokens.check_step_up(form.get("step", ""), "watchdog", f"firstmate:{rid}")
+    ):
+        rid = actions.new_request_id()
+        step = tokens.step_up("watchdog", f"firstmate:{rid}")
+        return Confirm(
+            "Turn on automatic recovery",
+            ON_DETAIL,
+            "watchdog",
+            {"rid": rid, "step": step, "to": "on"},
+            "Tap again to turn on",
+            warn=True,
+        )
+    if not actions.REQUEST_ID_RE.fullmatch(rid):
+        rid = actions.new_request_id()
+
+    async def run() -> Outcome:
+        try:
+            text = await watchdog.set_enabled(on, settings.owner_login, "desk")
+        except ConfigError as exc:
+            raise ActionError(f"Not turned on: {exc}. Fix the watchdog config first.", 409) from exc
+        return Outcome("watchdog", "firstmate", text)
 
     return await runs.run(rid, run)
 

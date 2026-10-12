@@ -144,8 +144,9 @@ def test_fallback_when_snapshot_unusable(tmp_path: Path, body: str) -> None:
         res = c.get(path, headers=GOOD)
         assert res.status_code == 200
         assert "Read-only fallback" in res.text
-        # the wake form is the one write that stays: firstmate may be why the desk is read-only
-        assert res.text.count("<form") == res.text.count("action='/act/wake'")
+        # the wake, restart and recovery forms stay: firstmate may be why the desk is read-only
+        names = ("wake", "restart", "watchdog")
+        assert res.text.count("<form") == sum(res.text.count(f"action='/act/{n}'") for n in names)
 
 
 def test_missing_script_falls_back(tmp_path: Path) -> None:

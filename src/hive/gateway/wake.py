@@ -51,6 +51,9 @@ VERIFY_WAIT_S = 10.0  # how long a restart waits to see the new session's proces
 HERDR_TIMEOUT_S = 10.0
 HERDR_SOURCE = "hive-wake"  # the source id Hive's stale-pane release reports to herdr
 _MAX_OUTPUT = 64 * 1024
+MANUAL_MARK = "watchdog-manual"  # touched by every manual wake or restart, for the watchdog
+# Outcomes that stopped and started nothing; the watchdog announces these itself, once.
+HELD_BACK = ("refused", "rate-limited", "unavailable")
 CLAUDE_HOME = Path.home() / ".claude"
 
 # (exit code, output) of the fleet-up firstmate step; replaced by a fake in tests.
@@ -317,7 +320,7 @@ class WakeService:
         path = self.settings.fleet_up
         return path if path is not None and path.is_file() else None
 
-    def _audit(self, action: str, who: str, via: str, outcome: str, detail: str) -> None:
+    def audit(self, action: str, who: str, via: str, outcome: str, detail: str) -> None:
         stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         line = (
             f"{stamp} action={action} who={_clean(who, 80) or '-'} via={via} "
@@ -330,6 +333,18 @@ class WakeService:
                 fh.write(line)
         except OSError:
             pass  # an unwritable log must not turn a wake into a failure
+
+    def _mark_manual(self) -> None:
+        """Tell the watchdog a person acted: its ladder resets on its next look (any process)."""
+        try:
+            self.settings.data_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.settings.data_dir / (MANUAL_MARK + ".tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                fh.write(str(time.time()))
+            os.replace(tmp, self.settings.data_dir / MANUAL_MARK)
+        except OSError:
+            pass  # a failed mark only means the ladder resets when firstmate beats again
 
     def _claim(self, now: float) -> float:
         """Take the cooldown slot across processes. Returns 0 when taken, else seconds to wait."""
@@ -373,7 +388,11 @@ class WakeService:
                 result = WakeResult("unavailable", "fleet-up script not found")
             else:
                 result = await step(runner)
-        self._audit(action, who, via, result.outcome, result.message)
+        if via != "watchdog":
+            self.audit(action, who, via, result.outcome, result.message)
+            self._mark_manual()
+        elif result.outcome not in HELD_BACK:
+            self.audit(action, who, via, result.outcome, result.message)
         return result
 
     async def _cooldown(self) -> WakeResult | None:

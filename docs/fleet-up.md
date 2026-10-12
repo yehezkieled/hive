@@ -120,6 +120,67 @@ outcome) in `<HIVE_GATEWAY_DATA_DIR>/wake-audit.log` (default
 `HIVE_GATEWAY_*` environment as the gateway so both read the same data dir and
 firstmate home.
 
+### Automatic recovery (watchdog ladder)
+
+Hive can wake or restart firstmate by itself when it goes silent
+([ADR 0034](adr/0034-automatic-firstmate-recovery-ladder.md)). It is **off by
+default**; nothing below runs until the owner switches it on.
+
+**Switch it on or off**: the desk's firstmate chip opens a panel with
+*Automatic recovery: off/on/halted*, the latest events and a **Turn on** /
+**Turn off** button (owner-only; turning on takes a second tap, turning off is
+immediate and is the kill switch). The same switch on Telegram, for ids in
+`TELEGRAM_ALLOWED_USER_IDS` only: `/watchdog on` (answers with a Confirm /
+Cancel button bound to that chat and message, valid once for 2 minutes),
+`/watchdog off` (immediate), `/watchdog status`. The switch lives in `<HIVE_GATEWAY_DATA_DIR>/watchdog.json`
+(mode 0600, Hive's own file, never firstmate's), and every flip is audited.
+Switching it off then on also clears a halt.
+
+**The ladder** (it only looks while work is under way: a working crew or an
+in-flight ticket in firstmate's snapshot):
+
+1. watcher beat older than **T1 = 10 min**: **Wake** at once if no firstmate
+   session runs; a running session with a silent watcher is not restarted
+   here, only announced, which starts its T2 grace;
+2. still silent **T2 = 10 min** after step 1: **one Restart session** (one more
+   Wake if the session is down again);
+3. still silent **30 min** after step 1 (T3 = 40 min counted as T1 + 30), with
+   the last step given at least T2 to work, or **2 automatic restarts in 6 h**
+   already used: it **stops** and alerts you on Telegram, the desk and Web Push.
+   No more attempts until firstmate beats again, you Wake or Restart it by
+   hand, or you switch it off and on.
+
+T2 and T3 count from step 1, not from the beat's age, so a beat that is already
+hours old when you switch it on (or when the gateway comes back) still gets
+step 1 first (a Wake, or the announcement and grace), never a Restart or halt; a missing beat record only ages while work is under way. When work stops (or
+firstmate beats again) the episode ends: the next silence starts at step 1 with
+a fresh grace, while the 6 h restart cap and the cooldown carry over (a halt
+stays until firstmate beats, you act by hand, or you switch it off and on).
+
+**Guards**: every action is `WakeService.wake` / `restart`, so it runs
+fleet-up's firstmate step and nothing else, never starts a second firstmate, and
+never restarts a session that was mid-turn in the last 5 minutes (Restart's own
+refusal; the rung is then handed back and retried, announced once per episode). At least 15 min between two
+automatic restarts. A manual Wake or Restart resets the ladder. It never touches
+a worker, never merges, never decides. Firstmate's settings
+(`data/projects.md`, `config/crew-dispatch.json`, `config/crew-harness`,
+`config/claude-permission-mode`) are only read, through `fmconfig`: if they are
+missing or unparsable it does nothing and alerts once. An unparsable
+`watchdog.json` means off, plus one alert.
+
+**Thresholds** (all in `watchdog.json`, with these defaults):
+`silent_after_s` 600, `restart_after_s` 600, `give_up_after_s` 2400,
+`restart_cooldown_s` 900, `max_restarts` 2, `window_s` 21600 (needs
+`give_up_after_s` > `silent_after_s` + `restart_after_s`).
+
+**State and audit**: the ladder position, the automatic-restart history and the
+event log are one file, `watchdog-state.json`, written *before* each action, so
+a gateway restart never repeats a step. Each step and decision is one line in
+`wake-audit.log` (`who=watchdog via=watchdog`). The gateway writes the events;
+`hive-telegram` relays them to the chat (its `watchdog-telegram-cursor` file
+keeps a restart from resending), so it needs the same `HIVE_GATEWAY_*`
+environment as the gateway.
+
 ## Hive runtime with Telegram
 
 `hive-telegram` runs `python -m hive`: the full Hive runtime (Vault rail,

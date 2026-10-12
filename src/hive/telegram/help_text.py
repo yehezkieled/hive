@@ -35,7 +35,7 @@ CATEGORIES = (
 
 
 HELP_TEXT: dict[str, HelpEntry] = {
-    # Status — alphabetical: audit, health, heartbeat, status, wake
+    # Status — alphabetical: audit, health, heartbeat, status, wake, watchdog
     "audit": HelpEntry(
         category="Status",
         usage="/audit [prefix]",
@@ -70,6 +70,12 @@ HELP_TEXT: dict[str, HelpEntry] = {
         usage="/wake",
         description="Show firstmate's status, with a button to wake or restart it.",
         examples=("/wake",),
+    ),
+    "watchdog": HelpEntry(
+        category="Status",
+        usage="/watchdog on|off|status",
+        description="Turn firstmate's automatic recovery on (after a confirm) or off, or show it.",
+        examples=("/watchdog status", "/watchdog on", "/watchdog off"),
     ),
     # Messaging — message (the /a: addressing form folds in here)
     "message": HelpEntry(

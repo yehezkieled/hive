@@ -10,7 +10,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from html import escape as esc
 from urllib.parse import quote, urlencode, urlsplit
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from hive.gateway import fmconfig
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
@@ -32,6 +32,7 @@ from hive.gateway.reviews import Review
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
 from hive.gateway.wake import FirstmateStatus
+from hive.gateway.watchdog import View
 
 CSS = """
 @font-face{font-family:"IBM Plex Mono";font-weight:400;font-display:swap;src:url(/fonts/ibm-plex-mono-400.woff2) format("woff2")}
@@ -152,6 +153,8 @@ min-width:210px;color:var(--ink-2)}
 .qpop__alerts #alerts-note:empty{display:none}
 .qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
 .fmpop{white-space:normal;max-width:min(300px,86vw)}.fmpop p{margin:0 0 8px}.fmpop form{margin:0}
+.wdpanel{margin-top:6px;padding-top:8px;border-top:1px solid var(--rule-faint)}.wdpanel p{margin:0 0 6px}
+.wdlog{list-style:none;margin:6px 0 0;padding:0;font-size:12px;color:var(--ink-4)}.wdlog li{padding:2px 0}
 .qpop b{color:var(--ink)}.qpop span,.qpop b{white-space:nowrap}.qpop .qpop__note{color:var(--ink-4)}
 /* the Stack home (docs/design/T002-stack-home.html) */
 .screen{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.4}
@@ -601,7 +604,7 @@ clearTimeout(fm.rvT);extra.step=step;extra.rid=fm.getAttribute('data-rid');
 rvPost(fm,extra,function(j){rvDisarm(fm);
 if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bulk')&&row.parentNode)row.parentNode.removeChild(row);refreshMain();}
 else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
-var CONFIRMED={merge:1,control:1,wake:1,restart:1};
+var CONFIRMED={merge:1,control:1,wake:1,restart:1,watchdog:1};
 function actName(fm){return (fm.getAttribute('action')||'').replace('/act/','');}
 function actWarn(fm,t){var w=fm.querySelector('.act-warn');if(!t){if(w)w.parentNode.removeChild(w);return;}
 if(!w){w=document.createElement('p');w.className='act-warn';w.setAttribute('role','alert');fm.appendChild(w);}w.textContent=t;}
@@ -774,6 +777,7 @@ class Ctx:
         project_notes: dict[str, str] | None = None,
         firstmate: FirstmateStatus | None = None,
         wake_enabled: bool = False,
+        watchdog: View | None = None,
         postures: fmconfig.Projects | None = None,
     ) -> None:
         self.postures = postures  # firstmate's project registry; None: not read
@@ -788,6 +792,7 @@ class Ctx:
         self.project_notes = project_notes or {}  # registry name -> one-line project description
         self.repos = repos or {}  # registry name -> GitHub repo name (when it differs)
         self.firstmate = firstmate  # cached liveness; None: not read yet
+        self.watchdog = watchdog  # automatic recovery: switch, ladder, latest events
         self.wake_enabled = wake_enabled  # the wake form is shown (the action may still refuse)
 
     def show(self, name: str) -> str:
@@ -921,6 +926,52 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
     )
 
 
+def _watchdog_panel(ctx: Ctx) -> str:
+    """Automatic recovery: its switch (owner-only, like Wake), where the ladder stands and the
+    latest events. Shown even while the snapshot is unreadable, like the wake forms."""
+    wd = ctx.watchdog
+    if wd is None or not ctx.wake_enabled:
+        return ""
+    if wd.enabled:
+        button = "<button name=to value=off class=danger type=submit>Turn off</button>"
+    else:
+        button = "<button name=to value=on class=danger type=submit>Turn on</button>"
+    form = ctx.form("watchdog", button, always=True)
+    state = f"Automatic recovery: {esc(wd.label)}"
+    if wd.config_error:
+        state += f" · {esc(wd.config_error)}"
+    elif wd.halted:
+        state += f" · {esc(wd.halted_reason)}"
+    elif wd.enabled and wd.stage:
+        state += f" · rung {wd.stage} of 2 taken"
+    rows = "".join(
+        f"<li><time datetime='{esc(_iso(e.get('at')))}'>{esc(_clock_hm(e.get('at'), ctx.tz))}"
+        f"</time> {esc(str(e.get('text', '')))}</li>"
+        for e in wd.events
+    )
+    log = f"<ul class=wdlog>{rows}</ul>" if rows else ""
+    return f"<section class=wdpanel><p>{state}</p>{form}{log}</section>"
+
+
+def _iso(value: object) -> str:
+    try:
+        return datetime.fromtimestamp(float(value), UTC).isoformat()  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def _clock_hm(value: object, tz: str) -> str:
+    try:
+        when = datetime.fromtimestamp(float(value), UTC)  # type: ignore[arg-type]
+        try:
+            when = when.astimezone(ZoneInfo(tz))
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+        return when.strftime("%H:%M")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
 _FM_DOT = {"alive": "ok", "no-beat": "warn", "down": "hot"}
 
 
@@ -948,6 +999,7 @@ def _fm_chip(ctx: Ctx) -> str:
             "<button class=danger type=submit>Restart session</button>",
             always=True,
         )
+    wake += _watchdog_panel(ctx)
     return (
         "<details class=qwrap id=fmchip>"
         f"<summary class='qchip qchip--{_FM_DOT.get(state, 'unknown')}' "

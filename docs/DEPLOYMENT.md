@@ -1388,7 +1388,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
-| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key and push subscriptions, files mode 0600, outside the repo so they cannot be committed) |
+| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake audit log and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate and Restart session actions run its `--only firstmate` step; `off` removes both) |
