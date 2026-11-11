@@ -14,7 +14,8 @@ Files (all shipped in this repo, none installed by it):
 | `deploy/systemd/hive-gateway.service` | Gateway, `Restart=always`. |
 | `deploy/systemd/clip-desk.service` | Clip desk (`~/apps/clip-desk`, loopback :8492, tailnet https 8448), `Restart=always`. Never port 8490: it is stuck in Windows' WSL relay. |
 | `deploy/systemd/hive-fleet-up.{service,timer}` | Runs fleet-up at boot and every 5 minutes. |
-| `deploy/windows/Register-HiveWsl.ps1` | Task Scheduler task that starts and holds WSL. |
+| `deploy/windows/Register-HiveWsl.ps1` | Task Scheduler task that starts and holds WSL, restarting it 10 s after it ends. |
+| `deploy/windows/Install-HiveAnywhere.ps1` | One-sitting Windows setup (Tailscale unattended, auto sign-in then lock, keep-alive, `.wslconfig`, admin helper). See [`anywhere-sitting.md`](anywhere-sitting.md). |
 | `deploy/systemd/hive-telegram.service` | Hive runtime with Telegram (`python -m hive`), `Restart=always`, only if configured; `Conflicts=hive.service`. |
 | `scripts/hive-telegram.sh` | Wrapper: loads the env file, skips cleanly when token/allowlist are missing or another Hive runtime runs. |
 | `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Hive runtime with Telegram, `KeepAlive` on crash only. |
@@ -246,12 +247,18 @@ Then, in an elevated PowerShell on Windows:
 .\deploy\windows\Register-HiveWsl.ps1             # register
 ```
 
-The task runs `wsl.exe -d Ubuntu -u hezki --exec /usr/bin/sleep infinity`
-hidden, at startup and at logon, and restarts if it ends. Holding a process
-keeps the WSL VM (and so the systemd user services) alive. Use `-Distro` and
-`-User` if yours differ. [UNSURE] An S4U task runs without a stored password
-but only while the machine is up; confirm after the first reboot with
-`wsl -l -v` and `systemctl --user status hive-gateway`.
+The task runs a hidden loop that starts
+`wsl.exe -d Ubuntu -u hezki --exec /usr/bin/sleep infinity` and starts it again
+10 seconds after it ends, at startup and at logon. Holding a process keeps the
+WSL VM (and so the systemd user services) alive. Use `-Distro` and `-User` if
+yours differ. [UNSURE] An S4U task runs without a stored password but only
+while the machine is up; confirm after the first reboot with `wsl -l -v` and
+`systemctl --user status hive-gateway`.
+
+With auto sign-in (the captain's PC), use `-LogonOnly` instead: the task runs
+at this user's logon in the signed-in session, like the old Startup-folder
+`wsl-keepalive.vbs`. `Install-HiveAnywhere.ps1` does this, together with the
+rest of the one-sitting setup in [`anywhere-sitting.md`](anywhere-sitting.md).
 
 ### Windows uninstall
 
@@ -319,8 +326,10 @@ on it.
   updating", and consider Group Policy "No auto-restart with logged on users
   for scheduled automatic updates installations".
 - **WSL idle shutdown**: `Register-HiveWsl.ps1` keeps a process attached; also
-  set `vmIdleTimeout=-1` under `[wsl2]` in `%UserProfile%\.wslconfig` on WSL
-  builds that support it. [UNSURE] Key availability depends on the WSL version.
+  set `vmIdleTimeout=-1` under `[wsl2]` and `instanceIdleTimeout=-1` under
+  `[general]` in `%UserProfile%\.wslconfig` (`Install-HiveAnywhere.ps1` does
+  both). [UNSURE] Key availability depends on the WSL version; unknown keys
+  are ignored.
 - **Wake-on-LAN**: possible only for waking a sleeping or powered-off PC from
   another device on the same LAN, not over the tailnet by itself (magic
   packets are broadcast on the LAN; a second always-on device on the LAN, such
