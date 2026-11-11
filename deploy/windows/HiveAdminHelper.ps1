@@ -13,14 +13,15 @@
       <nonce> <verb> [<number>]
 
   - nonce:  8-64 characters, letters, digits, '-' or '_'. A nonce already
-            handled is ignored, so starting the task twice runs nothing twice.
+            consumed in the last 200 requests is ignored.
   - verb:   one of the allow-list below. Nothing else is ever run.
   - number: only for verbs that take one, digits only, range-checked.
 
   Anything else is rejected and logged as rejected, without echoing the text.
   Every call appends one line to C:\ProgramData\HiveAdmin\audit.log.
 
-  The helper never runs text from the request. It only uses the request to
+  The helper removes the request file before validating or acting on it. It
+  never runs text from the request. It only uses the request to
   pick one of the fixed handlers in Invoke-HiveAdminVerb, and the number is
   passed on only as a range-checked [int].
 
@@ -236,54 +237,83 @@ function Test-HiveNotReparse {
   return -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
 }
 
-function Invoke-HiveAdminHelperMain {
-  # Only system module paths; the elevated process never loads user modules.
-  $env:PSModulePath = (Join-Path $PSHOME 'Modules')
+function Add-HiveConsumedNonce {
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$Nonce, [Parameter(Mandatory)][string]$StateFile)
+
+  $nonces = @()
+  if (Test-Path -LiteralPath $StateFile -PathType Leaf) {
+    $nonces = @([System.IO.File]::ReadAllLines($StateFile))
+  }
+  foreach ($existing in $nonces) {
+    if ([string]::Equals($existing, $Nonce, [System.StringComparison]::Ordinal)) { return $false }
+  }
+  $nonces += $Nonce
+  if ($nonces.Count -gt 200) { $nonces = @($nonces | Select-Object -Last 200) }
+  [System.IO.File]::WriteAllLines($StateFile, [string[]]$nonces, [System.Text.Encoding]::ASCII)
+  return $true
+}
+
+function Invoke-HiveAdminRequest {
+  [CmdletBinding()]
 
   $requestDir = Join-Path $script:HiveAdminRoot 'request'
   $requestFile = Join-Path $requestDir 'request.txt'
-  $stateFile = Join-Path (Join-Path $script:HiveAdminRoot 'state') 'last-nonce'
+  $stateFile = Join-Path (Join-Path $script:HiveAdminRoot 'state') 'consumed-nonces'
 
   $nonce = '-'; $verb = '-'; $argText = '-'
   try {
     if (-not (Test-Path -LiteralPath $requestFile -PathType Leaf)) {
       Write-HiveAdminAudit $nonce $verb $argText 'ignored' 'no request file'
-      return
+      return $true
     }
     if (-not (Test-HiveNotReparse $script:HiveAdminRoot) -or -not (Test-HiveNotReparse $requestDir) -or -not (Test-HiveNotReparse $requestFile)) {
       Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request path is a link'
-      return
+      return $true
     }
-    if ((Get-Item -LiteralPath $requestFile).Length -gt $script:HiveAdminMaxRequestBytes) {
+    $tooLong = (Get-Item -LiteralPath $requestFile).Length -gt $script:HiveAdminMaxRequestBytes
+    $bytes = if ($tooLong) { $null } else { [System.IO.File]::ReadAllBytes($requestFile) }
+    if (-not (Test-HiveNotReparse $requestDir) -or -not (Test-HiveNotReparse $requestFile)) {
+      Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request path changed to a link'
+      return $true
+    }
+    [System.IO.File]::Delete($requestFile)
+    if (Test-Path -LiteralPath $requestFile) {
+      Write-HiveAdminAudit $nonce $verb $argText 'failed' 'request file could not be removed'
+      return $false
+    }
+    if ($tooLong) {
       Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request too long'
-      return
+      return $true
     }
-    # Read only; the helper never writes or deletes in the user-writable folder.
-    $bytes = [System.IO.File]::ReadAllBytes($requestFile)
     try {
       $req = ConvertFrom-HiveAdminRequest -Bytes $bytes
     } catch {
       Write-HiveAdminAudit $nonce $verb $argText 'rejected' $_.Exception.Message
-      return
+      return $true
     }
     $nonce = $req.Nonce; $verb = $req.Verb
     if ($null -ne $req.Arg) { $argText = [string]$req.Arg }
 
-    $last = $null
-    if (Test-Path -LiteralPath $stateFile) { $last = ([System.IO.File]::ReadAllText($stateFile)).Trim() }
-    if ($last -eq $nonce) {
+    if (-not (Add-HiveConsumedNonce -Nonce $nonce -StateFile $stateFile)) {
       Write-HiveAdminAudit $nonce $verb $argText 'ignored' 'nonce already handled'
-      return
+      return $true
     }
-    [System.IO.File]::WriteAllText($stateFile, $nonce, [System.Text.Encoding]::ASCII)
 
     Write-HiveAdminAudit $nonce $verb $argText 'started' ''
     $detail = Invoke-HiveAdminVerb -Verb $req.Verb -Arg $req.Arg
     Write-HiveAdminAudit $nonce $verb $argText 'ok' ([string]$detail)
+    return $true
   } catch {
     Write-HiveAdminAudit $nonce $verb $argText 'failed' $_.Exception.Message
-    exit 1
+    return $false
   }
+}
+
+function Invoke-HiveAdminHelperMain {
+  # Only system module paths; the elevated process never loads user modules.
+  $env:PSModulePath = (Join-Path $PSHOME 'Modules')
+  if (-not (Invoke-HiveAdminRequest)) { exit 1 }
 }
 
 # Tests load the functions above from the syntax tree and never reach this line.

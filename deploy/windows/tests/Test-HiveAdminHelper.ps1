@@ -88,6 +88,59 @@ Assert-True ($w.Start -eq '2026-11-11T01:02:03Z') "pause start '$($w.Start)'"
 Assert-True ($w.End -eq '2026-11-18T01:02:03Z') "pause end '$($w.End)'"
 Assert-True ($null -ne (& { try { Get-HivePauseWindow -Days 36 -NowUtc ([datetime]::UtcNow) } catch { 'threw' } })) 'days 36 must throw'
 
+function New-TestHiveRoot {
+  $root = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+  [void](New-Item -ItemType Directory -Path (Join-Path $root 'request') -Force)
+  [void](New-Item -ItemType Directory -Path (Join-Path $root 'state') -Force)
+  $script:HiveAdminRoot = $root
+  return $root
+}
+function Set-TestHiveRequest([string]$Root, [string]$Line) {
+  [System.IO.File]::WriteAllText((Join-Path (Join-Path $Root 'request') 'request.txt'), $Line, [System.Text.Encoding]::ASCII)
+}
+function Invoke-HiveAdminVerb([string]$Verb, $Arg) {
+  $script:ranVerbs += $Verb
+  if ($script:failVerb) { throw 'stub failure' }
+  return "stub:$Verb"
+}
+$root = New-TestHiveRoot
+$script:ranVerbs = @()
+$script:failVerb = $false
+Set-TestHiveRequest $root 'Aaaaaaaa restart-pc'
+Assert-True (Invoke-HiveAdminRequest) 'first request is handled'
+Set-TestHiveRequest $root 'Bbbbbbbb ping'
+Assert-True (Invoke-HiveAdminRequest) 'second request is handled'
+Set-TestHiveRequest $root 'Aaaaaaaa restart-pc'
+Assert-True (Invoke-HiveAdminRequest) 'replayed request is ignored'
+Assert-True (($script:ranVerbs -join ',') -ceq 'restart-pc,ping') 'A, B, A runs only A and B once'
+Assert-True (-not (Test-Path (Join-Path (Join-Path $root 'request') 'request.txt'))) 'request file is gone after handling'
+Remove-Item -LiteralPath $root -Recurse -Force
+
+$root = New-TestHiveRoot
+$script:failVerb = $true
+Set-TestHiveRequest $root 'Cccccccc restart-pc'
+Assert-True (-not (Invoke-HiveAdminRequest)) 'action failure is reported'
+Assert-True (-not (Test-Path (Join-Path (Join-Path $root 'request') 'request.txt'))) 'request file is gone after action failure'
+Remove-Item -LiteralPath $root -Recurse -Force
+
+$root = New-TestHiveRoot
+$script:failVerb = $false
+Set-TestHiveRequest $root 'invalid request'
+Assert-True (Invoke-HiveAdminRequest) 'invalid request is rejected without a task failure'
+Assert-True (-not (Test-Path (Join-Path (Join-Path $root 'request') 'request.txt'))) 'request file is gone after validation failure'
+Remove-Item -LiteralPath $root -Recurse -Force
+
+$root = New-TestHiveRoot
+$stateFile = Join-Path (Join-Path $root 'state') 'consumed-nonces'
+for ($i = 0; $i -lt 201; $i++) {
+  $value = 'N' + $i.ToString('D7')
+  $null = Add-HiveConsumedNonce -Nonce $value -StateFile $stateFile
+}
+$stored = @([System.IO.File]::ReadAllLines($stateFile))
+Assert-True ($stored.Count -eq 200) 'nonce history is capped at 200 entries'
+Assert-True ($stored[0] -ceq 'N0000001' -and $stored[-1] -ceq 'N0000200') 'nonce history retains the latest 200 entries'
+Remove-Item -LiteralPath $root -Recurse -Force
+
 Write-Output "passed=$script:passes failed=$script:failures"
 if ($script:failures -gt 0) { exit 1 }
 exit 0

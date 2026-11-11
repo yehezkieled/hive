@@ -81,11 +81,12 @@ appending an audit-log line.
    (`/mnt/c/ProgramData/HiveAdmin/request/request.txt` from WSL):
    `<nonce> <verb> [<number>]`, ASCII, at most 128 bytes, optional line end.
    The nonce is 8 to 64 of `A-Z a-z 0-9 - _`, starting with a letter or digit,
-   and new for each request.
+   and new for each request. Requests are removed before validation or action;
+   a nonce in the last 200 consumed requests is ignored.
 2. `schtasks.exe /run /tn '\Hive\Hive Admin Helper'`
 3. Read `C:\ProgramData\HiveAdmin\audit.log` for lines with that nonce:
    `started`, then `ok` or `failed`. A request that does not validate is logged
-   as `rejected` with a reason. A nonce seen last time is `ignored`.
+   as `rejected` with a reason. A recently consumed nonce is `ignored`.
 
 ### Why it cannot run anything else
 
@@ -98,7 +99,7 @@ appending an audit-log line.
 | Code is admin-only | The helper lives in `C:\Program Files\Hive\AdminHelper\`: SYSTEM and Administrators full control, Users read. Nothing running as the user can change what SYSTEM runs. |
 | Runs as SYSTEM | Not as the user, so the user's environment variables and profile do not reach the elevated process. |
 | Task is start-only | The task's permissions: SYSTEM and Administrators full; this user read and run only, so the user cannot change its action. |
-| Read-only on user ground | The helper only reads the request folder. It never writes or deletes there, and refuses if the folder or file is a link. Its state (`state\last-nonce`, admin-only) and the audit log are in admin-owned folders. |
+| Request handling | The helper removes the request file before validation or action, and refuses removal if the request folder or file is a link. Its last 200 consumed nonces (`state\consumed-nonces`) and the audit log are in admin-owned folders. |
 | Audit | Every start appends one line, including rejected and ignored ones. Rejection reasons never echo the request text. |
 
 **Plainly: anything that runs as the captain's Windows user, or as any agent
