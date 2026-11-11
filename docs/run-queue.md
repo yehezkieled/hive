@@ -87,12 +87,10 @@ only **Check the admin helper** is offered.
 
 ## Configuration
 
-| Env | Default |
-|---|---|
-| `HIVE_GATEWAY_ADMIN_HELPER` | `/mnt/c/ProgramData/HiveAdmin` (the helper's request folder and audit log; `off` removes the Windows buttons) |
-| `HIVE_GATEWAY_SCHTASKS` | `schtasks.exe` on `PATH`, else `/mnt/c/Windows/System32/schtasks.exe` (starts the helper's task, `/run /tn '\Hive\Hive Admin Helper'` only; `off` removes the Windows buttons) |
-| `HIVE_GATEWAY_SYSTEMCTL` | `systemctl` on `PATH` (the Linux buttons; without it they show "Not on this host") |
-| `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (Repair the serve maps) |
+The env settings it reads (`HIVE_GATEWAY_ADMIN_HELPER`, `HIVE_GATEWAY_SCHTASKS`,
+`HIVE_GATEWAY_SYSTEMCTL`, `HIVE_GATEWAY_FLEET_UP`) are in the gateway env table in
+[DEPLOYMENT.md](DEPLOYMENT.md#gateway-desk-adr-0030). Without `systemctl` the Linux
+buttons show "Not on this host".
 
 ## Tests
 
