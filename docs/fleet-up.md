@@ -15,9 +15,10 @@ Files (all shipped in this repo, none installed by it):
 | `deploy/systemd/clip-desk.service` | Clip desk (`~/apps/clip-desk`, loopback :8492, tailnet https 8448), `Restart=always`. Never port 8490: it is stuck in Windows' WSL relay. |
 | `deploy/systemd/hive-fleet-up.{service,timer}` | Runs fleet-up at boot and every 5 minutes. |
 | `deploy/windows/Register-HiveWsl.ps1` | Task Scheduler task that starts and holds WSL. |
-| `deploy/systemd/hive-telegram.service` | Hive runtime with Telegram (`python -m hive`), `Restart=always`, only if configured; `Conflicts=hive.service`. |
-| `scripts/hive-telegram.sh` | Wrapper: loads the env file, skips cleanly when token/allowlist are missing or another Hive runtime runs. |
-| `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Hive runtime with Telegram, `KeepAlive` on crash only. |
+| `deploy/systemd/hive-telegram.service` | The Telegram bot (`python -m hive.telegram`, [telegram.md](telegram.md)), `Restart=always`, only if configured; `Conflicts=hive.service`. |
+| `scripts/hive-telegram.sh` | Wrapper: reads the private config, skips cleanly when it is missing, malformed, loose, rejected by Telegram, or another Hive runtime runs. |
+| `scripts/telegram-setup.sh` | Writes, rotates or removes the bot's token and allowlist (hidden prompt, mode 0600). |
+| `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Telegram bot, `KeepAlive` on crash only. |
 | `deploy/macos/com.hive.gateway.plist` | LaunchAgent, `RunAtLoad` + `KeepAlive`. |
 | `deploy/macos/com.hive.clip-desk.plist` | LaunchAgent for the clip desk, `RunAtLoad` + `KeepAlive`. |
 | `deploy/macos/com.hive.fleet-up.plist` | LaunchAgent, `RunAtLoad` + every 5 minutes, `AbandonProcessGroup` so started services outlive it. |
@@ -25,8 +26,7 @@ Files (all shipped in this repo, none installed by it):
 ## What fleet-up does
 
 In order: Hive gateway (:8480, via the service manager), the clip desk (:8492,
-via `clip-desk.service`), the Hive runtime with
-Telegram (via its service), broke-no-more (:3001), the Lavish bridge
+via `clip-desk.service`), the Telegram bot (via its service), broke-no-more (:3001), the Lavish bridge
 (`node lavish-proxy.js`, :4388), the preview server (:8765), then
 `tailscale serve --bg --https=8443..8446,8448` to the local ports (tailnet only,
 never `funnel`), then firstmate. Step names for `--only`: `gateway clipdesk runtime bnm
@@ -108,10 +108,10 @@ is unreadable.
 Restart session when the watcher is silent). A tapped button is removed. Restart
 first posts "This stops the running firstmate session and starts a new one.
 Confirm?" with Confirm and Cancel; only Confirm restarts, once, within 2 minutes,
-on that same message in that same chat. Only ids in
-`TELEGRAM_ALLOWED_USER_IDS` are served; an empty allowlist serves nobody for this
-command (the other commands keep their behaviour), and anyone else gets no reply
-and no effect.
+on that same message in that same chat. `/restart` posts that confirm
+directly. Only ids in `TELEGRAM_ALLOWED_USER_IDS` are served; an empty allowlist
+serves nobody, and anyone else gets no reply and no effect. The bot's full
+command list is in [telegram.md](telegram.md).
 
 **Guards**: one wake or restart per 60 s across both actions, the desk and the
 bot (a shared lock file), and one audit line per attempt (action, who, when,
@@ -181,40 +181,17 @@ a gateway restart never repeats a step. Each step and decision is one line in
 keeps a restart from resending), so it needs the same `HIVE_GATEWAY_*`
 environment as the gateway.
 
-## Hive runtime with Telegram
+## Telegram bot
 
-`hive-telegram` runs `python -m hive`: the full Hive runtime (Vault rail,
-quota and health monitors, the legacy web app when `HIVE_WEB_PORT` is set) with
-Telegram as its optional backup channel (ADR 0033). It is not a bot-only
-process. It **replaces `hive.service`**, which runs the same thing: never run
-both, or two runtimes share one database and two pollers fight over one bot
-token (Telegram answers `409 Conflict`). The unit has `Conflicts=hive.service`,
-and the wrapper skips with a log line (`hive-telegram: skipping: a Hive runtime
-is already running ...`) whenever any `python -m hive` process already runs, so
-fleet-up, launchd and systemd never start a second one.
+`hive-telegram` runs `python -m hive.telegram`: a standalone bot with six fixed
+commands, outbound polling and no database. Setup, commands, rotation and the
+security note are in [telegram.md](telegram.md).
 
-It is its own unit: no dependency on the gateway in either direction, so a
-runtime crash or missing config never stops the desk.
-
-Config is never committed. The wrapper finds the token and allowlist in the
-environment, in `~/.config/hive/telegram.env` (mode 0600), or in Hive's own
-`.env` in the checkout (the file `python -m hive` already loads; see
-`docs/DEPLOYMENT.md`), so an existing install needs no second copy:
-
-```
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_ALLOWED_USER_IDS=123456789
-```
-
-Without both values the unit is skipped (systemd `ExecCondition`) or exits 0
-(launchd, not restarted) and logs `hive-telegram: skipping: ...`.
-`python -m hive` reads the rest of its configuration (database) from the
-environment and the checkout's `.env` as before.
-
-On a host migrated to this unit, every `hive.service` command in
-`docs/DEPLOYMENT.md` (restart after a deploy, `journalctl -u`, stop/start for
-a restore) targets `hive-telegram.service` instead. Starting `hive.service`
-again stops `hive-telegram.service` (`Conflicts=` works both ways).
+| Rule | Why |
+| --- | --- |
+| Its own unit, no dependency on the gateway either way | A bot crash or missing config never stops the desk. |
+| Skipped (not failed) without a sound config | No error loop; fleet-up logs one line per run. |
+| `Conflicts=hive.service`, and the wrapper skips while any `python -m hive` runs | The Vault runtime polls the same token when it has one; two pollers make Telegram answer `409 Conflict`. |
 
 ## Windows (WSL) install
 
@@ -227,7 +204,7 @@ Prerequisites, once, inside WSL:
 # then, from PowerShell: wsl --shutdown
 sudo loginctl enable-linger "$USER"
 
-# hive-telegram.service replaces hive.service: stop and disable it first.
+# The Telegram bot and the Vault runtime never run together on one token.
 systemctl --user disable --now hive.service 2>/dev/null || true
 
 mkdir -p ~/.config/systemd/user ~/.config/hive
@@ -237,6 +214,8 @@ cp ~/apps/hive/deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 #   TAILSCALE_BIN='/mnt/c/Program Files/Tailscale/tailscale.exe'
 systemctl --user daemon-reload
 systemctl --user enable --now hive-gateway.service clip-desk.service hive-telegram.service hive-fleet-up.timer
+# Then give the bot its token (docs/telegram.md):
+~/apps/hive/scripts/telegram-setup.sh set
 ```
 
 Then, in an elevated PowerShell on Windows:
@@ -280,6 +259,7 @@ cp deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 #   RUNTIME_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.telegram'
 #   RUNTIME_STATUS_CMD='launchctl print gui/$(id -u)/com.hive.telegram | grep -q "pid = "'
 # Stop any other Hive runtime (python -m hive) first; the job skips while one runs.
+# Give the bot its token with scripts/telegram-setup.sh set (docs/telegram.md).
 for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.fleet-up; do
   sed -e "s#__HIVE_DIR__#$HOME/apps/hive#g" -e "s#__HOME__#$HOME#g" \
     deploy/macos/$f.plist > ~/Library/LaunchAgents/$f.plist
