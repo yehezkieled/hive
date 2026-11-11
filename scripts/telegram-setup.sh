@@ -15,8 +15,8 @@ set -u
 ENV_FILE="${HIVE_TELEGRAM_ENV_FILE:-$HOME/.config/hive/telegram.env}"
 STATE_DIR="${HIVE_TELEGRAM_STATE_DIR:-$HOME/.local/state/hive-telegram}"
 if [ "$(uname -s)" = Darwin ]; then
-  DEFAULT_RESTART="launchctl kickstart -k gui/$(id -u)/com.hive.telegram"
-  DEFAULT_STOP="launchctl kill TERM gui/$(id -u)/com.hive.telegram"
+  DEFAULT_RESTART=""
+  DEFAULT_STOP=""
 else
   DEFAULT_RESTART='systemctl --user restart hive-telegram.service'
   DEFAULT_STOP='systemctl --user stop hive-telegram.service'
@@ -28,6 +28,35 @@ say() { printf '%s\n' "$*" >&2; }
 die() { say "telegram-setup: $*"; exit 1; }
 
 usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+
+restart_service() {
+  if [ -n "$RESTART_CMD" ]; then
+    bash -c "$RESTART_CMD"
+    return $?
+  fi
+  local domain label plist
+  domain="gui/$(id -u)"
+  label="$domain/com.hive.telegram"
+  plist="$HOME/Library/LaunchAgents/com.hive.telegram.plist"
+  if ! launchctl print "$label" >/dev/null 2>&1; then
+    launchctl bootstrap "$domain" "$plist" >/dev/null 2>&1 || {
+      launchctl print "$label" >/dev/null 2>&1 || return 1
+    }
+  fi
+  launchctl kickstart -k "$label"
+}
+
+stop_service() {
+  if [ -n "$STOP_CMD" ]; then
+    bash -c "$STOP_CMD"
+    return $?
+  fi
+  if [ "$(uname -s)" = Darwin ]; then
+    launchctl bootout "gui/$(id -u)/com.hive.telegram" >/dev/null 2>&1
+  else
+    systemctl --user stop hive-telegram.service
+  fi
+}
 
 service_is_active() {
   if [ "$(uname -s)" = Darwin ]; then
@@ -105,7 +134,7 @@ cmd_set() {
   token=""
   rm -f "$STATE_DIR/rejected-token.sha256"
   say "Saved to $ENV_FILE (mode 600). Allowed id(s): $ids."
-  if bash -c "$RESTART_CMD" >/dev/null 2>&1; then
+  if restart_service >/dev/null 2>&1; then
     say "The bot was restarted with the new config. Send it /health to check."
   else
     say "Could not restart the bot service; fleet-up starts it within 5 minutes once the service is installed (docs/telegram.md)."
@@ -116,11 +145,11 @@ cmd_remove() {
   [ $# -eq 0 ] || usage
   local stop_failed=0 state stop_hint
   if [ "$(uname -s)" = Darwin ]; then
-    stop_hint="launchctl kill TERM gui/$(id -u)/com.hive.telegram"
+    stop_hint="launchctl bootout gui/$(id -u)/com.hive.telegram"
   else
     stop_hint="systemctl --user stop hive-telegram.service"
   fi
-  if ! bash -c "$STOP_CMD" >/dev/null 2>&1; then
+  if ! stop_service >/dev/null 2>&1; then
     state=0
     service_is_active || state=$?
     [ "$state" -eq 1 ] || stop_failed=1

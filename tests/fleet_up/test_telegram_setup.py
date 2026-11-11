@@ -180,6 +180,40 @@ def test_remove_deletes_config_but_reports_a_failed_stop(home: Path) -> None:
     assert "The bot is stopped" not in r.stderr
 
 
+def test_macos_set_loads_agent_and_remove_boots_it_out(home: Path) -> None:
+    bin_dir = home / "bin"
+    bin_dir.mkdir()
+    uname = bin_dir / "uname"
+    uname.write_text("#!/bin/sh\nprintf 'Darwin\\n'\n")
+    uname.chmod(0o755)
+    launchctl = bin_dir / "launchctl"
+    launchctl.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >> "$LAUNCHCTL_LOG"\n'
+        'case "$1" in print) exit 1 ;; bootstrap|kickstart|bootout) exit 0 ;; esac\n'
+        "exit 1\n"
+    )
+    launchctl.chmod(0o755)
+    log = home / "launchctl.log"
+    extra = {
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "LAUNCHCTL_LOG": str(log),
+        "HIVE_TELEGRAM_RESTART_CMD": "",
+        "HIVE_TELEGRAM_STOP_CMD": "",
+    }
+
+    configured = setup(home, "set", stdin=f"{FAKE_TOKEN}\n42\n", **extra)
+    removed = setup(home, "remove", **extra)
+
+    assert configured.returncode == 0, configured.stderr
+    assert removed.returncode == 0, removed.stderr
+    calls = log.read_text().splitlines()
+    assert any(call.startswith("bootstrap gui/") and call.endswith("com.hive.telegram.plist") for call in calls)
+    assert any(call.startswith("kickstart -k gui/") for call in calls)
+    assert any(call.startswith("bootout gui/") for call in calls)
+    assert all("kill TERM" not in call for call in calls)
+
+
 def test_status_never_prints_the_token(home: Path) -> None:
     r = setup(home, "status")
     assert r.returncode == 0 and "Not configured" in r.stderr
