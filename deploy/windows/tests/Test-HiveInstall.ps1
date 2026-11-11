@@ -18,7 +18,10 @@ $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($installPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw "parse errors in installer: $($errors | ForEach-Object { $_.Message })" }
 
-$wanted = @('ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-TaskFingerprint')
+$wanted = @(
+  'ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-TaskFingerprint',
+  'Test-HiveRegistryValueMatches', 'Test-HiveTaskEnabled', 'Test-HiveAutologonConfigured'
+)
 foreach ($stmt in $ast.EndBlock.Statements) {
   if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $stmt.Name) {
     . ([scriptblock]::Create($stmt.Extent.Text))
@@ -29,7 +32,8 @@ $registerPath = Join-Path (Split-Path -Parent $here) 'Register-HiveWsl.ps1'
 $registerAst = [System.Management.Automation.Language.Parser]::ParseFile($registerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw "parse errors in keepalive script: $($errors | ForEach-Object { $_.Message })" }
 foreach ($stmt in $registerAst.EndBlock.Statements) {
-  if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $stmt.Name -eq 'Get-HiveTriggerFingerprint') {
+  if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $stmt.Name -in @('Get-HiveTriggerFingerprint', 'Test-HiveKeepaliveTaskEnabled')) {
     . ([scriptblock]::Create($stmt.Extent.Text))
   }
 }
@@ -56,6 +60,7 @@ $task = [pscustomobject]@{
   Actions = @([pscustomobject]@{ Execute = 'lock.exe'; Arguments = 'lock' })
   Triggers = @($trigger)
   Principal = [pscustomobject]@{ UserId = 'PC\captain'; LogonType = 'Interactive'; RunLevel = 'Limited' }
+  State = 'Ready'
 }
 $fingerprint = Get-TaskFingerprint $task
 Assert-Equal $fingerprint (Get-TaskFingerprint $task) 'same logon trigger and user keep task unchanged'
@@ -63,6 +68,9 @@ $task.Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName
 Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task)) 'different logon trigger user changes task fingerprint'
 $task.Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskBootTrigger' }; UserId = '' })
 Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task)) 'different trigger type changes task fingerprint'
+Assert-Equal $true (Test-HiveTaskEnabled $task) 'enabled scheduled task is eligible to match'
+$task.State = 'Disabled'
+Assert-Equal $false (Test-HiveTaskEnabled $task) 'disabled scheduled task does not match'
 
 $logon = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\captain' }
 $otherLogon = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\other' }
@@ -70,6 +78,16 @@ $startup = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT
 Assert-Equal (Get-HiveTriggerFingerprint @($logon)) (Get-HiveTriggerFingerprint @($logon)) 'same keepalive logon trigger matches'
 Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon)) -ceq (Get-HiveTriggerFingerprint @($otherLogon))) 'different keepalive logon user does not match'
 Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon)) -ceq (Get-HiveTriggerFingerprint @($startup))) 'different keepalive trigger type does not match'
+Assert-Equal $true (Test-HiveKeepaliveTaskEnabled ([pscustomobject]@{ State = 'Ready' })) 'enabled keepalive task matches'
+Assert-Equal $false (Test-HiveKeepaliveTaskEnabled ([pscustomobject]@{ State = 'Disabled' })) 'disabled keepalive task is re-registered'
+
+Assert-Equal $true (Test-HiveRegistryValueMatches 0 0 'DWord' 'DWord') 'matching registry value and kind are unchanged'
+Assert-Equal $false (Test-HiveRegistryValueMatches '0' 0 'String' 'DWord') 'matching registry text with wrong kind is changed'
+Assert-Equal $false (Test-HiveRegistryValueMatches 1 0 'DWord' 'DWord') 'different registry data is changed'
+
+$winlogon = [pscustomobject]@{ AutoAdminLogon = '1'; DefaultUserName = 'captain'; DefaultDomainName = 'PC' }
+Assert-Equal $true (Test-HiveAutologonConfigured $winlogon 'captain' 'PC') 'matching Autologon account is configured'
+Assert-Equal $false (Test-HiveAutologonConfigured $winlogon 'captain' 'OTHER') 'different Autologon domain is not configured'
 
 $want = [ordered]@{ 'wsl2' = [ordered]@{ 'vmIdleTimeout' = '-1' }; 'general' = [ordered]@{ 'instanceIdleTimeout' = '-1' } }
 

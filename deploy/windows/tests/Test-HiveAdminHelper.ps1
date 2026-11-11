@@ -131,6 +131,16 @@ Assert-True (-not (Test-Path (Join-Path (Join-Path $root 'request') 'request.txt
 Remove-Item -LiteralPath $root -Recurse -Force
 
 $root = New-TestHiveRoot
+$script:ranVerbs = @()
+$script:requestInjection = $false
+$payload = 'Dddddddd ping; $script:requestInjection = $true'
+Set-TestHiveRequest $root $payload
+Assert-True (Invoke-HiveAdminRequest) 'request text with a command is rejected'
+Assert-True ($script:ranVerbs.Count -eq 0) 'request text never reaches the verb runner'
+Assert-True (-not $script:requestInjection) 'request text does not execute as PowerShell'
+Remove-Item -LiteralPath $root -Recurse -Force
+
+$root = New-TestHiveRoot
 $stateFile = Join-Path (Join-Path $root 'state') 'consumed-nonces'
 for ($i = 0; $i -lt 201; $i++) {
   $value = 'N' + $i.ToString('D7')

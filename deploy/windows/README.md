@@ -14,19 +14,19 @@ reference behind it.
 ## What the installer changes
 
 Every step checks first and reports `changed`, `unchanged`, `would change`
-(under `-WhatIf`), `skipped`, `manual` or `failed`. A failed step does not stop
+(under `-WhatIf`), `manual` or `failed`. A failed step does not stop
 the others. Exit code 1 if any step failed.
 
 | Step | Change | Check that it is already right |
 | --- | --- | --- |
 | a. Tailscale unattended | `tailscale set --unattended=true`. The PC joins the tailnet before anyone signs in. | `tailscale debug prefs` has `ForceDaemon: true`. |
 | b1. ARSO "Always" | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`: `DisableAutomaticRestartSignOn=0`, `AutomaticRestartSignOnConfig=1`. Windows signs in and locks after update and planned restarts. | Both values already set. |
-| b2. Autologon | Sysinternals `Autologon64.exe <user> <domain> <password> /accepteula`. Covers cold boots (power cut, crash). | `Winlogon\AutoAdminLogon=1` and `DefaultUserName` is this user. Re-run with `-ResetAutologon` after a password change. |
-| b3. Lock at logon | Task `\Hive\Hive Lock At Logon`: at this user's logon, `rundll32 user32.dll,LockWorkStation`. | Same task already registered. |
-| c1. WSL keep-alive | Task `Hive WSL Keepalive` via `Register-HiveWsl.ps1 -LogonOnly`: at logon, a hidden loop runs `wsl.exe -d Ubuntu -u hezki --exec /usr/bin/sleep infinity` and starts it again 10 s after it ends. | Same action, user and logon type. |
+| b2. Autologon | Sysinternals `Autologon64.exe <user> <domain> <password> /accepteula`. Covers cold boots (power cut, crash). | `Winlogon\AutoAdminLogon=1`, `DefaultUserName` and `DefaultDomainName` match this account. Re-run with `-ResetAutologon` after a password change. |
+| b3. Lock at logon | Task `\Hive\Hive Lock At Logon`: at this user's logon, `rundll32 user32.dll,LockWorkStation`. | Same enabled task already registered. |
+| c1. WSL keep-alive | Task `Hive WSL Keepalive` via `Register-HiveWsl.ps1 -LogonOnly`: at logon, a hidden loop runs `wsl.exe -d Ubuntu -u hezki --exec /usr/bin/sleep infinity` and starts it again 10 s after it ends. | Same action, user, logon type and enabled state. |
 | c2. Retire Startup script | Moves `Startup\wsl-keepalive.vbs` to `%LOCALAPPDATA%\Hive\retired-startup\`, only after `Hive WSL Keepalive` is registered and enabled. The `sleep` it already started is left running. | No file in Startup. |
 | d. `.wslconfig` | `%UserProfile%\.wslconfig`: `[wsl2] vmIdleTimeout=-1`, `[general] instanceIdleTimeout=-1`. Other lines kept; old file saved as `.wslconfig.bak-hive`. Takes effect at the next WSL start. | Both keys already `-1`. |
-| e. Admin helper | Folders and permissions below, the helper copied in, task `\Hive\Hive Admin Helper` (SYSTEM, on demand, no trigger), and the task's permissions set so this user may start it. | File hash, task and permissions already match. |
+| e. Admin helper | Folders and permissions below, the helper copied in, task `\Hive\Hive Admin Helper` (SYSTEM, on demand, no trigger), and the task's permissions set so this user may start it. | File hash, enabled task and permissions already match. |
 | f. Checklist | Prints BIOS power-on, Tailscale key expiry, Windows Hello-only and Claude sign-in as `manual`. | - |
 
 `.wslconfig`: support for these keys in WSL 2.7.3 is unverified. WSL ignores

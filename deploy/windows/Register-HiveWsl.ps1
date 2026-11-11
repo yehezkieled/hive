@@ -80,6 +80,10 @@ function Get-HiveTriggerFingerprint($Triggers) {
   }) -join ','
 }
 
+function Test-HiveKeepaliveTaskEnabled($Task) {
+  return ($null -ne $Task) -and ([string]$Task.State -ne 'Disabled')
+}
+
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 $same = $false
 if ($existing) {
@@ -87,6 +91,7 @@ if ($existing) {
   $same = ($a.Execute -eq $powershell) -and ($a.Arguments -eq $arguments) -and
     ($existing.Principal.UserId -like "*$env:USERNAME") -and
     ([string]$existing.Principal.LogonType -eq [string]$principal.LogonType) -and
+    (Test-HiveKeepaliveTaskEnabled $existing) -and
     ((Get-HiveTriggerFingerprint $existing.Triggers) -eq (Get-HiveTriggerFingerprint $triggers))
 }
 
@@ -103,4 +108,5 @@ if ($same) { Write-Output "Unchanged: '$TaskName' already registered"; return }
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers `
   -Principal $principal -Settings $settings -Force | Out-Null
+Enable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null
 Write-Output "Registered '$TaskName'"

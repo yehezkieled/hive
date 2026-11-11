@@ -41,13 +41,7 @@ param(
   # and check its Microsoft signature.
   [string]$AutologonPath,
   # Ask for the password again even if Autologon is already set (password changed).
-  [switch]$ResetAutologon,
-  # Skip individual steps.
-  [switch]$SkipTailscale,
-  [switch]$SkipAutoSignIn,
-  [switch]$SkipKeepalive,
-  [switch]$SkipWslConfig,
-  [switch]$SkipAdminHelper
+  [switch]$ResetAutologon
 )
 
 Set-StrictMode -Version 2.0
@@ -58,7 +52,7 @@ function Add-Result([string]$Step, [string]$Status, [string]$Detail) {
   $script:Results.Add([pscustomobject]@{ Step = $Step; Status = $Status; Detail = $Detail })
   $color = switch ($Status) {
     'changed' { 'Green' } 'unchanged' { 'Gray' } 'would change' { 'Cyan' }
-    'manual' { 'Yellow' } 'skipped' { 'DarkGray' } default { 'Red' }
+    'manual' { 'Yellow' } default { 'Red' }
   }
   Write-Host ("  [{0}] {1}: {2}" -f $Status, $Step, $Detail) -ForegroundColor $color
 }
@@ -96,11 +90,15 @@ if (-not $isAdmin) {
 
 function Set-RegistryValue([string]$Step, [string]$Key, [string]$Name, $Value, [string]$Type) {
   $current = $null
+  $currentType = $null
   if (Test-Path -LiteralPath $Key) {
     $p = Get-ItemProperty -LiteralPath $Key -Name $Name -ErrorAction SilentlyContinue
-    if ($p) { $current = $p.$Name }
+    if ($p) {
+      $current = $p.$Name
+      $currentType = [string](Get-Item -LiteralPath $Key).GetValueKind($Name)
+    }
   }
-  if ($null -ne $current -and "$current" -eq "$Value") {
+  if (Test-HiveRegistryValueMatches $current $Value $currentType $Type) {
     Add-Result $Step 'unchanged' "$Name is already $Value"
     return
   }
@@ -111,6 +109,23 @@ function Set-RegistryValue([string]$Step, [string]$Key, [string]$Name, $Value, [
   } else {
     Add-Result $Step 'would change' "$Name to $Value (now $(if ($null -eq $current) { 'unset' } else { $current }))"
   }
+}
+
+function Test-HiveRegistryValueMatches($Current, $Value, [string]$CurrentType, [string]$RequiredType) {
+  return ($null -ne $Current) -and ("$Current" -ceq "$Value") -and ($CurrentType -ceq $RequiredType)
+}
+
+function Test-HiveTaskEnabled($Task) {
+  return ($null -ne $Task) -and ([string]$Task.State -ne 'Disabled')
+}
+
+function Test-HiveAutologonConfigured($Winlogon, [string]$User, [string]$Domain) {
+  $auto = $Winlogon.PSObject.Properties['AutoAdminLogon']
+  $userName = $Winlogon.PSObject.Properties['DefaultUserName']
+  $domainName = $Winlogon.PSObject.Properties['DefaultDomainName']
+  return ($auto -and "$($auto.Value)" -eq '1') -and
+    ($userName -and "$($userName.Value)" -ieq $User) -and
+    ($domainName -and "$($domainName.Value)" -ieq $Domain)
 }
 
 function Get-TaskFingerprint($Task) {
@@ -128,14 +143,15 @@ function Get-TaskFingerprint($Task) {
 
 function Set-HiveTask([string]$Step, [string]$Path, [string]$Name, $Action, $Trigger, $Principal, $Settings, [string]$Expected) {
   $existing = Get-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction SilentlyContinue
-  if ($existing -and (Get-TaskFingerprint $existing) -eq $Expected) {
-    Add-Result $Step 'unchanged' "task '$Path$Name' already registered"
+  if ($existing -and (Get-TaskFingerprint $existing) -eq $Expected -and (Test-HiveTaskEnabled $existing)) {
+    Add-Result $Step 'unchanged' "task '$Path$Name' already registered and enabled"
     return
   }
   if ($PSCmdlet.ShouldProcess("$Path$Name", 'register scheduled task')) {
     $params = @{ TaskPath = $Path; TaskName = $Name; Action = $Action; Principal = $Principal; Settings = $Settings; Force = $true }
     if ($null -ne $Trigger) { $params.Trigger = $Trigger }
     Register-ScheduledTask @params | Out-Null
+    Enable-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop | Out-Null
     Add-Result $Step 'changed' "task '$Path$Name' $(if ($existing) { 'updated' } else { 'registered' })"
   } else {
     Add-Result $Step 'would change' "register task '$Path$Name'"
@@ -273,10 +289,7 @@ function Merge-IniLines([string[]]$Lines, $Want) {
 # ---------------------------------------------------------------- a. Tailscale
 
 $tailscale = Join-Path $programFiles 'Tailscale\tailscale.exe'
-if ($SkipTailscale) {
-  Add-Result 'a. Tailscale unattended' 'skipped' '-SkipTailscale'
-} else {
-  Invoke-Step 'a. Tailscale unattended' {
+Invoke-Step 'a. Tailscale unattended' {
     if (-not (Test-Path -LiteralPath $tailscale)) { throw "Tailscale not found at $tailscale" }
     $prefs = (& $tailscale debug prefs 2>$null | Out-String)
     $on = $false
@@ -292,14 +305,10 @@ if ($SkipTailscale) {
     } else {
       Add-Result 'a. Tailscale unattended' 'would change' 'turn unattended mode on'
     }
-  }
 }
 
 # ---------------------------------------------------------------- b. Auto sign-in then lock
 
-if ($SkipAutoSignIn) {
-  Add-Result 'b. Auto sign-in' 'skipped' '-SkipAutoSignIn'
-} else {
   Invoke-Step 'b1. ARSO "Always"' {
     $policy = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
     # Policy "Sign-in and lock last interactive user automatically after a restart": 0 = enabled.
@@ -312,11 +321,9 @@ if ($SkipAutoSignIn) {
     $step = 'b2. Autologon (cold boots)'
     $winlogon = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
     $wl = Get-ItemProperty -LiteralPath $winlogon
-    $wlAuto = $wl.PSObject.Properties['AutoAdminLogon']
-    $wlUser = $wl.PSObject.Properties['DefaultUserName']
     $samName = $windowsUser.Split('\')[-1]
     $domain = $windowsUser.Split('\')[0]
-    $already = ($wlAuto -and "$($wlAuto.Value)" -eq '1') -and ($wlUser -and "$($wlUser.Value)" -ieq $samName)
+    $already = Test-HiveAutologonConfigured $wl $samName $domain
     if ($already -and -not $ResetAutologon) {
       Add-Result $step 'unchanged' "auto sign-in already set for $samName (use -ResetAutologon after a password change)"
       return
@@ -389,7 +396,7 @@ if ($SkipAutoSignIn) {
     }
 
     $wl = Get-ItemProperty -LiteralPath $winlogon
-    $ok = ($wl.PSObject.Properties['AutoAdminLogon'] -and "$($wl.AutoAdminLogon)" -eq '1')
+    $ok = Test-HiveAutologonConfigured $wl $samName $domain
     $plain = $wl.PSObject.Properties['DefaultPassword']
     if ($plain) {
       # Autologon keeps the password as an LSA secret; a plain-text copy must not linger.
@@ -409,14 +416,10 @@ if ($SkipAutoSignIn) {
       -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
     $expected = "$rundll|user32.dll,LockWorkStation|$($windowsUser.Split('\')[-1])|Interactive|Limited|MSFT_TaskLogonTrigger|$windowsUser"
     Set-HiveTask 'b3. Lock at logon' '\Hive\' 'Hive Lock At Logon' $action $trigger $principal $settings $expected
-  }
 }
 
 # ---------------------------------------------------------------- c. Keep-alive
 
-if ($SkipKeepalive) {
-  Add-Result 'c. WSL keep-alive' 'skipped' '-SkipKeepalive'
-} else {
   Invoke-Step 'c1. WSL keep-alive task' {
     $register = Join-Path $PSScriptRoot 'Register-HiveWsl.ps1'
     $args2 = @{ Distro = $Distro; User = $LinuxUser; LogonOnly = $true }
@@ -433,7 +436,7 @@ if ($SkipKeepalive) {
     $vbs = Join-Path $startup 'wsl-keepalive.vbs'
     if (-not (Test-Path -LiteralPath $vbs)) { Add-Result $step 'unchanged' "no $vbs"; return }
     $task = Get-ScheduledTask -TaskName 'Hive WSL Keepalive' -ErrorAction SilentlyContinue
-    if (-not $task -or [string]$task.State -eq 'Disabled') {
+    if (-not (Test-HiveTaskEnabled $task)) {
       if ($dryRun) { Add-Result $step 'would change' "move $vbs out once the keep-alive task is registered"; return }
       Add-Result $step 'failed' "keep-alive task not registered; left $vbs in place"
       return
@@ -446,14 +449,10 @@ if ($SkipKeepalive) {
     } else {
       Add-Result $step 'would change' "move $vbs to $backup"
     }
-  }
 }
 
 # ---------------------------------------------------------------- d. .wslconfig
 
-if ($SkipWslConfig) {
-  Add-Result 'd. .wslconfig' 'skipped' '-SkipWslConfig'
-} else {
   Invoke-Step 'd. .wslconfig idle time-outs off' {
     $step = 'd. .wslconfig idle time-outs off'
     $path = Join-Path $env:USERPROFILE '.wslconfig'
@@ -471,14 +470,10 @@ if ($SkipWslConfig) {
     } else {
       Add-Result $step 'would change' "$($changed -join ', ') in $path"
     }
-  }
 }
 
 # ---------------------------------------------------------------- e. Admin helper
 
-if ($SkipAdminHelper) {
-  Add-Result 'e. Admin helper' 'skipped' '-SkipAdminHelper'
-} else {
   Invoke-Step 'e. Admin helper' {
     $step = 'e. Admin helper'
     $users = 'S-1-5-32-545'
@@ -529,7 +524,6 @@ if ($SkipAdminHelper) {
     } else {
       Add-Result $step 'would change' 'allow this user to start the helper task'
     }
-  }
 }
 
 # ---------------------------------------------------------------- f. Manual checklist
