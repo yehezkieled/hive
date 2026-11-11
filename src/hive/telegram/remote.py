@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -403,6 +404,10 @@ async def run(bot: RemoteBot, stop: asyncio.Event) -> int:
                 bot.mark_rejected()
             except OSError:
                 logger.error("Could not persist the rejected-token marker; not retrying this token")
+                # launchd restarts every unsuccessful exit; systemd is configured
+                # to suppress restart on EX_CONFIG.
+                if sys.platform == "darwin":
+                    return 0
             return EX_CONFIG
         except (NetworkError, TelegramError, OSError) as exc:
             logger.warning(

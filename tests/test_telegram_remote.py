@@ -357,6 +357,26 @@ async def test_rejected_token_still_exits_78_when_digest_cannot_be_saved(
     assert FAKE_TOKEN not in caplog.text
 
 
+async def test_rejected_token_stays_down_under_launchd_when_digest_cannot_be_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = _bot(tmp_path)
+
+    async def start() -> None:
+        raise InvalidToken("Unauthorized")
+
+    def fail_to_mark() -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(remote.sys, "platform", "darwin")
+    monkeypatch.setattr(bot, "start", start)
+    monkeypatch.setattr(bot, "mark_rejected", fail_to_mark)
+
+    assert await remote.run(bot, asyncio.Event()) == 0
+    assert "Could not persist the rejected-token marker" in caplog.text
+    assert FAKE_TOKEN not in caplog.text
+
+
 async def test_unreachable_telegram_is_retried_then_polls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
