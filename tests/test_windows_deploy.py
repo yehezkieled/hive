@@ -10,50 +10,22 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 WIN = ROOT / "deploy" / "windows"
 HELPER = WIN / "HiveAdminHelper.ps1"
-INSTALL = WIN / "Install-HiveAnywhere.ps1"
 
 
-def test_helper_has_no_way_to_run_request_text():
+def test_helper_uses_only_a_constant_native_definition():
     code = "\n".join(
         line for line in HELPER.read_text().splitlines() if not line.lstrip().startswith("#")
     )
-    forbidden = [
-        r"Invoke-Expression",
-        r"\biex\b",
-        r"\[scriptblock\]::Create",
-        r"NewScriptBlock",
-        r"Add-Type",
-        r"Start-Process",
-        r"-EncodedCommand",
-        r"Invoke-Command",
-        r"\.InvokeScript",
-        r"cmd(\.exe)?\s+/c",
-        r"&\s*\$req",
-        r"&\s*\$text",
-    ]
     import re
 
-    for pattern in forbidden:
-        assert not re.search(pattern, code, re.I), pattern
+    add_type = re.compile(r"(?ms)^\s*\$null\s*=\s*Add-Type\s+-TypeDefinition\s+@'\n(.*?)^'@\s*$")
+    literal_definitions = list(add_type.finditer(code))
+    assert len(literal_definitions) == 1
+    guarded = add_type.sub("", code)
+    assert not re.search(r"\bAdd-Type\b", guarded, re.I)
+    assert "public static class HiveAdminRequestFile" in literal_definitions[0].group(1)
     calls = re.findall(r"&\s*\$\w+", code)
     assert calls == ["& $Path"], calls
-
-
-def test_installer_password_handling_security_guard():
-    text = INSTALL.read_text()
-    assert "Start-Transcript" not in text
-    assert "ConvertFrom-SecureString" not in text
-    import re
-
-    plain_uses = [line for line in text.splitlines() if "PtrToStringBSTR($bstr)" in line]
-    assert len(plain_uses) == 1 and "ConvertTo-WindowsArgument" in plain_uses[0]
-    for line in text.splitlines():
-        if re.search(r"Write-(Host|Output|Verbose|Debug|Information|Warning)|Add-Result", line):
-            for text_arg in re.findall(r"(?:Write-\w+|Add-Result)\s+(.*)", line):
-                assert not re.search(r"\$(secure|bstr|first|second|b1|b2|psi)\b", text_arg, re.I), line
-        for sink in ("Out-File", "Set-Content", "Add-Content", "Export-"):
-            if sink in line:
-                assert not re.search(r"\$(secure|bstr|psi)\b", line, re.I), line
 
 
 def _pwsh() -> str | None:

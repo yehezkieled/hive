@@ -231,10 +231,148 @@ function Invoke-HiveAdminVerb {
   }
 }
 
-function Test-HiveNotReparse {
-  param([string]$Path)
-  $item = Get-Item -LiteralPath $Path -Force
-  return -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+function Initialize-HiveAdminNative {
+  if ('HiveAdminRequestFile' -as [type]) { return }
+  $null = Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+public static class HiveAdminRequestFile
+{
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint DELETE = 0x00010000;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+    private const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
+    private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
+    private const uint FILE_TYPE_DISK = 1;
+    private const int FILE_DISPOSITION_INFO_CLASS = 4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FILETIME
+    {
+        public uint Low;
+        public uint High;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BY_HANDLE_FILE_INFORMATION
+    {
+        public uint FileAttributes;
+        public FILETIME CreationTime;
+        public FILETIME LastAccessTime;
+        public FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FILE_DISPOSITION_INFO
+    {
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool DeleteFile;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string name, uint access, uint share, IntPtr security, uint creation,
+        uint flags, IntPtr template);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint GetFileType(SafeFileHandle handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle, out BY_HANDLE_FILE_INFORMATION information);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(
+        SafeFileHandle handle, StringBuilder path, uint length, uint flags);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileSizeEx(SafeFileHandle handle, out long size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ReadFile(
+        SafeFileHandle handle, byte[] buffer, uint count, out uint read, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetFileInformationByHandle(
+        SafeFileHandle handle, int informationClass, ref FILE_DISPOSITION_INFO information,
+        uint size);
+
+    private static string NormalizePath(string path)
+    {
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            path = @"\\" + path.Substring(8);
+        else if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+            path = path.Substring(4);
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static Exception Win32Failure()
+    {
+        return new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public static byte[] Consume(string requestPath, string expectedPath, int maxBytes, out bool tooLong)
+    {
+        tooLong = false;
+        using (SafeFileHandle handle = CreateFileW(
+            requestPath, GENERIC_READ | DELETE, 0, IntPtr.Zero, OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT, IntPtr.Zero))
+        {
+            if (handle.IsInvalid) throw Win32Failure();
+            if (GetFileType(handle) != FILE_TYPE_DISK) throw new IOException("request is not a disk file");
+
+            BY_HANDLE_FILE_INFORMATION information;
+            if (!GetFileInformationByHandle(handle, out information)) throw Win32Failure();
+            if ((information.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) != 0)
+                throw new IOException("request is a reparse point or directory");
+
+            StringBuilder finalPath = new StringBuilder(32768);
+            uint pathLength = GetFinalPathNameByHandleW(handle, finalPath, (uint)finalPath.Capacity, 0);
+            if (pathLength == 0 || pathLength >= finalPath.Capacity) throw Win32Failure();
+            if (!String.Equals(NormalizePath(finalPath.ToString()), NormalizePath(expectedPath), StringComparison.OrdinalIgnoreCase))
+                throw new IOException("opened request is outside the request location");
+
+            long length;
+            if (!GetFileSizeEx(handle, out length)) throw Win32Failure();
+            byte[] bytes = null;
+            if (length > maxBytes)
+            {
+                tooLong = true;
+            }
+            else
+            {
+                bytes = new byte[(int)length];
+                if (length > 0)
+                {
+                    uint read;
+                    if (!ReadFile(handle, bytes, (uint)length, out read, IntPtr.Zero)) throw Win32Failure();
+                    if (read != (uint)length) throw new IOException("request read was incomplete");
+                }
+            }
+
+            FILE_DISPOSITION_INFO disposition = new FILE_DISPOSITION_INFO();
+            disposition.DeleteFile = true;
+            if (!SetFileInformationByHandle(
+                handle, FILE_DISPOSITION_INFO_CLASS, ref disposition,
+                (uint)Marshal.SizeOf(typeof(FILE_DISPOSITION_INFO))))
+                throw Win32Failure();
+            return bytes;
+        }
+    }
+}
+'@
 }
 
 function Add-HiveConsumedNonce {
@@ -267,20 +405,15 @@ function Invoke-HiveAdminRequest {
       Write-HiveAdminAudit $nonce $verb $argText 'ignored' 'no request file'
       return $true
     }
-    if (-not (Test-HiveNotReparse $script:HiveAdminRoot) -or -not (Test-HiveNotReparse $requestDir) -or -not (Test-HiveNotReparse $requestFile)) {
-      Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request path is a link'
+    Initialize-HiveAdminNative
+    $tooLong = $false
+    try {
+      $bytes = [HiveAdminRequestFile]::Consume(
+        $requestFile, [System.IO.Path]::GetFullPath($requestFile),
+        $script:HiveAdminMaxRequestBytes, [ref]$tooLong)
+    } catch {
+      Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request could not be safely opened and consumed'
       return $true
-    }
-    $tooLong = (Get-Item -LiteralPath $requestFile).Length -gt $script:HiveAdminMaxRequestBytes
-    $bytes = if ($tooLong) { $null } else { [System.IO.File]::ReadAllBytes($requestFile) }
-    if (-not (Test-HiveNotReparse $requestDir) -or -not (Test-HiveNotReparse $requestFile)) {
-      Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request path changed to a link'
-      return $true
-    }
-    [System.IO.File]::Delete($requestFile)
-    if (Test-Path -LiteralPath $requestFile) {
-      Write-HiveAdminAudit $nonce $verb $argText 'failed' 'request file could not be removed'
-      return $false
     }
     if ($tooLong) {
       Write-HiveAdminAudit $nonce $verb $argText 'rejected' 'request too long'

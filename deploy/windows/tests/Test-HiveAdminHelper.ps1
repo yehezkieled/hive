@@ -103,6 +103,7 @@ function Invoke-HiveAdminVerb([string]$Verb, $Arg) {
   if ($script:failVerb) { throw 'stub failure' }
   return "stub:$Verb"
 }
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
 $root = New-TestHiveRoot
 $script:ranVerbs = @()
 $script:failVerb = $false
@@ -138,7 +139,16 @@ Set-TestHiveRequest $root $payload
 Assert-True (Invoke-HiveAdminRequest) 'request text with a command is rejected'
 Assert-True ($script:ranVerbs.Count -eq 0) 'request text never reaches the verb runner'
 Assert-True (-not $script:requestInjection) 'request text does not execute as PowerShell'
+$outsideFile = Join-Path $root 'outside-request.txt'
+[System.IO.File]::WriteAllText($outsideFile, 'Dddddddd ping', [System.Text.Encoding]::ASCII)
+$tooLong = $false
+$wrongPathRejected = $false
+try { [void][HiveAdminRequestFile]::Consume($outsideFile, (Join-Path (Join-Path $root 'request') 'request.txt'), 128, [ref]$tooLong) }
+catch { $wrongPathRejected = $true }
+Assert-True $wrongPathRejected 'a handle outside the request location is rejected'
+Assert-True (Test-Path $outsideFile) 'a rejected outside handle is not deleted'
 Remove-Item -LiteralPath $root -Recurse -Force
+}
 
 $root = New-TestHiveRoot
 $stateFile = Join-Path (Join-Path $root 'state') 'consumed-nonces'

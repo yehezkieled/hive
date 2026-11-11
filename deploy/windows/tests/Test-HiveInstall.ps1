@@ -20,7 +20,8 @@ if ($errors.Count -gt 0) { throw "parse errors in installer: $($errors | ForEach
 
 $wanted = @(
   'ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-TaskFingerprint',
-  'Test-HiveRegistryValueMatches', 'Test-HiveTaskEnabled', 'Test-HiveAutologonConfigured'
+  'New-HiveAutologonStartInfo', 'Test-HiveRegistryValueMatches',
+  'Test-HiveTaskEnabled', 'Test-HiveAutologonConfigured'
 )
 foreach ($stmt in $ast.EndBlock.Statements) {
   if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $stmt.Name) {
@@ -54,6 +55,10 @@ Assert-Equal '"a\\\"b c"' (ConvertTo-WindowsArgument 'a\"b c') 'backslash before
 Assert-Equal '"a b\\"' (ConvertTo-WindowsArgument 'a b\') 'trailing backslash is doubled when quoted'
 Assert-Equal 'a\b' (ConvertTo-WindowsArgument 'a\b') 'inner backslash without quote or space stays'
 Assert-Equal "`"tab`there`"" (ConvertTo-WindowsArgument "tab`there") 'tab is quoted'
+$startInfoOutput = @(& { New-HiveAutologonStartInfo 'autologon.exe' 'captain' 'PC' 'fixture password' } *>&1)
+Assert-Equal 1 $startInfoOutput.Count 'Autologon argument builder emits only its result object'
+Assert-Equal 'System.Diagnostics.ProcessStartInfo' $startInfoOutput[0].GetType().FullName 'Autologon argument builder emits no password text'
+Assert-Equal 'captain PC "fixture password" /accepteula' $startInfoOutput[0].Arguments 'password is confined to the process argument'
 
 $trigger = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\captain' }
 $task = [pscustomobject]@{
