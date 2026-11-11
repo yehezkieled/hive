@@ -39,7 +39,10 @@ logs or saves it.
 ### 2. Check the admin helper (2 minutes)
 
 Open **Ubuntu** from the Start menu (a normal window, not as administrator).
-Paste these three lines:
+Run each check below. These confirm the helper can start, rejects malformed
+requests, ignores a replay, and redacts links and tokens.
+
+1. Check an allowed request (`ping`):
 
 ```sh
 echo "check$(date +%s) ping" > /mnt/c/ProgramData/HiveAdmin/request/request.txt
@@ -47,9 +50,42 @@ schtasks.exe /run /tn '\Hive\Hive Admin Helper'
 sleep 5; tail -n 3 /mnt/c/ProgramData/HiveAdmin/audit.log
 ```
 
+2. Check a malformed request:
+
+```sh
+echo 'check$(date +%s) shell' > /mnt/c/ProgramData/HiveAdmin/request/request.txt
+schtasks.exe /run /tn '\Hive\Hive Admin Helper'
+sleep 5; tail -n 3 /mnt/c/ProgramData/HiveAdmin/audit.log
+```
+
+3. Check that a repeated nonce is ignored. Re-run the same request line and
+task command twice; keep the nonce unchanged:
+
+```sh
+echo 'check-replay-001 ping' > /mnt/c/ProgramData/HiveAdmin/request/request.txt
+schtasks.exe /run /tn '\Hive\Hive Admin Helper'
+sleep 5; tail -n 1 /mnt/c/ProgramData/HiveAdmin/audit.log
+test ! -e /mnt/c/ProgramData/HiveAdmin/request/request.txt && echo 'request removed'
+echo 'check-replay-001 ping' > /mnt/c/ProgramData/HiveAdmin/request/request.txt
+schtasks.exe /run /tn '\Hive\Hive Admin Helper'
+sleep 5; tail -n 1 /mnt/c/ProgramData/HiveAdmin/audit.log
+test ! -e /mnt/c/ProgramData/HiveAdmin/request/request.txt && echo 'request removed'
+```
+
+4. Check that authentication links and tokens are redacted:
+
+```sh
+echo "check$(date +%s) tailscale-up" > /mnt/c/ProgramData/HiveAdmin/request/request.txt
+schtasks.exe /run /tn '\Hive\Hive Admin Helper'
+sleep 5; grep -cE 'https?://' /mnt/c/ProgramData/HiveAdmin/audit.log
+```
+
 | You see | Meaning |
 |---|---|
 | `SUCCESS` and then a line with `result=ok detail=pong` | The helper works. Go on. |
+| `result=rejected` for the malformed request | Request text was rejected; nothing ran. |
+| `result=ok` then `result=ignored`, and `request removed` after each run | The nonce was consumed once and the request file was removed each time. |
+| `0` from the URL check | No authentication links remain in the audit log; links and tokens are redacted. |
 | `ERROR: Access is denied.` | The PC does not let a normal window start the helper. Note it for firstmate and go on. Nothing else depends on it yet. |
 | No `pong` line after 30 seconds | Run the last line again. Still nothing: note it for firstmate and go on. |
 
