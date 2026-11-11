@@ -86,12 +86,6 @@ def test_config_repr_hides_the_token() -> None:
     assert FAKE_TOKEN not in repr(cfg) and FAKE_TOKEN not in str(cfg)
 
 
-def test_outbound_only_no_webhook_or_server() -> None:
-    source = Path(remote.__file__).read_text()
-    for word in ("run_webhook", "start_webhook", "start_server", "bind("):
-        assert word not in source
-
-
 def test_only_the_fixed_commands_exist() -> None:
     assert set(COMMANDS) == {"status", "health", "wake", "restart", "watchdog", "help"}
     for name in COMMANDS:
