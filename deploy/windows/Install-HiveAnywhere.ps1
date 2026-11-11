@@ -128,6 +128,8 @@ function Test-HiveAutologonConfigured($Winlogon, [string]$User, [string]$Domain)
     ($domainName -and "$($domainName.Value)" -ieq $Domain)
 }
 
+# Kept word for word in Register-HiveWsl.ps1 so each script runs standalone;
+# tests/Test-HiveInstall.ps1 fails if the two copies drift.
 function Get-HiveAccountSid([string]$Account, [scriptblock]$Resolver = $null) {
   if ([string]::IsNullOrWhiteSpace($Account)) { return $null }
   if ($Account -ieq 'SYSTEM' -or $Account -ieq 'NT AUTHORITY\SYSTEM') { return 'S-1-5-18' }

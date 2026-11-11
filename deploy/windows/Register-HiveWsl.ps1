@@ -72,6 +72,8 @@ $settings = New-ScheduledTaskSettingsSet `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden
 
+# Kept word for word in Install-HiveAnywhere.ps1 so each script runs standalone;
+# tests/Test-HiveInstall.ps1 fails if the two copies drift.
 function Get-HiveAccountSid([string]$Account, [scriptblock]$Resolver = $null) {
   if ([string]::IsNullOrWhiteSpace($Account)) { return $null }
   if ($Account -ieq 'SYSTEM' -or $Account -ieq 'NT AUTHORITY\SYSTEM') { return 'S-1-5-18' }

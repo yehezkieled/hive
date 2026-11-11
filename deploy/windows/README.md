@@ -29,6 +29,9 @@ the others. Exit code 1 if any step failed.
 | e. Admin helper | Folders and permissions below, the helper copied in, task `\Hive\Hive Admin Helper` (SYSTEM, on demand, no trigger), and the task's permissions set so this user may start it. | File hash, enabled task and permissions already match. |
 | f. Checklist | Prints BIOS power-on, Tailscale key expiry, Windows Hello-only and Claude sign-in as `manual`. | - |
 
+Task checks (b3, c1, e) compare accounts by resolved SID, so a task under a
+different account with the same user name is not accepted as already right.
+
 `.wslconfig`: support for these keys in WSL 2.7.3 is unverified. WSL ignores
 keys it does not know, so the lines are harmless if ignored. The keep-alive
 loop is what actually holds WSL up.
