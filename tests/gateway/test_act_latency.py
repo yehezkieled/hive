@@ -11,7 +11,10 @@ hang on the same switch, and the page answers from what it has instead of waitin
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
 import stat
 import time
 from collections.abc import Callable, Iterator
@@ -106,6 +109,39 @@ def client(home: Path) -> Iterator[TestClient]:
         assert page.status_code == 200
         (home / "slow").write_text("")  # from here on everything firstmate runs is slow
         yield c
+        # A run left going is still a child process (with its own children). The test is over,
+        # so end them and let the loop reap them while it is open; a transport collected after
+        # the loop is gone warns "Event loop is closed".
+        _end_leftover_runs()
+
+
+def _parents() -> dict[str, str]:
+    """Every process's parent, by pid (zombies included: they are not reaped yet)."""
+    parent = {}
+    for d in Path("/proc").iterdir():
+        if d.name.isdigit():
+            try:
+                parent[d.name] = (d / "stat").read_text().rsplit(")", 1)[1].split()[1]
+            except (OSError, IndexError):
+                continue  # gone already
+    return parent
+
+
+def _end_leftover_runs(timeout_s: float = 5) -> None:
+    me = str(os.getpid())
+    parent = _parents()
+    mine, todo = [], [me]
+    while todo:
+        p = todo.pop()
+        kids = [k for k, v in parent.items() if v == p]
+        mine += kids
+        todo += kids
+    for pid in mine:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(int(pid), signal.SIGKILL)
+    deadline = time.monotonic() + timeout_s
+    while me in _parents().values() and time.monotonic() < deadline:
+        time.sleep(0.02)
 
 
 def act(client: TestClient, name: str, **fields: str):
@@ -147,6 +183,12 @@ CASES: dict[str, Callable[[str], dict]] = {
         "verb": "relaunch",
         "note": "pick up",
         "step": CSRF.step_up("control", f"alpha-build:relaunch:{rid}"),
+    },
+    # the fake systemctl ("probe") hangs while the switch is on, so the run is still going
+    "run": lambda rid: {
+        "rid": rid,
+        "do": "restart-clipdesk",
+        "step": CSRF.step_up("run", f"restart-clipdesk:-:{rid}"),
     },
     "review-close": lambda rid: {
         "rid": rid,

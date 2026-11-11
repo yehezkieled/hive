@@ -2,8 +2,10 @@
 
 `/machine` on the desk shows, in one screen, the chain that has to hold for the
 iPad to reach firstmate, and the dated risks coming up. It is read-only: it has
-no buttons and adds no endpoint that writes. The firstmate chip in the header
-is the same one every desk page carries.
+no buttons and adds no endpoint that writes. The fixes the desk can do itself
+(restart a service, re-run fleet-up, restart WSL, Tailscale or the PC) are
+buttons on the Run page ([run-queue.md](run-queue.md)). The firstmate chip in the
+header is the same one every desk page carries.
 
 Each row has a state chip with a word (OK, Warning, Down or Unknown), a short
 headline, one line of detail and when it was last checked. A row is **Unknown**

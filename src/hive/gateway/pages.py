@@ -12,7 +12,7 @@ from html import escape as esc
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hive.gateway import fmconfig, machine
+from hive.gateway import fmconfig, machine, runqueue
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
 from hive.gateway.cards import parse_card
 from hive.gateway.chat import ChatView
@@ -443,6 +443,7 @@ background:var(--paper);border:1.5px solid var(--ink-4);border-radius:999px;padd
 .mstate--ok{border-color:var(--sage)}.mstate--ok::before{content:'✓';color:var(--sage)}
 .mstate--warn{border-color:var(--amber)}.mstate--warn::before{content:'!';color:var(--amber)}
 .mstate--down{border-color:var(--accent)}.mstate--down::before{content:'✕';color:var(--accent)}
+.mstate--run{border-color:var(--honey)}.mstate--run::before{content:'…';color:var(--ochre)}
 .mrow--urgent .mstate{border-color:var(--accent)}.mrow--urgent .mstate::before{color:var(--accent)}
 .mrow__body{min-width:0}
 .mrow__top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
@@ -453,9 +454,46 @@ background:var(--paper);border:1.5px solid var(--ink-4);border-radius:999px;padd
 .mrow__side{font:10px var(--font-mono);color:var(--ink-3);text-align:right;white-space:nowrap}
 .mrow__due{font-weight:700;font-size:11px;color:var(--ink)}
 @media (max-width:480px){.mrow{grid-template-columns:auto minmax(0,1fr)}.mrow__side{grid-column:2;text-align:left}}
-/* phones: the five header links still share the brand's row, on the chat page's narrower header too */
-@media (max-width:420px){.chrome{gap:6px}.chrome nav{gap:0}.chrome nav a,#alerts{padding:0 5px;letter-spacing:.2px}}
-@media (max-width:370px){.chrome{gap:4px}.chrome nav a,#alerts{padding:0 3px;letter-spacing:0;font-size:10.5px}}
+/* the Run page: fixed fix buttons and the last runs */
+.runq{display:flex;flex-direction:column;gap:10px}
+.runq__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
+.runq__col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.runq__col h2{margin:8px 2px -2px}.runq__col h2:first-child{margin-top:2px}
+@media (min-width:1000px){.runq__cols{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}
+/* the runs column is narrow: each run's time goes under its words, its chip at the top */
+.rqrun{grid-template-columns:auto minmax(0,1fr);align-items:start}.rqrun .mrow__side{grid-column:2;text-align:left}}
+.runq .banner{margin:0}.runq .banner p{margin:0}.runq .banner p+p{margin-top:4px}
+.rqlist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.rq{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:4px 14px;min-width:0;
+background:var(--paper);border:1.5px solid var(--rule-soft);border-left:4px solid var(--ink-4);border-radius:10px;padding:10px 12px}
+.rq--down{border-left-color:var(--accent)}.rq--off{background:var(--paper-soft);border-left-color:var(--rule-soft)}
+.rq__top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
+.rq__top b{font:800 14px var(--font-display)}
+.rq__took{font:10px var(--font-mono);color:var(--ink-3);white-space:nowrap}
+.rq__what{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.rq__cmd{display:inline-block;max-width:100%;margin-top:6px;font:11px/1.4 var(--font-mono);color:var(--ink);
+background:var(--paper-soft);border:1px solid var(--rule-faint);border-radius:6px;padding:3px 7px;overflow-wrap:anywhere}
+.rq__off{margin:6px 0 0;font:700 11px var(--font-mono);color:var(--ink-3)}
+.rq form{margin:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center;max-width:300px}
+.rq form label{margin:0;font-size:12px}
+.rq select{width:auto;min-height:44px;padding:0 8px}
+.rq button{white-space:nowrap}
+.rq form .act-warn,.rq form .act-err,.rq form .act-ok{flex-basis:100%;text-align:left}
+/* the confirm step's words: read first, then tap; calm, with a red edge on the ones that take things down */
+.rq form .act-warn{order:-1;margin:2px 0 4px;font-family:inherit;font-size:13px;line-height:1.45;font-weight:600;
+letter-spacing:0;color:var(--ink);background:var(--paper-soft);border:1px solid var(--rule-soft);
+border-left:3px solid var(--ink-4);border-radius:8px;padding:8px 10px}
+.rq--down form .act-warn{border-left-color:var(--accent)}
+.act-ok{font:700 11px/1.4 var(--font-mono);color:var(--sage);margin:6px 0 0;white-space:normal}
+@media (max-width:640px){.rq{grid-template-columns:minmax(0,1fr)}.rq form{justify-content:flex-start;max-width:none}}
+.rqnote{margin:0;font-size:12px;color:var(--ink-3)}
+.rqrun .mrow__detail{white-space:normal}.rqrun .mstate{min-width:100px}
+/* an armed or answered button's words take the card's whole width, under its text */
+.rq form[data-step],.rq form.is-shown{grid-column:1/-1;max-width:none;justify-content:flex-start}
+/* phones: the six header links still share the brand's row, on the chat page's narrower header too;
+   each step starts where the wider one stops fitting (the alerts button at its widest) */
+@media (max-width:450px){.chrome{gap:6px}.chrome nav{gap:0}.chrome nav a,#alerts{padding:0 5px;letter-spacing:.2px}}
+@media (max-width:400px){.chrome{gap:4px}.chrome nav a,#alerts{padding:0 3px;letter-spacing:0;font-size:10.5px}}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -482,17 +520,19 @@ function stamps(){var a=document.getElementsByTagName('time');for(var i=0;i<a.le
 function sel(){var s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed);}
 function busy(){var a=document.activeElement;if(sel())return true;
 if(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))return true;
-if(document.querySelector('details[open],dialog[open],button.is-armed,form.is-sending'))return true;
+if(document.querySelector('details[open],dialog[open],button.is-armed,form.is-sending,form.is-shown'))return true;
 var x=document.querySelectorAll('textarea,input:not([type]),input[type=text],input[type=search]');
 for(var i=0;i<x.length;i++)if(x[i].value)return true;
 x=document.querySelectorAll('input[type=checkbox]');
 for(var j=0;j<x.length;j++)if(x[j].checked!==x[j].defaultChecked)return true;
+x=document.querySelectorAll('select');
+for(var k=0;k<x.length;k++){var o=x[k].options[x[k].selectedIndex];if(o&&!o.defaultSelected)return true;}
 return false;}
 function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store'})
 .then(function(r){return r.ok?r.text():null;}).then(function(t){
 if(t)cb(new DOMParser().parseFromString(t,'text/html'));}).catch(function(){});}
 var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('data-poll');
-var tail=b.getAttribute('data-tail'),mach=b.getAttribute('data-machine')!==null;
+var tail=b.getAttribute('data-tail'),mach=b.getAttribute('data-machine')!==null,rq=b.getAttribute('data-run')!==null;
 var th=document.getElementById('thread'),c=document.querySelector('main');
 var last=th?th.innerHTML:c?c.textContent:null,live=false,want=false,es,seen=0;
 function bottom(){if(th)th.scrollTop=th.scrollHeight;else window.scrollTo(0,document.documentElement.scrollHeight);}
@@ -546,6 +586,7 @@ es.addEventListener('hello',function(){seen=Date.now();live=true;refreshAny();})
 es.addEventListener('ping',function(){seen=Date.now();});
 es.addEventListener('desk',function(){seen=Date.now();if(!th)refreshMain();});
 es.addEventListener('machine',function(){seen=Date.now();if(mach)refreshMain();});
+es.addEventListener('run',function(){seen=Date.now();if(rq)refreshMain();});
 es.addEventListener('chat',function(){seen=Date.now();if(th)refreshThread();});}
 if(poll&&th)setInterval(function(){if(!live)refreshThread();},poll);
 else if(every&&c)setInterval(function(){if(!live||mach)refreshMain();},every);
@@ -645,7 +686,7 @@ clearTimeout(fm.rvT);extra.step=step;extra.rid=fm.getAttribute('data-rid');
 rvPost(fm,extra,function(j){rvDisarm(fm);
 if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bulk')&&row.parentNode)row.parentNode.removeChild(row);refreshMain();}
 else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
-var CONFIRMED={merge:1,control:1,wake:1,restart:1,watchdog:1};
+var CONFIRMED={merge:1,control:1,wake:1,restart:1,watchdog:1,run:1};
 function actName(fm){return (fm.getAttribute('action')||'').replace('/act/','');}
 function actWarn(fm,t){var w=fm.querySelector('.act-warn');if(!t){if(w)w.parentNode.removeChild(w);return;}
 if(!w){w=document.createElement('p');w.className='act-warn';w.setAttribute('role','alert');fm.appendChild(w);}w.textContent=t;}
@@ -666,11 +707,12 @@ for(var k in x){if(Object.prototype.hasOwnProperty.call(x,k))p.set(k,x[k]);}
 p.set('rid',fm.getAttribute('data-rid')||p.get('rid'));}
 var two=CONFIRMED[act]&&!step;
 fm.classList.add('is-sending');
-if(!two){b.textContent='Sent ✓';b.classList.add('is-sent');}
+if(!two){b.textContent=act==='run'?'Running…':'Sent ✓';b.classList.add('is-sent');}
 actSettle(fm,p,function(j){fm.classList.remove('is-sending');
 if(j.ok&&j.confirm){b.classList.remove('is-sent');fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
 fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));fm.acBtn=sig;fm.acEl=b;b.classList.add('is-armed');b.textContent=j.label||'Tap again';actWarn(fm,j.detail);
-fm.acT=setTimeout(function(){actDisarm(fm,b);},j.detail?15000:8000);return;}
+fm.acT=setTimeout(function(){actDisarm(fm,b);},j.detail?(j.detail.length>200?30000:15000):8000);return;}
+if(act==='run'){runShow(fm,b,j);return;}
 if(j.ok){fm.classList.add('is-sent');b.textContent=j.pending?'Sent ✓ saving…':'Sent ✓';
 b.classList.remove('is-armed');b.classList.add('is-sent');
 var t=fm.querySelector('textarea,input[type=text]');if(t)t.value='';
@@ -680,6 +722,17 @@ var m=fm.querySelector('.act-err');if(!m){m=document.createElement('p');m.classN
 m.textContent=j.message||'Could not send.';
 fm.removeAttribute('data-step');fm.removeAttribute('data-extra');if(!j.net)freshRid(fm);
 setTimeout(function(){b.textContent=b.getAttribute('data-was');},3000);},0);});
+function runShow(fm,b,j){fm.classList.add('is-shown');b.classList.remove('is-armed','is-sent');
+b.textContent=!j.ok?'Failed ✗':j.pending?'Running…':'Done ✓';
+var m=fm.querySelector('.act-ok,.act-err');if(m)m.parentNode.removeChild(m);
+m=document.createElement('p');m.className=j.ok?'act-ok':'act-err';m.setAttribute('role',j.ok?'status':'alert');
+m.textContent=j.ok&&j.pending?'Still running. The list of runs shows the result when it finishes.':(j.message||(j.ok?'Done.':'Could not run it.'));
+fm.appendChild(m);fm.removeAttribute('data-step');fm.removeAttribute('data-extra');
+if(j.reload)setTimeout(function(){location.reload();},j.reload*1000);
+setTimeout(function(){fm.classList.remove('is-shown');b.textContent=b.getAttribute('data-was');
+if(m.parentNode)m.parentNode.removeChild(m);fm.reset();},9000);}
+document.addEventListener('change',function(e){var fm=e.target&&e.target.form;
+if(fm&&fm.getAttribute('data-step'))actDisarm(fm,fm.acEl||fm.querySelector('button'));});
 var cf=document.querySelector('form.chatf');
 function lmeta(m,t,err){var b=th&&atBottom(),s=m.el.querySelector('.meta');s.textContent=t;m.el.classList.toggle('is-err',!!err);
 if(err){var r=document.createElement('button');r.type='button';r.className='quiet';r.textContent='Retry';
@@ -1088,6 +1141,7 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
         f"<a href='/config'{cur('config')}>Config</a>"
         f"<a href='/machine'{cur('machine')}>Machine</a>"
+        f"<a href='/run'{cur('run')}>Run</a>"
         f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
         f"</header><main>{body}</main><script>{SCRIPT}</script></body></html>"
     )
@@ -1953,6 +2007,121 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
         + "</section></div></div>",
         "machine",
         f" data-refresh={MACHINE_REFRESH_MS} data-machine",
+        ctx,
+    )
+
+
+RUN_REFRESH_MS = 30000  # only while the live stream is down; a run's start and end push a refresh
+_RUN_RESULT = {
+    runqueue.OK: ("ok", "ok", "OK"),
+    runqueue.REFUSED: ("warn", "warn", "Refused"),
+    runqueue.FAILED: ("down", "down", "Failed"),
+    runqueue.TIMED_OUT: ("down", "down", "Timed out"),
+    runqueue.RUNNING: ("unknown", "run", "Running"),
+    runqueue.UNKNOWN: ("unknown", "unknown", "Unknown"),
+}
+
+
+def _secs(seconds: float | None) -> str:
+    """A run's duration; each number keeps its unit on the same line (a no-break space)."""
+    if seconds is None:
+        return ""
+    if seconds < 10:
+        return f"{seconds:.1f}\u00a0s"
+    if seconds < 120:
+        return f"{int(seconds)}\u00a0s"
+    return f"{int(seconds // 60)}\u00a0min {int(seconds % 60)}\u00a0s"
+
+
+def _run_card(card: runqueue.Card, ctx: Ctx) -> str:
+    """One fix button: what it does, the exact command or helper verb, how long it takes."""
+    a = card.action
+    cls = "rq" + (" rq--down" if a.down else "") + (" rq--off" if card.why_not else "")
+    body = (
+        f"<div class=rq__body><div class=rq__top><b>{esc(a.label)}</b>"
+        f"<span class=rq__took>{esc(a.took)}</span></div>"
+        f"<p class=rq__what>{esc(a.plain)}</p><code class=rq__cmd>{esc(a.command())}</code>"
+        + (f"<p class=rq__off>{esc(card.why_not)}</p>" if card.why_not else "")
+        + "</div>"
+    )
+    form = ""
+    if not card.why_not:
+        pick = ""
+        if a.choice:
+            fid = f"rq-{a.key}"
+            opts = "".join(
+                f"<option value={v}{' selected' if v == a.default else ''}>{esc(a.short(v))}</option>"
+                for v in a.choices
+            )
+            word = "At" if a.choice == "hour" else "For"
+            pick = f"<label for={fid}>{word}</label><select id={fid} name=n>{opts}</select>"
+        cls_b = " class=danger" if a.down else ""
+        form = ctx.form(
+            "run", f"{pick}<button{cls_b} type=submit>Run</button>", always=True, do=a.key
+        )
+    return f"<li class='{cls}'>{body}{form}</li>"
+
+
+def _run_row(r: runqueue.Run, owner: str, ctx: Ctx) -> str:
+    row, chip, word = _RUN_RESULT.get(r.result, _RUN_RESULT[runqueue.UNKNOWN])
+    who = "you" if r.who == owner else machine.redact(r.who or "-", 40)
+    took = _secs(r.duration_s)
+    detail = " · ".join(x for x in (esc(r.detail), f"took {took}" if took else "") if x)
+    return (
+        f"<li class='mrow mrow--{row} rqrun'><span class='mstate mstate--{chip}'>{word}</span>"
+        f"<div class=mrow__body><div class=mrow__top><b>{esc(r.label)}</b>"
+        f"<span class=mrow__head>by {esc(who)}</span></div>"
+        + (f"<p class=mrow__detail>{detail}</p>" if detail else "")
+        + f"</div><span class=mrow__side>{ctx.time(_iso(r.start))}</span></li>"
+    )
+
+
+def _helper_note(state: str) -> str:
+    if state == runqueue.READY:
+        return (
+            "<p class=rqnote>Through the admin helper only: each button writes one request "
+            "line for it and starts its task, and its answer is shown below.</p>"
+        )
+    more = (
+        "It has not answered the desk yet. If the sitting is done, tap Check the admin "
+        "helper; the other Windows buttons are offered once it answers."
+        if state == runqueue.UNPROVEN
+        else "The one sitting at the PC sets it up. Until then no Windows button is offered."
+    )
+    return (
+        f"<div class=banner role=status><p><b>{esc(runqueue.NOT_SET_UP)}</b></p>"
+        f"<p class=mute>{esc(more)} ({esc(runqueue.SITTING)})</p></div>"
+    )
+
+
+def render_run(view: runqueue.RunView, ctx: Ctx) -> str:
+    """The Run page: fixed fix buttons, then the last runs. Nothing runs from a page load;
+    each button needs a confirm step (two for the ones that take things down)."""
+    linux = "".join(_run_card(c, ctx) for c in view.cards if c.action.side == "linux")
+    windows = "".join(_run_card(c, ctx) for c in view.cards if c.action.side == "windows")
+    windows += "".join(
+        "<li class='rq rq--off'><div class=rq__body><div class=rq__top>"
+        f"<b>{esc(label)}</b></div><p class=rq__what>{esc(why)}</p>"
+        "<p class=rq__off>Not offered.</p></div></li>"
+        for label, why in view.not_offered
+    )
+    rows = "".join(_run_row(r, view.owner, ctx) for r in view.runs)
+    runs = f"<ol class=mlist>{rows}</ol>" if rows else "<p class=mute>No runs yet.</p>"
+    return _page(
+        "Run · Hive desk",
+        "<div class=runq><div class=mach__head><h1>Run</h1></div>"
+        "<div class=mach__lead><p class=mute>Fixed fixes only. A tap shows exactly what will "
+        "run; it runs only after you tap again, and every run is logged.</p></div>"
+        "<div class=runq__cols><section class=runq__col>"
+        "<h2 class=sec-label>This desk · Linux</h2>"
+        "<p class=rqnote>Runs as you inside WSL, never as root.</p>"
+        f"<ol class=rqlist>{linux}</ol>"
+        "<h2 class=sec-label>The PC · Windows</h2>"
+        f"{_helper_note(view.helper)}<ol class=rqlist>{windows}</ol></section>"
+        f"<section class=runq__col><h2 class=sec-label>Last {runqueue.SHOWN_RUNS} runs</h2>"
+        f"{runs}</section></div></div>",
+        "run",
+        f" data-refresh={RUN_REFRESH_MS} data-run",
         ctx,
     )
 

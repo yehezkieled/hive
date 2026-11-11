@@ -1203,7 +1203,7 @@ become no-ops — Hive still boots.
 
 ## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the desk (Home, Project, Chat, Config and Machine pages)
+`python -m hive.gateway` serves the desk (Home, Project, Chat, Config, Machine and Run pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
 Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
@@ -1243,6 +1243,19 @@ write action. `gateway/machine.py` reads each link with an unelevated, read-only
 command or file read under a 3 s time-out, off the request path and cached (15 s;
 boot time and installed updates 10 min); a link whose read fails shows `unknown`.
 What each row means and what to do about it: [machine.md](machine.md).
+
+**Run (`/run`).** A short, fixed list of fix buttons (`gateway/runqueue.py`), each one exact
+named action with no free text. The Linux buttons run, as the desk's own user and with an
+argument list only, `systemctl --user` on `hive-gateway`, `clip-desk`, `hive-telegram` and
+`hive-fleet-up`, and `scripts/fleet-up.sh --only serve`. The Windows buttons only write one
+`<nonce> <verb> [<number>]` line for the admin helper, start its task with `schtasks.exe
+/run`, and read its audit log for the reply, using only the helper's own verbs. Every run
+passes the desk's step-up (two confirms for the restarts that take things down), one run at
+a time per button (all Windows buttons share one lane), at most once a minute per button
+and 10 runs per 10 minutes, each under a hard time-out. Each run is logged to
+`run-audit.log` in the data dir and to the journal. Without the helper installed the page
+offers no Windows button. The buttons, their time-outs and what to do when one fails:
+[run-queue.md](run-queue.md).
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
@@ -1401,16 +1414,18 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
-| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake audit log and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
+| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake and Run page audit logs and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
-| `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate and Restart session actions run its `--only firstmate` step; `off` removes both) |
+| `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate and Restart session actions run its `--only firstmate` step, the Run page's Repair the serve maps its `--only serve` step; `off` removes them) |
 | `HIVE_GATEWAY_HERDR` | `herdr` on `PATH`, else `~/.local/bin/herdr` (Wake firstmate and Restart session release a stale `claude` report on firstmate's one herdr pane with it) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 | `HIVE_GATEWAY_LAVISH_AXI` | `lavish-axi` on `PATH`, else `~/.local/bin/lavish-axi` (ends a review session for Close; `off` hides the Close buttons) |
 | `HIVE_GATEWAY_POWERSHELL` | `powershell.exe` on `PATH`, else `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe` (the Machine page's Windows reads: boot time, session, restart pending; `off`, or a host without it, leaves those rows `unknown`) |
 | `HIVE_TAILSCALE_BIN` | `tailscale` on `PATH`, else `/mnt/c/Program Files/Tailscale/tailscale.exe` (the Machine page's Tailscale row, `status --json` only; shared with the Telegram bot's `/health`; `off` disables it) |
-| `HIVE_GATEWAY_SYSTEMCTL` | `systemctl` on `PATH` (the Machine page's Desk and Fleet-up timer rows, `--user show` only; `off` disables it) |
+| `HIVE_GATEWAY_SYSTEMCTL` | `systemctl` on `PATH` (the Machine page's Desk and Fleet-up timer rows, `--user show`; the Run page's Linux buttons, `--user restart` / `start` / `is-active` on four fixed units; `off` disables both) |
+| `HIVE_GATEWAY_ADMIN_HELPER` | `/mnt/c/ProgramData/HiveAdmin` (the Windows admin helper's request folder and audit log, for the Run page's Windows buttons; `off` removes them) |
+| `HIVE_GATEWAY_SCHTASKS` | `schtasks.exe` on `PATH`, else `/mnt/c/Windows/System32/schtasks.exe` (starts the admin helper's task, `/run /tn '\Hive\Hive Admin Helper'` only; `off` removes the Windows buttons) |
 | `HIVE_GATEWAY_CLAUDE_CREDENTIALS` | `~/.claude/.credentials.json` (the Machine page reads the sign-in's expiry date from it and nothing else; `off` leaves the row `unknown`) |
 | `HIVE_GATEWAY_NET_CHECK` | `api.anthropic.com:443` (`host:port` for the Machine page's one outbound TCP connect, which sends nothing; `off` disables it) |
 
