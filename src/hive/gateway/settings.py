@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,6 +20,12 @@ DEFAULT_BOARD_URL = "https://desktop-lfme032.tailfb3900.ts.net:8445"
 DEFAULT_TZ = "Australia/Sydney"
 DEFAULT_FLEET_UP = Path(__file__).resolve().parents[3] / "scripts" / "fleet-up.sh"
 LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
+# Under WSL the PC's own tools are Windows programs; a service's PATH does not list them.
+WINDOWS_TAILSCALE = Path("/mnt/c/Program Files/Tailscale/tailscale.exe")
+WINDOWS_POWERSHELL = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+DEFAULT_CLAUDE_CREDENTIALS = "~/.claude/.credentials.json"
+DEFAULT_NET_CHECK = "api.anthropic.com:443"
+_NET_CHECK_RE = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?):([0-9]{1,5})$")
 
 
 def _csv(value: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -67,6 +75,20 @@ class GatewaySettings:
     # herdr, for releasing a stale firstmate pane report on wake or restart; None: not found.
     herdr: Path | None = None
 
+    # The Machine page's read-only sources. Each one left as None reads "unknown" there.
+    # powershell.exe under WSL: Windows boot time, session and update facts.
+    powershell: Path | None = None
+    # The PC's Tailscale command (tailscale.exe under WSL): connection state and key expiry.
+    tailscale: Path | None = None
+    # systemctl, for the desk's own service and the fleet-up timer.
+    systemctl: Path | None = None
+    # Claude Code's credentials file. Only the sign-in's expiry date is ever taken from it.
+    claude_credentials: Path | None = None
+    # (host, port) of the one outbound reachability check.
+    net_check: tuple[str, int] | None = None
+    # How old the Machine page's readings may get before a page view starts a new round.
+    machine_ttl_s: float = 15.0
+
     @property
     def state_dir(self) -> Path:
         return self.fm_home / "state"
@@ -95,7 +117,56 @@ class GatewaySettings:
             lavish_axi=_lavish_axi(env.get("HIVE_GATEWAY_LAVISH_AXI", "").strip()),
             fleet_up=_fleet_up(env.get("HIVE_GATEWAY_FLEET_UP", "").strip()),
             herdr=_herdr(env.get("HIVE_GATEWAY_HERDR", "").strip()),
+            powershell=_binary(
+                env.get("HIVE_GATEWAY_POWERSHELL", "").strip(), "powershell.exe", WINDOWS_POWERSHELL
+            ),
+            tailscale=tailscale_binary(env),
+            systemctl=_binary(env.get("HIVE_GATEWAY_SYSTEMCTL", "").strip(), "systemctl"),
+            claude_credentials=_claude_credentials(
+                env.get("HIVE_GATEWAY_CLAUDE_CREDENTIALS", "").strip()
+            ),
+            net_check=_net_check(env.get("HIVE_GATEWAY_NET_CHECK", "").strip()),
         )
+
+
+def _binary(value: str, name: str, *fallbacks: Path) -> Path | None:
+    """The configured binary, else ``name`` on PATH, else the first fallback that exists.
+
+    ``off`` disables it.
+    """
+    if value == "off":
+        return None
+    if value:
+        return Path(value).expanduser()
+    found = shutil.which(name)
+    if found:
+        return Path(found)
+    return next((p for p in fallbacks if p.is_file()), None)
+
+
+def tailscale_binary(env: Mapping[str, str]) -> Path | None:
+    """``HIVE_TAILSCALE_BIN``, else ``tailscale`` on PATH, else the Windows one under WSL.
+
+    Shared by the desk's Machine page and the Telegram bot's ``/health``.
+    """
+    return _binary(env.get("HIVE_TAILSCALE_BIN", "").strip(), "tailscale", WINDOWS_TAILSCALE)
+
+
+def _claude_credentials(value: str) -> Path | None:
+    """Claude Code's credentials file; ``off`` leaves the sign-in row unknown."""
+    if value == "off":
+        return None
+    return Path(value or DEFAULT_CLAUDE_CREDENTIALS).expanduser()
+
+
+def _net_check(value: str) -> tuple[str, int] | None:
+    """``host:port`` for the reachability check; ``off`` or an unusable value disables it."""
+    if value == "off":
+        return None
+    m = _NET_CHECK_RE.fullmatch(value or DEFAULT_NET_CHECK)
+    if m is None or not 0 < int(m[2]) < 65536:
+        return None
+    return m[1].lower(), int(m[2])
 
 
 def _fleet_up(value: str) -> Path | None:

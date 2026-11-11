@@ -118,8 +118,9 @@ Logs: `journalctl --user -u hive-telegram.service -n 30`.
 
 The bot reads the same `HIVE_GATEWAY_*` settings as the desk (port, data dir,
 firstmate home). If the desk unit overrides any, add the same lines to this
-unit. `HIVE_TAILSCALE_BIN` picks the Tailscale command for `/health`; by default
-it is `tailscale` on PATH, else the Windows one under WSL.
+unit. `HIVE_TAILSCALE_BIN` picks the Tailscale command for `/health`; the desk's
+Machine page reads the same setting. Its defaults and `off` option are documented
+in [DEPLOYMENT.md](DEPLOYMENT.md#gateway-desk-adr-0030).
 
 ## Kill switches
 
