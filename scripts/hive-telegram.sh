@@ -73,6 +73,9 @@ fi
 if ! [[ "$TELEGRAM_ALLOWED_USER_IDS" =~ ^[0-9]{1,20}(,[0-9]{1,20})*$ ]]; then
   skip "TELEGRAM_ALLOWED_USER_IDS must be numeric user ids, comma separated (run scripts/telegram-setup.sh set)"
 fi
+if [[ ",$TELEGRAM_ALLOWED_USER_IDS," =~ ,0+, ]]; then
+  skip "TELEGRAM_ALLOWED_USER_IDS must not contain 0 (run scripts/telegram-setup.sh set)"
+fi
 if [ -f "$STATE_DIR/rejected-token.sha256" ] \
   && [ "$(cat "$STATE_DIR/rejected-token.sha256")" = "$(sha256 "$TELEGRAM_BOT_TOKEN")" ]; then
   skip "Telegram rejected this bot token; set a new one with scripts/telegram-setup.sh set"

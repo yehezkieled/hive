@@ -104,6 +104,9 @@ def test_set_with_user_id_flag(home: Path) -> None:
         "not-a-token\n42\n",
         f"{FAKE_TOKEN}$(touch pwned)\n42\n",
         f"{FAKE_TOKEN}\n@me\n",
+        f"{FAKE_TOKEN}\n0\n",
+        f"{FAKE_TOKEN}\n000\n",
+        f"{FAKE_TOKEN}\n42,0\n",
         f"{FAKE_TOKEN}\n\n",
     ],
 )
@@ -188,6 +191,15 @@ def test_wrapper_refuses_a_file_others_can_read(home: Path) -> None:
     [
         ("TELEGRAM_BOT_TOKEN=abc\nTELEGRAM_ALLOWED_USER_IDS=42\n", "BotFather"),
         (f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_ALLOWED_USER_IDS=me\n", "numeric"),
+        (f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_ALLOWED_USER_IDS=0\n", "not contain 0"),
+        (
+            f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_ALLOWED_USER_IDS=42,0\n",
+            "not contain 0",
+        ),
+        (
+            f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_ALLOWED_USER_IDS=42,000\n",
+            "not contain 0",
+        ),
         (f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\n", "must both be set"),
     ],
 )

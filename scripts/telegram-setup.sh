@@ -71,6 +71,8 @@ cmd_set() {
   fi
   [[ "$ids" =~ ^[0-9]{1,20}(,[0-9]{1,20})*$ ]] \
     || die "the allowed id must be your numeric Telegram user id (comma separated for more). Nothing was saved."
+  [[ ! ",$ids," =~ ,0+, ]] \
+    || die "the allowed id must not contain 0. Nothing was saved."
 
   local dir tmp
   dir="$(dirname "$ENV_FILE")"
