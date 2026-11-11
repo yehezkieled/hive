@@ -53,7 +53,7 @@ sleep 5; tail -n 3 /mnt/c/ProgramData/HiveAdmin/audit.log
 2. Check a malformed request:
 
 ```sh
-echo 'check$(date +%s) shell' > /mnt/c/ProgramData/HiveAdmin/request/request.txt
+echo "check$(date +%s) shell" > /mnt/c/ProgramData/HiveAdmin/request/request.txt
 schtasks.exe /run /tn '\Hive\Hive Admin Helper'
 sleep 5; tail -n 3 /mnt/c/ProgramData/HiveAdmin/audit.log
 ```
@@ -77,7 +77,7 @@ test ! -e /mnt/c/ProgramData/HiveAdmin/request/request.txt && echo 'request remo
 ```sh
 echo "check$(date +%s) tailscale-up" > /mnt/c/ProgramData/HiveAdmin/request/request.txt
 schtasks.exe /run /tn '\Hive\Hive Admin Helper'
-sleep 5; grep -cE 'https?://' /mnt/c/ProgramData/HiveAdmin/audit.log
+sleep 70; grep -cE 'https?://' /mnt/c/ProgramData/HiveAdmin/audit.log
 ```
 
 | You see | Meaning |
