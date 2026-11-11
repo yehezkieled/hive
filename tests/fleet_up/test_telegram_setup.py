@@ -208,7 +208,10 @@ def test_macos_set_loads_agent_and_remove_boots_it_out(home: Path) -> None:
     assert configured.returncode == 0, configured.stderr
     assert removed.returncode == 0, removed.stderr
     calls = log.read_text().splitlines()
-    assert any(call.startswith("bootstrap gui/") and call.endswith("com.hive.telegram.plist") for call in calls)
+    assert any(
+        call.startswith("bootstrap gui/") and call.endswith("com.hive.telegram.plist")
+        for call in calls
+    )
     assert any(call.startswith("kickstart -k gui/") for call in calls)
     assert any(call.startswith("bootout gui/") for call in calls)
     assert all("kill TERM" not in call for call in calls)
