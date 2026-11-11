@@ -43,7 +43,10 @@ commands below use a venv at `.venv/`.
   since the cut-over ([ADR 0033](adr/0033-hive-cutover-retire-entity-runtime.md)).
   Create a bot via BotFather and paste the token into `.env` to enable it; with
   no token Hive logs `Telegram backup channel is off` and keeps running. The
-  desk (`hive-gateway.service` over Tailscale) is the primary surface.
+  desk (`hive-gateway.service` over Tailscale) is the primary surface. The
+  standalone fixed-command bot (`hive-telegram.service`, the way in when
+  Tailscale is down) is set up separately; see [`telegram.md`](telegram.md).
+  One token is polled by one process only: the two never run together.
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
 
@@ -109,7 +112,7 @@ break gate detection in the fleet and never show in dev.
   actually resolved:
 
   ```bash
-  journalctl --user -u hive.service | grep "on claude"  # hive-telegram.service on a host migrated per fleet-up.md
+  journalctl --user -u hive.service | grep "on claude"
   # … PtySession: worker-3 on claude 2.1.162 (…/versions/2.1.162)
   ```
 
@@ -320,7 +323,7 @@ One-time setup on the VPS:
 tailscale serve --bg https / http://127.0.0.1:8080
 
 # 4. Apply and verify
-systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user restart hive.service
 tailscale serve status        # shows the https://<node>.<tailnet>.ts.net mapping
 ```
 
@@ -350,8 +353,8 @@ One-time setup on the VPS:
 #   HIVE_VAPID_SUBJECT=mailto:you@example.com   # contact the push services require
 
 # 3. Restart and confirm the channel comes up enabled (not "inert — no VAPID keys"):
-systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
-journalctl --user -u hive.service -n 30 | grep -i "web push"  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user restart hive.service
+journalctl --user -u hive.service -n 30 | grep -i "web push"
 ```
 
 Then, in the **installed** PWA on the iPad, allow notifications when prompted —
@@ -396,7 +399,7 @@ Endpoints that accept input from the browser tab:
 # user for it on first send and caches it in sessionStorage.
 HIVE_WEB_TOKEN=$(openssl rand -hex 32)
 echo "HIVE_WEB_TOKEN=$HIVE_WEB_TOKEN" >> .env
-systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user restart hive.service
 ```
 
 Smoke-test from any tailnet device:
@@ -424,8 +427,7 @@ events and flushes when either threshold trips:
 **Console mode**: when `HIVE_SMTP_HOST` is unset the digest logs the
 rendered body instead of sending. Useful on dev hosts and as a smoke
 test before wiring real SMTP. Logs land in `journalctl --user -u
-hive.service -g "Email digest"` (`-u hive-telegram.service` on a host migrated
-per [`fleet-up.md`](fleet-up.md)).
+hive.service -g "Email digest"`.
 
 For a real SMTP backend (Gmail app password, Mailgun, AWS SES, etc.):
 
@@ -785,8 +787,10 @@ Persisted entities (the Vault) survive restart. Subsequent startup logs show
 
 ### Telegram commands (full list)
 
-Telegram is an optional backup channel (enabled by `TELEGRAM_BOT_TOKEN`). The
-typed approval commands stay until the desk covers vault and mode approvals.
+These are the Vault runtime's commands (`python -m hive`, enabled by
+`TELEGRAM_BOT_TOKEN` in its `.env`). The typed approval commands stay until the
+desk covers vault and mode approvals. The standalone bot has only six fixed
+commands; see [`telegram.md`](telegram.md).
 
 **Status & monitoring:**
 `/status`, `/health`, `/cost [24h|7d|30d]`, `/quota`, `/audit [prefix]`, `/files [N]`
@@ -1021,7 +1025,7 @@ accidentally truncated:
 
 ```bash
 # 1. Stop the orchestrator so it doesn't write to the DB during restore.
-systemctl --user stop hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user stop hive.service
 
 # 2. Pick a dump.
 ls -lt ~/backups/hive/
@@ -1044,7 +1048,7 @@ docker exec hive-postgres psql -U hive -d hive -c \
             (SELECT COUNT(*) FROM messages) AS messages;"
 
 # 6. Restart hive.
-systemctl --user start hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user start hive.service
 ```
 
 The dump is captured with `--no-owner --no-acl`, so it replays cleanly
@@ -1199,7 +1203,7 @@ become no-ops — Hive still boots.
 
 ## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the desk (Home, Project, Chat and Config pages)
+`python -m hive.gateway` serves the desk (Home, Project, Chat, Config and Machine pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
 Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
@@ -1231,6 +1235,14 @@ own. `gateway/fmconfig.py` reads, on every request and read-only, `data/projects
 posture (`unknown (...)` when unreadable) and never claims a self-merge, and
 `delegate` / ticket create are refused with "ask the captain" when the worker
 settings are unusable. See `docs/gateway-requests.md`.
+
+**Machine (`/machine`).** A read-only page of the chain that has to hold to reach
+firstmate (PC power, Windows session, Tailscale, WSL, the desk, the fleet-up timer,
+firstmate, the Claude sign-in, internet) and the dated risks coming up. It has no
+write action. `gateway/machine.py` reads each link with an unelevated, read-only
+command or file read under a 3 s time-out, off the request path and cached (15 s;
+boot time and installed updates 10 min); a link whose read fails shows `unknown`.
+What each row means and what to do about it: [machine.md](machine.md).
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
@@ -1370,7 +1382,8 @@ opens only when the chip is tapped and closes on a tap outside or Escape. The de
 CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
 stream (below); only while that stream is down does it poll `/chat` every 4 s
-and Home and Project every 30 s. It never swaps the page while text is
+and Home and Project every 30 s (Machine asks every 30 s either way: each ask is
+what starts its next round of reads). It never swaps the page while text is
 selected, and the refresh also waits while a form is being used.
 
 Auth (everything else is a bare 403; a method other than GET/HEAD, or POST
@@ -1395,6 +1408,11 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_HERDR` | `herdr` on `PATH`, else `~/.local/bin/herdr` (Wake firstmate and Restart session release a stale `claude` report on firstmate's one herdr pane with it) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 | `HIVE_GATEWAY_LAVISH_AXI` | `lavish-axi` on `PATH`, else `~/.local/bin/lavish-axi` (ends a review session for Close; `off` hides the Close buttons) |
+| `HIVE_GATEWAY_POWERSHELL` | `powershell.exe` on `PATH`, else `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe` (the Machine page's Windows reads: boot time, session, restart pending; `off`, or a host without it, leaves those rows `unknown`) |
+| `HIVE_TAILSCALE_BIN` | `tailscale` on `PATH`, else `/mnt/c/Program Files/Tailscale/tailscale.exe` (the Machine page's Tailscale row, `status --json` only; shared with the Telegram bot's `/health`; `off` disables it) |
+| `HIVE_GATEWAY_SYSTEMCTL` | `systemctl` on `PATH` (the Machine page's Desk and Fleet-up timer rows, `--user show` only; `off` disables it) |
+| `HIVE_GATEWAY_CLAUDE_CREDENTIALS` | `~/.claude/.credentials.json` (the Machine page reads the sign-in's expiry date from it and nothing else; `off` leaves the row `unknown`) |
+| `HIVE_GATEWAY_NET_CHECK` | `api.anthropic.com:443` (`host:port` for the Machine page's one outbound TCP connect, which sends nothing; `off` disables it) |
 
 ### Live updates, alerts and live tail
 
@@ -1411,7 +1429,8 @@ no cross-site `Sec-Fetch-Site`.
   waits for the 60 s heartbeat snapshot. Pages
   re-fetch themselves and swap in place (same busy rules as before: never while text
   is selected or a form is in use; the refresh then waits). The 30 s (Home/Project)
-  and 4 s (Chat) polls only run while the stream is down.
+  and 4 s (Chat) polls only run while the stream is down. A finished round of
+  Machine reads sends `machine`, which only an open Machine page acts on.
 - **Web Push (ADR 0026, gateway-local).** The first call to `GET /push/key` creates the
   VAPID key under `HIVE_GATEWAY_DATA_DIR`. The header's **Alerts** button asks for
   notification permission and stores the subscription (`POST /push/subscribe`, with

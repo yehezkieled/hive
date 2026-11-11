@@ -95,13 +95,13 @@ class FirstmateStatus:
         beat = (
             "no watcher beat record"
             if self.beat_age_s is None
-            else f"last watcher beat {_ago(self.beat_age_s)} ago"
+            else f"last watcher beat {ago(self.beat_age_s)} ago"
         )
         session = "session running" if self.session else "no session process"
         return f"{self.label}: {session}, {beat}"
 
 
-def _ago(seconds: float) -> str:
+def ago(seconds: float) -> str:
     seconds = max(0, int(seconds))
     if seconds < 90:
         return f"{seconds}s"
@@ -456,7 +456,7 @@ class WakeService:
         if age is not None and age < ACTIVE_RECENT_S:
             return WakeResult(
                 "refused",
-                f"Firstmate was mid-turn {_ago(age)} ago, so it may be working. "
+                f"Firstmate was mid-turn {ago(age)} ago, so it may be working. "
                 "Nothing was stopped; try again later.",
             )
         blocked = await self._cooldown()

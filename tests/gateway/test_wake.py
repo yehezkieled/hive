@@ -35,12 +35,8 @@ from hive.gateway.wake import (
     last_activity,
     read_status,
 )
-from hive.telegram.bridge import (
-    RESTART_CALLBACK,
-    RESTART_CONFIRM_TEXT,
-    WAKE_CALLBACK,
-    TelegramBridge,
-)
+from hive.telegram.bridge import TelegramBridge
+from hive.telegram.recovery import RESTART_CALLBACK, RESTART_CONFIRM_TEXT, WAKE_CALLBACK
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
 OWNER = "owner@example.test"

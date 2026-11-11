@@ -82,8 +82,13 @@ def env(tmp_path):
     return e, stub_dir
 
 
+# Shaped like a BotFather token, and obviously not one.
+FAKE_TOKEN = "123456789:" + "FAKE" * 9
+OTHER_TOKEN = "987654321:" + "ALSOFAKE" * 4
+
+
 def configure_telegram(e):
-    e["TELEGRAM_BOT_TOKEN"] = "t"
+    e["TELEGRAM_BOT_TOKEN"] = FAKE_TOKEN
     e["TELEGRAM_ALLOWED_USER_IDS"] = "1"
 
 
@@ -244,8 +249,11 @@ def test_env_overrides_config_file(env):
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck not installed")
-def test_script_is_shellcheck_clean():
-    r = subprocess.run(["shellcheck", str(SCRIPT)], capture_output=True, text=True)
+@pytest.mark.parametrize("script", ["fleet-up.sh", "hive-telegram.sh", "telegram-setup.sh"])
+def test_script_is_shellcheck_clean(script):
+    r = subprocess.run(
+        ["shellcheck", str(ROOT / "scripts" / script)], capture_output=True, text=True
+    )
     assert r.returncode == 0, r.stdout
 
 
@@ -298,7 +306,7 @@ def test_runtime_step_skipped_when_already_running(env):
     e, _ = env
     e["RUNTIME_STATUS_CMD"] = "true"
     r = run(e, "--dry-run", "--only", "runtime")
-    assert "runtime: Hive runtime with Telegram already running" in r.stdout
+    assert "runtime: Telegram bot already running" in r.stdout
 
 
 def test_runtime_step_skipped_when_unconfigured(env):
@@ -351,15 +359,17 @@ def test_telegram_needs_both_token_and_allowlist(tmp_path):
 def test_telegram_check_passes_from_env_file(tmp_path):
     cfg = tmp_path / ".config" / "hive"
     cfg.mkdir(parents=True)
-    (cfg / "telegram.env").write_text("TELEGRAM_BOT_TOKEN=t\nTELEGRAM_ALLOWED_USER_IDS=1\n")
+    body = f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_ALLOWED_USER_IDS=1\n"
+    (cfg / "telegram.env").write_text(body)
+    (cfg / "telegram.env").chmod(0o600)
     assert _telegram(tmp_path, "--check").returncode == 0
 
 
 @pytest.mark.parametrize(
     "dotenv",
     [
-        "TELEGRAM_BOT_TOKEN=t\nTELEGRAM_ALLOWED_USER_IDS=1\n",
-        "# hive\nexport TELEGRAM_BOT_TOKEN='t'\nTELEGRAM_ALLOWED_USER_IDS = \"1,2\"\n"
+        f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_ALLOWED_USER_IDS=1\n",
+        f"# hive\nexport TELEGRAM_BOT_TOKEN='{FAKE_TOKEN}'\nTELEGRAM_ALLOWED_USER_IDS = \"1,2\"\n"
         "HIVE_DB=postgresql://u:p@h/db?a=1&b=2\n",
     ],
 )
@@ -373,14 +383,15 @@ def test_telegram_check_passes_from_hive_dotenv(tmp_path, dotenv):
 def test_telegram_dotenv_without_allowlist_is_unconfigured(tmp_path):
     hive_dir = tmp_path / "hive"
     hive_dir.mkdir()
-    (hive_dir / ".env").write_text("TELEGRAM_BOT_TOKEN=t\n# TELEGRAM_ALLOWED_USER_IDS=1\n")
+    body = f"TELEGRAM_BOT_TOKEN={FAKE_TOKEN}\n# TELEGRAM_ALLOWED_USER_IDS=1\n"
+    (hive_dir / ".env").write_text(body)
     r = _telegram(tmp_path, "--check", HIVE_DIR=str(hive_dir))
     assert r.returncode == 1 and "skipping" in r.stderr
 
 
 def test_telegram_wrapper_never_starts_a_second_runtime(tmp_path, fake_runtime):
     pattern, pid = fake_runtime
-    creds = {"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_ALLOWED_USER_IDS": "1"}
+    creds = {"TELEGRAM_BOT_TOKEN": FAKE_TOKEN, "TELEGRAM_ALLOWED_USER_IDS": "1"}
     r = _telegram(tmp_path, "--check", **creds, HIVE_RUNTIME_PATTERN=pattern)
     assert r.returncode == 1 and f"already running (pid {pid})" in r.stderr
     # run mode: a clean exit before exec, so launchd/systemd do not restart it
@@ -393,6 +404,11 @@ def test_runtime_unit_conflicts_with_hive_service_and_is_independent():
     assert unit["Service"]["Restart"] == "always"
     assert unit["Service"]["ExecCondition"].endswith("hive-telegram.sh --check")
     assert unit["Unit"]["Conflicts"].split() == ["hive.service"]
+    # A rejected token or bad config (exit 78) is not retried; the config lives in the
+    # wrapper's checked file, not in a unit-level EnvironmentFile.
+    assert unit["Service"]["RestartPreventExitStatus"] == "78"
+    assert "EnvironmentFile" not in unit["Service"]
+    assert unit["Install"]["WantedBy"] == "default.target"
     assert not any(d.startswith("hive-") for d in _deps(unit))
     assert not any(d.startswith("hive-") for d in _deps(_unit("hive-gateway.service")))
     plist = plistlib.loads((DEPLOY / "macos" / "com.hive.telegram.plist").read_bytes())

@@ -136,13 +136,14 @@ step_clipdesk() {
   bash -c "$CLIP_DESK_START_CMD" && wait_port "$CLIP_DESK_PORT" && log "clipdesk: up on :$CLIP_DESK_PORT"
 }
 
-# The Hive runtime with Telegram (python -m hive), via hive-telegram.sh.
+# The Telegram bot (python -m hive.telegram), via hive-telegram.sh and its service.
 # Independent of the gateway: a failure here is logged and never blocks a step.
-# Not started when unconfigured or when another Hive runtime already runs.
+# Not started when unconfigured, malformed, rejected by Telegram, or when another
+# Hive runtime already polls the token; that is one quiet line per run, no retry loop.
 step_runtime() {
   local reason
   if bash -c "$RUNTIME_STATUS_CMD" >/dev/null 2>&1; then
-    log "runtime: Hive runtime with Telegram already running"
+    log "runtime: Telegram bot already running"
     return 0
   fi
   if ! reason="$("$HERE/hive-telegram.sh" --check 2>&1)"; then
@@ -153,7 +154,7 @@ step_runtime() {
     log "runtime: not running; would run: $RUNTIME_START_CMD"
     return 0
   fi
-  log "runtime: starting the Hive runtime with Telegram via the service manager"
+  log "runtime: starting the Telegram bot via the service manager"
   bash -c "$RUNTIME_START_CMD" || log "runtime: start failed (ignored)"
   return 0
 }

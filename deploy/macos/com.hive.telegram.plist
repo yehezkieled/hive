@@ -13,15 +13,16 @@
   <string>__HIVE_DIR__</string>
   <key>RunAtLoad</key>
   <true/>
-  <!-- Hive runtime with Telegram (python -m hive). Restart after a crash; a skip
-       (unconfigured, or another Hive runtime running) exits 0 and stays down. -->
+  <!-- The Telegram bot (python -m hive.telegram). Restart after a crash; a skip
+       (unconfigured, malformed, token rejected, or another Hive runtime running)
+       exits 0 and stays down. -->
   <key>KeepAlive</key>
   <dict>
     <key>SuccessfulExit</key>
     <false/>
   </dict>
   <key>ThrottleInterval</key>
-  <integer>5</integer>
+  <integer>30</integer>
   <key>StandardOutPath</key>
   <string>__HOME__/Library/Logs/hive-telegram.log</string>
   <key>StandardErrorPath</key>
