@@ -20,7 +20,7 @@ if ($errors.Count -gt 0) { throw "parse errors in installer: $($errors | ForEach
 
 $wanted = @(
   'ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-HiveAccountSid',
-  'Test-HiveTaskAccountMatches', 'Get-TaskFingerprint',
+  'Get-TaskFingerprint',
   'New-HiveAutologonStartInfo', 'Test-HiveRegistryValueMatches',
   'Test-HiveTaskEnabled', 'Test-HiveAutologonConfigured'
 )
@@ -49,7 +49,6 @@ $script:testAccountSids = @{
   'OTHER\hezki' = 'S-1-5-21-10-20-30-2002'
 }
 $testAccountResolver = { param($Account) $script:testAccountSids[$Account] }
-Assert-Equal 'S-1-5-18' (Get-HiveAccountSid 'SYSTEM') 'SYSTEM resolves to its well-known SID'
 
 $script:failures = 0
 $script:passes = 0
@@ -57,6 +56,8 @@ function Assert-Equal($Expected, $Actual, [string]$Message) {
   if ([string]$Expected -ceq [string]$Actual) { $script:passes++ }
   else { $script:failures++; Write-Output "FAIL: $Message`n  expected: $Expected`n  actual:   $Actual" }
 }
+
+Assert-Equal 'S-1-5-18' (Get-HiveAccountSid 'SYSTEM') 'SYSTEM resolves to its well-known SID'
 
 # CommandLineToArgvW quoting (what Autologon64.exe receives as one argument).
 Assert-Equal 'hezki' (ConvertTo-WindowsArgument 'hezki') 'plain word stays bare'

@@ -148,13 +148,6 @@ function Get-HiveAccountSid([string]$Account, [scriptblock]$Resolver = $null) {
   }
 }
 
-function Test-HiveTaskAccountMatches([string]$Actual, [string]$Expected, [scriptblock]$Resolver = $null) {
-  $actualSid = Get-HiveAccountSid -Account $Actual -Resolver $Resolver
-  $expectedSid = Get-HiveAccountSid -Account $Expected -Resolver $Resolver
-  return ($null -ne $actualSid) -and ($null -ne $expectedSid) -and
-    [string]::Equals($actualSid, $expectedSid, [System.StringComparison]::OrdinalIgnoreCase)
-}
-
 function Get-TaskFingerprint($Task, [scriptblock]$Resolver = $null) {
   if (-not $Task) { return '' }
   $a = @($Task.Actions)[0]
