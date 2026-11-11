@@ -24,8 +24,10 @@ $wanted = @(
   'New-HiveAutologonStartInfo', 'Test-HiveRegistryValueMatches',
   'Test-HiveTaskEnabled', 'Test-HiveAutologonConfigured'
 )
+$installAccountSidText = $null
 foreach ($stmt in $ast.EndBlock.Statements) {
   if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $stmt.Name) {
+    if ($stmt.Name -eq 'Get-HiveAccountSid') { $installAccountSidText = $stmt.Extent.Text }
     . ([scriptblock]::Create($stmt.Extent.Text))
   }
 }
@@ -33,9 +35,13 @@ foreach ($stmt in $ast.EndBlock.Statements) {
 $registerPath = Join-Path (Split-Path -Parent $here) 'Register-HiveWsl.ps1'
 $registerAst = [System.Management.Automation.Language.Parser]::ParseFile($registerPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw "parse errors in keepalive script: $($errors | ForEach-Object { $_.Message })" }
+$registerAccountSidText = $null
 foreach ($stmt in $registerAst.EndBlock.Statements) {
-  if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $stmt.Name -in @('Get-HiveAccountSid', 'Test-HiveTaskAccountMatches', 'Get-HiveTriggerFingerprint', 'Test-HiveKeepaliveTaskEnabled')) {
+  if ($stmt -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) { continue }
+  if ($stmt.Name -eq 'Get-HiveAccountSid') {
+    $registerAccountSidText = $stmt.Extent.Text
+    . ([scriptblock]::Create('function Get-HiveKeepaliveAccountSid' + $registerAccountSidText.Substring('function Get-HiveAccountSid'.Length)))
+  } elseif ($stmt.Name -in @('Test-HiveTaskAccountMatches', 'Get-HiveTriggerFingerprint', 'Test-HiveKeepaliveTaskEnabled')) {
     . ([scriptblock]::Create($stmt.Extent.Text))
   }
 }
@@ -57,7 +63,12 @@ function Assert-Equal($Expected, $Actual, [string]$Message) {
   else { $script:failures++; Write-Output "FAIL: $Message`n  expected: $Expected`n  actual:   $Actual" }
 }
 
+Assert-Equal $installAccountSidText $registerAccountSidText 'installer and keepalive Get-HiveAccountSid definitions are identical'
 Assert-Equal 'S-1-5-18' (Get-HiveAccountSid 'SYSTEM') 'SYSTEM resolves to its well-known SID'
+Assert-Equal 'S-1-5-18' (Get-HiveKeepaliveAccountSid 'SYSTEM') 'keepalive SYSTEM resolves to its well-known SID'
+Assert-Equal 'S-1-5-21-10-20-30-2001' (Get-HiveKeepaliveAccountSid 'PC\hezki' $testAccountResolver) 'keepalive resolves a qualified name to its SID'
+Assert-Equal 'S-1-5-21-10-20-30-2001' (Get-HiveKeepaliveAccountSid 's-1-5-21-10-20-30-2001' $testAccountResolver) 'keepalive accepts a SID string'
+Assert-Equal $null (Get-HiveKeepaliveAccountSid 'PC\nobody' $testAccountResolver) 'keepalive treats an untranslatable name as no SID'
 
 # CommandLineToArgvW quoting (what Autologon64.exe receives as one argument).
 Assert-Equal 'hezki' (ConvertTo-WindowsArgument 'hezki') 'plain word stays bare'
