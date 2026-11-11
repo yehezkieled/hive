@@ -12,7 +12,7 @@ from html import escape as esc
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hive.gateway import fmconfig
+from hive.gateway import fmconfig, machine
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
 from hive.gateway.cards import parse_card
 from hive.gateway.chat import ChatView
@@ -127,9 +127,10 @@ position:relative;padding:0 12px}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
 min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
 #jump[hidden]{display:none}
-@media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}
-/* phone: the two chips get their own right-aligned row; the firstmate label may wrap */
-.chrome{flex-wrap:wrap;row-gap:0;position:relative}.chrome::after{content:'';flex-basis:100%;order:1}
+@media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}}
+/* narrower than an iPad in portrait (phones, iPad split view): the links keep the brand's row and
+   the two chips get their own right-aligned row; the firstmate label may wrap */
+@media (max-width:760px){.chrome{flex-wrap:wrap;row-gap:0;position:relative}.chrome::after{content:'';flex-basis:100%;order:1}
 #fmchip,#qchip{order:2;margin-top:6px}#fmchip{flex:1 1 min-content;text-align:right;position:static}
 #fmchip .qchip{white-space:normal;line-height:1.25;padding:4px 12px}#fmchip>*{text-align:left}#fmchip .fmpop{top:auto;margin-top:6px}}
 /* quota chip: the busier of the two plan windows, as percent used; tap shows both */
@@ -417,6 +418,44 @@ background:var(--bar-ink);color:var(--bar);cursor:pointer}
 form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
 .act-err{font:700 11px var(--font-mono);color:var(--accent);margin:6px 0 0}
 .act-warn{font:700 11px/1.4 var(--font-mono);color:var(--accent);margin:8px 0 0;white-space:normal}
+/* the Machine page: the chain that has to hold and the upcoming risks; read-only */
+.mach{display:flex;flex-direction:column;gap:10px}
+.mach__head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:.5rem}
+.mach h1{margin:0}
+.mach__lead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0}
+.mach__lead p{margin:0}
+.mach__sum{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
+.mach__sum .mstate{min-width:0}
+.mach__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
+.mach__col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.mach__col h2{margin:2px 2px -2px}
+@media (min-width:1000px){.mach__cols{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
+.mlist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.mrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:2px 10px;min-width:0;
+background:var(--paper);border:1.5px solid var(--rule-soft);border-left:4px solid var(--ink-4);border-radius:10px;padding:8px 10px}
+.mrow--ok{border-left-color:var(--sage)}
+.mrow--warn{border-left-color:var(--amber);background:var(--amber-soft)}
+.mrow--down,.mrow--urgent{border-left-color:var(--accent);background:var(--accent-soft)}
+.mstate{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:82px;white-space:nowrap;
+font:700 10px var(--font-mono);letter-spacing:.6px;text-transform:uppercase;color:var(--ink);
+background:var(--paper);border:1.5px solid var(--ink-4);border-radius:999px;padding:3px 8px}
+.mstate::before{content:'?';color:var(--ink-3)}
+.mstate--ok{border-color:var(--sage)}.mstate--ok::before{content:'✓';color:var(--sage)}
+.mstate--warn{border-color:var(--amber)}.mstate--warn::before{content:'!';color:var(--amber)}
+.mstate--down{border-color:var(--accent)}.mstate--down::before{content:'✕';color:var(--accent)}
+.mrow--urgent .mstate{border-color:var(--accent)}.mrow--urgent .mstate::before{color:var(--accent)}
+.mrow__body{min-width:0}
+.mrow__top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
+.mrow__top b{font:800 14px var(--font-display)}
+.mrow__head{font-size:13px}
+.mrow__detail{margin:1px 0 0;font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}
+.mrow__detail time{white-space:nowrap}
+.mrow__side{font:10px var(--font-mono);color:var(--ink-3);text-align:right;white-space:nowrap}
+.mrow__due{font-weight:700;font-size:11px;color:var(--ink)}
+@media (max-width:480px){.mrow{grid-template-columns:auto minmax(0,1fr)}.mrow__side{grid-column:2;text-align:left}}
+/* phones: the five header links still share the brand's row, on the chat page's narrower header too */
+@media (max-width:420px){.chrome{gap:6px}.chrome nav{gap:0}.chrome nav a,#alerts{padding:0 5px;letter-spacing:.2px}}
+@media (max-width:370px){.chrome{gap:4px}.chrome nav a,#alerts{padding:0 3px;letter-spacing:0;font-size:10.5px}}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -431,6 +470,7 @@ catch(e){return new Intl.DateTimeFormat('en-AU',Object.assign({timeZone:FB},o)).
 function stamp(el){var d=new Date(el.getAttribute('datetime'));if(isNaN(d))return;
 var s=(Date.now()-d.getTime())/1000,t,today=f({dateStyle:'short'},d)===f({dateStyle:'short'},new Date());
 if(el.className==='reset'){t=f({hour:'numeric',minute:'2-digit'},d);if(!today)t=f({weekday:'short'},d)+' '+t;}
+else if(el.className==='date')t=f({day:'numeric',month:'short',year:'numeric',hour:'numeric',minute:'2-digit'},d);
 else if(s>=0&&s<60)t='just now';
 else if(s>=0&&s<3600)t=Math.floor(s/60)+' min ago';
 else if(s>=0&&s<21600)t=Math.floor(s/3600)+' h ago';
@@ -452,7 +492,7 @@ function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store
 .then(function(r){return r.ok?r.text():null;}).then(function(t){
 if(t)cb(new DOMParser().parseFromString(t,'text/html'));}).catch(function(){});}
 var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('data-poll');
-var tail=b.getAttribute('data-tail');
+var tail=b.getAttribute('data-tail'),mach=b.getAttribute('data-machine')!==null;
 var th=document.getElementById('thread'),c=document.querySelector('main');
 var last=th?th.innerHTML:c?c.textContent:null,live=false,want=false,es,seen=0;
 function bottom(){if(th)th.scrollTop=th.scrollHeight;else window.scrollTo(0,document.documentElement.scrollHeight);}
@@ -505,9 +545,10 @@ es.onerror=function(){live=false;};
 es.addEventListener('hello',function(){seen=Date.now();live=true;refreshAny();});
 es.addEventListener('ping',function(){seen=Date.now();});
 es.addEventListener('desk',function(){seen=Date.now();if(!th)refreshMain();});
+es.addEventListener('machine',function(){seen=Date.now();if(mach)refreshMain();});
 es.addEventListener('chat',function(){seen=Date.now();if(th)refreshThread();});}
 if(poll&&th)setInterval(function(){if(!live)refreshThread();},poll);
-else if(every&&c)setInterval(function(){if(!live)refreshMain();},every);
+else if(every&&c)setInterval(function(){if(!live||mach)refreshMain();},every);
 if(!tail&&((poll&&th)||(every&&c))&&window.EventSource){connect();
 setInterval(function(){if((live&&Date.now()-seen>45000)||es.readyState===2){live=false;es.close();connect();}
 if(want&&!th&&!document.hidden&&!busy())refreshMain();},2000);
@@ -863,6 +904,22 @@ class Ctx:
         shown = f"{local:%a} {local.day} {local:%b}, {local.hour % 12 or 12}:{local:%M} {local:%p}"
         return f"<time datetime='{esc(dt.isoformat())}'>{esc(shown)}</time>"
 
+    def date(self, epoch: float | None) -> str:
+        """A full date with its year ("21 Nov 2026, 4:51 PM"), for dates that may be far off.
+
+        The page script re-renders it in the viewer's zone, like ``time``.
+        """
+        iso = _iso(epoch)
+        if not iso:
+            return ""
+        local = datetime.fromisoformat(iso)
+        try:
+            local = local.astimezone(ZoneInfo(self.tz))
+        except Exception:  # unknown zone name or no tz database
+            pass
+        shown = f"{local.day} {local:%b %Y}, {local.hour % 12 or 12}:{local:%M} {local:%p}"
+        return f"<time class=date datetime='{esc(iso)}'>{esc(shown)}</time>"
+
 
 def _resets(at: datetime | None, tz: str, now: datetime) -> str:
     """The reset as a ``<time>`` the page script shows in the viewer's zone; ``tz`` is the fallback."""
@@ -1019,6 +1076,7 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
         "<meta name=color-scheme content='light dark'>"
         "<meta name=theme-color content='#b4531a'>"
+        "<meta name=mobile-web-app-capable content=yes>"
         "<meta name=apple-mobile-web-app-capable content=yes>"
         "<meta name=apple-mobile-web-app-title content='Hive desk'>"
         "<link rel=manifest href='/manifest.webmanifest'>"
@@ -1029,6 +1087,7 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
         f"<a href='/config'{cur('config')}>Config</a>"
+        f"<a href='/machine'{cur('machine')}>Machine</a>"
         f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
         f"</header><main>{body}</main><script>{SCRIPT}</script></body></html>"
     )
@@ -1806,6 +1865,94 @@ def render_config(cfg: fmconfig.FmConfig, ctx: Ctx) -> str:
         f"<span>Claude permission mode: {perm}</span></p>{ready}</div>",
         "config",
         "",
+        ctx,
+    )
+
+
+MACHINE_REFRESH_MS = 30000  # an open Machine page re-reads this often; each read may start a round
+_MSTATE = {"ok": "OK", "warn": "Warning", "down": "Down", "unknown": "Unknown"}
+
+
+def _mstate(state: str) -> str:
+    return state if state in _MSTATE else "unknown"
+
+
+def _moment(m: machine.Moment | None, ctx: Ctx, lead: bool = False) -> str:
+    """ "expires <date>", or "Expires <date>" when it opens the line."""
+    if m is None:
+        return ""
+    label = m.label[:1].upper() + m.label[1:] if lead else m.label
+    return f"{esc(label)} {ctx.date(m.at) if m.exact else ctx.time(_iso(m.at))}"
+
+
+def _mrow(state: str, urgent: bool, label: str, head: str, detail: list[str], side: str) -> str:
+    """One line of the Machine page: a state chip (a word, not colour alone), text, a side note."""
+    state = _mstate(state)
+    cls = f"mrow mrow--{state}" + (" mrow--urgent" if urgent else "")
+    line = " · ".join(d for d in detail if d)
+    return (
+        f"<li class='{cls}'><span class='mstate mstate--{state}'>{_MSTATE[state]}</span>"
+        f"<div class=mrow__body><div class=mrow__top><b>{esc(label)}</b>"
+        + (f"<span class=mrow__head>{esc(head)}</span>" if head else "")
+        + "</div>"
+        + (f"<p class=mrow__detail>{line}</p>" if line else "")
+        + f"</div>{side}</li>"
+    )
+
+
+def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
+    """The chain that has to hold and the upcoming risks, read-only.
+
+    Every row always renders: a probe that could not answer shows ``unknown`` with a fixed
+    reason, so the page itself never fails. It holds no form and no button.
+    """
+    rows = "".join(
+        _mrow(
+            r.state,
+            r.urgent,
+            r.label,
+            r.headline,
+            [esc(r.detail), _moment(r.moment, ctx)],
+            f"<span class=mrow__side>checked {ctx.time(_iso(r.checked_at))}</span>"
+            if r.checked_at
+            else "",
+        )
+        for r in view.rows
+    )
+    risks = "".join(
+        _mrow(
+            k.state,
+            k.urgent,
+            k.label,
+            "",
+            [_moment(k.moment, ctx, lead=True), esc(k.detail)],
+            f"<span class='mrow__side mrow__due'>{esc(k.due)}</span>",
+        )
+        for k in view.risks
+    )
+    counts = {
+        s: sum(_mstate(r.state) == s for r in view.rows) for s in ("down", "warn", "unknown", "ok")
+    }
+    summary = "".join(
+        f"<li class='mstate mstate--{s}'>{n} {_MSTATE[s]}</li>" for s, n in counts.items() if n
+    )
+    stamp = (
+        f"<p class=stamp>Checked {ctx.time(_iso(view.checked_at))}</p>" if view.checked_at else ""
+    )
+    note = esc(view.note) or "Nothing to report."
+    return _page(
+        "Machine · Hive desk",
+        "<div class=mach><div class=mach__head><h1>Machine</h1>"
+        f"<ul class=mach__sum aria-label='Chain summary'>{summary}</ul></div>"
+        "<div class=mach__lead><p class=mute>Read-only. Every link has to hold to reach firstmate.</p>"
+        f"{stamp}</div>"
+        "<div class=mach__cols><section class=mach__col><h2 class=sec-label>The chain</h2>"
+        f"<ol class=mlist>{rows}</ol></section>"
+        "<section class=mach__col><h2 class=sec-label>Upcoming risks</h2>"
+        + (f"<ul class=mlist>{risks}</ul>" if risks else f"<p class=mute>{note}</p>")
+        + "</section></div></div>",
+        "machine",
+        f" data-refresh={MACHINE_REFRESH_MS} data-machine",
         ctx,
     )
 

@@ -23,7 +23,7 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from hive.gateway import actions, fmconfig, pages
+from hive.gateway import actions, fmconfig, machine, pages
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
 from hive.gateway.chat import load_chat
@@ -120,7 +120,9 @@ self.addEventListener('notificationclick', function(e){
   }));
 });
 """
-NEXT_RE = re.compile(r"^/(chat|config|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$")
+NEXT_RE = re.compile(
+    r"^/(chat|config|machine|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$"
+)
 
 
 def _safe_next(value: str) -> str:
@@ -138,6 +140,7 @@ def create_app(
     describer: Describer | None = None,
     wake: WakeService | None = None,
     watchdog: Watchdog | None = None,
+    monitor: machine.MachineMonitor | None = None,
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
@@ -165,15 +168,21 @@ def create_app(
             await push.notify(Alert("watchdog", "Firstmate recovery", str(event["text"]), "/"))
 
     watchdog = watchdog or Watchdog(wake, WatchdogStore(settings.data_dir), work_underway, announce)
+    # The Machine page's read-only probes; each finished round refreshes open Machine pages.
+    monitor = monitor or machine.MachineMonitor(
+        settings, wake.status, watchdog.store.view, lambda: hub.publish("machine")
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if settings.live:
             hub.start()
             watchdog.start()
+            monitor.peek()  # first readings land before the first Machine page view
         try:
             yield
         finally:
+            await monitor.stop()
             await watchdog.stop()
             await hub.stop()
 
@@ -267,6 +276,14 @@ def create_app(
         snap = await provider.get()
         cfg = await asyncio.to_thread(fmconfig.load, settings.fm_home)
         return HTMLResponse(pages.render_config(cfg, await ctx_for(snap, "/config")))
+
+    @app.get("/machine", response_class=HTMLResponse)
+    async def machine_page() -> HTMLResponse:
+        """The chain that has to hold, read-only. Renders the cached readings at once; a
+        stale cache starts a probe round behind this response, never in front of it."""
+        snap = await provider.get()
+        view = machine.build_view(monitor.peek(), time.time(), monitor.started_at)
+        return HTMLResponse(pages.render_machine(view, await ctx_for(snap, "/machine")))
 
     @app.get("/chat", response_class=HTMLResponse)
     async def chat() -> HTMLResponse:

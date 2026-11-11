@@ -4,6 +4,9 @@ The fake firstmate home has a slow switch: once ``slow`` exists, the fleet snaps
 (``fm-inbox.sh note`` waiting on the wake-queue lock), the hold intake, ``fm-control.sh`` and
 ``lavish-axi`` all sleep for seconds. The desk must not pass that on to the click. The real
 work keeps going; the same request id asked again returns its result, or its failure.
+
+The Machine page is held to the same second: its probes (PowerShell, Tailscale, systemctl)
+hang on the same switch, and the page answers from what it has instead of waiting for them.
 """
 
 from __future__ import annotations
@@ -72,6 +75,11 @@ def home(tmp_path: Path) -> Path:
     (tmp_path / "lavish-state.json").write_text(json.dumps({"sessions": sessions}))
     # lavish-axi is not run with FM_HOME, so its switch is an absolute path
     _write(tmp_path / "lavish-axi", f"[ -e '{tmp_path}/slow' ] && sleep {SLOW_S}\nexit 0")
+    # the Machine page's probes: each launch is counted, then hangs while the switch is on
+    _write(
+        tmp_path / "probe",
+        f"echo x >> '{tmp_path}/probed'\n[ -e '{tmp_path}/slow' ] && sleep {SLOW_S}\nexit 1",
+    )
     return write_config(tmp_path)
 
 
@@ -87,6 +95,9 @@ def client(home: Path) -> Iterator[TestClient]:
         lavish_axi=home / "lavish-axi",
         data_dir=home / "data",
         live=False,
+        powershell=home / "probe",
+        tailscale=home / "probe",
+        systemctl=home / "probe",
     )
     app = create_app(settings, tokens=CSRF)
     # One event loop for the whole test (as in production), so a run left going survives.
@@ -227,6 +238,26 @@ def test_a_replay_after_the_card_is_gone_still_reads_as_success(
     assert gone.status_code == 200 and gone.json()["ok"] is True
     other = act(client, "decision", **{**fields, "rid": _rid(7), "key": "no-longer-open"})
     assert other.status_code == 409  # a different request is still refused
+
+
+def test_the_machine_page_answers_within_a_second_when_every_probe_is_slow(
+    client: TestClient, home: Path
+) -> None:
+    headers = {k: v for k, v in GOOD.items() if k != "accept"}
+    for attempt in ("first", "second"):  # no reading yet, then a probe round still hanging
+        start = time.monotonic()
+        res = client.get("/machine", headers=headers)
+        took = time.monotonic() - start
+        assert took < BUDGET_S, f"GET /machine ({attempt}) took {took:.2f}s"
+        assert res.status_code == 200
+        # nothing has answered, so nothing is shown as fine
+        assert res.text.count("<li class='mrow mrow--unknown'>") == 9
+        assert "<li class='mrow mrow--ok'>" not in res.text
+        print(f"TIMING machine {attempt} {took:.2f}s {res.status_code}")
+    deadline = time.monotonic() + 2
+    while not (home / "probed").exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert (home / "probed").exists()  # the probes did run, off the request
 
 
 def test_the_wait_is_bounded_by_the_constant() -> None:

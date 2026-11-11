@@ -24,7 +24,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import signal
 import sys
 import time
@@ -38,7 +37,7 @@ from telegram import Message, Update
 from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-from hive.gateway.settings import DEFAULT_PORT, GatewaySettings
+from hive.gateway.settings import DEFAULT_PORT, GatewaySettings, tailscale_binary
 from hive.gateway.wake import WakeService, ago, last_activity
 from hive.gateway.watchdog import WatchdogStore
 from hive.telegram.recovery import RecoveryControls
@@ -51,7 +50,6 @@ USER_ID_RE = re.compile(r"^[0-9]{1,20}$")
 COMMAND_RE = re.compile(r"^/([A-Za-z_]+)(?:@[A-Za-z0-9_]+)?(?:\s+(\S.*))?$", re.DOTALL)
 DEFAULT_STATE_DIR = "~/.local/state/hive-telegram"
 REJECTED_MARK = "rejected-token.sha256"  # the wrapper skips a token Telegram refused
-WINDOWS_TAILSCALE = Path("/mnt/c/Program Files/Tailscale/tailscale.exe")
 PROBE_TIMEOUT_S = 3.0
 TAILSCALE_TIMEOUT_S = 8.0
 UNLISTED_LOG_EVERY_S = 3600.0  # one log line per unlisted sender per hour
@@ -156,17 +154,6 @@ async def desk_probe(port: int, timeout_s: float = PROBE_TIMEOUT_S) -> bool:
         writer.close()
         with contextlib.suppress(OSError):
             await writer.wait_closed()
-
-
-def tailscale_binary(env: Mapping[str, str]) -> Path | None:
-    """``HIVE_TAILSCALE_BIN``, else ``tailscale`` on PATH, else the Windows one under WSL."""
-    value = env.get("HIVE_TAILSCALE_BIN", "").strip()
-    if value:
-        return Path(value).expanduser()
-    found = shutil.which("tailscale")
-    if found:
-        return Path(found)
-    return WINDOWS_TAILSCALE if WINDOWS_TAILSCALE.is_file() else None
 
 
 async def tailscale_state(binary: Path | None, timeout_s: float = TAILSCALE_TIMEOUT_S) -> str:
