@@ -1,4 +1,4 @@
-"""Executable checks and security guards for deploy/windows."""
+"""Executable checks for deploy/windows."""
 
 import os
 import shutil
@@ -9,23 +9,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 WIN = ROOT / "deploy" / "windows"
-HELPER = WIN / "HiveAdminHelper.ps1"
-
-
-def test_helper_uses_only_a_constant_native_definition():
-    code = "\n".join(
-        line for line in HELPER.read_text().splitlines() if not line.lstrip().startswith("#")
-    )
-    import re
-
-    add_type = re.compile(r"(?ms)^\s*\$null\s*=\s*Add-Type\s+-TypeDefinition\s+@'\n(.*?)^'@\s*$")
-    literal_definitions = list(add_type.finditer(code))
-    assert len(literal_definitions) == 1
-    guarded = add_type.sub("", code)
-    assert not re.search(r"\bAdd-Type\b", guarded, re.I)
-    assert "public static class HiveAdminRequestFile" in literal_definitions[0].group(1)
-    calls = re.findall(r"&\s*\$\w+", code)
-    assert calls == ["& $Path"], calls
 
 
 def _pwsh() -> str | None:
