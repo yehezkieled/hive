@@ -19,7 +19,8 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($installPath, [
 if ($errors.Count -gt 0) { throw "parse errors in installer: $($errors | ForEach-Object { $_.Message })" }
 
 $wanted = @(
-  'ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-TaskFingerprint',
+  'ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-HiveAccountSid',
+  'Test-HiveTaskAccountMatches', 'Get-TaskFingerprint',
   'New-HiveAutologonStartInfo', 'Test-HiveRegistryValueMatches',
   'Test-HiveTaskEnabled', 'Test-HiveAutologonConfigured'
 )
@@ -34,10 +35,21 @@ $registerAst = [System.Management.Automation.Language.Parser]::ParseFile($regist
 if ($errors.Count -gt 0) { throw "parse errors in keepalive script: $($errors | ForEach-Object { $_.Message })" }
 foreach ($stmt in $registerAst.EndBlock.Statements) {
   if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $stmt.Name -in @('Get-HiveTriggerFingerprint', 'Test-HiveKeepaliveTaskEnabled')) {
+    $stmt.Name -in @('Get-HiveAccountSid', 'Test-HiveTaskAccountMatches', 'Get-HiveTriggerFingerprint', 'Test-HiveKeepaliveTaskEnabled')) {
     . ([scriptblock]::Create($stmt.Extent.Text))
   }
 }
+
+$script:testAccountSids = @{
+  'PC\captain' = 'S-1-5-21-10-20-30-1001'
+  'captain' = 'S-1-5-21-10-20-30-1001'
+  'PC\other' = 'S-1-5-21-10-20-30-1002'
+  'PC\hezki' = 'S-1-5-21-10-20-30-2001'
+  'hezki' = 'S-1-5-21-10-20-30-2001'
+  'OTHER\hezki' = 'S-1-5-21-10-20-30-2002'
+}
+$testAccountResolver = { param($Account) $script:testAccountSids[$Account] }
+Assert-Equal 'S-1-5-18' (Get-HiveAccountSid 'SYSTEM') 'SYSTEM resolves to its well-known SID'
 
 $script:failures = 0
 $script:passes = 0
@@ -71,21 +83,43 @@ $task = [pscustomobject]@{
   Principal = [pscustomobject]@{ UserId = 'PC\captain'; LogonType = 'Interactive'; RunLevel = 'Limited' }
   State = 'Ready'
 }
-$fingerprint = Get-TaskFingerprint $task
-Assert-Equal $fingerprint (Get-TaskFingerprint $task) 'same logon trigger and user keep task unchanged'
+$fingerprint = Get-TaskFingerprint $task $testAccountResolver
+Assert-Equal $fingerprint (Get-TaskFingerprint $task $testAccountResolver) 'same logon trigger and user keep task unchanged'
 $task.Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\other' })
-Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task)) 'different logon trigger user changes task fingerprint'
+Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task $testAccountResolver)) 'different logon trigger user changes task fingerprint'
 $task.Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskBootTrigger' }; UserId = '' })
 Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task)) 'different trigger type changes task fingerprint'
 Assert-Equal $true (Test-HiveTaskEnabled $task) 'enabled scheduled task is eligible to match'
 $task.State = 'Disabled'
 Assert-Equal $false (Test-HiveTaskEnabled $task) 'disabled scheduled task does not match'
 
+$identityTask = [pscustomobject]@{
+  Actions = @([pscustomobject]@{ Execute = 'keepalive.exe'; Arguments = 'loop' })
+  Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\hezki' })
+  Principal = [pscustomobject]@{ UserId = 'PC\hezki'; LogonType = 'Interactive'; RunLevel = 'Limited' }
+}
+$identityFingerprint = Get-TaskFingerprint $identityTask $testAccountResolver
+$identityTask.Principal.UserId = 'OTHER\hezki'
+Assert-Equal $false ($identityFingerprint -ceq (Get-TaskFingerprint $identityTask $testAccountResolver)) 'same username under a different domain does not match task principal'
+$identityTask.Principal.UserId = 'hezki'
+Assert-Equal $identityFingerprint (Get-TaskFingerprint $identityTask $testAccountResolver) 'same account as an unqualified name matches task principal'
+$identityTask.Principal.UserId = 'S-1-5-21-10-20-30-2001'
+Assert-Equal $identityFingerprint (Get-TaskFingerprint $identityTask $testAccountResolver) 'same account as a SID matches task principal'
+$identityTask.Principal.UserId = 'PC\hezki'
+$identityTask.Triggers[0].UserId = 'OTHER\hezki'
+Assert-Equal $false ($identityFingerprint -ceq (Get-TaskFingerprint $identityTask $testAccountResolver)) 'same username under a different domain does not match logon trigger'
+$identityTask.Triggers[0].UserId = 'hezki'
+Assert-Equal $identityFingerprint (Get-TaskFingerprint $identityTask $testAccountResolver) 'same account as an unqualified name matches logon trigger'
+$identityTask.Triggers[0].UserId = 'S-1-5-21-10-20-30-2001'
+Assert-Equal $identityFingerprint (Get-TaskFingerprint $identityTask $testAccountResolver) 'same account as a SID matches logon trigger'
+Assert-Equal $true (Test-HiveTaskAccountMatches 'PC\hezki' 'hezki' $testAccountResolver) 'qualified and unqualified same-account names match'
+Assert-Equal $false (Test-HiveTaskAccountMatches 'OTHER\hezki' 'PC\hezki' $testAccountResolver) 'same username in another domain does not match'
+
 $logon = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\captain' }
 $otherLogon = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\other' }
 $startup = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskBootTrigger' }; UserId = '' }
-Assert-Equal (Get-HiveTriggerFingerprint @($logon)) (Get-HiveTriggerFingerprint @($logon)) 'same keepalive logon trigger matches'
-Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon)) -ceq (Get-HiveTriggerFingerprint @($otherLogon))) 'different keepalive logon user does not match'
+Assert-Equal (Get-HiveTriggerFingerprint @($logon) $testAccountResolver) (Get-HiveTriggerFingerprint @($logon) $testAccountResolver) 'same keepalive logon trigger matches'
+Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon) $testAccountResolver) -ceq (Get-HiveTriggerFingerprint @($otherLogon) $testAccountResolver)) 'different keepalive logon user does not match'
 Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon)) -ceq (Get-HiveTriggerFingerprint @($startup))) 'different keepalive trigger type does not match'
 Assert-Equal $true (Test-HiveKeepaliveTaskEnabled ([pscustomobject]@{ State = 'Ready' })) 'enabled keepalive task matches'
 Assert-Equal $false (Test-HiveKeepaliveTaskEnabled ([pscustomobject]@{ State = 'Disabled' })) 'disabled keepalive task is re-registered'

@@ -128,16 +128,44 @@ function Test-HiveAutologonConfigured($Winlogon, [string]$User, [string]$Domain)
     ($domainName -and "$($domainName.Value)" -ieq $Domain)
 }
 
-function Get-TaskFingerprint($Task) {
+function Get-HiveAccountSid([string]$Account, [scriptblock]$Resolver = $null) {
+  if ([string]::IsNullOrWhiteSpace($Account)) { return $null }
+  if ($Account -ieq 'SYSTEM' -or $Account -ieq 'NT AUTHORITY\SYSTEM') { return 'S-1-5-18' }
+  if ($Account -match '(?i)^S-\d-\d+(?:-\d+)+$') { return $Account.ToUpperInvariant() }
+  try {
+    if ($Resolver) {
+      $resolved = & $Resolver $Account
+    } else {
+      $accountName = New-Object System.Security.Principal.NTAccount -ArgumentList $Account
+      $resolved = $accountName.Translate([System.Security.Principal.SecurityIdentifier])
+    }
+    if ($resolved -is [System.Security.Principal.SecurityIdentifier]) { return $resolved.Value }
+    $sid = [string]$resolved
+    if ($sid -match '(?i)^S-\d-\d+(?:-\d+)+$') { return $sid.ToUpperInvariant() }
+    return $null
+  } catch {
+    return $null
+  }
+}
+
+function Test-HiveTaskAccountMatches([string]$Actual, [string]$Expected, [scriptblock]$Resolver = $null) {
+  $actualSid = Get-HiveAccountSid -Account $Actual -Resolver $Resolver
+  $expectedSid = Get-HiveAccountSid -Account $Expected -Resolver $Resolver
+  return ($null -ne $actualSid) -and ($null -ne $expectedSid) -and
+    [string]::Equals($actualSid, $expectedSid, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-TaskFingerprint($Task, [scriptblock]$Resolver = $null) {
   if (-not $Task) { return '' }
   $a = @($Task.Actions)[0]
   $t = @($Task.Triggers | ForEach-Object {
     $class = $_.CimClass.CimClassName
-    $user = if ($class -eq 'MSFT_TaskLogonTrigger') { [string]$_.UserId } else { '' }
+    $user = if ($class -eq 'MSFT_TaskLogonTrigger') {
+      Get-HiveAccountSid -Account ([string]$_.UserId) -Resolver $Resolver
+    } else { '' }
     "$class|$user"
   }) -join ','
-  # Task Scheduler may report "PC\user" or just "user"; compare the name only.
-  $uid = ([string]$Task.Principal.UserId -split '\\')[-1]
+  $uid = Get-HiveAccountSid -Account ([string]$Task.Principal.UserId) -Resolver $Resolver
   return "$($a.Execute)|$($a.Arguments)|$uid|$($Task.Principal.LogonType)|$($Task.Principal.RunLevel)|$t"
 }
 
@@ -440,7 +468,7 @@ Invoke-Step 'a. Tailscale unattended' {
     $principal = New-ScheduledTaskPrincipal -UserId $windowsUser -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
       -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-    $expected = "$rundll|user32.dll,LockWorkStation|$($windowsUser.Split('\')[-1])|Interactive|Limited|MSFT_TaskLogonTrigger|$windowsUser"
+    $expected = "$rundll|user32.dll,LockWorkStation|$userSid|Interactive|Limited|MSFT_TaskLogonTrigger|$userSid"
     Set-HiveTask 'b3. Lock at logon' '\Hive\' 'Hive Lock At Logon' $action $trigger $principal $settings $expected
 }
 
@@ -529,7 +557,7 @@ Invoke-Step 'a. Tailscale unattended' {
     $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
       -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances Queue
-    $expected = "$powershell|$arguments|SYSTEM|ServiceAccount|Highest|"
+    $expected = "$powershell|$arguments|S-1-5-18|ServiceAccount|Highest|"
     Set-HiveTask $step '\Hive\' 'Hive Admin Helper' $action $null $principal $settings $expected
 
     # Let this user (and only this user, besides admins) start it on demand: read + execute, no write.

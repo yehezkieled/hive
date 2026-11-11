@@ -72,10 +72,39 @@ $settings = New-ScheduledTaskSettingsSet `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden
 
-function Get-HiveTriggerFingerprint($Triggers) {
+function Get-HiveAccountSid([string]$Account, [scriptblock]$Resolver = $null) {
+  if ([string]::IsNullOrWhiteSpace($Account)) { return $null }
+  if ($Account -ieq 'SYSTEM' -or $Account -ieq 'NT AUTHORITY\SYSTEM') { return 'S-1-5-18' }
+  if ($Account -match '(?i)^S-\d-\d+(?:-\d+)+$') { return $Account.ToUpperInvariant() }
+  try {
+    if ($Resolver) {
+      $resolved = & $Resolver $Account
+    } else {
+      $accountName = New-Object System.Security.Principal.NTAccount -ArgumentList $Account
+      $resolved = $accountName.Translate([System.Security.Principal.SecurityIdentifier])
+    }
+    if ($resolved -is [System.Security.Principal.SecurityIdentifier]) { return $resolved.Value }
+    $sid = [string]$resolved
+    if ($sid -match '(?i)^S-\d-\d+(?:-\d+)+$') { return $sid.ToUpperInvariant() }
+    return $null
+  } catch {
+    return $null
+  }
+}
+
+function Test-HiveTaskAccountMatches([string]$Actual, [string]$Expected, [scriptblock]$Resolver = $null) {
+  $actualSid = Get-HiveAccountSid -Account $Actual -Resolver $Resolver
+  $expectedSid = Get-HiveAccountSid -Account $Expected -Resolver $Resolver
+  return ($null -ne $actualSid) -and ($null -ne $expectedSid) -and
+    [string]::Equals($actualSid, $expectedSid, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-HiveTriggerFingerprint($Triggers, [scriptblock]$Resolver = $null) {
   return @($Triggers | ForEach-Object {
     $class = $_.CimClass.CimClassName
-    $user = if ($class -eq 'MSFT_TaskLogonTrigger') { [string]$_.UserId } else { '' }
+    $user = if ($class -eq 'MSFT_TaskLogonTrigger') {
+      Get-HiveAccountSid -Account ([string]$_.UserId) -Resolver $Resolver
+    } else { '' }
     "$class|$user"
   }) -join ','
 }
@@ -89,7 +118,7 @@ $same = $false
 if ($existing) {
   $a = @($existing.Actions)[0]
   $same = ($a.Execute -eq $powershell) -and ($a.Arguments -eq $arguments) -and
-    ($existing.Principal.UserId -like "*$env:USERNAME") -and
+    (Test-HiveTaskAccountMatches -Actual ([string]$existing.Principal.UserId) -Expected $windowsUser) -and
     ([string]$existing.Principal.LogonType -eq [string]$principal.LogonType) -and
     (Test-HiveKeepaliveTaskEnabled $existing) -and
     ((Get-HiveTriggerFingerprint $existing.Triggers) -eq (Get-HiveTriggerFingerprint $triggers))
