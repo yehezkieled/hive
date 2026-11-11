@@ -33,8 +33,8 @@ The script cannot do this. Without it the PC drops off the tailnet on
 If a line says `failed`: take a photo of the summary, then run step 5 again.
 The script is safe to run again. It only changes what is still wrong.
 
-The password goes only to Microsoft's Autologon tool. The script never shows,
-logs or saves it.
+The script never shows or logs the password. Microsoft's Autologon tool stores
+it as an LSA secret so Windows can sign in after a restart.
 
 ### 2. Check the admin helper (2 minutes)
 
