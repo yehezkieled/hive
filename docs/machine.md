@@ -3,7 +3,8 @@
 `/machine` on the desk shows, in one screen, the chain that has to hold for the
 iPad to reach firstmate, and the dated risks coming up. It is read-only: it has
 no buttons and adds no endpoint that writes. The firstmate chip in the header
-is the same one every desk page carries.
+is the same one every desk page carries. Its first line links to the
+[Sign-ins page](signins.md), where a sign-in is renewed.
 
 Each row has a state chip with a word (OK, Warning, Down or Unknown), a short
 headline, one line of detail and when it was last checked. A row is **Unknown**
@@ -24,12 +25,12 @@ Telegram bot's `/health` then ([telegram.md](telegram.md)).
 |---|---|---|
 | PC power | How long Windows has been up, and when it started. | Unknown only: the Windows read failed. See "Unknown rows" below. |
 | Windows session | Signed in, Locked (signed in with the screen locked; both are OK) or Nobody signed in. | **Nobody signed in:** sign in at the PC. Tailscale, WSL and the desk start with that sign-in. |
-| Tailscale | Whether the PC's Tailscale is connected, and when its key expires. | **Key expired / Logged out:** log in to Tailscale at the PC. **Turned off:** turn it on at the PC. **Waiting for approval:** approve the PC in Tailscale's admin page. **Running, offline:** check the PC's internet. **Starting:** wait a minute. A key inside 14 days is a Warning: renew it, or turn key expiry off for the PC, in Tailscale's admin page. |
+| Tailscale | Whether the PC's Tailscale is connected, and when its key expires. | **Key expired / Logged out:** log in to Tailscale at the PC. **Turned off:** turn it on at the PC. **Waiting for approval:** approve the PC in Tailscale's admin page. **Running, offline:** check the PC's internet. **Starting:** wait a minute. A key inside 14 days is a Warning: turn key expiry off for the PC in Tailscale's admin page ([signins.md](signins.md#tailscale)). |
 | WSL | How long the Linux side has been up. | Unknown only. A WSL that is down cannot serve this page. |
 | Desk | How long this desk has been up, and whether it runs as its service. | **Not installed as a service / its service is failed:** the desk was started by hand and will not come back after a restart. Reinstall the service ([fleet-up.md](fleet-up.md#windows-wsl-install)). |
 | Fleet-up timer | Whether the timer that restarts firstmate and the desk is on, and its last run. | **Not installed / Off:** install or enable it ([fleet-up.md](fleet-up.md)). **Last run failed:** read `journalctl --user -u hive-fleet-up.service -n 30` on the PC. **Overdue / No run yet:** it should run every 5 minutes; check the timer on the PC. |
 | Firstmate | Whether firstmate's session is alive, its last activity, and whether automatic recovery (the watchdog) is on. | **Down:** tap the firstmate chip, then Wake firstmate. **Watcher silent:** tap the chip, then Restart session. **Watchdog halted or its config unusable:** see [fleet-up.md](fleet-up.md#automatic-recovery-watchdog-ladder). |
-| Claude sign-in | Days left on the PC's Claude sign-in, and the date it ends. | **Warning (inside 14 days) or Expired:** run `/login` in a Claude terminal at the PC, open the link and paste the code back. Once it expires every agent stops, firstmate included. |
+| Claude sign-in | Days left on the PC's Claude sign-in, and the date it ends. | **Warning (inside 14 days) or Expired:** tap Renew on the [Sign-ins page](signins.md), open the link and paste the code back. If that fails, run `claude auth login` in a terminal at the PC. Once it expires every agent stops, firstmate included. |
 | Internet | One outbound connection from the PC (it sends nothing). | **Not reachable:** check the router or the provider. Agents cannot reach Claude until it is back. |
 
 ## Upcoming risks
@@ -39,9 +40,9 @@ Sorted nearest first.
 | Risk | What it means | What to do |
 |---|---|---|
 | Windows restart | **Now:** Windows has a restart pending and will take it outside active hours. **Within days:** this month's updates are out (second Tuesday) and not installed yet. Otherwise the date of the next monthly updates. | Expect the PC to restart. Afterwards someone has to sign in at the PC, unless automatic sign-in is set up. |
-| Tailscale key, this PC | The date the PC's key expires. After it the desk is unreachable. | Renew the key, or turn key expiry off for the PC, in Tailscale's admin page. |
+| Tailscale key, this PC | The date the PC's key expires. After it the desk is unreachable. | Turn key expiry off for the PC in Tailscale's admin page; the Sign-ins page links to it ([signins.md](signins.md#tailscale)). |
 | Tailscale key, *device* | The same for your other devices on the tailnet, such as the iPad. | Open Tailscale on that device and sign in again before the date. |
-| Claude sign-in | The date the PC's Claude sign-in ends. | `/login` at the PC before the date. |
+| Claude sign-in | The date the PC's Claude sign-in ends. | Renew it on the Sign-ins page before the date. |
 
 ## Unknown rows
 
