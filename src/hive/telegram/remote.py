@@ -399,7 +399,10 @@ async def run(bot: RemoteBot, stop: asyncio.Event) -> int:
             logger.error(
                 "Telegram rejected the bot token. Set a new one with scripts/telegram-setup.sh set"
             )
-            bot.mark_rejected()
+            try:
+                bot.mark_rejected()
+            except OSError:
+                logger.error("Could not persist the rejected-token marker; not retrying this token")
             return EX_CONFIG
         except (NetworkError, TelegramError, OSError) as exc:
             logger.warning(
