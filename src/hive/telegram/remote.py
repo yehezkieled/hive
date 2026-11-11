@@ -326,6 +326,9 @@ class RemoteBot(RecoveryControls):
             logger.info("user %d sent something that is not a command", user_id)
             await message.reply_text(HELP_TEXT)
             return
+        if name != "watchdog" and arg:
+            await message.reply_text("That command takes no extra text")
+            return
         logger.info("user %d ran /%s", user_id, name)
         if name == "help":
             await message.reply_text(HELP_TEXT)

@@ -167,6 +167,24 @@ async def test_status_and_bot_suffix(tmp_path: Path) -> None:
     assert text.startswith("Firstmate alive") and markup is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/status extra",
+        "/health extra",
+        "/wake extra",
+        "/restart please restart",
+        "/help extra",
+    ],
+)
+async def test_commands_reject_extra_text_without_dispatching(tmp_path: Path, text: str) -> None:
+    bot = _bot(tmp_path, "no-beat")
+    msg = await _send(bot, text)
+    assert msg.replies == [("That command takes no extra text", None)]
+    assert not bot.wake.audit_path.exists()
+    assert not bot._restart_confirms
+
+
 async def test_restart_when_not_stuck_is_not_offered(tmp_path: Path) -> None:
     msg = await _send(_bot(tmp_path, "alive"), "/restart")
     ((text, markup),) = msg.replies
@@ -183,7 +201,7 @@ async def test_watchdog_takes_only_its_own_words(tmp_path: Path) -> None:
     bot = _bot(tmp_path)
     msg = await _send(bot, "/watchdog status")
     assert msg.replies[0][0].startswith("Automatic recovery: off")
-    msg = await _send(bot, "/watchdog $(reboot)")
+    msg = await _send(bot, "/watchdog reboot")
     assert msg.replies[0][0] == "Usage: /watchdog on|off|status"
 
 
