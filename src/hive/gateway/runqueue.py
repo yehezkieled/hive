@@ -75,17 +75,15 @@ OK, REFUSED, FAILED, TIMED_OUT, RUNNING, UNKNOWN = (
 )
 RESULT_STATUS = {REFUSED: 409, FAILED: 502, TIMED_OUT: 504, UNKNOWN: 502}
 
-HOURS = tuple(range(24))
 DAYS = (1, 3, 7, 14, 21, 35)
-DEFAULT_HOUR = 3
 DEFAULT_DAYS = 7
 
 _PC_DOWN = (
-    "Everything goes down: Windows, Tailscale, WSL, this desk, firstmate and every worker; "
-    "unsaved work in them is lost. The PC comes back by itself: after the one sitting at "
-    "the PC it signs in and locks, then Tailscale, WSL, the desk and firstmate start again, "
-    "usually within 5 to 12 minutes. If the desk is not back after 15 minutes, someone has "
-    "to go to the PC. A scheduled restart cannot be cancelled from the desk."
+    "The PC restarts in 30 seconds. Everything goes down: Windows, Tailscale, WSL, this desk, "
+    "firstmate and every worker; unsaved work in them is lost. The PC comes back by itself: "
+    "after the one sitting at the PC it signs in and locks, then Tailscale, WSL, the desk and "
+    "firstmate start again, usually within 5 to 12 minutes. If the desk is not back after 15 "
+    "minutes, someone has to go to the PC. Once you confirm, the desk cannot stop it."
 )
 
 
@@ -101,7 +99,7 @@ class Action:
     timeout_s: float  # the hard time-out: past it the desk stops the run and says so
     argv: tuple[str, ...] = ()  # Linux: "systemctl" / "fleet-up" stand for their paths
     verb: str = ""  # Windows: the admin helper verb
-    choice: str = ""  # "", "hour" or "days": the one number it takes, from a fixed list
+    choice: str = ""  # "" or "days": the one number it takes, from a fixed list
     down: str = ""  # set: an extra confirm stating what goes down and how it comes back
     reload_s: int = 0  # the page reloads itself this long after (the desk restarted)
     check_unit: str = ""  # Linux: after the command, this unit must be active
@@ -114,48 +112,30 @@ class Action:
 
     @property
     def choices(self) -> tuple[int, ...]:
-        return {"hour": HOURS, "days": DAYS}.get(self.choice, ())
+        return DAYS if self.choice == "days" else ()
 
     @property
     def default(self) -> int | None:
-        return {"hour": DEFAULT_HOUR, "days": DEFAULT_DAYS}.get(self.choice)
+        return DEFAULT_DAYS if self.choice == "days" else None
 
     def command(self, n: int | None = None) -> str:
         """The exact command or helper verb, as the confirm step shows it."""
         if self.side == "windows":
-            arg = (
-                f" {n}"
-                if n is not None
-                else (f" <{'hour' if self.choice == 'hour' else 'days'}>" if self.choice else "")
-            )
+            arg = f" {n}" if n is not None else (f" <{self.choice}>" if self.choice else "")
             return f"admin helper verb: {self.verb}{arg}"
         shown = {"systemctl": "systemctl", "fleet-up": "scripts/fleet-up.sh"}
         return " ".join(shown.get(a, a) for a in self.argv)
 
     def short(self, n: int | None) -> str:
-        """The chosen number in a few characters: "03:00", "7 days"."""
+        """The chosen number in a few characters: "7 days"."""
         if n is None:
             return ""
-        if self.choice == "hour":
-            return f"{n:02d}:00"
         return f"{n} day{'s' if n != 1 else ''}"
 
     def when(self, n: int | None) -> str:
-        if self.choice == "hour" and n is not None:
-            return f"at the next {n:02d}:00 PC time (tomorrow if that hour has passed today)"
         if self.choice == "days" and n is not None:
             return f"for {n} day{'s' if n != 1 else ''} from now"
         return ""
-
-    def down_text(self, n: int | None) -> str:
-        if self.verb == "restart-pc":
-            start = (
-                f"The PC restarts {self.when(n)}."
-                if n is not None
-                else "The PC restarts in 30 seconds."
-            )
-            return f"{start} {self.down}"
-        return self.down
 
 
 ACTIONS: dict[str, Action] = {
@@ -270,18 +250,6 @@ ACTIONS: dict[str, Action] = {
             down=_PC_DOWN,
         ),
         Action(
-            "restart-pc-at",
-            "windows",
-            "Restart the PC at a set hour",
-            "Restarts the whole PC at the next chosen hour, PC time (tomorrow if that hour "
-            "has passed today).",
-            "5 to 12 min until the desk is back",
-            30.0,
-            verb="restart-pc",
-            choice="hour",
-            down=_PC_DOWN,
-        ),
-        Action(
             "pause-updates",
             "windows",
             "Pause Windows updates",
@@ -295,12 +263,17 @@ ACTIONS: dict[str, Action] = {
     )
 }
 
-# Asked for, but the admin helper has no verb for it; shown as a note, never as a button.
+# Shown as notes, never as buttons. Both wait on a cancel verb in the admin helper.
 NOT_OFFERED = (
     (
         "Cancel a scheduled restart",
         "The admin helper has no cancel verb, so the desk cannot cancel a restart. At the "
         "PC, run shutdown /a.",
+    ),
+    (
+        "Restart the PC at a set hour",
+        "Left out on purpose: a restart set for later must be cancellable, and the admin "
+        "helper has no cancel verb. It comes once the helper has one.",
     ),
 )
 
@@ -322,11 +295,15 @@ def parse(form: dict[str, str]) -> tuple[Action, int | None]:
 
 
 def request_line(nonce: str, verb: str, n: int | None) -> bytes:
-    """The one line the helper reads: ``<nonce> <verb> [<number>]``, ASCII."""
+    """The one line the helper reads: ``<nonce> <verb> [<number>]``, ASCII. Only a verb a
+    button sends, with a number that button offers (none for a button that takes none)."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{7,63}", nonce):
         raise ValueError("bad nonce")
-    if verb not in {a.verb for a in ACTIONS.values() if a.verb}:
+    offered = [a for a in ACTIONS.values() if a.verb and a.verb == verb]
+    if not offered:
         raise ValueError("unknown verb")
+    if not any(n in (a.choices or (None,)) for a in offered):
+        raise ValueError("number not offered for that verb")
     text = f"{nonce} {verb}" + (f" {int(n)}" if n is not None else "")
     return (text + "\n").encode("ascii")
 

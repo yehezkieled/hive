@@ -791,7 +791,7 @@ async def _run(
                 return confirm_response(
                     Confirm(
                         f"{action.label}: are you sure?",
-                        action.down_text(n),
+                        action.down,
                         "run",
                         {**hidden, "rid": rid, "step": tokens.step_up("run-down", subject)},
                         f"Yes, {action.label[0].lower()}{action.label[1:]}",

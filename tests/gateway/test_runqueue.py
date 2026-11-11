@@ -316,31 +316,41 @@ def test_each_windows_button_sends_one_request_line_with_the_helpers_own_verb(
 
 
 def test_every_windows_button_is_a_verb_the_helper_already_defines() -> None:
-    rules = {"hour": "hour-optional", "days": "days-optional"}
+    rules = {"days": "days-optional"}
     assert {ACTIONS[k].verb for k in WINDOWS} == set(ALLOW)  # every helper verb, nothing else
     for key in WINDOWS:
         a = ACTIONS[key]
         assert a.verb in ALLOW, key
         if a.choice:
             assert ALLOW[a.verb] == rules[a.choice], key
-        lo, hi = (
-            (LIMITS["HourMin"], LIMITS["HourMax"])
-            if a.choice == "hour"
-            else (LIMITS["DaysMin"], LIMITS["DaysMax"])
-        )
-        assert all(lo <= v <= hi for v in a.choices), key
+        assert all(LIMITS["DaysMin"] <= v <= LIMITS["DaysMax"] for v in a.choices), key
         for n in a.choices or (None,):
             line = runqueue.request_line(runqueue.new_nonce(), a.verb, n)
             assert len(line) <= LIMITS["MaxRequestBytes"]
             assert re.fullmatch(GRAMMAR, line.decode("ascii").removesuffix("\n")), line
     assert runqueue.DEFAULT_DAYS == LIMITS["DaysDefault"]
-    # the helper has no cancel verb, so the desk has no cancel button, and says so
+    # the helper has no cancel verb, so the desk has no cancel button, and no restart set for
+    # later that could not be cancelled: a PC restart never carries an hour. It says so.
     assert not any("cancel" in v for v in ALLOW)
-    assert [label for label, _ in runqueue.NOT_OFFERED] == ["Cancel a scheduled restart"]
+    assert [a.choice for a in ACTIONS.values() if a.verb == "restart-pc"] == [""]
+    with pytest.raises(ValueError):
+        runqueue.request_line(runqueue.new_nonce(), "restart-pc", 3)
+    assert [label for label, _ in runqueue.NOT_OFFERED] == [
+        "Cancel a scheduled restart",
+        "Restart the PC at a set hour",
+    ]
 
 
 def test_an_unknown_action_is_refused_and_nothing_runs(desk: SimpleNamespace) -> None:
-    for do in ("", "reboot", "restart_desk", "Restart-Desk", "ping", "restart-pc-now"):
+    for do in (
+        "",
+        "reboot",
+        "restart_desk",
+        "Restart-Desk",
+        "ping",
+        "restart-pc-now",
+        "restart-pc-at",
+    ):
         r = post(desk.c, do=do)
         assert r.status_code == 400 and r.json()["ok"] is False
         assert "not one of the Run page's actions" in r.json()["message"]
@@ -395,33 +405,36 @@ def test_a_pc_restart_needs_a_second_confirm_that_says_what_goes_down(
     desk: SimpleNamespace,
 ) -> None:
     c = desk.c
-    one = post(c, do="restart-pc-at", n="3").json()
+    one = post(c, do="restart-pc").json()
     assert one["confirm"] is True and one["label"] == "Tap again: next step"
-    assert "Exactly: admin helper verb: restart-pc 3." in one["detail"]
-    assert "next 03:00 PC time" in one["detail"]
+    assert "Exactly: admin helper verb: restart-pc." in one["detail"]
     fields = {**one["extra"], "rid": one["rid"], "step": one["step"]}
-    assert one["extra"] == {"do": "restart-pc-at", "n": "3"}
+    assert one["extra"] == {"do": "restart-pc"}
     two = post(c, **fields).json()
-    assert two["confirm"] is True and two["label"] == "Yes, restart the PC at a set hour"
+    assert two["confirm"] is True and two["label"] == "Yes, restart the PC now"
     for words in (
-        "The PC restarts at the next 03:00 PC time",
+        "The PC restarts in 30 seconds.",
         "Everything goes down: Windows, Tailscale, WSL, this desk, firstmate and every worker",
         "The PC comes back by itself",
         "within 5 to 12 minutes",
         "not back after 15 minutes, someone has to go to the PC",
-        "cannot be cancelled from the desk",
+        "Once you confirm, the desk cannot stop it.",
     ):
         assert words in two["detail"], words
     assert desk.host.calls == []  # two confirms in, still nothing ran
     # the first step again only shows the second confirm again
     assert post(c, **fields).json()["confirm"] is True
-    # the second step for another hour is not a confirm for this one
-    other = post(c, **{**two["extra"], "n": "4", "rid": two["rid"], "step": two["step"]})
-    assert other.json()["confirm"] is True and other.json()["rid"] != two["rid"]
+    # the second step with an hour added is refused: the restart takes no number
+    hour = post(c, **{**two["extra"], "n": "3", "rid": two["rid"], "step": two["step"]})
+    assert hour.status_code == 400 and hour.json()["ok"] is False
+    # the second step's token is no confirm for another action: that one starts over
+    other = post(c, do="restart-wsl", rid=two["rid"], step=two["step"]).json()
+    assert other["confirm"] is True and other["rid"] != two["rid"]
     assert desk.host.calls == []
     done = post(c, **{**two["extra"], "rid": two["rid"], "step": two["step"]})
     assert done.status_code == 200 and done.json()["ok"] is True, done.text
-    assert len(desk.host.requests) == 1 and desk.host.requests[0].endswith(" restart-pc 3")
+    [line] = desk.host.requests
+    assert re.fullmatch(r"hive-[0-9a-f]{16} restart-pc", line)  # now, never at an hour
 
 
 @pytest.mark.parametrize("key", ["restart-pc", "restart-wsl"])
@@ -506,7 +519,7 @@ def test_no_text_from_any_field_reaches_a_command_or_the_request_file(
         for fields in (
             {"do": p},
             {"do": f"restart-wsl{p}"},
-            {"do": "restart-pc-at", "n": p},
+            {"do": "restart-pc", "n": p},
             {"do": "pause-updates", "n": p},
             {"do": "helper-check", "n": p},
         ):
@@ -534,13 +547,24 @@ def test_the_request_line_is_built_only_from_listed_values() -> None:
         runqueue.request_line("bad nonce", "ping", None)
     with pytest.raises(ValueError):
         runqueue.request_line("x", "ping", None)
-    assert runqueue.request_line("hive-0123456789abcdef", "restart-pc", 7) == (
-        b"hive-0123456789abcdef restart-pc 7\n"
+    for verb, n in (("restart-pc", 7), ("pause-updates", 2), ("pause-updates", None)):
+        with pytest.raises(ValueError):  # a number no button offers for that verb, or none
+            runqueue.request_line("hive-0123456789abcdef", verb, n)
+    assert runqueue.request_line("hive-0123456789abcdef", "pause-updates", 7) == (
+        b"hive-0123456789abcdef pause-updates 7\n"
     )
-    for form in ({"do": "restart-pc-at"}, {"do": "restart-pc-at", "n": "07"}):
+    assert runqueue.request_line("hive-0123456789abcdef", "restart-pc", None) == (
+        b"hive-0123456789abcdef restart-pc\n"
+    )
+    for form in (
+        {"do": "pause-updates"},
+        {"do": "pause-updates", "n": "07"},
+        {"do": "restart-pc", "n": "3"},
+        {"do": "restart-pc-at", "n": "3"},
+    ):
         with pytest.raises(ActionError):
             runqueue.parse(form)
-    assert runqueue.parse({"do": "restart-pc-at", "n": "0"}) == (ACTIONS["restart-pc-at"], 0)
+    assert runqueue.parse({"do": "pause-updates", "n": "1"}) == (ACTIONS["pause-updates"], 1)
     assert runqueue.parse({"do": "restart-pc"}) == (ACTIONS["restart-pc"], None)
 
 
@@ -907,13 +931,12 @@ def test_the_page_shows_each_button_with_its_exact_command_and_fixed_choices(
         assert html.escape(a.command(), quote=False) in text, a.key
     assert _offered(text) == set(ACTIONS)
     assert text.count("action='/act/run'") == len(ACTIONS)
-    hours = re.search(r"<select id=rq-restart-pc-at name=n>(.*?)</select>", text)[1]
-    assert re.findall(r"<option value=(\d+)", hours) == [str(h) for h in range(24)]
-    assert "<option value=3 selected>03:00</option>" in hours
+    assert text.count("<select ") == 1  # the days to pause updates; no restart hour
     days = re.search(r"<select id=rq-pause-updates name=n>(.*?)</select>", text)[1]
     assert re.findall(r"<option value=(\d+)", days) == ["1", "3", "7", "14", "21", "35"]
     assert "<option value=7 selected>7 days</option>" in days
     assert "Cancel a scheduled restart" in text and "run shutdown /a" in text
+    assert "Restart the PC at a set hour" in text and "must be cancellable" in text
     assert "No runs yet." in text
     assert " data-run" in text  # the page refreshes itself on the run event
 
@@ -996,3 +1019,4 @@ def test_the_docs_table_has_one_row_per_button_with_its_time_out() -> None:
         want = f"{int(a.timeout_s // 60)} min" if a.timeout_s >= 120 else f"{int(a.timeout_s)} s"
         assert rows[a.label] == want, a.key
     assert "Cancel a scheduled restart" in doc and "shutdown /a" in doc
+    assert "Restart the PC at a set hour" in doc and "follow-up" in doc

@@ -2053,8 +2053,7 @@ def _run_card(card: runqueue.Card, ctx: Ctx) -> str:
                 f"<option value={v}{' selected' if v == a.default else ''}>{esc(a.short(v))}</option>"
                 for v in a.choices
             )
-            word = "At" if a.choice == "hour" else "For"
-            pick = f"<label for={fid}>{word}</label><select id={fid} name=n>{opts}</select>"
+            pick = f"<label for={fid}>For</label><select id={fid} name=n>{opts}</select>"
         cls_b = " class=danger" if a.down else ""
         form = ctx.form(
             "run", f"{pick}<button{cls_b} type=submit>Run</button>", always=True, do=a.key

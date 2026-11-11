@@ -1254,8 +1254,9 @@ passes the desk's step-up (two confirms for the restarts that take things down),
 a time per button (all Windows buttons share one lane), at most once a minute per button
 and 10 runs per 10 minutes, each under a hard time-out. Each run is logged to
 `run-audit.log` in the data dir and to the journal. Without the helper installed the page
-offers no Windows button. The buttons, their time-outs and what to do when one fails:
-[run-queue.md](run-queue.md).
+offers no Windows button. The PC restarts only now: there is no restart at a set hour and no
+cancel button until the helper has a cancel verb. The buttons, their time-outs and what to
+do when one fails: [run-queue.md](run-queue.md).
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token

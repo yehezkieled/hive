@@ -9,7 +9,7 @@ reaches a command. It is owner-only and tailnet-only, like every desk page.
 1. Tap **Run**. The card shows, in plain words, what it will do, the exact
    command (or admin helper verb) and its time-out. Nothing has run yet.
 2. Tap again within a few minutes to run it. The buttons that take things down
-   (Restart WSL, and the two PC restarts) ask once more. The second time they say
+   (Restart WSL and Restart the PC now) ask once more. The second time they say
    what goes down and how it comes back.
 3. The result shows in plain words: **OK**, **Refused** (it did not run),
    **Failed**, **Timed out**, or **Unknown** (the desk restarted before it saw the
@@ -55,15 +55,24 @@ request id.
 | Restart Tailscale | helper verb `restart-tailscale` | about 15 s (60 s) | The desk drops off the tailnet for a few seconds; reload. Not back in a minute: someone at the PC. |
 | Tailscale up | helper verb `tailscale-up` (`tailscale up --unattended`) | up to 60 s (90 s) | A new sign-in cannot be done from here. Sign in to Tailscale at the PC (Machine page, Tailscale row). |
 | Restart the PC now | helper verb `restart-pc`: restart in 30 seconds (asks twice) | 5 to 12 min until the desk is back (30 s) | The PC signs in and locks by itself after the sitting. Not back after 15 minutes: someone has to go to the PC. |
-| Restart the PC at a set hour | helper verb `restart-pc <hour>`: at the next HH:00 PC time, tomorrow if that hour has passed (asks twice) | 5 to 12 min until the desk is back (30 s) | As above. It cannot be cancelled from the desk (see below). |
 | Pause Windows updates | helper verb `pause-updates <days>` (1, 3, 7, 14, 21 or 35; 7 by default) | about 5 s (30 s) | Running it again starts a new pause from now. Still failing: ask firstmate to read the helper's audit log. |
 
 The time-out of a Windows button is how long the desk waits for the helper's
 reply. A restart can finish after that, and the list shows its result once the
 desk is back.
 
-**Not offered: Cancel a scheduled restart.** The admin helper has no cancel
-verb, so the desk cannot cancel a restart. At the PC, run `shutdown /a`.
+## Not offered
+
+Both wait on one follow-up: a cancel verb in the admin helper. Changing the
+helper was out of scope here.
+
+- **Cancel a scheduled restart.** The admin helper has no cancel verb, so the
+  desk cannot cancel a restart. At the PC, run `shutdown /a`.
+- **Restart the PC at a set hour.** The helper's `restart-pc` takes an hour, but
+  a restart set for later must not exist without a way to cancel it, so the desk
+  only restarts the PC now. The button comes with the cancel verb.
+
+The page shows both as notes, not buttons.
 
 ## When the admin helper is not set up
 
