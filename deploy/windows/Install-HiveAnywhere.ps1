@@ -175,14 +175,21 @@ function ConvertTo-WindowsArgument([string]$Value) {
   return $sb.ToString()
 }
 
-function New-HiveAutologonStartInfo([string]$Exe, [string]$User, [string]$Domain, [string]$Password) {
+function New-HiveAutologonStartInfo([string]$Exe, [string]$User, [string]$Domain, [SecureString]$Password) {
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $Exe
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
-  $psi.Arguments = (ConvertTo-WindowsArgument $User) + ' ' + (ConvertTo-WindowsArgument $Domain) + ' ' +
-    (ConvertTo-WindowsArgument $Password) + ' /accepteula'
-  return $psi
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
+  try {
+    $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    $psi.Arguments = (ConvertTo-WindowsArgument $User) + ' ' + (ConvertTo-WindowsArgument $Domain) + ' ' +
+      (ConvertTo-WindowsArgument $plain) + ' /accepteula'
+    return $psi
+  } finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    $plain = $null
+  }
 }
 
 function New-HiveAcl([bool]$Directory, [string[]]$ReadSids, [string[]]$ModifySids) {
@@ -387,18 +394,14 @@ Invoke-Step 'a. Tailscale unattended' {
 
     # Hand the password to Autologon through a .NET process start, so no
     # PowerShell logging (transcripts, module logging) sees the argument.
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try {
-      $password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-      $psi = New-HiveAutologonStartInfo $exe $samName $domain $password
+      $psi = New-HiveAutologonStartInfo $exe $samName $domain $secure
       $proc = [System.Diagnostics.Process]::Start($psi)
       $psi.Arguments = ''
       $proc.WaitForExit()
       $code = $proc.ExitCode
     } finally {
-      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
       $secure.Dispose()
-      $password = $null
       $psi = $null
     }
 

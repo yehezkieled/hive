@@ -55,7 +55,9 @@ Assert-Equal '"a\\\"b c"' (ConvertTo-WindowsArgument 'a\"b c') 'backslash before
 Assert-Equal '"a b\\"' (ConvertTo-WindowsArgument 'a b\') 'trailing backslash is doubled when quoted'
 Assert-Equal 'a\b' (ConvertTo-WindowsArgument 'a\b') 'inner backslash without quote or space stays'
 Assert-Equal "`"tab`there`"" (ConvertTo-WindowsArgument "tab`there") 'tab is quoted'
-$startInfoOutput = @(& { New-HiveAutologonStartInfo 'autologon.exe' 'captain' 'PC' 'fixture password' } *>&1)
+$fixturePassword = ConvertTo-SecureString 'fixture password' -AsPlainText -Force
+$startInfoOutput = @(& { New-HiveAutologonStartInfo 'autologon.exe' 'captain' 'PC' $fixturePassword } *>&1)
+$fixturePassword.Dispose()
 Assert-Equal 1 $startInfoOutput.Count 'Autologon argument builder emits only its result object'
 Assert-Equal 'System.Diagnostics.ProcessStartInfo' $startInfoOutput[0].GetType().FullName 'Autologon argument builder emits no password text'
 Assert-Equal 'captain PC "fixture password" /accepteula' $startInfoOutput[0].Arguments 'password is confined to the process argument'
