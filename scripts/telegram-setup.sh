@@ -29,6 +29,21 @@ die() { say "telegram-setup: $*"; exit 1; }
 
 usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
+service_is_active() {
+  if [ "$(uname -s)" = Darwin ]; then
+    local jobs
+    jobs="$(launchctl list 2>/dev/null)" || return 2
+    printf '%s\n' "$jobs" | awk '$3 == "com.hive.telegram" {found=1} END {exit !found}'
+    return $?
+  fi
+  systemctl --user is-active --quiet hive-telegram.service >/dev/null 2>&1
+  case $? in
+    0) return 0 ;;
+    3 | 4) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 current_ids() {
   [ -f "$ENV_FILE" ] || return 0
   sed -n 's/^TELEGRAM_ALLOWED_USER_IDS=//p' "$ENV_FILE" | tail -n 1
@@ -99,13 +114,28 @@ cmd_set() {
 
 cmd_remove() {
   [ $# -eq 0 ] || usage
-  bash -c "$STOP_CMD" >/dev/null 2>&1 || true
+  local stop_failed=0 state stop_hint
+  if [ "$(uname -s)" = Darwin ]; then
+    stop_hint="launchctl kill TERM gui/$(id -u)/com.hive.telegram"
+  else
+    stop_hint="systemctl --user stop hive-telegram.service"
+  fi
+  if ! bash -c "$STOP_CMD" >/dev/null 2>&1; then
+    state=0
+    service_is_active || state=$?
+    [ "$state" -eq 1 ] || stop_failed=1
+  fi
   if [ -f "$ENV_FILE" ]; then
     rm -f "$ENV_FILE" || die "cannot remove $ENV_FILE"
-    say "Removed $ENV_FILE and stopped the bot. It stays off until you run: $0 set"
+    say "Removed $ENV_FILE."
   else
-    say "No config at $ENV_FILE. The bot is stopped."
+    say "No config at $ENV_FILE."
   fi
+  if [ "$stop_failed" -eq 1 ]; then
+    say "Could not stop the bot; it may keep answering until stopped ($stop_hint) or the token is revoked in BotFather."
+    exit 1
+  fi
+  say "The bot is stopped. It stays off until you run: $0 set"
   say "To also cut off the old token, revoke it in BotFather (/revoke)."
 }
 

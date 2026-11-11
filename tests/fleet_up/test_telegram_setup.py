@@ -155,6 +155,31 @@ def test_remove_is_one_step(home: Path) -> None:
     assert r.returncode == 1 and "must both be set" in r.stderr
 
 
+def test_remove_deletes_config_but_reports_a_failed_stop(home: Path) -> None:
+    setup(home, "set", stdin=f"{FAKE_TOKEN}\n42\n")
+    system_bin = home / "bin"
+    system_bin.mkdir()
+    systemctl = system_bin / "systemctl"
+    systemctl.write_text("#!/bin/sh\nexit 0\n")
+    systemctl.chmod(0o755)
+    env_path = f"{system_bin}:{os.environ['PATH']}"
+
+    r = setup(
+        home,
+        "remove",
+        HIVE_TELEGRAM_STOP_CMD="false",
+        PATH=env_path,
+    )
+
+    assert r.returncode == 1
+    assert not conf(home).exists()
+    assert "Removed" in r.stderr
+    assert "Could not stop the bot" in r.stderr and "may keep answering" in r.stderr
+    assert "systemctl --user stop hive-telegram.service" in r.stderr
+    assert "token is revoked in BotFather" in r.stderr
+    assert "The bot is stopped" not in r.stderr
+
+
 def test_status_never_prints_the_token(home: Path) -> None:
     r = setup(home, "status")
     assert r.returncode == 0 and "Not configured" in r.stderr
