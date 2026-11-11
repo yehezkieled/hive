@@ -72,6 +72,16 @@ starts the bot within 5 minutes once it is.
 
 Open your bot in Telegram, press **Start**, then send `/health`.
 
+1. From the allowed account, send `/status`, `/health` and `/wake`. Expect the
+   firstmate state, the health chain lines, and a Wake or Restart button when
+   one applies.
+2. From a different Telegram account, send `/status` and plain text. Expect no
+   reply. Then check `journalctl --user -u hive-telegram.service`; it should
+   show only that user's id, with no message text.
+3. From the allowed account, send plain text and `/restart please restart`.
+   Expect the command list and the no-extra-text reply respectively, with
+   nothing started.
+
 ## Rotate, remove, check
 
 | Task | Command |
