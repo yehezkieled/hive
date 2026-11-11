@@ -11,6 +11,10 @@ when its check did not answer, timed out, is switched off or returned something
 not understood. Unknown never means fine. A red band marks a date inside 3
 days.
 
+Every date and time is local: the zone of the device you are reading on, or
+`HIVE_GATEWAY_TZ` (Australia/Sydney by default) when the page script is off. A
+key that expires at 13:49 UTC on 16 Dec reads 17 Dec in Sydney.
+
 When Tailscale on the PC is down the desk cannot be reached at all. Use the
 Telegram bot's `/health` then ([telegram.md](telegram.md)).
 
