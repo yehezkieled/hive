@@ -35,9 +35,11 @@ request id.
   withdrawn, so it cannot run later.
 - **Logged.** Every run writes two lines to `run-audit.log` in the desk's data
   folder (`HIVE_GATEWAY_DATA_DIR`, mode 0600). The first is written when it starts.
-  The second says who ran it, which action, when it started, the result, how long
-  it took and the result in plain words. Links, tokens and e-mail addresses are
-  redacted. A `gateway-audit action=run ...` line also goes to the journal.
+  The second says who ran it (the owner's Tailscale login; the file is mode 0600
+  and Hive's own), which action, when it started, the result, how long it took and
+  the result in plain words. Links, tokens and e-mail addresses inside the result
+  text are redacted. A `gateway-audit action=run who=owner ...` line also goes to
+  the journal, without the login.
 - **Safe to retry.** Every button can be run again; none deletes data. A confirmed
   tap sent twice runs once.
 

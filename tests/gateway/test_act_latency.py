@@ -103,6 +103,7 @@ def client(home: Path) -> Iterator[TestClient]:
         systemctl=home / "probe",
     )
     app = create_app(settings, tokens=CSRF)
+    before = _descendants()
     # One event loop for the whole test (as in production), so a run left going survives.
     with TestClient(app, client=("127.0.0.1", 5000), follow_redirects=False) as c:
         page = c.get("/", headers={k: v for k, v in GOOD.items() if k != "accept"})
@@ -110,9 +111,10 @@ def client(home: Path) -> Iterator[TestClient]:
         (home / "slow").write_text("")  # from here on everything firstmate runs is slow
         yield c
         # A run left going is still a child process (with its own children). The test is over,
-        # so end them and let the loop reap them while it is open; a transport collected after
-        # the loop is gone warns "Event loop is closed".
-        _end_leftover_runs()
+        # so end the ones this test started (not any that were already there) and let the loop
+        # reap them while it is open; a transport collected after the loop is gone warns
+        # "Event loop is closed".
+        _end_leftover_runs(before)
 
 
 def _parents() -> dict[str, str]:
@@ -127,20 +129,25 @@ def _parents() -> dict[str, str]:
     return parent
 
 
-def _end_leftover_runs(timeout_s: float = 5) -> None:
-    me = str(os.getpid())
+def _descendants() -> set[str]:
+    """This process's children, their children and so on, by pid."""
     parent = _parents()
-    mine, todo = [], [me]
+    found, todo = set(), [str(os.getpid())]
     while todo:
         p = todo.pop()
         kids = [k for k, v in parent.items() if v == p]
-        mine += kids
+        found.update(kids)
         todo += kids
-    for pid in mine:
+    return found
+
+
+def _end_leftover_runs(before: set[str], timeout_s: float = 5) -> None:
+    new = _descendants() - before
+    for pid in new:
         with contextlib.suppress(ProcessLookupError):
             os.kill(int(pid), signal.SIGKILL)
     deadline = time.monotonic() + timeout_s
-    while me in _parents().values() and time.monotonic() < deadline:
+    while new & _parents().keys() and time.monotonic() < deadline:
         time.sleep(0.02)
 
 
