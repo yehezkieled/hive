@@ -72,6 +72,14 @@ $settings = New-ScheduledTaskSettingsSet `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -Hidden
 
+function Get-HiveTriggerFingerprint($Triggers) {
+  return @($Triggers | ForEach-Object {
+    $class = $_.CimClass.CimClassName
+    $user = if ($class -eq 'MSFT_TaskLogonTrigger') { [string]$_.UserId } else { '' }
+    "$class|$user"
+  }) -join ','
+}
+
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 $same = $false
 if ($existing) {
@@ -79,7 +87,7 @@ if ($existing) {
   $same = ($a.Execute -eq $powershell) -and ($a.Arguments -eq $arguments) -and
     ($existing.Principal.UserId -like "*$env:USERNAME") -and
     ([string]$existing.Principal.LogonType -eq [string]$principal.LogonType) -and
-    (@($existing.Triggers).Count -eq $triggers.Count)
+    ((Get-HiveTriggerFingerprint $existing.Triggers) -eq (Get-HiveTriggerFingerprint $triggers))
 }
 
 if ($DryRun) {

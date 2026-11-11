@@ -116,7 +116,11 @@ function Set-RegistryValue([string]$Step, [string]$Key, [string]$Name, $Value, [
 function Get-TaskFingerprint($Task) {
   if (-not $Task) { return '' }
   $a = @($Task.Actions)[0]
-  $t = @($Task.Triggers | ForEach-Object { $_.CimClass.CimClassName }) -join ','
+  $t = @($Task.Triggers | ForEach-Object {
+    $class = $_.CimClass.CimClassName
+    $user = if ($class -eq 'MSFT_TaskLogonTrigger') { [string]$_.UserId } else { '' }
+    "$class|$user"
+  }) -join ','
   # Task Scheduler may report "PC\user" or just "user"; compare the name only.
   $uid = ([string]$Task.Principal.UserId -split '\\')[-1]
   return "$($a.Execute)|$($a.Arguments)|$uid|$($Task.Principal.LogonType)|$($Task.Principal.RunLevel)|$t"
@@ -403,7 +407,7 @@ if ($SkipAutoSignIn) {
     $principal = New-ScheduledTaskPrincipal -UserId $windowsUser -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
       -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-    $expected = "$rundll|user32.dll,LockWorkStation|$($windowsUser.Split('\')[-1])|Interactive|Limited|MSFT_TaskLogonTrigger"
+    $expected = "$rundll|user32.dll,LockWorkStation|$($windowsUser.Split('\')[-1])|Interactive|Limited|MSFT_TaskLogonTrigger|$windowsUser"
     Set-HiveTask 'b3. Lock at logon' '\Hive\' 'Hive Lock At Logon' $action $trigger $principal $settings $expected
   }
 }

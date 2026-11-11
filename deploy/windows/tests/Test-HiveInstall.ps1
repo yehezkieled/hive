@@ -18,9 +18,18 @@ $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($installPath, [ref]$tokens, [ref]$errors)
 if ($errors.Count -gt 0) { throw "parse errors in installer: $($errors | ForEach-Object { $_.Message })" }
 
-$wanted = @('ConvertTo-WindowsArgument', 'Merge-IniLines')
+$wanted = @('ConvertTo-WindowsArgument', 'Merge-IniLines', 'Get-TaskFingerprint')
 foreach ($stmt in $ast.EndBlock.Statements) {
   if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $wanted -contains $stmt.Name) {
+    . ([scriptblock]::Create($stmt.Extent.Text))
+  }
+}
+
+$registerPath = Join-Path (Split-Path -Parent $here) 'Register-HiveWsl.ps1'
+$registerAst = [System.Management.Automation.Language.Parser]::ParseFile($registerPath, [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) { throw "parse errors in keepalive script: $($errors | ForEach-Object { $_.Message })" }
+foreach ($stmt in $registerAst.EndBlock.Statements) {
+  if ($stmt -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $stmt.Name -eq 'Get-HiveTriggerFingerprint') {
     . ([scriptblock]::Create($stmt.Extent.Text))
   }
 }
@@ -41,6 +50,26 @@ Assert-Equal '"a\\\"b c"' (ConvertTo-WindowsArgument 'a\"b c') 'backslash before
 Assert-Equal '"a b\\"' (ConvertTo-WindowsArgument 'a b\') 'trailing backslash is doubled when quoted'
 Assert-Equal 'a\b' (ConvertTo-WindowsArgument 'a\b') 'inner backslash without quote or space stays'
 Assert-Equal "`"tab`there`"" (ConvertTo-WindowsArgument "tab`there") 'tab is quoted'
+
+$trigger = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\captain' }
+$task = [pscustomobject]@{
+  Actions = @([pscustomobject]@{ Execute = 'lock.exe'; Arguments = 'lock' })
+  Triggers = @($trigger)
+  Principal = [pscustomobject]@{ UserId = 'PC\captain'; LogonType = 'Interactive'; RunLevel = 'Limited' }
+}
+$fingerprint = Get-TaskFingerprint $task
+Assert-Equal $fingerprint (Get-TaskFingerprint $task) 'same logon trigger and user keep task unchanged'
+$task.Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\other' })
+Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task)) 'different logon trigger user changes task fingerprint'
+$task.Triggers = @([pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskBootTrigger' }; UserId = '' })
+Assert-Equal $false ($fingerprint -ceq (Get-TaskFingerprint $task)) 'different trigger type changes task fingerprint'
+
+$logon = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\captain' }
+$otherLogon = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskLogonTrigger' }; UserId = 'PC\other' }
+$startup = [pscustomobject]@{ CimClass = [pscustomobject]@{ CimClassName = 'MSFT_TaskBootTrigger' }; UserId = '' }
+Assert-Equal (Get-HiveTriggerFingerprint @($logon)) (Get-HiveTriggerFingerprint @($logon)) 'same keepalive logon trigger matches'
+Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon)) -ceq (Get-HiveTriggerFingerprint @($otherLogon))) 'different keepalive logon user does not match'
+Assert-Equal $false ((Get-HiveTriggerFingerprint @($logon)) -ceq (Get-HiveTriggerFingerprint @($startup))) 'different keepalive trigger type does not match'
 
 $want = [ordered]@{ 'wsl2' = [ordered]@{ 'vmIdleTimeout' = '-1' }; 'general' = [ordered]@{ 'instanceIdleTimeout' = '-1' } }
 

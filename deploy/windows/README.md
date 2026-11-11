@@ -70,8 +70,10 @@ Nothing calls it yet; the desk's Run queue (a later piece) will.
 | `restart-pc` | optional hour `0`-`23` | `shutdown /g`: restart in 30 s, or at the next HH:00 local time. With ARSO it signs in and locks again. |
 | `pause-updates` | optional days `1`-`35` (default 7) | Sets the Windows Update pause values under `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings`. |
 
-`ping` is the one addition to the agreed list: it is the only way to test the
-task without restarting something.
+Whether an unelevated process from WSL can start the on-demand helper task
+without an admin prompt is unverified; `ping` is the only no-side-effect way
+to prove it during the sitting, and it changes nothing on the machine beyond
+appending an audit-log line.
 
 ### How to call it
 
