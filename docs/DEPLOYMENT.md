@@ -43,7 +43,10 @@ commands below use a venv at `.venv/`.
   since the cut-over ([ADR 0033](adr/0033-hive-cutover-retire-entity-runtime.md)).
   Create a bot via BotFather and paste the token into `.env` to enable it; with
   no token Hive logs `Telegram backup channel is off` and keeps running. The
-  desk (`hive-gateway.service` over Tailscale) is the primary surface.
+  desk (`hive-gateway.service` over Tailscale) is the primary surface. The
+  standalone fixed-command bot (`hive-telegram.service`, the way in when
+  Tailscale is down) is set up separately; see [`telegram.md`](telegram.md).
+  One token is polled by one process only: the two never run together.
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
 
@@ -109,7 +112,7 @@ break gate detection in the fleet and never show in dev.
   actually resolved:
 
   ```bash
-  journalctl --user -u hive.service | grep "on claude"  # hive-telegram.service on a host migrated per fleet-up.md
+  journalctl --user -u hive.service | grep "on claude"
   # … PtySession: worker-3 on claude 2.1.162 (…/versions/2.1.162)
   ```
 
@@ -320,7 +323,7 @@ One-time setup on the VPS:
 tailscale serve --bg https / http://127.0.0.1:8080
 
 # 4. Apply and verify
-systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user restart hive.service
 tailscale serve status        # shows the https://<node>.<tailnet>.ts.net mapping
 ```
 
@@ -350,8 +353,8 @@ One-time setup on the VPS:
 #   HIVE_VAPID_SUBJECT=mailto:you@example.com   # contact the push services require
 
 # 3. Restart and confirm the channel comes up enabled (not "inert — no VAPID keys"):
-systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
-journalctl --user -u hive.service -n 30 | grep -i "web push"  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user restart hive.service
+journalctl --user -u hive.service -n 30 | grep -i "web push"
 ```
 
 Then, in the **installed** PWA on the iPad, allow notifications when prompted —
@@ -396,7 +399,7 @@ Endpoints that accept input from the browser tab:
 # user for it on first send and caches it in sessionStorage.
 HIVE_WEB_TOKEN=$(openssl rand -hex 32)
 echo "HIVE_WEB_TOKEN=$HIVE_WEB_TOKEN" >> .env
-systemctl --user restart hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user restart hive.service
 ```
 
 Smoke-test from any tailnet device:
@@ -424,8 +427,7 @@ events and flushes when either threshold trips:
 **Console mode**: when `HIVE_SMTP_HOST` is unset the digest logs the
 rendered body instead of sending. Useful on dev hosts and as a smoke
 test before wiring real SMTP. Logs land in `journalctl --user -u
-hive.service -g "Email digest"` (`-u hive-telegram.service` on a host migrated
-per [`fleet-up.md`](fleet-up.md)).
+hive.service -g "Email digest"`.
 
 For a real SMTP backend (Gmail app password, Mailgun, AWS SES, etc.):
 
@@ -785,8 +787,10 @@ Persisted entities (the Vault) survive restart. Subsequent startup logs show
 
 ### Telegram commands (full list)
 
-Telegram is an optional backup channel (enabled by `TELEGRAM_BOT_TOKEN`). The
-typed approval commands stay until the desk covers vault and mode approvals.
+These are the Vault runtime's commands (`python -m hive`, enabled by
+`TELEGRAM_BOT_TOKEN` in its `.env`). The typed approval commands stay until the
+desk covers vault and mode approvals. The standalone bot has only six fixed
+commands; see [`telegram.md`](telegram.md).
 
 **Status & monitoring:**
 `/status`, `/health`, `/cost [24h|7d|30d]`, `/quota`, `/audit [prefix]`, `/files [N]`
@@ -1021,7 +1025,7 @@ accidentally truncated:
 
 ```bash
 # 1. Stop the orchestrator so it doesn't write to the DB during restore.
-systemctl --user stop hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user stop hive.service
 
 # 2. Pick a dump.
 ls -lt ~/backups/hive/
@@ -1044,7 +1048,7 @@ docker exec hive-postgres psql -U hive -d hive -c \
             (SELECT COUNT(*) FROM messages) AS messages;"
 
 # 6. Restart hive.
-systemctl --user start hive.service  # hive-telegram.service on a host migrated per fleet-up.md
+systemctl --user start hive.service
 ```
 
 The dump is captured with `--no-owner --no-acl`, so it replays cleanly

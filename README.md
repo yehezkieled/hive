@@ -43,7 +43,9 @@ and the legacy web app.
 - Docker + Docker Compose
 - At least one signed-in Codex, Claude Code, or Pi CLI on the host
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather)) — optional;
-  Telegram is a backup channel and stays off without it
+  Telegram is a backup channel and stays off without it. The standalone
+  fixed-command bot (the way in when Tailscale is down) is set up separately:
+  [`docs/telegram.md`](docs/telegram.md)
 - OpenAI API key (optional — for blueprint embeddings)
 
 ## Quick start

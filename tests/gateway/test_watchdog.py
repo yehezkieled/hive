@@ -29,12 +29,8 @@ from hive.gateway.watchdog import (
     WatchdogStore,
     parse_config,
 )
-from hive.telegram.bridge import (
-    RESTART_CONFIRM_PREFIX,
-    WATCHDOG_CONFIRM_TEXT,
-    WATCHDOG_CURSOR,
-    TelegramBridge,
-)
+from hive.telegram.bridge import TelegramBridge
+from hive.telegram.recovery import RESTART_CONFIRM_PREFIX, WATCHDOG_CONFIRM_TEXT, WATCHDOG_CURSOR
 from tests.gateway.fmcfg import write_config
 from tests.gateway.test_wake import (
     FM_PID,

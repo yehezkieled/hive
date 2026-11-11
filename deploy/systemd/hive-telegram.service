@@ -1,22 +1,28 @@
 [Unit]
-Description=Hive runtime with Telegram (python -m hive; replaces hive.service; only when configured)
+Description=Hive Telegram bot (python -m hive.telegram; fixed commands, outbound only; only when configured)
 After=network-online.target
 Wants=network-online.target
-# Never two Hive runtimes (two pollers on one bot token): stop hive.service first.
+# Never two pollers on one bot token: the Vault runtime (hive.service) polls it too
+# when it has one, so the two never run together.
 Conflicts=hive.service
 # Deliberately independent of hive-gateway.service: neither can stop the other.
 
 [Service]
 WorkingDirectory=%h/apps/hive
-# Token and allowlist: the environment, ~/.config/hive/telegram.env (0600) or the
-# checkout's .env (as python -m hive reads it); never committed.
-EnvironmentFile=-%h/.config/hive/telegram.env
-# Exit 1 here means "not configured" or "another Hive runtime runs": the unit is
-# skipped, not failed, and not restarted.
+# Token and allowlist: ~/.config/hive/telegram.env (0600, written by
+# scripts/telegram-setup.sh), read by the wrapper, never committed. No port is opened.
+# Exit 1 here means "not configured", "malformed", "token rejected" or "another
+# Hive runtime runs": the unit is skipped, not failed, and not restarted.
 ExecCondition=%h/apps/hive/scripts/hive-telegram.sh --check
 ExecStart=%h/apps/hive/scripts/hive-telegram.sh
+# The gateway's settings, so /health and Wake read the same desk port, data dir and
+# firstmate home (add HIVE_GATEWAY_* overrides here when the gateway has them).
+Environment=HIVE_GATEWAY_PORT=8480
 Restart=always
-RestartSec=5
+RestartSec=30
+# 78 (EX_CONFIG): Telegram rejected the token or the config is wrong. Restarting
+# cannot fix that; `scripts/telegram-setup.sh set` does, and restarts the unit.
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=default.target
