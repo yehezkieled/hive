@@ -41,9 +41,7 @@ needs_pwsh = pytest.mark.skipif(_pwsh() is None, reason="PowerShell not installe
 @needs_pwsh
 @pytest.mark.parametrize("script", ["Test-HiveAdminHelper.ps1", "Test-HiveInstall.ps1"])
 def test_powershell_suite(script):
-    result = _run_pwsh(
-        ["-ExecutionPolicy", "Bypass", "-File", _ps_path(WIN / "tests" / script)]
-    )
+    result = _run_pwsh(["-ExecutionPolicy", "Bypass", "-File", _ps_path(WIN / "tests" / script)])
     assert result.returncode == 0, result.stdout + result.stderr
     assert "failed=0" in result.stdout
 
@@ -53,9 +51,7 @@ def test_powershell_parses_and_lints():
     files = sorted(WIN.rglob("*.ps1"))
     paths = ",".join("'" + _ps_path(path).replace("'", "''") + "'" for path in files)
     script = (
-        "$bad = 0; foreach ($f in @("
-        + paths
-        + ")) { $t = $null; $e = $null; "
+        "$bad = 0; foreach ($f in @(" + paths + ")) { $t = $null; $e = $null; "
         "[void][System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$t, [ref]$e); "
         'foreach ($x in $e) { $bad++; "${f}:$($x.Extent.StartLineNumber): $($x.Message)" } }; '
         "if (Get-Module -ListAvailable PSScriptAnalyzer) { foreach ($f in @(" + paths + ")) { "
