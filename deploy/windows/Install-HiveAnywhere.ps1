@@ -415,6 +415,22 @@ Invoke-Step 'a. Tailscale unattended' {
   }
 
   Invoke-Step 'b3. Lock at logon' {
+    $svc = New-Object -ComObject 'Schedule.Service'
+    $svc.Connect()
+    $hiveTaskFolder = $null
+    try {
+      $hiveTaskFolder = $svc.GetFolder('\\Hive')
+    } catch {
+      if ($_.Exception.HResult -ne -2147024894) { throw }
+    }
+    if (-not $hiveTaskFolder) {
+      if ($PSCmdlet.ShouldProcess('\\Hive', 'create Task Scheduler folder')) {
+        $hiveTaskFolder = $svc.GetFolder('\\').CreateFolder('Hive')
+        Add-Result 'b3. Lock at logon' 'changed' "created Task Scheduler folder '\Hive'"
+      } else {
+        Add-Result 'b3. Lock at logon' 'would change' "create Task Scheduler folder '\Hive'"
+      }
+    }
     $rundll = Join-Path $system32 'rundll32.exe'
     $action = New-ScheduledTaskAction -Execute $rundll -Argument 'user32.dll,LockWorkStation'
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $windowsUser
