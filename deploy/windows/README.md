@@ -66,7 +66,7 @@ Nothing calls it yet; the desk's Run queue (a later piece) will.
 | `ping` | - | Nothing. Logs `pong`. For testing that the task can be started. |
 | `restart-wsl` | - | Restarts the `WSLService` (or `LxssManager`) service. All WSL distros stop; the keep-alive loop starts Ubuntu again. |
 | `restart-tailscale` | - | Restarts the `Tailscale` service. |
-| `tailscale-up` | - | `tailscale up --unattended --timeout=60s`. Output (for example a login link) goes into the audit log. |
+| `tailscale-up` | - | `tailscale up --unattended --timeout=60s`. Output goes into the audit log with links and long tokens redacted. |
 | `restart-pc` | optional hour `0`-`23` | `shutdown /g`: restart in 30 s, or at the next HH:00 local time. With ARSO it signs in and locks again. |
 | `pause-updates` | optional days `1`-`35` (default 7) | Sets the Windows Update pause values under `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings`. |
 
@@ -133,7 +133,7 @@ Microsoft does not treat UAC as one.
 | 4 | A brief unlocked moment between auto sign-in and the lock task. | Watch the screen once. |
 | 5 | `vmIdleTimeout` / `instanceIdleTimeout` in WSL 2.7.3. | Harmless either way. |
 | 6 | Service name `WSLService` for `restart-wsl` (store WSL); `LxssManager` is the fallback. | First real `restart-wsl`. |
-| 7 | `tailscale up --unattended` run as SYSTEM, and whether it needs other flags repeated. | First real `tailscale-up`; output is in the audit log. |
+| 7 | `tailscale up --unattended` run as SYSTEM, and whether it needs other flags repeated. | First real `tailscale-up`; redacted output is in the audit log. |
 | 8 | Whether Windows Update honours the pause values without the Settings app. | Settings > Windows Update shows "Updates paused". |
 | 9 | BIOS menu name for power-on after AC loss. | The sitting, step 4. |
 

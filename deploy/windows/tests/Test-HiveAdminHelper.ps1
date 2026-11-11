@@ -103,6 +103,14 @@ function Invoke-HiveAdminVerb([string]$Verb, $Arg) {
   if ($script:failVerb) { throw 'stub failure' }
   return "stub:$Verb"
 }
+$root = New-TestHiveRoot
+Write-HiveAdminAudit 'AuditUrl1' 'tailscale-up' '-' 'ok' 'To authenticate, visit: https://login.tailscale.com/a/abc123'
+Write-HiveAdminAudit 'AuditToken1' 'tailscale-up' '-' 'failed' 'token: ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890'
+$auditLines = [System.IO.File]::ReadAllLines((Join-Path $root 'audit.log'))
+Assert-True ($auditLines[0].Contains('[redacted]') -and -not $auditLines[0].Contains('https://') -and -not $auditLines[0].Contains('abc123')) 'audit details redact authentication links'
+Assert-True ($auditLines[1].Contains('[redacted]') -and -not $auditLines[1].Contains('ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890')) 'audit details redact long tokens'
+Remove-Item -LiteralPath $root -Recurse -Force
+
 if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
 $root = New-TestHiveRoot
 $script:ranVerbs = @()

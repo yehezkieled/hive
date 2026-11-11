@@ -145,8 +145,9 @@ function Write-HiveAdminAudit {
   if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 1MB) {
     Microsoft.PowerShell.Management\Move-Item -LiteralPath $log -Destination "$log.1" -Force
   }
-  # Detail is our own text plus truncated tool output; strip line breaks so one call is one line.
-  $clean = ($Detail -replace '[\r\n\t]+', ' ' -replace '[^\x20-\x7E]', '?')
+  $clean = $Detail -replace '(?i)\bhttps?://\S+', '[redacted]'
+  $clean = $clean -replace '[A-Za-z0-9_\-+/=.]{20,}', '[redacted]'
+  $clean = ($clean -replace '[\r\n\t]+', ' ' -replace '[^\x20-\x7E]', '?')
   if ($clean.Length -gt 400) { $clean = $clean.Substring(0, 400) + '...' }
   $stamp = [DateTimeOffset]::Now.ToString('yyyy-MM-ddTHH:mm:sszzz', [System.Globalization.CultureInfo]::InvariantCulture)
   $line = "$stamp nonce=$Nonce verb=$Verb arg=$Arg result=$Result detail=$clean"
