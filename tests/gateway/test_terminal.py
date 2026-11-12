@@ -801,7 +801,8 @@ def test_history_and_screen_overlap_is_counted_once() -> None:
 # A fake desk for the page script: the open step hands out a pass, and the websocket sends a
 # read-only state and a 118x30 screen whose first row is the one a stale layout hid.
 FAKE_DESK = r"""
-window.fetch=function(){return Promise.resolve({headers:{get:function(){return 'application/json';}},
+window.fetch=function(){return Promise.resolve({
+headers:{get:function(){return 'application/json';}},
 json:function(){return Promise.resolve({ok:true,pass:'p',ends:Date.now()/1000+1800});}});};
 window.WebSocket=function(){var me=this;me.readyState=1;setTimeout(function(){me.onopen();
 me.onmessage({data:JSON.stringify({t:'state',who:'owner',viewers:1,ends:Date.now()/1000+1800,
