@@ -113,25 +113,30 @@ def _item(**kw: object) -> Item:
 # ---- lane markup -------------------------------------------------------------------
 
 
+def _lane(html: str) -> str:
+    return html.split("<section class='pn nyl", 1)[1].split("</section>", 1)[0]
+
+
 def test_the_held_item_is_the_card_and_every_other_item_is_a_row(tmp_path: Path) -> None:
     html = _client(tmp_path, _data()).get("/", headers=GOOD).text
-    lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
+    lane = _lane(html)
     items = re.findall(r"<div class='nyx ([^']*)' data-item='([^']*)'", lane)
-    assert [i for _, i in items] == ["ask", "later-email", "plain", "waiting"]
+    # the held item is the card; the rows follow held, then blocked, then queued
+    assert [i for _, i in items] == ["ask", "later-email", "waiting", "plain"]
     assert [("is-primary" in c) for c, _ in items] == [True, False, False, False]
     # the answer flow is unchanged and stays inside the card
     assert lane.count("name=release value=1") == 1 and "Answer &amp; resume" in lane
     # no script: every head and every explicit open link still opens the project
-    assert lane.count("class=nyx__head href='/p/bnm'") == 4
-    assert lane.count("class=nyx__open href='/p/bnm'") == 4
-    assert "data-group='bnm' data-open='/p/bnm'" in lane
+    assert len(re.findall(r"class=(?:nyx__head|'nyx__head nyc__head') href='/p/bnm'", lane)) == 4
+    assert lane.count('href="/p/bnm" rel="noopener noreferrer">Open project ↗</a>') == 4
+    assert lane.count("data-open='/p/bnm'") == 4  # a double tap opens the item's own project
 
 
 def test_a_group_with_nothing_held_has_no_card_until_one_is_picked(tmp_path: Path) -> None:
     data = _data()
     data["backlog"]["records"] = data["backlog"]["records"][1:]
     html = _client(tmp_path, data).get("/", headers=GOOD).text
-    assert "is-primary" not in html.split("class=nyl__body>", 1)[1].split("</section></div>")[0]
+    assert "is-primary" not in _lane(html)
 
 
 def test_row_card_says_why_it_is_parked(tmp_path: Path) -> None:
@@ -142,7 +147,8 @@ def test_row_card_says_why_it_is_parked(tmp_path: Path) -> None:
 
 def test_reduced_motion_css_turns_the_lane_animations_off(tmp_path: Path) -> None:
     css = _client(tmp_path, _data()).get("/", headers=GOOD).text
-    assert "@media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none" in css
+    off = "{*,*::before,*::after{transition:none!important;animation:none!important}}"
+    assert "@media (prefers-reduced-motion:reduce)" + off in css
 
 
 LANE_DOM = Path(__file__).parent / "lane_dom.js"

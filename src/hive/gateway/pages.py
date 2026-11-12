@@ -283,204 +283,165 @@ position:relative;padding:0 12px}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
 min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
 #jump[hidden]{display:none}
-@media (max-width:480px){.msg{max-width:94%}.dbar__go{padding:0 12px}}
-/* the Stack home (docs/design/T002-stack-home.html) */
-.screen{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.4}
-.screen :where(p,h1,h2,h3,li,span,code,b){overflow-wrap:anywhere}
-.screen form{margin:0}
-.stamp{font:10px var(--font-mono);color:var(--ink-3);letter-spacing:.5px;margin:0 2px}
-.land{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
-.land__col{display:flex;flex-direction:column;gap:12px;min-width:0}
-@media (min-width:900px){.land{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}}
-/* wide desk: use the width; the phone layout above is untouched */
-@media (min-width:1100px){
-.wide main{max-width:1480px}
-.wide .screen{min-height:calc(100vh - 96px);gap:16px}
-.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr);gap:20px}
-.wide .land__col{gap:16px}
-.wide .pcs{grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-.wide .dbar{padding:10px 10px 10px 16px;box-shadow:0 8px 24px var(--paper-shadow)}
-.wide input.dbar__in{font-size:15px}
-}
-/* the desk is one screen at every size: the viewport is the page, only the content scrolls, and the
-   delegate bar is its last row, flush with the viewport bottom (the safe-area inset lives inside it) */
-body.wide{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
-display:flex;flex-direction:column;padding-bottom:0}
-.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 0;overflow-y:auto}
-.wide .screen{flex:1;min-height:0;gap:10px}
-.wide .land{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.wide .dbar-wrap{position:static;margin:0;flex:none;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
-/* on PC, laptop and tablet each panel scrolls on its own */
-@media (min-width:700px) and (min-height:560px){
-.wide .land{overflow:visible;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px;align-items:stretch}
-.wide .land__col{min-height:0;gap:10px}
-.wide .nyl{display:flex;flex-direction:column;min-height:0;height:100%}
-.wide .nyl__head{flex:none}
-.wide .nyl__body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.wide .pcsec{display:flex;flex-direction:column;gap:6px;min-height:0;flex:0 1 auto;max-height:55%}
-.wide .pcs{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-align-content:start;grid-auto-rows:max-content;min-height:0;padding-bottom:2px}
-.wide .rvs{flex:1 1 0;min-height:0}
-.wide .rv__box{flex:1;min-height:0}
-.wide .rv__list{flex:1;max-height:none;min-height:0}
-.wide .stamp{flex:none}
-}
-@media (min-width:1100px) and (min-height:560px){.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr)}}
-@media (min-width:700px) and (min-height:560px) and (max-width:1099px) and (orientation:portrait){
-.wide .land{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1.1fr) minmax(0,1fr)}
-.wide .land__col:last-child{flex-direction:row}
-.wide .land__col:last-child>*{flex:1 1 0;min-width:0}
-.wide .pcs{grid-template-columns:minmax(0,1fr)}
-.wide .pcsec{max-height:none}
-}
-.nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
-box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
-.nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
-.nyl__head>*{min-width:0}
-.nyl__glyph{color:var(--accent);font-size:14px;line-height:1}
-.nyl__title{font-family:var(--font-display);font-weight:800;font-size:14px;margin:0}
-.nyl__count{margin-left:auto;font:700 10px var(--font-mono);letter-spacing:1px;background:var(--accent);
-color:#fff;padding:2px 9px;border-radius:999px}
-.nyl__body{padding:12px;display:flex;flex-direction:column;gap:10px}
-.state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.state-dot--active{background:var(--sage)}.state-dot--idle{background:var(--ink-4)}
-.state-dot--error{background:var(--accent)}.state-dot--gated{background:var(--honey)}
-.nyi__entity{font:600 12px var(--font-mono);color:var(--ink)}
-.nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
-.nyi__summary b{color:var(--ink);font-weight:700}
-.dq__q{display:block;font-weight:600;color:var(--ink);line-height:1.4}
-.nyi__summary>b+.dq__q{margin-top:2px}
-.dq__opts{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
-.dq__opt{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:5px 8px;border:1px solid var(--rule-faint);border-radius:6px}
-.dq__opt b{font:700 .8rem var(--font-mono);color:var(--ink)}
-.dq__opt.is-rec{border-color:var(--honey);background:rgba(200,150,40,.12);color:var(--ink)}
-.dq__rec{margin-left:auto;font:700 10px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
-.dq__more{margin-top:6px}
-.dq__more summary{display:inline-flex;align-items:center;min-height:44px;min-width:44px;cursor:pointer;font-weight:700;color:var(--ink-2)}
-.dq__more p{margin:0 0 4px;white-space:pre-wrap;overflow-wrap:anywhere}
-.nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.nyi__actions>*{min-width:0}
-.nyi__btns{display:flex;gap:7px;flex-wrap:wrap}
-input.nyi__reply{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:12px var(--font-mono);padding:6px 9px;
-border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
-.nyg{display:flex;flex-direction:column;gap:6px}
-.nyg+.nyg{border-top:1px solid var(--rule-faint);padding-top:10px}
-.nyg__head{display:flex;align-items:center;gap:8px;min-height:44px;color:inherit;text-decoration:none;flex-wrap:wrap}
-.nyg__head>*{min-width:0}
-.nyg__name{font:700 13px var(--font-display)}
-.nyg__mate{font:9px var(--font-mono);color:var(--ink-4)}
-.nyg__wait{font:700 9px var(--font-mono);letter-spacing:.5px;color:var(--ochre);background:var(--honey-soft);
-border-radius:999px;padding:2px 8px;white-space:nowrap}
-.nyg__count{margin-left:auto;font:700 10px var(--font-mono);color:var(--ink-3)}
-.nyg__items{display:flex;flex-direction:column;gap:2px}
-.nyx{position:relative;border:1px solid transparent;border-left:4px solid transparent;border-radius:12px}
-.nyx__bar{display:flex;align-items:center;gap:2px}
-.nyx__head{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:44px;padding:4px 6px;
-color:inherit;text-decoration:none;border-radius:7px;cursor:pointer}
-.nyx__head:hover{background:var(--paper-soft)}
-.nyx__head:focus-visible,.nyx__open:focus-visible{outline:2px solid var(--ochre);outline-offset:-2px}
-.nyx__id{font:10px var(--font-mono);color:var(--ink-4);flex-shrink:0;max-width:34%;overflow:hidden;
-text-overflow:ellipsis;white-space:nowrap}
-.nyx__title{flex:1 1 150px;min-width:0;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;
-white-space:nowrap}
-.nyx__tag{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
-border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft);
-white-space:nowrap}
-.nyx__tag--hold{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
-.nyx__open{font:9px var(--font-mono);color:var(--ink-4);white-space:nowrap;min-height:44px;min-width:44px;
-display:inline-flex;align-items:center;justify-content:center;padding:0 6px;border-radius:7px;text-decoration:none}
-.nyx__open:hover{background:var(--paper-soft);color:var(--ink-2)}
-.nyx .state-dot,.nyx__more{display:none}
-.nyx.is-primary{background:var(--paper);border-color:var(--rule-soft);padding:2px 8px 12px;margin:4px 0}
-.nyx.is-primary.nyi--decision{border-left-color:var(--honey)}
-.nyx.is-primary.nyi--gate{border-left-color:var(--ochre)}
-.nyx.is-primary.nyi--mode{border-left-color:var(--amber)}
-.nyx.is-primary.nyi--queued{border-left-color:var(--sage)}
-.nyx.is-primary.nyi--blocked{border-left-color:var(--ink-4)}
-.nyx.is-primary .state-dot{display:block}
-.nyx.is-primary .nyx__title{display:none}
-.nyx.is-primary .nyx__id{font:600 12px var(--font-mono);color:var(--ink);max-width:none}
-.nyx.is-primary .nyx__head:hover{background:none}
-.nyx.is-primary .nyx__more{display:block;padding:0 4px}
-.nyx__more>.nyi__summary{margin:2px 0 6px}
-.nyx__desc{margin:0 0 8px;font-size:12.5px;line-height:1.45;color:var(--ink-3);border-left:2px solid var(--rule-faint);
-padding-left:9px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
+@media (max-width:480px){.msg{max-width:94%}}
+/* the desk: three panels side by side over the delegate bar. Below a laptop the two right-hand
+   panels share one column behind tabs; a phone tabs all three */
+.sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+body.wide main:has(>.screen){width:100%;padding-bottom:0;overflow:hidden}
+.screen{flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+.desk{width:min(1280px,100% - 2 * var(--gut));margin-inline:auto;padding:16px 0;
+grid-template-columns:minmax(0,5fr) minmax(0,4fr) minmax(0,3fr)}
+.desk--two{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.dcol{display:contents}
+@media (min-width:641px) and (max-width:1279px){
+.desk{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.desk .dcol{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0}
+.desk .dcol>.tabs--r{display:flex}
+.desk .dcol>.pn{flex:1 1 0}
+.desk:not(.desk--two) .dcol>.pn:not(.is-ron){display:none}
+.desk:not(.desk--two) .dcol>.pn>.pn__h{display:none}}
+@media (min-width:641px) and (max-width:1023px){
+.desk{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,3fr) minmax(0,2fr)}}
+@media (max-width:640px){.desk{padding:10px 0}}
+/* Needs you: decision cards (one open at a time), then held, blocked and queued tickets as rows */
+.nyl__body{display:flex;flex-direction:column}
+.nyg{display:flex;flex-direction:column}
+.nyg--cards{gap:8px}
+.nyx__head{color:inherit;text-decoration:none;cursor:pointer}
+.nyx__head:focus-visible{outline-offset:-2px}
+.nyx__more{display:none}
+.nyx.is-primary .nyx__more{display:block}
+.nyc{border:1px solid var(--line);border-radius:var(--r3);background:var(--card)}
+.nyc__head{display:flex;flex-wrap:wrap;align-items:center;gap:0 10px;width:100%;min-height:50px;padding:10px 16px;border-radius:var(--r3)}
+.nyc__head:hover{background:var(--surface)}
+.nyx.is-primary .nyc__head{padding-bottom:0;cursor:default}
+.nyx.is-primary .nyc__head:hover,.nyc--calm .nyc__head:hover{background:none}
+.nyc__where{flex:0 1 auto;display:flex;align-items:baseline;gap:8px;min-width:0;font-size:15px;font-weight:600;overflow:hidden;white-space:nowrap}
+.nyc__where code{font-weight:400;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.nyc__chev{margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)}
+.nyx.is-primary .nyc__chev{display:none}
+.nyc__head .nyc__what{flex-basis:100%;min-width:0;padding-top:4px;font-size:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.nyx.is-primary .nyc__head .nyc__what,.nyc__body .nyc__what{padding-top:10px;font:600 19px/1.3 var(--fd);letter-spacing:-.012em;
+white-space:normal;overflow-wrap:anywhere}
+.nyc__body .nyc__what{padding-top:0}
+.nyc__body{padding:0 16px 16px}
+.nyc__mean{margin-top:4px;font-size:16px;color:var(--muted);overflow-wrap:anywhere}
+.nyc__mean a{color:inherit}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
+.opt{display:flex;align-items:center;gap:12px;min-height:58px;padding:8px 16px;border:1px solid var(--line2);border-radius:var(--r2);
+background:var(--card);color:var(--ink);font:16px/1.3 var(--ft);text-align:left;cursor:pointer;
+transition:transform .15s var(--e),border-color .15s var(--e)}
+.opt b{flex:none;font:500 13px var(--fm);color:var(--muted)}
+.opt span{min-width:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
+.opt em{font-style:normal;font-size:13px;font-weight:600;color:var(--action)}
+.opt.is-rec{border:2px solid var(--action);padding:7px 15px}
+.opt:hover{transform:translateY(-1px)}
+.opt[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.opt[aria-pressed=true] b,.opt[aria-pressed=true] em{color:var(--bg)}
+.nyc__act{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.nyc__act>.btn{flex:none}
+input.nyi__reply{flex:1 1 100%;min-width:0;
+min-height:44px}
+.nyc__links{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 20px;margin-top:2px}
+.nyc__full>summary{list-style:none}
+.nyc__full>summary::-webkit-details-marker{display:none}
+.nyc__full[open]{flex-basis:100%}
+.nyc__full p{padding-bottom:8px;font-size:15px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.nyc__form label:first-child{margin-top:14px}
+.nyc__form>.btn{margin-top:10px}
+.nyx__desc{margin:10px 0 0;padding-left:10px;border-left:2px solid var(--line2);font-size:15px;line-height:1.45;color:var(--muted);
+overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
 .nyx__desc[data-ready]{cursor:pointer}
-.nyx__desc[data-ready]:hover{color:var(--ink-2)}
-.nyx__desc:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
+.nyx__desc[data-ready]:hover{color:var(--ink)}
 .nyx__desc[hidden]{display:none}
-.nyx__desc.is-pending{color:var(--ink-4);animation:nyx-pulse 1.4s ease-in-out infinite}
-.nyx.is-flip{transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
+.nyx__desc.is-pending{animation:nyx-pulse 1.4s ease-in-out infinite}
+.nyr{border-bottom:1px solid var(--line)}
+.nyr:last-child{border-bottom:0}
+.nyr .nyx__head{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 0}
+.nyr .nyx__head:hover .r__t{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.r__t{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px}
+.r__p{font:13px var(--fm);color:var(--muted);white-space:nowrap}
+.nyr.is-primary .r__t{white-space:normal;overflow-wrap:anywhere;font-weight:600}
+.nyr .nyx__more{padding:0 0 12px}
+.nyr__why{font-size:15px;color:var(--muted);overflow-wrap:anywhere}
+.nyx.is-flip{transition:transform .3s var(--e);will-change:transform}
 .nyx.is-lifted{z-index:2}
 .nyx.is-opening .nyx__more{animation:nyx-in .28s ease-out both}
 @keyframes nyx-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 @keyframes nyx-pulse{50%{opacity:.45}}
-@media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none!important;transition:none!important}}
-.nyq__more{display:inline-flex;align-items:center;font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;
-padding:0 4px;min-height:44px}
-.rvs{display:flex;flex-direction:column;gap:6px}
-.rv__box{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
-.rv__list{display:flex;flex-direction:column;max-height:min(44vh,300px);overflow-y:auto;overflow-x:hidden;
--webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.rvrow{display:flex;align-items:stretch;border-top:1px solid var(--rule-faint);flex:none}
-.rvrow:first-child{border-top:0}
-.rvrow:hover{background:var(--paper-soft)}
-.rvrow>form{display:flex;margin:0;flex:none}
-.rv{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:48px;padding:8px 6px 8px 12px;color:inherit;text-decoration:none}
-.rv>*{min-width:0}
-.rv__title{flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rv__proj{font:10px var(--font-mono);color:var(--ink-3);max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rv__reply{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ochre);
-background:var(--honey-soft);border-radius:999px;padding:2px 8px}
-.rv__go{font:10px var(--font-mono);color:var(--ink-4)}
-.rv__done{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
-border:1px solid var(--rule);border-radius:999px;padding:1px 7px;white-space:nowrap}
-.rv__x{min-width:56px;min-height:44px;align-self:center;padding:0 10px;border:0;border-radius:8px;background:transparent;
-color:var(--ink-3);font:700 10px var(--font-mono);cursor:pointer;white-space:nowrap}
-.rv__x:hover{background:var(--paper-soft);color:var(--ink)}
-.rv__x.is-armed{background:var(--accent);color:#fff}
-.rv__x--bulk{border:1.5px solid var(--rule);margin-right:4px}
+.nyq{display:flex;flex-wrap:wrap;gap:0 20px;margin-top:4px}
+@container pn (max-width:440px){
+.opts{grid-template-columns:minmax(0,1fr)}
+.nyc__act>.btn{flex:1 1 auto}
+.nyr .nyx__head{flex-wrap:wrap;gap:2px 10px;padding:8px 0}
+.r__t{order:3;flex-basis:100%;white-space:normal}}
+/* Projects: one row each; a tap focuses it (the delegate bar retargets), a second tap opens its detail */
+.pcs{display:flex;flex-direction:column}
+.pcs>.stamp{padding-top:8px}
+.pc{flex:none;position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto 76px;align-items:center;gap:10px;
+min-height:44px;padding:8px;margin:0 -8px;border-radius:var(--r2);color:inherit;text-decoration:none;cursor:pointer}
+.pc::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:1px;background:var(--line)}
+.pc:last-of-type::after,.pc.is-selected::after,.pc:has(+.pc.is-selected)::after{display:none}
+.pc:hover{background:var(--surface)}
+.pc.is-selected{background:var(--you-t)}
+.pc__n{display:flex;flex-direction:column;min-width:0}
+.pc__name{font-size:15px;font-weight:600;line-height:1.35;overflow-wrap:break-word}
+.pc__n small{font-size:13px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pc__mae{white-space:nowrap}
+.aka{margin-left:6px;font:400 12px var(--fm);color:var(--muted);white-space:nowrap}
+.pc__prog{display:flex;align-items:center;gap:6px;font:13px var(--fm);color:var(--muted)}
+.pc--blocked .bar i{background:var(--down)}
+@container pn (max-width:330px){.pc{grid-template-columns:minmax(0,1fr) auto auto}.pc__prog .bar{display:none}}
+/* the review list: open Lavish sessions; the list scrolls and "+N more" stays under it */
+.rvs{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.rv__box{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.rv__list{flex:0 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 16px;overscroll-behavior:contain;
+-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+.rvrow{display:flex;align-items:center;gap:10px;min-height:62px;padding:6px 0;border-bottom:1px solid var(--line)}
+.rvrow:last-child{border-bottom:0}
+.rvrow>form{flex:none;display:flex}
+.rv{flex:1 1 auto;min-width:0;min-height:44px;display:flex;flex-direction:column;justify-content:center;gap:3px;color:inherit;text-decoration:none}
+.rv:hover .rv__title{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.rv__title{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px;font-weight:500}
+.rv__meta{display:flex;align-items:center;gap:8px;min-width:0;font:13px var(--fm);color:var(--muted)}
+.rv__meta .sc{height:22px}
+.rv__meta:empty{display:none}
+.rv__proj{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.rv__done{flex:none;padding:1px 7px;border-radius:var(--r1);background:var(--surface);color:var(--ink);font:12px var(--fm);white-space:nowrap}
 form.is-sending .rv__x{opacity:.5}
-.rvs__nudge{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;padding:6px 6px 6px 12px;background:var(--honey-soft);
-border-radius:12px;font-size:12.5px;color:var(--ink)}
-.rvs__nudge>span{flex:1 1 160px;min-width:0}
-.rvs__nudge form{display:flex;margin:0}
-.rv__review{min-height:44px;padding:0 12px;border:1.5px solid var(--rule);border-radius:8px;background:transparent;
-color:var(--ink);font:700 10px var(--font-mono);cursor:pointer}
-.rv__morebtn{display:flex;align-items:center;width:100%;min-height:44px;padding:0 12px;border:0;border-top:1px solid var(--rule-faint);
-border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-mono);cursor:pointer;text-align:left}
-.rv__morebtn:hover{background:var(--paper-soft)}
-.sheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
-background:var(--paper);color:var(--ink);border:1.5px solid var(--rule);border-radius:16px;
-box-shadow:0 16px 48px var(--paper-shadow);overflow:hidden}
-.sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s ease-out}
-.sheet.is-restored[open]{animation:none}
-.sheet{cursor:pointer}.sheet>*{cursor:auto}
-body:has(dialog[open]){overflow:hidden}
-.sheet::backdrop{background:rgba(20,16,12,.5)}
-.sheet__head{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;border-bottom:1.5px solid var(--rule);flex:none}
-.sheet__head>*{min-width:0}
-.sheet__head h2{flex:1;margin:0;font:800 .95rem var(--font-display);overflow-wrap:anywhere}
-.sheet__x{min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:26px;line-height:1}
-.sheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;
--webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom)}
-.sheet__meta{margin:0;padding:10px 16px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--rule-faint);flex:none}
-.sheet__text{margin:0;padding:14px 16px;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
-.sheet__about{margin:0;padding:12px 16px 4px;font-size:14px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere;flex:none}
-.sheet__empty{margin:0;padding:14px 16px;font:10px var(--font-mono);color:var(--ink-3)}
-@keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.sheet[open]{animation:none}}
-.nyi__reply::placeholder{color:var(--ink-4)}
-.btn--go{background:var(--ink);color:var(--paper)}
-.btn--allow{border-color:var(--sage);color:var(--sage)}
-.btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
-.calm{text-align:center;padding:16px 16px 18px}
-.calm__check{font-size:20px;color:var(--sage);line-height:1}
-.calm__line{font-family:var(--font-display);font-weight:800;font-size:15px;margin:8px 0 2px}
-.calm__sub{font:10px var(--font-mono);color:var(--ink-3);letter-spacing:.5px;margin:0}
-.nyl--calm .nyl__head{border-bottom-color:var(--rule-faint)}
-.nyl--calm .nyl__glyph{color:var(--sage)}
-.nyl--calm .nyl__count{background:var(--sage-soft);color:var(--ochre)}
+.rv__morebtn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;min-height:44px;margin:0 16px 4px;padding:0;border:0;
+background:none;color:var(--ink);font:600 15px var(--ft);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.rv__morebtn:hover{text-decoration-color:currentColor}
+.rvs__nudge{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:10px 16px 0;padding:6px 6px 6px 12px;
+border-radius:var(--r2);background:var(--you-t);font-size:14px}
+.rvs__nudge>span{flex:1 1 100%;min-width:0;padding:4px 0}
+.rvs__nudge form{display:flex}
+.sheet__list>*{flex:none}
+.sheet__list .rvrow,.sheet__list>a.rv{min-height:56px;border-bottom:1px solid var(--line)}
+.sheet__list>a.rv:last-child{border-bottom:0}
+/* the delegate bar: who it sends to, the goal, Delegate and when the desk last read firstmate */
+.dbar-wrap{position:relative;flex:none;padding:10px 0 calc(10px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line)}
+.dbar__row{width:min(1280px,100% - 2 * var(--gut));margin-inline:auto;display:flex;align-items:center;gap:8px}
+form.dbar{display:contents}
+.dbar__target{flex:none;max-width:40%;height:44px;padding:0 14px;border-radius:var(--rb);background:var(--you-t);
+font-size:15px;font-weight:600;line-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+input.dbar__in{flex:1 1 200px;width:auto;min-width:0;
+min-height:44px}
+.dbar__go{flex:none;
+min-height:44px}
+.dbar__row>.stamp{flex:none;margin-left:8px;white-space:nowrap}
+.dbar.is-sending>*{opacity:.7}
+.dbar-flash{position:absolute;left:50%;bottom:calc(100% + 10px);z-index:5;transform:translateX(-50%);width:max-content;
+max-width:calc(100% - 2 * var(--gut));padding:10px 16px;border-radius:var(--r2);background:var(--ink);color:var(--card);
+font:600 15px/1.35 var(--ft);box-shadow:0 8px 24px var(--shadow)}
+.dbar-flash--err{background:var(--down)}
+.dbar-flash[hidden]{display:none}
+@media (max-width:640px){
+.dbar__row{flex-wrap:wrap}
+.dbar__target{order:1;height:32px;padding:0 10px;font-size:14px;line-height:32px;max-width:calc(100% - 140px)}
+.dbar__row>.stamp{order:2;margin-left:auto}
+input.dbar__in{order:3;flex:1 1 calc(100% - 150px)}
+.dbar__go{order:4}}
 .cfg h2{margin:1.2rem 0 .4rem}
 .cfg .tblw{overflow-x:auto;border:1.5px solid var(--rule-soft);border-radius:10px;background:var(--paper)}
 .cfg table{border-collapse:collapse;width:100%;font-size:.88rem}
@@ -495,51 +456,7 @@ body:has(dialog[open]){overflow:hidden}
 .cfg .prof{font:11px var(--font-mono);color:var(--ink-2);margin-top:4px;overflow-wrap:anywhere}
 .cfg .kv{font:12px var(--font-mono);display:flex;flex-wrap:wrap;gap:4px 14px;margin:0}
 .sec-label{font:700 9.5px var(--font-mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);margin:2px 2px -4px}
-.pcs{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
-.pc{display:flex;flex-direction:column;gap:7px;text-align:left;width:100%;min-height:44px;font:inherit;color:inherit;
-text-decoration:none;background:var(--paper);border:1.5px solid var(--rule-soft);border-left-width:4px;border-radius:12px;
-padding:11px 12px;cursor:pointer}
-.pc:hover{background:var(--paper-soft)}
-.pc--running{border-left-color:var(--sage)}.pc--idle{border-left-color:var(--ink-4)}.pc--blocked{border-left-color:var(--accent)}
-.pc.is-selected{border-color:var(--rule);border-left-width:4px;background:var(--honey-soft);
-box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
-.pc__top{display:flex;align-items:center;gap:8px}
-.pc__top>*{min-width:0}
-.aka{font:10px var(--font-mono);color:var(--ink-4);font-weight:400;margin-left:6px;white-space:nowrap}
-.pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
-.pc__mae{font:10px var(--font-mono);color:var(--ink-3);flex:none;white-space:nowrap}
-.pc__status{margin-left:auto;flex:none;white-space:nowrap;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
-border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);background:var(--paper-soft);color:var(--ink-3)}
-.pc--running .pc__status{background:var(--sage-soft);color:var(--sage);border-color:var(--sage-soft)}
-.pc--blocked .pc__status{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-soft)}
-.pc__now{font-size:12px;color:var(--ink-2);margin:0}
-.pc__now b{color:var(--ink)}
-.pc__prog{display:flex;align-items:center;gap:8px;font:10px var(--font-mono);color:var(--ink-3)}
-.pc__track{flex:1;height:6px;border-radius:3px;background:var(--rule-faint);overflow:hidden}
-.pc__track i{display:block;height:100%;background:var(--sage)}
-.pc--blocked .pc__track i{background:var(--accent)}.pc--idle .pc__track i{background:var(--ink-4)}
-.pc__open{font:9px var(--font-mono);color:var(--ink-4);display:none}
-.pc.is-selected .pc__open{display:inline;color:var(--ink-2);font-weight:600}
-.dbar{display:flex;align-items:center;gap:8px;background:var(--bar);color:var(--bar-ink);border-radius:16px;padding:8px 8px 8px 12px}
-.dbar>*{min-width:0}
-.dbar__target{font:700 10px var(--font-mono);letter-spacing:.6px;white-space:nowrap;background:var(--honey);
-color:#1f1812;border-radius:999px;padding:4px 10px;overflow:hidden;text-overflow:ellipsis;max-width:45%}
-input.dbar__in{flex:1;min-width:0;width:auto;min-height:44px;background:transparent;border:0;color:var(--bar-ink);
-font:13px var(--font-sans);outline:none;padding:0}
-.dbar__in::placeholder{color:#a79a89}
-.dbar__go{font:700 11px var(--font-mono);border:0;border-radius:10px;padding:0 16px;min-height:44px;
-background:var(--bar-ink);color:var(--bar);cursor:pointer}
-.dbar-info{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0 4px 6px}
-.dbar-note{font:9px var(--font-mono);color:var(--ink-3);margin:0}
-.dbar-info .stamp{margin:0}
-.dbar-flash{font:700 11px var(--font-mono);color:var(--ochre);margin:0 4px 6px}
-.dbar-flash--err{color:var(--accent)}
-.dbar-flash[hidden]{display:none}
-.dbar-wrap:has(.dbar-flash:not([hidden])) .dbar-info{display:none}
-.dbar.is-sending{opacity:.7}
-form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
-.act-err{font:700 11px var(--font-mono);color:var(--accent);margin:6px 0 0}
-.act-warn{font:700 11px/1.4 var(--font-mono);color:var(--accent);margin:8px 0 0;white-space:normal}
+form.is-sent button{opacity:.75}
 /* the Machine page: the chain that has to hold and the upcoming risks; read-only */
 .mach{display:flex;flex-direction:column;gap:10px}
 .mach__head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:.5rem}
@@ -712,7 +629,8 @@ if(!o)return;if(!n){o.parentNode.removeChild(o);return;}
 if(rsig(n)===rsig(o))return;
 var d=o.querySelector('dialog[open]'),sl=d?d.querySelector('.sheet__list'):null,st=sl?sl.scrollTop:0,
 bl=o.querySelector('.rv__list'),bt=bl?bl.scrollTop:0;
-o.outerHTML=n.outerHTML;
+o.outerHTML=n.outerHTML;var rn=doc.querySelectorAll('[data-rvn]'),ro=document.querySelectorAll('[data-rvn]');
+for(var i=0;i<rn.length&&i<ro.length;i++)ro[i].textContent=rn[i].textContent;
 var nl=document.querySelector('.rvs .rv__list');if(nl)nl.scrollTop=bt;
 if(d){var nd=document.getElementById('rvs-sheet');
 if(nd){nd.classList.add('is-restored');if(nd.showModal)nd.showModal();else nd.setAttribute('open','');
@@ -964,7 +882,20 @@ r.style.transition='';r.style.transform='';});},340);}
 function restore(){var g=groups();for(var i=0;i<g.length;i++){var k=g[i].getAttribute('data-group'),id=picks[k];
 if(id!==undefined){var its=g[i].querySelectorAll('.nyx'),hit=null;
 for(var j=0;j<its.length;j++)if(its[j].getAttribute('data-item')===id)hit=its[j];
-if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();barRoom();sgRestore();}
+if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}if(tabsel)tabShow(tabsel);describeAll();barRoom();sgRestore();}
+var tabsel=null;
+function tabShow(k){[].forEach.call(document.querySelectorAll('[data-tabset]'),function(s){var on=s.querySelector('[data-tab="'+k+'"]');
+if(!on)return;[].forEach.call(s.querySelectorAll('[data-tab]'),function(b){b.setAttribute('aria-selected',b===on?'true':'false');});
+var r=s.getAttribute('data-tabset')==='r',at=r?'data-rp':'data-tp',pg=s.closest('.pgb')||document;
+[].forEach.call(pg.querySelectorAll('['+at+']'),function(p){p.classList.toggle(r?'is-ron':'is-on',p.getAttribute(at)===k);});});}
+document.addEventListener('click',function(e){var b=e.target.closest?e.target.closest('[data-tab]'):null;if(!b)return;
+e.preventDefault();tabsel=b.getAttribute('data-tab');tabShow(tabsel);});
+document.addEventListener('click',function(e){var o=e.target.closest?e.target.closest('.opt[data-pick]'):null;if(!o)return;
+var all=o.parentNode.querySelectorAll('.opt[data-pick]'),ls='',L=o.getAttribute('data-pick');
+for(var i=0;i<all.length;i++){all[i].setAttribute('aria-pressed',all[i]===o?'true':'false');ls+=all[i].getAttribute('data-pick');}
+var c=o.closest('.nyx,.need'),t=c&&c.querySelector('textarea[name=text],input[name=text]');if(!t)return;
+var m=new RegExp('^['+ls+'](?:$|[.] *)').exec(t.value),rest=m?t.value.slice(m[0].length):t.value;
+t.value=L+(rest?'. '+rest:'');});
 document.addEventListener('click',function(e){
 var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
@@ -972,7 +903,7 @@ var it=h.closest('.nyx'),g=it.closest('[data-group]'),k=g.getAttribute('data-gro
 pos=[].indexOf.call(g.querySelectorAll('.nyx'),it);
 e.preventDefault();
 if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primary')===lastPick.it&&
-(it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
+(it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=it.getAttribute('data-open')||g.getAttribute('data-open');return;}
 lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
 pick(g,it,!calm());describe(it);});
 var sheetOpener=null;
@@ -1005,7 +936,7 @@ function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
 document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
 try{barRoom();window.addEventListener('resize',barRoom);
 if(window.ResizeObserver){var bw=document.querySelector('.dbar-wrap,.dock');if(bw)new ResizeObserver(barRoom).observe(bw);}}catch(e){}
-if(!th&&document.body&&document.body.classList&&document.body.classList.contains('wide')&&window.visualViewport){var dv=window.visualViewport;
+if(!th&&document.body&&document.body.classList&&!document.body.classList.contains('termpage')&&window.visualViewport){var dv=window.visualViewport;
 function dfit(){document.documentElement.style.setProperty('--app-h',dv.height+'px');window.scrollTo(0,0);}
 dv.addEventListener('resize',dfit);dv.addEventListener('scroll',function(){window.scrollTo(0,0);});dfit();}
 if(th&&window.visualViewport){var vv=window.visualViewport;
@@ -1382,31 +1313,60 @@ def _banner(snap: Snapshot, ctx: Ctx) -> str:
     )
 
 
-def _structured(text: str, ctx: Ctx) -> str:
-    """A decision text as a card body: the question, a short option list with the recommended
-    one marked, and the full wording behind a native "More" disclosure."""
+def _sc(kind: str, word: str) -> str:
+    """A state chip: a small hex in the state's colour and its word (never colour alone)."""
+    return f"<span class='sc sc--{kind}'><i></i>{esc(word)}</span>"
+
+
+def _tabs(kind: str, items: list[tuple[str, str, int | None]], current: str) -> str:
+    """Phone (``p``) or right-column (``r``) tabs over a page's panels; the page script swaps
+    which panel shows. The server marks the first panel shown."""
+    buttons = "".join(
+        f"<button type=button role=tab data-tab={key} "
+        f"aria-selected={'true' if key == current else 'false'}>{esc(label)}"
+        + (f" <small{' data-rvn' if key == 'reviews' else ''}>{n}</small>" if n is not None else "")
+        + "</button>"
+        for key, label, n in items
+    )
+    return f"<div class='tabs tabs--{kind}' role=tablist data-tabset={kind}>{buttons}</div>"
+
+
+def _decision(text: str, ctx: Ctx) -> tuple[str, str, str]:
+    """A decision text as card parts: its question (HTML), its options as big buttons with the
+    recommended one marked (a tap fills the reply), and the full wording behind "Full text"."""
     card = parse_card(text)
     if not card.question:
-        return ""
-    out = f"<span class=dq__q>{ctx.plain(card.question)}</span>"
+        return "", "", ""
+    opts = ""
     if card.options:
-        out += (
-            "<ul class=dq__opts>"
+        opts = (
+            "<div class=opts role=group aria-label='Answer options'>"
             + "".join(
-                f"<li class='dq__opt{' is-rec' if o.recommended else ''}'><b>{esc(o.letter)}</b> "
-                f"{ctx.plain(o.label)}"
-                + ("<span class=dq__rec>recommended</span>" if o.recommended else "")
-                + "</li>"
+                f"<button type=button class='opt{' is-rec' if o.recommended else ''}' "
+                f"data-pick='{esc(o.letter)}' aria-pressed=false><b>{esc(o.letter)}</b>"
+                f"<span>{ctx.plain(o.label)}"
+                + ("<em>Recommended</em>" if o.recommended else "")
+                + "</span></button>"
                 for o in card.options
             )
-            + "</ul>"
+            + "</div>"
         )
-    if card.more:
-        out += f"<details class=dq__more><summary>More</summary><p>{ctx.plain(card.more)}</p></details>"
-    return out
+    full = (
+        "<details class=nyc__full><summary class=lnk>Full text</summary>"
+        f"<p>{ctx.plain(card.more)}</p></details>"
+        if card.more
+        else ""
+    )
+    return ctx.plain(card.question), opts, full
 
 
 _NEED_LABEL = {"hold": "Question on hold", "decision": "Decision", "merge": "Merge approval"}
+# Needs-you kinds: (row class, chip kind, chip word).
+_WAIT = {
+    "decision": ("nyi--decision", "you", "Decision"),
+    "hold": ("nyi--gate", "you", "Waiting on you"),
+    "merge": ("nyi--mode", "ok", "Merge"),
+}
 
 
 def _posture_tag(project: str, ctx: Ctx) -> str:
@@ -1414,15 +1374,37 @@ def _posture_tag(project: str, ctx: Ctx) -> str:
     if ctx.postures is None:
         return ""
     label = fmconfig.posture_label(ctx.postures, project)
-    return f"<span class=sub>Merge posture: {esc(label)} · <a href='/config'>config</a></span>"
+    return f"Merge posture: {esc(label)} · <a href='/config'>config</a>"
+
+
+def _links(links: list[tuple[str, str]], full: str = "") -> str:
+    out = "".join(
+        f'<a class=lnk href="{esc(url)}" rel="noopener noreferrer">{label}</a>'
+        for url, label in links
+    )
+    return f"<div class=nyc__links>{out}{full}</div>" if out or full else ""
+
+
+def _lines(n: NeedsYou, lead: str, ctx: Ctx) -> tuple[str, str, str, str]:
+    """A needs-you item's card lines: (what happened, what it means, option buttons, full text).
+    ``lead`` is the item's own title, if any; the question then says what it means."""
+    question, opts, full = _decision(n.text, ctx)
+    if lead and n.text and lead != n.text:
+        what, mean = ctx.plain(lead), question
+    else:
+        what, mean = question or ctx.plain(lead or n.ref), ""
+    posture = _posture_tag(n.project, ctx) if n.kind == "merge" else ""
+    mean = "".join(f"<p class=nyc__mean>{m}</p>" for m in (mean, posture) if m)
+    return what, mean, opts, full
 
 
 def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
+    """A project page's decision card: what happened, what it means, the options and the answer
+    form (the page's full form, with its release choice)."""
+    links = [(b, "Open board ↗") for b in ctx.boards(n.text)]
     url = ctx.link(n.url)
-    link = f' <a href="{esc(url)}" rel="noopener noreferrer">Open PR</a>' if url else ""
-    link += "".join(
-        f' <a href="{esc(b)}" rel="noopener noreferrer">Open board</a>' for b in ctx.boards(n.text)
-    )
+    if url:
+        links.append((url, "Open PR ↗"))
     title = n.title or n.ref.partition("/")[0]
     where = n.project if show_project and not title.lower().startswith(n.project.lower()) else ""
     lead = " · ".join(p for p in (where, title) if p)
@@ -1434,7 +1416,8 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
             "<label>Your answer</label><textarea name=text required maxlength=512></textarea>"
             f"<label><input type=checkbox name=release value=1{checked}> "
             "Release the work item (resume it) instead of closing the question</label>"
-            "<button>Record answer</button>",
+            "<button class='btn btn--p'>Record answer</button>",
+            "nyc__form",
             task=n.ref,
             rid=new_request_id(),
         )
@@ -1443,7 +1426,9 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
         act = ctx.form(
             "decision",
             "<label>Your answer (sent to the first mate)</label>"
-            "<textarea name=text required maxlength=4000></textarea><button>Send answer</button>",
+            "<textarea name=text required maxlength=4000></textarea>"
+            "<button class='btn btn--p'>Send answer</button>",
+            "nyc__form",
             task=task,
             key=key,
             rid=new_request_id(),
@@ -1451,140 +1436,134 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
     elif n.kind == "merge":
         act = ctx.form(
             "merge",
-            "<button class=quiet>Give merge word…</button>",
+            "<button class='btn btn--p'>Give merge word…</button>",
+            "nyc__form",
             task=n.ref,
             rid=new_request_id(),
-        ) + _posture_tag(n.project, ctx)
-    detail = f"{_NEED_LABEL.get(n.kind, n.kind)} · {n.ref}"
+        )
+    what, mean, opts, full = _lines(n, lead, ctx)
+    _, kind, word = _WAIT.get(n.kind, ("", "you", n.kind))
     return (
-        f"<div class=need><span class=what>{esc(lead)}</span>{link}"
-        f"<div class=dq>{_structured(n.text, ctx)}</div><span class=sub>{esc(detail)}</span>{act}</div>"
+        f"<article class='need nyc'><div class=nyc__head>{_sc(kind, word)}"
+        f"<span class=nyc__where>{esc(_NEED_LABEL.get(n.kind, n.kind))}"
+        f"<code>{esc(n.ref)}</code></span></div><div class=nyc__body>"
+        f"<p class=nyc__what>{what}</p>{mean}{opts}{act}{_links(links, full)}</div></article>"
     )
-
-
-# Needs-you kinds on the T001 lane: (row class, state dot, badge).
-_LANE = {
-    "decision": ("nyi--decision", "idle", "decision"),
-    "hold": ("nyi--gate", "gated", "waiting on you"),
-    "merge": ("nyi--mode", "active", "merge"),
-}
-
-
-def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
-    """A captain hold's lane parts: row class, state dot, badge, summary and the answer form."""
-    row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
-    ref = n.ref.partition("/")[0]
-    entity = f"{ctx.show(n.project)} · {ref}"  # the reply label; the lane's group header names the project
-    if n.title and n.text and n.title != n.text:
-        summary = f"<b>{ctx.plain(n.title)}</b>{_structured(n.text, ctx)}"
-    else:
-        summary = _structured(n.text, ctx) or ctx.plain(n.title or n.ref)
-    links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
-    pr = ctx.link(n.url)
-    if pr:
-        links.append((pr, "Open PR ↗"))
-    extra = "".join(
-        f'<a class="btn btn--deny" href="{esc(url)}" rel="noopener noreferrer">{label}</a>'
-        for url, label in links
-    )
-    reply = (
-        "<input type=text class=nyi__reply name=text required "
-        f"maxlength=MAX placeholder='Reply to {esc(entity)}…' aria-label='Reply to {esc(entity)}'>"
-    )
-    if n.kind == "decision":
-        task, _, key = n.ref.partition("/")
-        act = ctx.form(
-            "decision",
-            reply.replace("MAX", "4000", 1)
-            + f"<span class=nyi__btns><button class='btn btn--go'>Send</button>{extra}</span>",
-            "nyi__actions",
-            task=task,
-            key=key,
-            rid=new_request_id(),
-        )
-    elif n.kind == "hold":
-        resume = "<button class='btn btn--{}' name=release value=1>Answer &amp; resume</button>"
-        close = "<button class='btn btn--{}' name=release value=0>Answer &amp; close</button>"
-        buttons = (
-            resume.format("go") + close.format("deny")
-            if n.gated
-            else close.format("go") + resume.format("deny")
-        )
-        act = ctx.form(
-            "answer",
-            reply.replace("MAX", "512", 1) + f"<span class=nyi__btns>{buttons}{extra}</span>",
-            "nyi__actions",
-            task=n.ref,
-            rid=new_request_id(),
-        )
-    elif n.kind == "merge":
-        act = ctx.form(
-            "merge",
-            f"<button class='btn btn--allow'>Give merge word…</button>{extra}",
-            "nyi__actions",
-            task=n.ref,
-            rid=new_request_id(),
-        ) + _posture_tag(n.project, ctx)
-    else:
-        act = f"<div class=nyi__actions>{extra}</div>" if extra else ""
-    return row, dot, badge, summary, act
 
 
 _QUEUED_SHOWN = 4  # queued tickets listed per project before "+N more"
+_ROW_ORDER = {"Held": 0, "Blocked": 1, "Queued": 2}
 
 
-def _row_parts(r: Row, href: str, ctx: Ctx) -> tuple[str, str, str, str, str]:
-    """A queued ticket's lane parts: row class, tag, tag class, summary and actions."""
+def _queue_state(r: Row, ctx: Ctx) -> tuple[str, str, str, str]:
+    """A queued ticket's (row class, chip kind, chip word, why it waits)."""
     if r.hold:
-        cls, tag, status = "nyi--gate", "held", f"Held: {ctx.plain(r.hold)}"
-    elif r.blocked_by:
-        cls, tag = "nyi--blocked", "blocked"
-        status = "Blocked by " + ", ".join(esc(b) for b in r.blocked_by)
-    else:
-        cls, tag, status = "nyi--queued", "", "Queued, nothing blocking it"
-    summary = f"<b>{ctx.plain(r.title or r.id)}</b> — {status}"
-    act = (
-        f"<div class=nyi__actions><a class='btn btn--deny' href='{esc(href)}'>"
-        "Open project ↗</a></div>"
-    )
-    return cls, tag, "nyx__tag--hold" if r.hold else "", summary, act
+        return "nyi--gate", "unk", "Held", f"Held: {ctx.plain(r.hold)}"
+    if r.blocked_by:
+        why = "Blocked by " + ", ".join(esc(b) for b in r.blocked_by)
+        return "nyi--blocked", "down", "Blocked", why
+    return "nyi--queued", "q", "Queued", "Queued, nothing blocking it"
 
 
 def _nyx(
     *,
-    group: BacklogGroup,
+    project: str,
     item_id: str,
     title: str,
     cls: str,
-    dot: str,
-    tag: str,
-    tag_cls: str,
-    summary: str,
-    act: str,
+    head: str,
+    more: tuple[str, str],
     primary: bool,
     ctx: Ctx,
 ) -> str:
-    """One lane item. The same element is a compact row or the expanded card (``is-primary``):
-    the page script swaps which one is the group's card when a row is picked."""
-    href = "/p/" + quote(group.project, safe="")
-    text = ctx.descriptions.get(f"{group.project}/{item_id}")
-    desc_url = "/describe?" + urlencode({"p": group.project, "id": item_id})
+    """One Needs-you item: a shut card or row whose head opens it in place (``is-primary``).
+    The page script makes a picked item its group's open one; a double tap opens the project.
+    Without the script the head is a plain link to the project. ``more`` is the open item's
+    body, before and after the agent-written description."""
+    card = cls.startswith("nyc ")
+    head_cls = "'nyx__head nyc__head'" if card else "nyx__head"
+    body_cls = "'nyx__more nyc__body'" if card else "nyx__more"
+    href = "/p/" + quote(project, safe="")
+    text = ctx.descriptions.get(f"{project}/{item_id}")
+    desc_url = "/describe?" + urlencode({"p": project, "id": item_id})
     desc = (
         "<p class=nyx__desc data-ready=1 tabindex=0 role=button aria-haspopup=dialog>"
         f"{esc(text)}</p>"
         if text
         else "<p class=nyx__desc hidden></p>"
     )
-    badge = f"<span class='nyx__tag {tag_cls}'>{esc(tag)}</span>" if tag else ""
     state = " is-primary" if primary else ""
     return (
-        f"<div class='nyx {cls}{state}' data-item='{esc(item_id)}' data-desc='{esc(desc_url)}'>"
-        f"<div class=nyx__bar><a class=nyx__head href='{esc(href)}' title='{esc(title or item_id)}'>"
-        f"<span class='state-dot state-dot--{dot}'></span><span class=nyx__id>{esc(item_id)}</span>"
-        f"<span class=nyx__title>{esc(title or item_id)}</span>{badge}</a>"
-        f"<a class=nyx__open href='{esc(href)}' aria-label='Open {esc(group.project)}'>"
-        "open ↗</a></div>"
-        f"<div class=nyx__more><div class=nyi__summary>{summary}</div>{desc}{act}</div></div>"
+        f"<div class='nyx {cls}{state}' data-item='{esc(item_id)}' data-desc='{esc(desc_url)}' "
+        f"data-open='{esc(href)}'><a class={head_cls} href='{esc(href)}' "
+        f"title='{esc(title or item_id)}'>{head}</a>"
+        f"<div class={body_cls}>{more[0]}{desc}{more[1]}</div></div>"
+    )
+
+
+def _wait_card(n: NeedsYou, ctx: Ctx, primary: bool) -> str:
+    """A captain hold as a decision card: line 1 what happened, line 2 what it means, then big
+    option buttons (recommended marked; a tap fills the reply), the reply and its two answer
+    buttons (the one the hold asks for first), and the links."""
+    cls, kind, word = _WAIT["hold"]
+    ref = n.ref.partition("/")[0]
+    entity = f"{ctx.show(n.project)} · {ref}"
+    what, mean, opts, full = _lines(n, n.title, ctx)
+    links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
+    pr = ctx.link(n.url)
+    if pr:
+        links.append((pr, "Open PR ↗"))
+    links.append(("/p/" + quote(n.project, safe=""), "Open project ↗"))
+    resume = "<button class='btn btn--{}' name=release value=1>Answer &amp; resume</button>"
+    close = "<button class='btn btn--{}' name=release value=0>Answer &amp; close</button>"
+    buttons = (
+        resume.format("p") + close.format("s")
+        if n.gated
+        else close.format("p") + resume.format("s")
+    )
+    act = ctx.form(
+        "answer",
+        "<input type=text class=nyi__reply name=text required maxlength=512 "
+        f"placeholder='Reply to {esc(entity)}…' aria-label='Reply to {esc(entity)}'>{buttons}",
+        "nyi__actions nyc__act",
+        task=n.ref,
+        rid=new_request_id(),
+    )
+    head = (
+        f"{_sc(kind, word)}<span class=nyc__where>{esc(ctx.show(n.project))}"
+        f"<code class=nyx__id>{esc(ref)}</code></span><span class=nyc__chev>Open</span>"
+        f"<span class=nyc__what>{what}</span>"
+    )
+    return _nyx(
+        project=n.project,
+        item_id=n.ref,
+        title=n.title or n.text,
+        cls=f"nyc {cls}",
+        head=head,
+        more=(mean + opts, act + _links(links, full)),
+        primary=primary,
+        ctx=ctx,
+    )
+
+
+def _queue_row(r: Row, project: str, ctx: Ctx) -> str:
+    """A held, blocked or queued ticket: its chip, title and project on one line; opened, why
+    it waits and the agent-written description."""
+    cls, kind, word, why = _queue_state(r, ctx)
+    href = "/p/" + quote(project, safe="")
+    head = (
+        f"{_sc(kind, word)}<span class=r__t>{esc(r.title or r.id)}</span>"
+        f"<span class=r__p>{esc(ctx.show(project))}</span>"
+    )
+    return _nyx(
+        project=project,
+        item_id=r.id,
+        title=r.title,
+        cls=f"nyr {cls}",
+        head=head,
+        more=(f"<p class=nyr__why>{why}</p>", _links([(href, "Open project ↗")])),
+        primary=False,
+        ctx=ctx,
     )
 
 
@@ -1600,14 +1579,13 @@ def _sheet(sid: str, title: str, body: str, close: str, head: str = "") -> str:
 
 
 def _open_project(href: str) -> str:
-    return f"<a class='btn btn--deny' href='{esc(href)}'>Open project ↗</a>"
+    return f"<a class='btn btn--s btn--sm' href='{esc(href)}'>Open project ↗</a>"
 
 
-def _sheet_row(href: str, item_id: str, title: str, tag: str) -> str:
-    badge = f"<span class=rv__reply>{esc(tag)}</span>" if tag else ""
+def _sheet_row(href: str, item_id: str, title: str, chip: tuple[str, str]) -> str:
     return (
         f"<a class=rv href='{esc(href)}'><span class=rv__title>{esc(title or item_id)}</span>"
-        f"<span class=rv__proj>{esc(item_id)}</span>{badge}<span class=rv__go>↗</span></a>"
+        f"<span class=rv__meta>{_sc(*chip)}<span class=rv__proj>{esc(item_id)}</span></span></a>"
     )
 
 
@@ -1617,98 +1595,75 @@ def _items_list(g: BacklogGroup | None, ctx: Ctx) -> str:
         return "<p class=sheet__empty>Nothing waiting on you or queued.</p>"
     href = "/p/" + quote(g.project, safe="")
     rows = [
-        _sheet_row(href, n.ref, n.title or n.text, _LANE.get(n.kind, ("", "", n.kind))[2])
+        _sheet_row(href, n.ref, n.title or n.text, _WAIT.get(n.kind, ("", "you", n.kind))[1:])
         for n in g.waiting
     ]
-    rows += [_sheet_row(href, r.id, r.title, _row_parts(r, href, ctx)[1]) for r in g.queued]
+    rows += [_sheet_row(href, r.id, r.title, _queue_state(r, ctx)[1:3]) for r in g.queued]
     return f"<div class=sheet__list>{''.join(rows)}</div>"
 
 
-def _group(g: BacklogGroup, ctx: Ctx, sid: str) -> str:
-    """One project's slice: the first held item is the card, the rest are rows; picking a row
-    (page script) swaps it into the card slot. Without the script every row opens the project.
-    "+N more" opens a sheet listing the whole slice (without the script, the project page)."""
-    href = "/p/" + quote(g.project, safe="")
-    shown = g.queued[:_QUEUED_SHOWN]
-    rest = len(g.queued) - len(shown)
-    more = (
-        f"<a class=nyq__more href='{esc(href)}' data-sheet-open={sid} aria-haspopup=dialog "
-        f"aria-controls={sid}>+{rest} more</a>"
-        + _sheet(
-            sid,
-            f"{ctx.name_html(g.project)} · {g.count}",
-            _items_list(g, ctx),
-            f"Close {ctx.show(g.project)}",
-            _open_project(href),
-        )
-        if rest
-        else ""
-    )
-    waiting = f"<span class=nyg__wait>{len(g.waiting)} waiting on you</span>" if g.waiting else ""
-    items = []
-    for i, n in enumerate(g.waiting):
-        cls, dot, badge, summary, act = _hold_parts(n, ctx)
-        items.append(
-            _nyx(
-                group=g,
-                item_id=n.ref,
-                title=n.title or n.text,
-                cls=cls,
-                dot=dot,
-                tag=badge,
-                tag_cls="nyx__tag--hold",
-                summary=summary,
-                act=act,
-                primary=i == 0,
-                ctx=ctx,
-            )
-        )
-    for r in shown:
-        cls, tag, tag_cls, summary, act = _row_parts(r, href, ctx)
-        items.append(
-            _nyx(
-                group=g,
-                item_id=r.id,
-                title=r.title,
-                cls=cls,
-                dot="gated" if r.hold else "idle",
-                tag=tag,
-                tag_cls=tag_cls,
-                summary=summary,
-                act=act,
-                primary=False,
-                ctx=ctx,
-            )
-        )
-    return (
-        f"<section class=nyg data-group='{esc(g.project)}' data-open='{esc(href)}'>"
-        f"<a class=nyg__head href='{esc(href)}'>"
-        f"<span class=nyg__name>{ctx.name_html(g.project)}</span>"
-        f"<span class=nyg__mate>{'second mate' if g.mate else 'first mate'}</span>{waiting}"
-        f"<span class=nyg__count>{g.count}</span></a>"
-        f"<div class=nyg__items>{''.join(items)}</div>{more}</section>"
-    )
-
-
 def _lane(desk: Desk, ctx: Ctx) -> str:
-    """ "Needs you": the backlog across every project, grouped by project (not worker chatter)."""
+    """ "Needs you": what waits on the owner, as decision cards (the first open), then every
+    held, blocked or queued ticket across the projects, as rows (the first few per project;
+    "+N more" opens that project's whole slice in a sheet)."""
+    waiting = [n for g in desk.backlog for n in g.waiting]
+    queued = sum(len(g.queued) for g in desk.backlog)
+    hexn = "hexn" if waiting else "hexn hexn--q"
+    meta = f"<span class=meta>{len(waiting)} waiting · {queued} held or queued</span>"
     head = (
-        "<div class=nyl__head><span class=nyl__glyph aria-hidden=true>◆</span>"
-        f"<h2 class=nyl__title>Needs you</h2><span class=nyl__count>{desk.backlog_count}</span></div>"
+        f"<div class=pn__h><h2>Needs you</h2><span class='{hexn} nyl__count'>"
+        f"{desk.backlog_count}</span>{meta if desk.backlog else ''}</div>"
     )
     if not desk.backlog:
         n = desk.loops_running
         return (
-            f"<section class='nyl nyl--calm'>{head}<div class=calm>"
-            "<div class=calm__check aria-hidden=true>✓</div>"
-            f"<p class=calm__line>✓ all clear · {n} loop{'' if n == 1 else 's'} running</p>"
-            "<p class=calm__sub>backlog is empty</p></div></section>"
+            f"<section class='pn nyl nyl--calm is-on' data-tp=needs>{head}"
+            "<div class='pn__b nyl__body'><div class='nyc nyc--calm'><div class=nyc__head>"
+            f"{_sc('ok', 'All clear')}</div><div class=nyc__body>"
+            "<p class=nyc__what>Nothing waits on you.</p>"
+            f"<p class=nyc__mean>Backlog is empty · {n} loop{'' if n == 1 else 's'} running</p>"
+            "</div></div></div></section>"
         )
-    groups = "".join(_group(g, ctx, f"nys-{i}") for i, g in enumerate(desk.backlog))
-    return f"<section class=nyl>{head}<div class=nyl__body>{groups}</div></section>"
+    body = ""
+    if waiting:
+        cards = "".join(_wait_card(n, ctx, i == 0) for i, n in enumerate(waiting))
+        body += (
+            f"<p class=sl>Waiting on you · {len(waiting)}</p>"
+            f"<div class='nyg nyg--cards' data-group=waiting>{cards}</div>"
+        )
+    if queued:
+        rows: list[tuple[tuple[int, int, int], str]] = []
+        more = ""
+        for i, g in enumerate(desk.backlog):
+            shown = g.queued[:_QUEUED_SHOWN]
+            for j, r in enumerate(shown):
+                rank = _ROW_ORDER[_queue_state(r, ctx)[2]]
+                rows.append(((rank, i, j), _queue_row(r, g.project, ctx)))
+            rest = len(g.queued) - len(shown)
+            if rest:
+                sid, href = f"nys-{i}", "/p/" + quote(g.project, safe="")
+                more += (
+                    f"<a class='nyq__more lnk' href='{esc(href)}' data-sheet-open={sid} "
+                    f"aria-haspopup=dialog aria-controls={sid}>+{rest} more · "
+                    f"{esc(ctx.show(g.project))}</a>"
+                    + _sheet(
+                        sid,
+                        f"{ctx.name_html(g.project)} · {g.count}",
+                        _items_list(g, ctx),
+                        f"Close {ctx.show(g.project)}",
+                        _open_project(href),
+                    )
+                )
+        rows.sort(key=lambda row: row[0])
+        body += (
+            f"<p class=sl>Held or queued · {queued}</p>"
+            f"<div class='nyg nyg--rows' data-group=queued>{''.join(h for _, h in rows)}</div>"
+            + (f"<div class=nyq>{more}</div>" if more else "")
+        )
+    return f"<section class='pn nyl is-on' data-tp=needs>{head}<div class='pn__b nyl__body'>{body}</div></section>"
 
 
-_DOT = {"blocked": "error", "running": "active", "idle": "idle"}
+_CHIP = {"blocked": ("down", "Blocked"), "running": ("run", "Running"), "idle": ("unk", "Idle")}
 
 
 def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
@@ -1719,17 +1674,28 @@ def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
 
 
 def _card_text(p: Project) -> tuple[Glance, str, str]:
-    """A card's glance, its activity line (HTML) and its progress label."""
+    """A project's glance, its activity line (HTML) and its progress label, for its sheet."""
     g = glance(p)
     prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
     now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
     return g, now, prog
 
 
+def _row_now(g: Glance) -> str:
+    """The project row's one short line: who waits, what runs, or what is queued."""
+    if g.status == "blocked":
+        return g.lead
+    if g.status == "running":
+        return f"{g.lead} · {g.now}"
+    head, _, rest = g.now.partition(" · ")
+    line = rest.replace(" · ", ", ") if head == "Idle" and rest else g.now
+    return line[:1].upper() + line[1:]
+
+
 def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
-    """A project card: a tap focuses it (retargets the delegate bar); a tap on the focused card
-    opens its detail sheet ``sid``. Without the script the focused card opens the project."""
-    g, now, prog = _card_text(p)
+    """A project row: a tap focuses it (retargets the delegate bar); a tap on the focused row
+    opens its detail sheet ``sid``. Without the script the focused row opens the project."""
+    g = glance(p)
     label, field = _target(p, ctx)
     nxt = "/?focus=" + quote(p.name, safe="")
     open_href = "/p/" + quote(p.name, safe="")
@@ -1740,18 +1706,16 @@ def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
         f"data-card data-name='{esc(p.name)}' data-label='{esc(label)}' "
         f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}' "
         f"data-detail={sid}{' aria-current=true' if selected else ''}>"
-        f"<span class=pc__top><span class='state-dot state-dot--{_DOT[g.status]}'></span>"
-        f"<span class=pc__name>{ctx.name_html(p.name)}</span>"
-        f"<span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span>"
-        f"<span class=pc__status>{g.status}</span></span>"
-        f"<p class=pc__now>{now}</p>"
-        f"<span class=pc__prog><span class=pc__track><i style='width:{pct}%'></i></span>{prog}"
-        "<span class=pc__open>· tap for details</span></span></a>"
+        f"<span class=pc__n><span class=pc__name>{ctx.name_html(p.name)}</span>"
+        f"<small><span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span> · "
+        f"{esc(_row_now(g))}</small></span>{_sc(*_CHIP[g.status])}"
+        f"<span class=pc__prog><span class=bar><i style='width:{pct}%'></i></span>"
+        f"{g.done}/{g.total}</span><span class='pc__open sr'>, tap for details</span></a>"
     )
 
 
 def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> str:
-    """The focused card's detail: status, activity, progress and its Needs-you items."""
+    """The focused project's detail: status, activity, progress and its Needs-you items."""
     g, now, prog = _card_text(p)
     meta = (
         f"<p class=sheet__meta><b>{g.status}</b> · {'second mate' if p.mate else 'first mate'}"
@@ -1769,33 +1733,36 @@ def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> s
 
 
 def _dbar(focus: Project | None, ctx: Ctx, stamp: str = "") -> str:
+    """The delegate bar along the bottom: who it sends to, the goal, Delegate, and when the
+    desk last read firstmate. Tapping a project row retargets it (page script)."""
     label, field = _target(focus, ctx) if focus else ("first mate", "")
     nxt = "/?focus=" + quote(focus.name, safe="") if focus else "/"
     form = ctx.form(
         "delegate",
         f"<span class=dbar__target data-target>→ {esc(label)}</span>"
         "<input type=text class=dbar__in name=text required maxlength=4000 placeholder='Describe a goal…' "
-        "aria-label='Delegate a goal'><button class=dbar__go>Delegate</button>",
+        "aria-label='Delegate a goal'><button class='dbar__go btn btn--p'>Delegate</button>",
         "dbar",
         rid=new_request_id(),
         project=field,
         next=nxt,
     )
     if not form:
-        return stamp
+        return f"<div class=dbar-wrap><div class=dbar__row>{stamp}</div></div>" if stamp else ""
     hidden = " hidden" if field else ""
     return (
         "<div class=dbar-wrap><p class=dbar-flash data-flash role=status hidden></p>"
-        f"<div class=dbar-info><p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
+        f"<p class='dbar-note sr'>Delegate to <b data-tname>{esc(label)}</b>"
         f"<span data-nofocus{hidden}> · no project focus</span>"
-        f" · tapping a project card retargets this bar</p>{stamp}</div>{form}</div>"
+        f" · tapping a project card retargets this bar</p><div class=dbar__row>{form}{stamp}</div></div>"
     )
 
 
 _REVIEWS_SHOWN = 10
+_CLOSE_BTN = "btn btn--s btn--sm rv__x"
 
 
-def _review_form(action: str, label: str, ctx: Ctx, cls: str = "rv__x", **hidden: str) -> str:
+def _review_form(action: str, label: str, ctx: Ctx, cls: str = _CLOSE_BTN, **hidden: str) -> str:
     """A POST form that ends review sessions. The page script turns the first tap into an
     in-place confirm ("Tap again"); without it the server shows a confirm page."""
     btn = f"<button class='{cls}' data-label='{esc(label)}'>{esc(label)}</button>"
@@ -1805,25 +1772,25 @@ def _review_form(action: str, label: str, ctx: Ctx, cls: str = "rv__x", **hidden
 
 def _review(r: Review, ctx: Ctx) -> str:
     href = f"{ctx.board_url}/session/{r.key}"
-    reply = "<span class=rv__reply>reply</span>" if r.reply else ""
+    reply = "<span class='sc sc--run rv__reply'><i></i>Reply</span>" if r.reply else ""
     done = "<span class=rv__done>looks done</span>" if r.stale else ""
     where = f"<span class=rv__proj>{esc(ctx.show(r.project))}</span>" if r.project else ""
     close = _review_form("review-close", "Close", ctx, key=r.key) if ctx.can_close_reviews else ""
     return (
         f"<div class='rvrow{' rvrow--stale' if r.stale else ''}'>"
         f"<a class=rv href='{esc(href)}' target=_blank rel='noopener noreferrer'>"
-        f"<span class=rv__title>{esc(r.title)}</span>{where}{done}{reply}<span class=rv__go>↗</span>"
-        f"</a>{close}</div>"
+        f"<span class=rv__title>{esc(r.title)}</span><span class=rv__meta>{reply}{where}{done}"
+        f"</span></a>{close}</div>"
     )
 
 
 def _reviews(reviews: list[Review], ctx: Ctx) -> str:
-    """Open Lavish review sessions as tap targets that open on the tailnet board URL.
+    """Open Lavish review sessions as rows that open on the tailnet board URL, in a panel.
 
-    The first few sit in a scrollable box; "+N more" is always its last row and opens a
-    sheet listing every session (the same unread-replies-first order). Each row has a Close
-    button; pages that look done (old, or beyond the newest eight) are tagged, nudged about
-    above the list, and closed together by "Close all old".
+    The first few are listed; "+N more" is always the list's last row and opens a sheet of
+    every session (the same unread-replies-first order). Each row has a Close button; pages
+    that look done (old, or beyond the newest eight) are tagged, nudged about above the list,
+    and closed together by "Close all old".
     """
     if not reviews:
         return ""
@@ -1838,32 +1805,29 @@ def _reviews(reviews: list[Review], ctx: Ctx) -> str:
             "<button type=button class=rv__morebtn data-sheet-open=rvs-sheet aria-haspopup=dialog "
             f"aria-controls=rvs-sheet>+{rest} more</button>"
         )
+    bulk = f"{_CLOSE_BTN} rv__x--bulk"
     if stale and can:
         word = "page looks" if stale == 1 else "pages look"
         nudge = (
             f"<div class=rvs__nudge role=status><span>{stale} {word} done: close "
             f"{'it' if stale == 1 else 'them'}?</span>"
-            "<button type=button class=rv__review data-sheet-open=rvs-sheet aria-haspopup=dialog "
-            "aria-controls=rvs-sheet>Review</button>"
-            f"{_review_form('review-close-old', f'Close {stale}', ctx, 'rv__x rv__x--bulk')}</div>"
+            "<button type=button class='btn btn--s btn--sm rv__review' data-sheet-open=rvs-sheet "
+            "aria-haspopup=dialog aria-controls=rvs-sheet>Review</button>"
+            f"{_review_form('review-close-old', f'Close {stale}', ctx, bulk)}</div>"
         )
     if rest > 0 or (stale and can):
-        bulk = (
-            _review_form("review-close-old", "Close all old", ctx, "rv__x rv__x--bulk")
-            if stale and can
-            else ""
-        )
         sheet = _sheet(
             "rvs-sheet",
             f"Review pages · {n}",
             f"<div class=sheet__list>{''.join(_review(r, ctx) for r in reviews)}</div>",
             "Close review pages",
-            bulk,
+            _review_form("review-close-old", "Close all old", ctx, bulk) if stale and can else "",
         )
     return (
-        f"<section class=rvs><p class=sec-label>Review pages · {n}</p>{nudge}"
-        f"<div class=rv__box><div class=rv__list tabindex=0 role=region "
-        f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</section>"
+        "<section class='pn rvp' data-tp=reviews data-rp=reviews>"
+        f"<div class=pn__h><h2>Review pages</h2><span class='hexn hexn--q' data-rvn>{n}</span></div>"
+        f"<div class=rvs>{nudge}<div class=rv__box><div class=rv__list tabindex=0 role=region "
+        f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</div></section>"
     )
 
 
@@ -1874,30 +1838,47 @@ def render_home(
     focus: str | None = None,
     reviews: list[Review] | None = None,
 ) -> str:
+    """The desk: Needs you, Projects and Review pages side by side over the delegate bar.
+    Narrower screens tab the right-hand panels; a phone tabs all three."""
     attrs = " data-refresh=30000"
     if desk is None:
-        return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
+        body = f"<div class=ph><h1>Hive desk</h1></div>{_banner(snap, ctx)}"
+        return _page("Hive desk", body, "desk", attrs, ctx)
     if focus not in desk.projects:
         focus = desk.default_focus()
     groups = {g.project: g for g in desk.backlog}
     cards = details = ""
+    blocked = 0
     for i, p in enumerate(desk.projects.values()):
         cards += _card(p, p.name == focus, ctx, f"pcs-{i}")
         details += _card_sheet(p, groups.get(p.name), ctx, f"pcs-{i}")
+        blocked += glance(p).status == "blocked"
     more = "".join(
         f"<p class=stamp>+{n} more owned by {esc(owner)}, not shown</p>"
         for owner, n in desk.more.items()
     )
+    count = len(desk.projects)
     projects = (
-        f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
-        f"<div class=pcs>{cards}</div>{details}{more}</section>"
-        if cards
-        else f"<section class=pcsec><p class=sec-label>No projects yet</p>{more}</section>"
+        "<section class='pn pcsec is-ron' data-tp=projects data-rp=projects>"
+        f"<div class=pn__h><h2>Projects</h2><span class='hexn hexn--q'>{count}</span>"
+        + (f"<span class=meta>{blocked} blocked</span>" if blocked else "")
+        + f"</div><div class='pn__b pcs'>{cards or '<p class=empty>No projects yet</p>'}{more}</div>"
+        f"{details}</section>"
     )
-    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
+    review = _reviews(reviews or [], ctx)
+    tabs = [("needs", "Needs you", desk.backlog_count), ("projects", "Projects", count)]
+    right = ""
+    if review:
+        tabs.append(("reviews", "Reviews", len(reviews or [])))
+        right = _tabs(
+            "r",
+            [("projects", "Projects", count), ("reviews", "Review pages", len(reviews or []))],
+            "projects",
+        )
+    stamp = f"<span class=stamp>Updated {ctx.time(desk.generated)}</span>" if desk.generated else ""
     body = (
-        f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
-        f"</div><div class=land__col>{projects}{_reviews(reviews or [], ctx)}</div></div>"
+        f"<div class=screen data-stack><div class='pgb desk{'' if review else ' desk--two'}' data-tabs>"
+        f"{_tabs('p', tabs, 'needs')}{_lane(desk, ctx)}<div class=dcol>{right}{projects}{review}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx, stamp)}"
         + _sheet(
             "desc-sheet",

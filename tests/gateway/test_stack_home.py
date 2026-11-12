@@ -159,11 +159,16 @@ def _calm_empty() -> dict:
 
 def test_calm_hero_counts_running_loops(tmp_path: Path) -> None:
     html = _client(tmp_path, _calm_empty()).get("/", headers=GOOD).text
-    assert "class='nyl nyl--calm'" in html and "<span class=nyl__count>0</span>" in html
-    assert "✓ all clear · 2 loops running" in html and "backlog is empty" in html
+    assert "class='pn nyl nyl--calm is-on'" in html
+    assert "<span class='hexn hexn--q nyl__count'>0</span>" in html
+    assert (
+        "<i></i>All clear</span>" in html and "<p class=nyc__what>Nothing waits on you.</p>" in html
+    )
+    assert "<p class=nyc__mean>Backlog is empty · 2 loops running</p>" in html
     assert _cards(html) == {"alpha": "running", "beta": "idle", "hive": "running"}
     assert "<span class=pc__mae>second mate</span>" in html
-    assert "1 / 2 tasks" in html and ">done<span class=pc__open>" in html
+    assert "</span>1/2</span>" in html and " · first mate · 1 / 2 tasks<br>" in html  # row, sheet
+    assert " · first mate · done<br>" in html
 
 
 def test_lane_is_the_backlog_grouped_by_project_without_worker_questions(tmp_path: Path) -> None:
@@ -176,12 +181,14 @@ def test_lane_is_the_backlog_grouped_by_project_without_worker_questions(tmp_pat
     ]
     data["tasks"][0]["hints"] = {"open_decisions": [{"key": "ask", "summary": "Worker asks?"}]}
     html = _client(tmp_path, data).get("/", headers=GOOD).text
-    lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
-    assert re.findall(r"<span class=nyg__name>([^<]*)</span>", lane) == ["beta", "alpha"]
-    assert "Worker asks?" not in html.split("Projects · tap")[0]
-    assert "1 waiting on you" in lane and "<span class=nyl__count>8</span>" in html
+    lane = html.split("<section class='pn nyl", 1)[1].split("</section>", 1)[0]
+    where = re.findall(r"<span class=(?:nyc__where|r__p)>([^<]*)", lane)
+    assert where[0] == "beta" and set(where) == {"beta", "alpha"}  # the waiting card leads
+    assert "Worker asks?" not in html.split("<section class='pn pcsec")[0]
+    assert "<p class=sl>Waiting on you · 1</p>" in lane
+    assert "<span class='hexn nyl__count'>8</span>" in html
     assert "+3 more" in lane  # alpha lists four queued, the rest is one tap away
-    assert "held</span>" in lane and "blocked</span>" in lane
+    assert "<i></i>Held</span>" in lane and "<i></i>Blocked</span>" in lane
     assert "name=release value=1" in lane  # a held item is still answered as before
 
 
@@ -637,8 +644,9 @@ def _client_with_reviews(tmp_path: Path, state: Path | None) -> TestClient:
 
 def test_review_pages_list_open_sessions_on_the_tailnet_url(tmp_path: Path) -> None:
     html = _client_with_reviews(tmp_path, LAVISH).get("/", headers=GOOD).text
-    section = html.split("Review pages", 1)[1].split("</section>", 1)[0]
-    assert section.startswith(" · 3")  # open only; the ended and malformed ones are left out
+    section = html.split("<section class='pn rvp'", 1)[1].split("</section>", 1)[0]
+    # open only; the ended and malformed ones are left out
+    assert "<h2>Review pages</h2><span class='hexn hexn--q' data-rvn>3</span>" in section
     hrefs = re.findall(
         r"<a class=rv href='([^']+)' target=_blank rel='noopener noreferrer'", section
     )
@@ -654,7 +662,7 @@ def test_review_pages_list_open_sessions_on_the_tailnet_url(tmp_path: Path) -> N
         "recon report",
     ]
     assert re.findall(r"<span class=rv__proj>([^<]*)</span>", section) == ["alpha", "alpha"]
-    assert section.count("<span class=rv__reply>reply</span>") == 1
+    assert section.count("<span class='sc sc--run rv__reply'><i></i>Reply</span>") == 1
 
 
 def test_review_title_prefers_the_html_title(tmp_path: Path) -> None:
@@ -686,7 +694,8 @@ def test_review_with_malformed_chat_still_lists(tmp_path: Path, chat: object) ->
     state.write_text(json.dumps({"sessions": {"k1": session}}))
     resp = _client_with_reviews(tmp_path, state).get("/", headers=GOOD)
     assert resp.status_code == 200
-    assert "Review pages · 1" in resp.text and "<span class=rv__reply>" not in resp.text
+    assert "<h2>Review pages</h2><span class='hexn hexn--q' data-rvn>1</span>" in resp.text
+    assert "<span class='sc sc--run rv__reply'>" not in resp.text
 
 
 def _many_reviews(tmp_path: Path, n: int) -> str:
@@ -730,8 +739,8 @@ def test_review_sheet_lists_every_session_unread_replies_first(tmp_path: Path) -
 
 def test_few_reviews_have_no_sheet(tmp_path: Path) -> None:
     html = _many_reviews(tmp_path, 4)
-    assert "Review pages · 4" in html
-    section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
+    assert "<h2>Review pages</h2><span class='hexn hexn--q' data-rvn>4</span>" in html
+    section = html.split("<section class='pn rvp'", 1)[1].split("</section>", 1)[0]
     assert "<dialog" not in section and "data-sheet-open" not in section
 
 
@@ -743,8 +752,8 @@ LONG_DESC = "Files bills from a Gmail label into the ledger. " * 12
 
 
 def _busy_desk() -> str:
-    """A desk that overflows every panel: 8 projects of 7 items (the first held, so it is the
-    group's card, with a long cached description) and 25 review pages."""
+    """A desk that overflows every panel: 14 projects of 7 items (the first held, so it is a
+    card, with a long cached description) and 25 review pages."""
     from hive.gateway.pages import render_home
     from hive.gateway.reviews import Review
     from hive.gateway.snapshot import Snapshot
@@ -753,12 +762,12 @@ def _busy_desk() -> str:
         _rec(f"p{p}-t{i}", f"proj{p}", "queued", hold_reason="Which one?", captain_actionable=True)
         if i == 0
         else _rec(f"p{p}-t{i}", f"proj{p}", "queued")
-        for p in range(8)
+        for p in range(14)
         for i in range(7)
     ]
     data = _snapshot(backlog={"records": records})
     reviews = [Review(f"k{i}", f"Review {i}", "proj0", i < 3, "") for i in range(25)]
-    descriptions = {f"proj{p}/p{p}-t0": LONG_DESC.strip() for p in range(8)}
+    descriptions = {f"proj{p}/p{p}-t0": LONG_DESC.strip() for p in range(14)}
     ctx = Ctx("t", descriptions=descriptions)
     desk = build_desk(data)
     desk.more = {"hive": 3}  # a second mate's roll-up cut off
@@ -887,61 +896,154 @@ def test_sheets_do_not_animate_under_reduced_motion(tmp_path: Path) -> None:
 
 
 LAYOUT_DRIVER = """
-R.inner=innerHeight;R.moreInProjects=!!q('.pcsec .stamp');
-R.page=document.scrollingElement.scrollHeight;
-R.bar=box('.dbar-wrap');R.lane=box('.nyl');R.pcsec=box('.pcsec');R.rvs=box('.rvs');
-R.note=box('.dbar-note');
 function sc(s){var e=q(s);
-return {y:getComputedStyle(e).overflowY,over:e.scrollHeight>e.clientHeight};}
-R.laneBody=sc('.nyl__body');R.pcs=sc('.pcs');R.rvList=sc('.rv__list');
-R.spilled=[].filter.call(document.querySelectorAll('.pcs .pc'),
-function(c){return c.scrollHeight>c.clientHeight+1;}).length;
+return {y:getComputedStyle(e).overflowY,over:e.scrollHeight>e.clientHeight+1};}
+function vis(s){var e=q(s);return !!e&&e.getClientRects().length>0;}
+function view(){var v={page:document.scrollingElement.scrollHeight,
+sw:document.documentElement.scrollWidth,bar:box('.dbar-wrap')};
+v.lane=vis('.nyl')?box('.nyl'):null;v.pcsec=vis('.pcsec')?box('.pcsec'):null;
+v.rvp=vis('.rvp')?box('.rvp'):null;
+v.laneBody=v.lane?sc('.nyl__body'):null;v.pcs=v.pcsec?sc('.pcs'):null;
+v.rvList=v.rvp?sc('.rv__list'):null;
+v.spilled=[].filter.call(document.querySelectorAll('.pcs .pc'),
+function(c){return c.getClientRects().length&&c.scrollHeight>c.clientHeight+1;}).length;return v;}
+R.inner=innerHeight;R.iw=innerWidth;R.moreInProjects=!!q('.pcsec .stamp');
+R.ptabs=vis('.tabs--p');R.rtabs=vis('.tabs--r');R.views={start:view()};
+if(R.ptabs){click(q('.tabs--p [data-tab=projects]'));R.views.projects=view();
+click(q('.tabs--p [data-tab=reviews]'));R.views.reviews=view();}
+else if(R.rtabs){click(q('.tabs--r [data-tab=reviews]'));R.views.reviews=view();}
 """
 
 
 @needs_chrome
 @pytest.mark.parametrize(
-    ("size", "portrait"),
-    [((1440, 900), False), ((1280, 800), False), ((1180, 820), False), ((820, 1180), True)],
-    ids=["pc", "laptop", "ipad-landscape", "ipad-portrait"],
+    ("size", "layout"),
+    [
+        ((1440, 900), "three"),
+        ((1280, 800), "three"),
+        ((1180, 820), "side"),
+        ((820, 1180), "below"),
+        ((390, 844), "phone"),
+        ((375, 667), "phone"),
+    ],
+    ids=["pc", "laptop", "ipad-landscape", "ipad-portrait", "phone", "small-phone"],
 )
 def test_desk_is_one_page_with_independently_scrolling_panels(
-    tmp_path: Path, size: tuple[int, int], portrait: bool
+    tmp_path: Path, size: tuple[int, int], layout: str
 ) -> None:
     r = _in_chrome(tmp_path, _busy_desk(), LAYOUT_DRIVER, size)
-    assert r["page"] <= r["inner"]  # no page scroll
-    assert r["bar"]["bottom"] <= r["inner"]
-    for panel in ("lane", "pcsec", "rvs"):
-        assert r[panel]["bottom"] <= r["bar"]["top"] + 0.5, panel  # nothing under the bar
-    assert (
-        r["moreInProjects"] and r["note"]["top"] >= r["lane"]["bottom"]
-    )  # the hint line never covers a row
-    for panel in ("laneBody", "pcs", "rvList"):
-        assert r[panel] == {"y": "auto", "over": True}, panel  # each panel scrolls on its own
-    assert r["spilled"] == 0  # project cards keep their text inside their borders
-    if portrait:  # Projects and Review pages side by side, each the row's full height
-        assert abs(r["pcsec"]["top"] - r["rvs"]["top"]) < 1
-        assert abs(r["pcsec"]["bottom"] - r["rvs"]["bottom"]) < 1
-        assert abs(r["pcsec"]["width"] - r["rvs"]["width"]) < 2  # two equal columns, no third
-    else:
-        assert r["pcsec"]["bottom"] <= r["rvs"]["top"]
+    for name, v in r["views"].items():  # every tab the size has, as well as the first view
+        assert v["page"] <= r["inner"] and v["sw"] <= r["iw"], name  # no page scroll either way
+        assert v["bar"]["bottom"] <= r["inner"], name
+        for panel in ("lane", "pcsec", "rvp"):
+            if v[panel]:
+                assert v[panel]["bottom"] <= v["bar"]["top"] + 0.5, (name, panel)
+        for body in ("laneBody", "pcs", "rvList"):
+            if v[body] is not None:  # each shown panel scrolls on its own
+                assert v[body] == {"y": "auto", "over": True}, (name, body)
+        assert v["spilled"] == 0, name  # project rows keep their text inside them
+    views, start = r["views"], r["views"]["start"]
+    shown = {p for v in views.values() for p in ("lane", "pcsec", "rvp") if v[p]}
+    assert shown == {"lane", "pcsec", "rvp"}  # every panel is one tap away at most
+    assert r["moreInProjects"]
+    lane, projects = start["lane"], start["pcsec"]
+    if layout == "three":  # Needs you, Projects and Review pages side by side, full height
+        assert not r["ptabs"] and not r["rtabs"]
+        reviews = start["rvp"]
+        assert lane["right"] <= projects["left"] and projects["right"] <= reviews["left"]
+        assert abs(lane["top"] - reviews["top"]) < 1 and abs(lane["bottom"] - reviews["bottom"]) < 1
+    elif layout in ("side", "below"):  # Projects and Review pages share a column behind tabs
+        assert r["rtabs"] and not r["ptabs"] and start["rvp"] is None
+        after = views["reviews"]
+        assert after["pcsec"] is None and abs(after["rvp"]["left"] - projects["left"]) < 1
+        if layout == "side":
+            assert lane["right"] <= projects["left"]
+        else:
+            assert lane["bottom"] <= projects["top"]
+    else:  # a phone: one panel at a time under the tabs
+        assert r["ptabs"] and start["pcsec"] is None and start["rvp"] is None
+        assert views["projects"]["lane"] is None and views["reviews"]["pcsec"] is None
 
 
-BAR_ORDER_DRIVER = """
-R.note=box('.dbar-note');R.stamp=box('.dbar-wrap .stamp');R.form=box('form.dbar');
-R.sw=document.documentElement.scrollWidth;R.iw=innerWidth;
+BAR_DRIVER = """
+R.target=box('.dbar__target');R.input=box('input.dbar__in');R.go=box('.dbar__go');
+R.stamp=box('.dbar-wrap .stamp');R.sw=document.documentElement.scrollWidth;R.iw=innerWidth;
+R.ih=innerHeight;
 """
 
 
 @needs_chrome
 @pytest.mark.parametrize("size", [(390, 844), (820, 1180), (1280, 800)], ids=["390", "820", "1280"])
-def test_helper_and_updated_lines_sit_above_the_describe_bar(
-    tmp_path: Path, size: tuple[int, int]
-) -> None:
-    r = _in_chrome(tmp_path, _busy_desk(), BAR_ORDER_DRIVER, size)
-    assert r["note"]["bottom"] <= r["form"]["top"] + 0.5
-    assert r["stamp"]["bottom"] <= r["form"]["top"] + 0.5
+def test_delegate_bar_is_one_row_and_two_on_a_phone(tmp_path: Path, size: tuple[int, int]) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), BAR_DRIVER, size)
+    parts = ("target", "input", "go", "stamp")
+    assert all(r[p]["right"] <= r["iw"] and r[p]["bottom"] <= r["ih"] for p in parts), r
     assert r["sw"] <= r["iw"]  # nothing pushes the page sideways
+    assert r["input"]["height"] >= 44 and r["go"]["height"] >= 44
+    assert r["input"]["right"] <= r["go"]["left"]
+
+    def mid(b: dict) -> float:
+        return b["top"] + b["height"] / 2
+
+    assert abs(mid(r["input"]) - mid(r["go"])) < 2
+    if size[0] <= 640:  # the target and the "Updated" line share a row above the goal
+        assert (
+            r["target"]["bottom"] <= r["input"]["top"] and r["stamp"]["bottom"] <= r["input"]["top"]
+        )
+    else:  # target, goal, Delegate and "Updated", left to right
+        assert r["target"]["right"] <= r["input"]["left"] and r["go"]["right"] <= r["stamp"]["left"]
+        assert abs(mid(r["target"]) - mid(r["input"])) < 2
+        assert abs(mid(r["stamp"]) - mid(r["input"])) < 2
+
+
+def _options_desk() -> str:
+    """A desk whose one card asks a question with lettered options."""
+    from hive.gateway.pages import render_home
+    from hive.gateway.snapshot import Snapshot
+
+    text = "Which way? Options: A) hide them B) show greyed out C) add a toggle. Recommend B."
+    records = [_rec("q1", "alpha", "queued", hold_reason=text, captain_actionable=True)]
+    data = _snapshot(backlog={"records": records})
+    return render_home(Snapshot(data, data["schema"], None), build_desk(data), Ctx("t"), None, [])
+
+
+OPTION_DRIVER = """
+var card=q('.nyx.is-primary'),inp=card.querySelector('input[name=text]'),
+o=card.querySelectorAll('.opt');
+R.rec=[].map.call(o,function(x){return x.classList.contains('is-rec');});
+click(o[1]);R.one=inp.value;
+R.pressed=[].map.call(o,function(x){return x.getAttribute('aria-pressed');});
+inp.value+='. because it reads best';click(o[0]);R.two=inp.value;
+inp.value='Also fine';click(o[2]);R.three=inp.value;R.tall=o[0].getBoundingClientRect().height;
+"""
+
+
+@needs_chrome
+def test_an_option_button_fills_the_reply_with_its_letter(tmp_path: Path) -> None:
+    r = _in_chrome(tmp_path, _options_desk(), OPTION_DRIVER, (1440, 900))
+    assert r["rec"] == [False, True, False]  # the recommended option is marked
+    assert r["one"] == "B" and r["pressed"] == ["false", "true", "false"]
+    assert r["two"] == "A. because it reads best"  # a new pick swaps the letter, keeps the rest
+    assert r["three"] == "C. Also fine"
+    assert r["tall"] >= 44  # a big button, not a list item
+
+
+TAB_REFRESH_DRIVER = """
+window.__next=document.documentElement.outerHTML.split('Review 7<').join('Review 7 (edited)<');
+click(q('.tabs--p [data-tab=reviews]'));window.__es.l.desk();
+await new Promise(function(r){setTimeout(r,300);});
+R.edited=q('main').textContent.indexOf('Review 7 (edited)')>=0;
+R.on=[].map.call(document.querySelectorAll('[data-tp].is-on'),
+function(p){return p.getAttribute('data-tp');});
+R.sel=q('.tabs--p [aria-selected=true]').getAttribute('data-tab');
+"""
+
+
+@needs_chrome
+def test_a_live_refresh_keeps_the_phone_tab_that_was_open(tmp_path: Path) -> None:
+    r = _in_chrome(tmp_path, _busy_desk(), TAB_REFRESH_DRIVER, (390, 844), prelude=FAKE_LIVE)
+    assert r["edited"]  # the desk really was re-rendered
+    assert r["on"] == ["reviews"] and r["sel"] == "reviews"
 
 
 FAKE_LIVE = """
@@ -1048,9 +1150,9 @@ def test_desk_shows_the_repo_name_and_keeps_routing_on_the_registry_name(tmp_pat
     assert ">alpha</small>" in card  # the local name, as a small secondary label
     assert "data-label='first mate · renamed_alpha'" in html or "· renamed_alpha'" in html
     assert "data-open='/p/alpha'" in html and "/p/renamed_alpha" not in html
-    assert "<span class=nyg__name>renamed_<wbr>alpha<small" in html
+    assert "<span class=r__p>renamed_alpha</span>" in html  # the lane row names the repo
     assert "<span class=pc__name>beta</span>" in html and "data-name='beta'" in html
-    section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
+    section = html.split("<section class='pn rvp'", 1)[1].split("</section>", 1)[0]
     assert "<span class=rv__proj>renamed_alpha</span>" in section
     page = client.get("/p/alpha", headers=GOOD).text
     assert "<h1>renamed_<wbr>alpha<small" in page and "<title>renamed_alpha · Hive desk" in page

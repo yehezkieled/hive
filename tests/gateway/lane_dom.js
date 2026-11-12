@@ -65,9 +65,10 @@ function simple(n, s) {
 
 const doc = new Node('html');
 const body = doc.append(new Node('body'));
-const lane = body.append(new Node('div', { 'data-group': 'bnm', 'data-open': '/p/bnm' }));
+const lane = body.append(new Node('div', { 'data-group': 'waiting' }));
 for (const [id, primary] of [['ask', true], ['later-email', false], ['plain', false]]) {
-  const it = lane.append(new Node('div', { 'data-item': id }, primary ? ['nyx', 'is-primary'] : ['nyx']));
+  const attrs = { 'data-item': id, 'data-open': '/p/bnm' };
+  const it = lane.append(new Node('div', attrs, primary ? ['nyx', 'is-primary'] : ['nyx']));
   it.append(new Node('a', { href: '/p/bnm' }, ['nyx__head']));
 }
 const listeners = {};

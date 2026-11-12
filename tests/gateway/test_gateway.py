@@ -84,21 +84,22 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     res = client.get("/", headers=GOOD)
     assert res.status_code == 200
     html = res.text
-    assert "<span class=nyl__count>3</span>" in html  # hold + 2 queued; no worker decisions
+    assert "<span class='hexn nyl__count'>3</span>" in html  # hold + 2 queued; no worker decisions
     assert "choose palette" in html
-    assert "merge approval needed" not in html.split("Projects · tap")[0]
+    assert "merge approval needed" not in html.split("<section class='pn pcsec")[0]
     assert "alpha" in html and "beta" in html
     assert "General" in html and "(no project)" not in html
     assert "<b>chore</b>" not in html
     assert res.headers["cache-control"] == "no-store"
     assert html.count("<script") == 1  # the one pinned inline script
     assert "<a href='/chat'" in html and "/act/delegate" in html
-    lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
-    groups = re.findall(r"<span class=nyg__name>([^<]*)</span>", lane)
-    assert groups == ["beta", "alpha", "General"]  # the group waiting on the owner comes first
-    assert re.findall(r"<span class='nyx__tag [^']*'>([^<]*)</span>", lane) == [
-        "waiting on you",
-        "blocked",  # alpha-docs, a row
+    lane = html.split("<section class='pn nyl", 1)[1].split("</section>", 1)[0]
+    where = re.findall(r"<span class=(?:nyc__where|r__p)>([^<]*)", lane)
+    assert where == ["beta", "alpha", "General"]  # what waits on the owner comes first
+    assert re.findall(r"<span class='sc sc--\w+'><i></i>([^<]*)</span>", lane) == [
+        "Waiting on you",
+        "Blocked",  # alpha-docs, a row
+        "Queued",
     ]
     assert re.findall(r"data-item='([^']*)'", lane) == ["beta-hold", "alpha-docs", "misc"]
     assert "nyi--decision" not in lane
@@ -279,7 +280,8 @@ def test_cards_are_plain_language_and_board_links_rewritten(tmp_path: Path) -> N
     html = res.text
     assert "127.0.0.1:4387" not in html
     assert 'href="https://board.example.ts.net:8445/session/abc123"' in html
-    assert "Pick the beta palette" in html.split("Projects · tap")[0]  # human title leads the row
+    lane = html.split("<section class='pn pcsec", 1)[0]
+    assert "Pick the beta palette" in lane  # human title leads the row
     assert "script-src 'sha256-" in res.headers["content-security-policy"]
 
 
