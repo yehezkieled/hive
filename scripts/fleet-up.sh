@@ -4,7 +4,7 @@
 #
 #   fleet-up.sh [--dry-run] [--conf FILE] [--only STEP[,STEP...]]
 #
-# Steps: gateway clipdesk runtime bnm lavish preview serve firstmate
+# Steps: gateway clipdesk runtime gonedark bnm lavish preview serve firstmate
 # Bash 3.2 compatible (macOS).
 set -u
 
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
 done
 
 # Environment wins over the config file: remember what was set, source, restore.
-VARS="GATEWAY_PORT GATEWAY_START_CMD CLIP_DESK_PORT CLIP_DESK_START_CMD BNM_PORT BNM_DIR BNM_START_CMD LAVISH_PORT LAVISH_DIR LAVISH_START_CMD PREVIEW_PORT PREVIEW_DIR PREVIEW_START_CMD RUNTIME_START_CMD RUNTIME_STATUS_CMD TAILSCALE_BIN SERVE_MAP FM_DIR FM_LAUNCH_CMD FM_WORKSPACE_LABEL HERDR_BIN HERDR_SERVER_WAIT LOG_DIR PORT_WAIT"
+VARS="GATEWAY_PORT GATEWAY_START_CMD CLIP_DESK_PORT CLIP_DESK_START_CMD BNM_PORT BNM_DIR BNM_START_CMD LAVISH_PORT LAVISH_DIR LAVISH_START_CMD PREVIEW_PORT PREVIEW_DIR PREVIEW_START_CMD RUNTIME_START_CMD RUNTIME_STATUS_CMD GONEDARK_START_CMD GONEDARK_STATUS_CMD TAILSCALE_BIN SERVE_MAP FM_DIR FM_LAUNCH_CMD FM_WORKSPACE_LABEL HERDR_BIN HERDR_SERVER_WAIT LOG_DIR PORT_WAIT"
 SAVED=""
 for v in $VARS; do
   if [ -n "${!v+x}" ]; then
@@ -159,6 +159,28 @@ step_runtime() {
   return 0
 }
 
+# The gone-dark alarm (python -m hive.gonedark), via hive-gonedark.sh and its
+# service. Off unless a ping address is configured. Like the bot: a failure here is
+# logged and never blocks a step; not starting is one quiet line per run.
+step_gonedark() {
+  local reason
+  if bash -c "$GONEDARK_STATUS_CMD" >/dev/null 2>&1; then
+    log "gonedark: already running"
+    return 0
+  fi
+  if ! reason="$("$HERE/hive-gonedark.sh" --check 2>&1)"; then
+    log "gonedark: not starting; $reason"
+    return 0
+  fi
+  if [ "$DRY_RUN" = 1 ]; then
+    log "gonedark: not running; would run: $GONEDARK_START_CMD"
+    return 0
+  fi
+  log "gonedark: starting the sender via the service manager"
+  bash -c "$GONEDARK_START_CMD" || log "gonedark: start failed (ignored)"
+  return 0
+}
+
 step_serve() {
   # Tailnet-only. `serve` is idempotent; `funnel` is never used.
   local pair https local_port
@@ -268,6 +290,7 @@ log "config: $CONF$([ "$DRY_RUN" = 1 ] && echo ' (dry run)')"
 want gateway && { step_gateway || rc=1; }
 want clipdesk && { step_clipdesk || rc=1; }
 want runtime && step_runtime
+want gonedark && step_gonedark
 want bnm && { ensure_service broke-no-more "$BNM_PORT" "$BNM_DIR" "$BNM_START_CMD" || rc=1; }
 want lavish && { ensure_service lavish "$LAVISH_PORT" "$LAVISH_DIR" "$LAVISH_START_CMD" || rc=1; }
 want preview && { ensure_service preview "$PREVIEW_PORT" "$PREVIEW_DIR" "$PREVIEW_START_CMD" || rc=1; }

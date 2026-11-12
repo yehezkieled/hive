@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 BEAT_FRESH_S = 300.0  # the watcher touches its beat every poll; older means it stopped
 STATUS_TTL_S = 15.0
 STATUS_TIMEOUT_S = 3.0
+DESK_PROBE_TIMEOUT_S = 3.0
 WAKE_COOLDOWN_S = 60.0
 WAKE_TIMEOUT_S = 90.0
 ACTIVE_RECENT_S = 300.0  # a turn this recent means the session may be working, not wedged
@@ -108,6 +109,27 @@ def ago(seconds: float) -> str:
     if seconds < 5400:
         return f"{seconds // 60}m"
     return f"{seconds // 3600}h"
+
+
+async def desk_probe(port: int, timeout_s: float = DESK_PROBE_TIMEOUT_S) -> bool:
+    """True when the desk answers HTTP on loopback (any status: it is up)."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", port), timeout_s
+        )
+    except (OSError, TimeoutError):
+        return False
+    try:
+        writer.write(b"HEAD / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        await writer.drain()
+        line = await asyncio.wait_for(reader.readline(), timeout_s)
+        return line.startswith(b"HTTP/")
+    except (OSError, TimeoutError):
+        return False
+    finally:
+        writer.close()
+        with contextlib.suppress(OSError):
+            await writer.wait_closed()
 
 
 def _session_pids(fm_home: Path, proc_root: Path) -> tuple[int, ...]:

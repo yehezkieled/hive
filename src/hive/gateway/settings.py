@@ -28,6 +28,8 @@ WINDOWS_SCHTASKS = Path("/mnt/c/Windows/System32/schtasks.exe")
 DEFAULT_ADMIN_HELPER = "/mnt/c/ProgramData/HiveAdmin"
 DEFAULT_CLAUDE_CREDENTIALS = "~/.claude/.credentials.json"
 DEFAULT_NET_CHECK = "api.anthropic.com:443"
+DEFAULT_GONEDARK_ENV = "~/.config/hive/gonedark.env"
+DEFAULT_GONEDARK_STATE = "~/.local/state/hive-gonedark"
 _NET_CHECK_RE = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?):([0-9]{1,5})$")
 
 
@@ -89,6 +91,11 @@ class GatewaySettings:
     claude_credentials: Path | None = None
     # (host, port) of the one outbound reachability check.
     net_check: tuple[str, int] | None = None
+    # The gone-dark alarm's private config (only whether it exists is read) and its
+    # state dir (last tick's time and result). Either None: the Machine page leaves the
+    # alarm line out.
+    gonedark_env: Path | None = None
+    gonedark_state: Path | None = None
     # How old the Machine page's readings may get before a page view starts a new round.
     machine_ttl_s: float = 15.0
     # The Terminal page: firstmate's own herdr pane in the browser, behind the step-up.
@@ -139,6 +146,12 @@ class GatewaySettings:
                 env.get("HIVE_GATEWAY_CLAUDE_CREDENTIALS", "").strip()
             ),
             net_check=_net_check(env.get("HIVE_GATEWAY_NET_CHECK", "").strip()),
+            gonedark_env=Path(
+                env.get("HIVE_GONEDARK_ENV_FILE", "").strip() or DEFAULT_GONEDARK_ENV
+            ).expanduser(),
+            gonedark_state=Path(
+                env.get("HIVE_GONEDARK_STATE_DIR", "").strip() or DEFAULT_GONEDARK_STATE
+            ).expanduser(),
             admin_helper_root=_admin_helper(env.get("HIVE_GATEWAY_ADMIN_HELPER", "").strip()),
             schtasks=_binary(
                 env.get("HIVE_GATEWAY_SCHTASKS", "").strip(), "schtasks.exe", WINDOWS_SCHTASKS

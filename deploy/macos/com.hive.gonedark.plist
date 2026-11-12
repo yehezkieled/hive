@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hive.gonedark</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HIVE_DIR__/scripts/hive-gonedark.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__HIVE_DIR__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- The gone-dark alarm (python -m hive.gonedark). Restart after a crash; a
+       skip (no ping address, or a malformed one) exits 0 and stays down. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/hive-gonedark.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/hive-gonedark.log</string>
+</dict>
+</plist>

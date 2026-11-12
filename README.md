@@ -49,6 +49,9 @@ and the legacy web app.
   Telegram is a backup channel and stays off without it. The standalone
   fixed-command bot (the way in when Tailscale is down) is set up separately:
   [`docs/telegram.md`](docs/telegram.md)
+- An account at a dead-man's-switch service — optional; the gone-dark alarm
+  pings it so your phone hears when the PC goes dark:
+  [`docs/gone-dark.md`](docs/gone-dark.md)
 - OpenAI API key (optional — for blueprint embeddings)
 
 ## Quick start
@@ -148,6 +151,7 @@ src/hive/
 ├── commands/          # /command handlers
 ├── web/               # legacy FastAPI app (vault/mode approvals)
 ├── gateway/           # owner desk over Tailscale: read + act (ADR 0030)
+├── gonedark.py        # gone-dark alarm: outbound ping to a dead-man's switch
 ├── knowledge/         # blueprints + embeddings
 ├── vault/             # security-gated payment Entity
 ├── notifications/
