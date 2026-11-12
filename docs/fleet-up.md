@@ -20,7 +20,7 @@ Files (all shipped in this repo, none installed by it):
 | `scripts/hive-telegram.sh` | Wrapper: reads the private config, skips cleanly when it is missing, malformed, loose, rejected by Telegram, or another Hive runtime runs. |
 | `scripts/telegram-setup.sh` | Writes, rotates or removes the bot's token and allowlist (hidden prompt, mode 0600). |
 | `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Telegram bot, `KeepAlive` on crash only. |
-| `deploy/systemd/hive-gonedark.service` | The gone-dark alarm (`python -m hive.gonedark`, [gone-dark.md](gone-dark.md)): one outbound ping per interval while the desk and firstmate are up, `Restart=always`, only if configured. |
+| `deploy/systemd/hive-gonedark.service` | The gone-dark alarm (`python -m hive.gonedark`, [gone-dark.md](gone-dark.md)): one outbound ping per interval while the PC is healthy, `Restart=always`, only if configured. |
 | `scripts/hive-gonedark.sh` | Wrapper: reads the private config, skips cleanly when it is missing, malformed or loose. |
 | `scripts/gonedark-setup.sh` | Writes, changes or removes the ping address (hidden prompt, https only, mode 0600). |
 | `deploy/macos/com.hive.gonedark.plist` | LaunchAgent for the gone-dark alarm, `KeepAlive` on crash only. |
@@ -202,10 +202,10 @@ security note are in [telegram.md](telegram.md).
 ## Gone-dark alarm
 
 `hive-gonedark` runs `python -m hive.gonedark`: one outbound HTTPS GET per interval to
-a dead-man's-switch service, sent only while the desk answers and a firstmate session
-runs, so the phone hears when the PC goes dark. Same rules as the bot: its own unit,
-skipped (not failed) without a sound config, never blocks a fleet-up step. Setup,
-states and the end-to-end check are in [gone-dark.md](gone-dark.md).
+a dead-man's-switch service, sent only while the desk answers, a firstmate session
+runs and Tailscale is connected, so the phone hears when the PC goes dark. Same rules
+as the bot: its own unit, skipped (not failed) without a sound config, never blocks a
+fleet-up step. Setup, states and the end-to-end check are in [gone-dark.md](gone-dark.md).
 
 ## Windows (WSL) install
 

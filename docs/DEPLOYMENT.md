@@ -46,11 +46,11 @@ commands below use a venv at `.venv/`.
   desk (`hive-gateway.service` over Tailscale) is the primary surface. The
   standalone fixed-command bot (`hive-telegram.service`, the way in when
   Tailscale is down) is set up separately; see [`telegram.md`](telegram.md).
-- **Gone-dark alarm** (optional) — `hive-gonedark.service` pings a hosted
-  dead-man's-switch service while the desk and firstmate are up, so your phone
-  hears when the PC goes dark. Off until `scripts/gonedark-setup.sh set`; see
-  [`gone-dark.md`](gone-dark.md).
   One token is polled by one process only: the two never run together.
+- **Gone-dark alarm** (optional) — `hive-gonedark.service` pings a hosted
+  dead-man's-switch service while the PC is healthy, so your phone hears when
+  the PC goes dark. Off until `scripts/gonedark-setup.sh set`; see
+  [`gone-dark.md`](gone-dark.md).
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
 

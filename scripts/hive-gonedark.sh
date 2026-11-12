@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the "gone dark" alarm sender (python -m hive.gonedark: one outbound HTTPS GET
-# per interval while the desk and firstmate are up) only when its private config holds
-# a sound ping address. See docs/gone-dark.md.
+# per interval while the desk, firstmate and Tailscale are up) only when its private
+# config holds a sound ping address. See docs/gone-dark.md.
 #
 #   hive-gonedark.sh          run it; exit 0 with a log line when it must not start
 #   hive-gonedark.sh --check  exit 0 if it may start, 1 (with a log line) if not
