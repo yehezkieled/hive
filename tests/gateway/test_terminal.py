@@ -27,6 +27,7 @@ from hive.gateway.actions import Tokens
 from hive.gateway.app import create_app, terminal_csp
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.terminal import Op
+from tests.gateway.test_stack_home import _in_chrome, needs_chrome
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
 OWNER = "owner@example.test"
@@ -795,3 +796,44 @@ def test_history_and_screen_overlap_is_counted_once() -> None:
     assert terminal.overlap(["a", "b"], ["x", "y"]) == 0
     assert terminal.overlap(["a", "\x1b[1mb\x1b[0m "], ["b", "z"]) == 1
     assert terminal.overlap([], ["x"]) == 0
+
+
+# A fake desk for the page script: the open step hands out a pass, and the websocket sends a
+# read-only state and a 118x30 screen whose first row is the one a stale layout hid.
+FAKE_DESK = r"""
+window.fetch=function(){return Promise.resolve({headers:{get:function(){return 'application/json';}},
+json:function(){return Promise.resolve({ok:true,pass:'p',ends:Date.now()/1000+1800});}});};
+window.WebSocket=function(){var me=this;me.readyState=1;setTimeout(function(){me.onopen();
+me.onmessage({data:JSON.stringify({t:'state',who:'owner',viewers:1,ends:Date.now()/1000+1800,
+session:'ok',keyboard:'none'})});var l=[];for(var i=0;i<30;i++)l.push(i?'row '+i:'TOP-ROW');
+me.onmessage({data:JSON.stringify({t:'screen',cols:118,rows:30,lines:l})});},50);};
+WebSocket.prototype.send=function(){};WebSocket.prototype.close=function(){};
+"""
+FIT_DRIVER = r"""
+function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}
+q('#term-open').requestSubmit();await wait(600);
+for(var i=0;i<3;i++){q('#term-bigger').click();await wait(150);}
+q('#term-fit').click();await wait(400);
+var f=q('#term-frame');R.top=f.scrollTop;R.over=f.scrollHeight-f.clientHeight;
+R.xterm=q('.xterm').getBoundingClientRect().height;
+R.bar=q('.xterm .scrollbar.vertical').getBoundingClientRect().height;
+R.fit=q('#term-fit').getAttribute('aria-pressed');
+"""
+
+
+@needs_chrome
+@pytest.mark.parametrize("size", [(390, 844), (820, 1180), (1180, 820)])
+def test_fit_shows_the_whole_pane_after_a_font_change(
+    tmp_path: Path, size: tuple[int, int]
+) -> None:
+    """After A+ and back to Fit, the frame does not overflow and scroll the pane's top rows
+    out of view: xterm's scrollbar follows the new font, and its hidden input stays small."""
+    page = pages.render_terminal(pages.Ctx("t"), True)
+    tag = f"<script src='/vendor/{pages.XTERM_JS}' integrity='{pages.XTERM_SRI}'></script>"
+    assert tag in page
+    xterm = (pages.VENDOR_DIR / pages.XTERM_JS).read_text().replace("</script", "<\\/script")
+    page = page.replace(tag, f"<script>{xterm}</script>")
+    r = _in_chrome(tmp_path, page, FIT_DRIVER, size, prelude=FAKE_DESK)
+    assert r["fit"] == "true"
+    assert abs(r["bar"] - r["xterm"]) <= 1, r
+    assert r["over"] <= 0 and r["top"] == 0, r

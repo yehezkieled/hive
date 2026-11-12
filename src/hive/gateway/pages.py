@@ -2055,6 +2055,8 @@ color:var(--ink-3);white-space:nowrap}
 .tframe{flex:1;min-width:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
 padding:8px;background:#16140f;border:1.5px solid var(--rule-soft);border-radius:12px}
 .tframe .xterm{display:inline-block;vertical-align:top}
+/* The desk's textarea min-height would stretch xterm's hidden input below the screen. */
+.tframe .xterm-helper-textarea{min-height:0}
 .tframe__msg{position:absolute;inset:1.5px;display:flex;align-items:center;justify-content:center;margin:0;
 padding:24px;border-radius:11px;background:#16140f;color:#d6cfbf;font:600 14px/1.5 var(--font-sans);text-align:center}
 .tframe__msg[hidden]{display:none}
@@ -2165,13 +2167,18 @@ if(!el)return null;var r=el.getBoundingClientRect(),f=term.options.fontSize;
 return r.width&&r.height?{w:r.width/term.cols/f,h:r.height/term.rows/f}:null;}
 function label(){var f=term?term.options.fontSize:fs;fitB.setAttribute('aria-pressed',fit?'true':'false');
 fitB.title='Fit the screen ('+f+' px now)';}
-function refit(force){if(!term)return;if(!fit){if(term.options.fontSize!==fs)term.options.fontSize=fs;label();return;}
+// xterm 6 re-sizes its scrollbar on a scroll or a resize, not on a font change: a stale, taller
+// bar would overflow the frame and toBottom() would scroll the pane's top rows out of view.
+// The pinned build's viewport sync is called straight away (its queued sync can be dropped).
+function font(n){if(term.options.fontSize===n)return;term.options.fontSize=n;
+var v=term._core&&term._core._viewport;if(v&&v._sync)v._sync();}
+function refit(force){if(!term)return;if(!fit){font(fs);label();return;}
 var w=frame.clientWidth-16,h=frame.clientHeight-16;if(w<=0||h<=0)return;
 if(!force&&w===lastW&&h<=lastH)return;lastW=w;lastH=h;var k=measure();if(!k)return;
 var n=Math.floor(Math.min(w/(term.cols*k.w),h/(term.rows*k.h)));n=Math.max(7,Math.min(18,n));
-if(n!==term.options.fontSize)term.options.fontSize=n;label();toBottom();}
+font(n);label();toBottom();}
 function toBottom(){requestAnimationFrame(function(){frame.scrollTop=frame.scrollHeight;frame.scrollLeft=0;});}
-function setFs(n){fit=false;fs=Math.max(6,Math.min(28,n));if(term)term.options.fontSize=fs;save();label();toBottom();}
+function setFs(n){fit=false;fs=Math.max(6,Math.min(28,n));if(term)font(fs);save();label();toBottom();}
 function vh(){var v=window.visualViewport;
 document.documentElement.style.setProperty('--app-h',(v?v.height:window.innerHeight)+'px');window.scrollTo(0,0);}
 function resized(){clearTimeout(rt);rt=setTimeout(function(){vh();refit(false);toBottom();},120);}
