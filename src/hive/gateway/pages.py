@@ -68,17 +68,33 @@ main{max-width:960px;margin:0 auto;padding:12px 0 calc(48px + var(--bar-room,0px
 h1{font:900 1.4rem var(--font-display);letter-spacing:-.4px;margin:.6rem 0}
 h2{font:800 1.05rem var(--font-display);margin:1.6rem 0 .6rem}
 a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
-.chrome{max-width:960px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:12px 2px 0}
-.chrome>*{min-width:0}
-.chrome__brand{font-family:var(--font-display);font-weight:900;font-size:17px;letter-spacing:-.3px;
+/* the top bar: one frame, one layout and the same links on every page, so it never moves when the
+   page changes. The links sit right after the brand, so the chips' changing labels cannot push them,
+   and the stable gutter keeps a page's own scrollbar from shifting the frame. */
+html{scrollbar-gutter:stable}
+.chrome{flex:none;width:100%;max-width:960px;margin:0 auto;padding:12px 2px 0;display:grid;align-items:center;
+column-gap:10px;grid-template-columns:auto auto minmax(0,1fr) auto;grid-template-areas:"brand nav fm q"}
+.chrome__brand{grid-area:brand;font-family:var(--font-display);font-weight:900;font-size:17px;letter-spacing:-.3px;
 color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
 .chrome__brand span{color:var(--accent)}
-.chrome nav{margin-left:auto;display:flex;align-items:center;gap:2px;flex-wrap:wrap;justify-content:flex-end}
-.chrome nav a,#alerts{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;border-radius:999px;
-font:700 11px var(--font-mono);letter-spacing:.4px;color:var(--ink-3);text-decoration:none;
-background:transparent;border:1.5px solid transparent;cursor:pointer}
+.chrome nav{grid-area:nav;display:flex;align-items:center;gap:2px}
+.chrome nav a,#alerts{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 10px;
+border-radius:999px;font:700 11px var(--font-mono);letter-spacing:.4px;color:var(--ink-3);text-decoration:none;
+white-space:nowrap;background:transparent;border:1.5px solid transparent;cursor:pointer}
 #alerts[hidden]{display:none}
 .chrome nav a[aria-current]{color:var(--ink);border-color:var(--rule-soft);background:var(--paper)}
+#fmchip{grid-area:fm;justify-self:end;min-width:0}#qchip{grid-area:q}
+#fmchip .qchip{white-space:normal;padding:4px 12px}#fmchip>*{text-align:left}
+@media (min-width:1100px){.chrome{max-width:1480px}}
+/* narrower than a desktop (iPad portrait, phones): the chips share the brand's row and the links get
+   a row of their own; the firstmate label may wrap and its panel hangs from the bar's right edge */
+@media (max-width:999px){.chrome{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"brand fm q" "nav nav nav";
+row-gap:6px;position:relative}#fmchip{position:static}#fmchip .fmpop{top:auto;margin-top:6px}}
+/* phones: the links as two even rows of four */
+@media (max-width:599px){.chrome nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.chrome nav a,#alerts{padding:0 4px}}
+@media (max-width:450px){.chrome{column-gap:6px}.chrome nav a,#alerts{letter-spacing:.2px}}
+@media (max-width:400px){.chrome nav a,#alerts{padding:0 2px;letter-spacing:0;font-size:10.5px}}
 .tail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;
 font:12px/1.35 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;
 min-height:12rem;max-height:70vh;overflow:auto}
@@ -114,7 +130,6 @@ border-top:1px solid var(--line)}
 /* chat: one full-height screen; only the message list scrolls, the box stays put */
 body.chatpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
 display:flex;flex-direction:column}
-.chatpage .chrome{flex:none;width:100%;padding-left:12px;padding-right:12px;box-sizing:border-box}
 .chatpage main{flex:1;min-height:0;width:100%;box-sizing:border-box;display:flex;flex-direction:column;
 position:relative;padding:0 12px}
 .chatpage h1{flex:none;font-size:1.15rem;margin:8px 0 0}.chatpage .banner{flex:none}
@@ -128,12 +143,7 @@ position:relative;padding:0 12px}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
 min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
 #jump[hidden]{display:none}
-@media (max-width:480px){.msg{max-width:94%}.chrome nav a,#alerts{padding:0 7px}.dbar__go{padding:0 12px}}
-/* narrower than an iPad in portrait (phones, iPad split view): the links keep the brand's row and
-   the two chips get their own right-aligned row; the firstmate label may wrap */
-@media (max-width:760px){.chrome{flex-wrap:wrap;row-gap:0;position:relative}.chrome::after{content:'';flex-basis:100%;order:1}
-#fmchip,#qchip{order:2;margin-top:6px}#fmchip{flex:1 1 min-content;text-align:right;position:static}
-#fmchip .qchip{white-space:normal;line-height:1.25;padding:4px 12px}#fmchip>*{text-align:left}#fmchip .fmpop{top:auto;margin-top:6px}}
+@media (max-width:480px){.msg{max-width:94%}.dbar__go{padding:0 12px}}
 /* quota chip: the busier of the two plan windows, as percent used; tap shows both */
 .qwrap{position:relative;margin:0}
 .qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
@@ -168,7 +178,7 @@ min-width:210px;color:var(--ink-2)}
 @media (min-width:900px){.land{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}}
 /* wide desk: use the width; the phone layout above is untouched */
 @media (min-width:1100px){
-.wide main,.wide .chrome{max-width:1480px}
+.wide main{max-width:1480px}
 .wide .screen{min-height:calc(100vh - 96px);gap:16px}
 .wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr);gap:20px}
 .wide .land__col{gap:16px}
@@ -180,7 +190,6 @@ min-width:210px;color:var(--ink-2)}
    delegate bar is its last row, flush with the viewport bottom (the safe-area inset lives inside it) */
 body.wide{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
 display:flex;flex-direction:column;padding-bottom:0}
-.wide .chrome{flex:none;width:100%}
 .wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 0;overflow-y:auto}
 .wide .screen{flex:1;min-height:0;gap:10px}
 .wide .land{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -525,10 +534,6 @@ font:700 24px var(--font-mono);letter-spacing:3px;user-select:all;-webkit-user-s
 .sgf__steps .sgf__note{margin-top:6px}
 .sgf__foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
 .sgf__foot form{margin:0}
-/* phones: the six header links still share the brand's row, on the chat page's narrower header too;
-   each step starts where the wider one stops fitting (the alerts button at its widest) */
-@media (max-width:450px){.chrome{gap:6px}.chrome nav{gap:0}.chrome nav a,#alerts{padding:0 5px;letter-spacing:.2px}}
-@media (max-width:400px){.chrome{gap:4px}.chrome nav a,#alerts{padding:0 3px;letter-spacing:0;font-size:10.5px}}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -1180,6 +1185,26 @@ def _fm_chip(ctx: Ctx) -> str:
     )
 
 
+# The top bar's links, the same on every page: (``active`` name, href, label).
+NAV = (
+    ("desk", "/", "Desk"),
+    ("chat", "/chat", "Chat"),
+    ("config", "/config", "Config"),
+    ("machine", "/machine", "Machine"),
+    ("run", "/run", "Run"),
+    ("terminal", "/terminal", "Terminal"),
+    ("signins", "/signins", "Sign-ins"),
+)
+
+
+def _nav(active: str) -> str:
+    links = "".join(
+        f"<a href='{href}'{' aria-current=page' if name == active else ''}>{label}</a>"
+        for name, href, label in NAV
+    )
+    return f"<nav>{links}<button id=alerts hidden type=button>Alerts</button></nav>"
+
+
 def _page(
     title: str,
     body: str,
@@ -1189,9 +1214,6 @@ def _page(
     css: str = "",
     tail: str = "",
 ) -> str:
-    def cur(name: str) -> str:
-        return " aria-current=page" if active == name else ""
-
     chip = (_fm_chip(ctx) + _chip(ctx)) if ctx is not None else ""
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
@@ -1207,11 +1229,7 @@ def _page(
         f"<title>{esc(title)}</title><style>{CSS}{css}</style></head>"
         f"<body{attrs}{_BODY_CLASS.get(active, '')}><header class=chrome>"
         "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
-        f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
-        f"<a href='/config'{cur('config')}>Config</a>"
-        f"<a href='/machine'{cur('machine')}>Machine</a>"
-        f"<a href='/run'{cur('run')}>Run</a>"
-        f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
+        f"{_nav(active)}{chip}"
         f"</header><main>{body}</main><script>{SCRIPT}</script>{tail}</body></html>"
     )
 
@@ -2369,7 +2387,7 @@ def render_signins(panel: signins.Panel, ctx: Ctx) -> str:
         + _signin_box(panel.flow, ctx)
         + _signin_poll(ctx, "", visible=False)
         + f"<ul class=mlist>{rows}</ul></div>",
-        "machine",
+        "signins",
         f" data-refresh={SIGNINS_REFRESH_MS} data-signins",
         ctx,
     )
@@ -2385,7 +2403,7 @@ def render_signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
         + _signin_box(view, ctx)
         + poll
         + "<p><a href='/signins'>Back to Sign-ins</a></p></div>",
-        "machine",
+        "signins",
     )
 
 
@@ -2429,10 +2447,8 @@ XTERM_CSS = (VENDOR_DIR / "xterm-6.0.0.css").read_text()
 TERMINAL_CSS = """
 body.termpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
 display:flex;flex-direction:column}
-.termpage .chrome{flex:none;width:100%}
 .termpage main{flex:1;min-height:0;width:100%;max-width:1200px;display:flex;flex-direction:column;
 padding:0 0 calc(8px + env(safe-area-inset-bottom))}
-.termpage .chrome{max-width:1200px}
 .term{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
 .term__head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px}
 .term__head h1{margin:8px 0 0;font-size:1.15rem}.term__head p{margin:0}

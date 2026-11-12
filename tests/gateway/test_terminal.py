@@ -737,7 +737,10 @@ def test_switched_off_offers_nothing(make: Callable[..., object], world: World) 
         with pytest.raises(WebSocketDisconnect):
             with c.websocket_connect("/terminal/ws", headers=WS):
                 pass
-        assert "/terminal" not in c.get("/machine", headers=GOOD).text
+        # the menu is the same on every page and its Terminal link lands on the notice above;
+        # nothing else (the firstmate chip, the Machine page) offers a way in
+        after_menu = c.get("/machine", headers=GOOD).text.split("</nav>", 1)[1]
+        assert "/terminal" not in after_menu
     assert world.calls() == []
 
 

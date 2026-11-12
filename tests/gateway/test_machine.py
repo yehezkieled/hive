@@ -1147,6 +1147,16 @@ SIZES = {
 }
 
 
+def _assert_link_rows(tops: list[int], width: int) -> None:
+    """The header's links, the alerts button at its widest among them, sit in the rows the bar
+    is laid out with: beside the brand on a wide screen, a row of their own under the brand and
+    chips below 1000 px, and two even rows of four on a phone. ``tops`` is the brand's top then
+    each link's; ``tests/gateway/test_nav.py`` pins the same bar on every page."""
+    rows = sorted(set(tops[1:]))
+    assert len(rows) == (2 if width < 600 else 1), tops
+    assert (rows[0] == tops[0]) is (width >= 1000), tops
+
+
 @needs_chrome
 @pytest.mark.parametrize("name", SIZES)
 @pytest.mark.parametrize("view", ["usual", "busy"])
@@ -1159,12 +1169,7 @@ def test_the_page_fits_phone_and_ipad_without_sideways_scroll(
     assert (r["iw"], r["ih"]) == size, r
     assert r["rows"] == 9 + len(shown.risks)
     assert r["sw"] <= r["iw"] and r["cut"] == 0, r  # no sideways scroll, nothing cut off
-    # the header's links, with the alerts button at its widest, never break onto two rows;
-    # they share the brand's row (asserted from 360 px: at 320 the fit is a few pixels and
-    # this browser has only fallback fonts, which run wider than the desk's own)
-    assert len(set(r["navTops"][1:])) == 1, r
-    if size[0] >= 360:
-        assert len(set(r["navTops"])) == 1, r
+    _assert_link_rows(r["navTops"], size[0])
     assert len(set(r["chips"])) == 1, r  # equal chips, so the labels line up down the page
     assert r["sideBySide"] is (name == "ipad-landscape")
     if name.startswith("ipad") and view == "usual":

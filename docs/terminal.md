@@ -6,8 +6,8 @@ on the desk covers, such as a `!` command or a question only the terminal
 answers, so the PC never has to be touched. It opens **read-only**. Typing needs
 a second confirm, and only one tab can type at a time.
 
-Open it from the firstmate chip in the header (**Open firstmate's terminal**),
-from the Machine page, or at `/terminal`.
+Open it from **Terminal** in the menu, from the firstmate chip in the header
+(**Open firstmate's terminal**), from the Machine page, or at `/terminal`.
 
 ## States
 
