@@ -1,8 +1,9 @@
 # Sign-ins page
 
 `/signins` on the desk shows each sign-in on the PC that can run out, and renews
-one from the iPad with no terminal. It is reached from the Machine page (the
-link in its first line, and the advice on its Claude and Tailscale rows).
+one from the iPad with no terminal. It is reached from **Sign-ins** in the menu, or from
+the Machine page (the link in its first line, and the advice on its Claude and
+Tailscale rows).
 
 It is for the owner only, on the tailnet only, like every desk page.
 
