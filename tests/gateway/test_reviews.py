@@ -185,8 +185,9 @@ def test_no_close_controls_without_lavish_axi(tmp_path: Path, lavish: Lavish) ->
     lavish.write({"a": 60, "b": 3 * DAY})
     settings = replace(_settings(tmp_path, lavish), lavish_axi=None)
     html = TestClient(create_app(settings), client=("127.0.0.1", 5000)).get("/", headers=GOOD).text
-    section = html.split("<section class=rvs>", 1)[1].split("</section>", 1)[0]
-    assert "Review pages · 2" in section and "Close" not in section and "look done" not in section
+    section = html.split("<section class='pn rvp'", 1)[1].split("</section>", 1)[0]
+    assert "<h2>Review pages</h2><span class='hexn hexn--q' data-rvn>2</span>" in section
+    assert "Close" not in section and "look done" not in section
 
 
 # ---- Close and Close all old ------------------------------------------------------
@@ -390,15 +391,15 @@ def test_review_dataclass_default_is_not_stale() -> None:
 # ---- layout: the helper and "Updated" lines sit above the Describe-a-goal bar -----
 
 
-def test_helper_and_updated_lines_come_before_the_bar(client: TestClient) -> None:
+def test_helper_line_is_read_before_the_bar_and_updated_follows_it(client: TestClient) -> None:
     html = client.get("/", headers=GOOD).text
-    wrap = html.split("<div class=dbar-wrap>", 1)[1].split("</form></div>", 1)[0]
-    note, stamp, bar = (
-        wrap.index("class=dbar-note"),
-        wrap.index("<p class=stamp>Updated"),
-        wrap.index("<form method=post action='/act/delegate' class='dbar'"),
+    wrap = html.split("<div class=dbar-wrap>", 1)[1].split("</form>", 1)[1].split("</div>", 1)[0]
+    head = html.split("<div class=dbar-wrap>", 1)[1].split("</form>", 1)[0]
+    note, bar = (
+        head.index("class='dbar-note sr'"),  # spoken by a screen reader, not shown (the board)
+        head.index("<form method=post action='/act/delegate' class='dbar'"),
     )
-    assert note < stamp < bar
-    assert "Delegate to <b data-tname>first mate</b>" in wrap
-    assert "tapping a project card retargets this bar" in wrap
-    assert html.count("<p class=stamp>Updated") == 1  # not repeated below the bar
+    assert note < bar and wrap.startswith("<span class=stamp>Updated")  # right of the bar
+    assert "Delegate to <b data-tname>first mate</b>" in head
+    assert "tapping a project card retargets this bar" in head
+    assert html.count("<span class=stamp>Updated") == 1  # shown once

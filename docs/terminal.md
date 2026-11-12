@@ -11,9 +11,9 @@ Open it from **Terminal** in the menu, from the firstmate chip in the header
 
 ## States
 
-The banner under the page title always shows the state and who is attached.
+The status bar under the page title always shows the state, as a chip with its word, and who is attached.
 
-| Banner | What it means | What you can do |
+| State | What it means | What you can do |
 |---|---|---|
 | **Not open** | Nothing from the session is on the page yet. | Tap **Open terminal**, then **Tap again to open**. |
 | **Connecting** / **Reconnecting** | The page is joining, or rejoining after the connection dropped. Read-only. | Wait. After 8 failed tries to rejoin it goes back to **Not open**. |

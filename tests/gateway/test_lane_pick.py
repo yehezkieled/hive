@@ -113,25 +113,30 @@ def _item(**kw: object) -> Item:
 # ---- lane markup -------------------------------------------------------------------
 
 
+def _lane(html: str) -> str:
+    return html.split("<section class='pn nyl", 1)[1].split("</section>", 1)[0]
+
+
 def test_the_held_item_is_the_card_and_every_other_item_is_a_row(tmp_path: Path) -> None:
     html = _client(tmp_path, _data()).get("/", headers=GOOD).text
-    lane = html.split("class=nyl__body>", 1)[1].split("</section></div>", 1)[0]
+    lane = _lane(html)
     items = re.findall(r"<div class='nyx ([^']*)' data-item='([^']*)'", lane)
-    assert [i for _, i in items] == ["ask", "later-email", "plain", "waiting"]
+    # the held item is the card; the rows follow held, then blocked, then queued
+    assert [i for _, i in items] == ["ask", "later-email", "waiting", "plain"]
     assert [("is-primary" in c) for c, _ in items] == [True, False, False, False]
     # the answer flow is unchanged and stays inside the card
     assert lane.count("name=release value=1") == 1 and "Answer &amp; resume" in lane
     # no script: every head and every explicit open link still opens the project
-    assert lane.count("class=nyx__head href='/p/bnm'") == 4
-    assert lane.count("class=nyx__open href='/p/bnm'") == 4
-    assert "data-group='bnm' data-open='/p/bnm'" in lane
+    assert len(re.findall(r"class=(?:nyx__head|'nyx__head nyc__head') href='/p/bnm'", lane)) == 4
+    assert lane.count('href="/p/bnm" rel="noopener noreferrer">Open project ↗</a>') == 4
+    assert lane.count("data-open='/p/bnm'") == 4  # a double tap opens the item's own project
 
 
 def test_a_group_with_nothing_held_has_no_card_until_one_is_picked(tmp_path: Path) -> None:
     data = _data()
     data["backlog"]["records"] = data["backlog"]["records"][1:]
     html = _client(tmp_path, data).get("/", headers=GOOD).text
-    assert "is-primary" not in html.split("class=nyl__body>", 1)[1].split("</section></div>")[0]
+    assert "is-primary" not in _lane(html)
 
 
 def test_row_card_says_why_it_is_parked(tmp_path: Path) -> None:
@@ -142,19 +147,29 @@ def test_row_card_says_why_it_is_parked(tmp_path: Path) -> None:
 
 def test_reduced_motion_css_turns_the_lane_animations_off(tmp_path: Path) -> None:
     css = _client(tmp_path, _data()).get("/", headers=GOOD).text
-    assert "@media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none" in css
+    off = "{*,*::before,*::after{transition:none!important;animation:none!important}}"
+    assert "@media (prefers-reduced-motion:reduce)" + off in css
 
 
 LANE_DOM = Path(__file__).parent / "lane_dom.js"
 
 
-def _run_lane(tmp_path: Path, motion: str, clicks: list[tuple[int, int]]) -> dict:
-    """Clicks are (position in the lane, ms since the last click); the lane starts
-    ask (the card), later-email, plain."""
+def _run_lane(
+    tmp_path: Path,
+    motion: str,
+    clicks: list[tuple[int, int] | tuple[str]],
+    lane: list[tuple[str, str, bool]] | None = None,
+) -> dict:
+    """Clicks are (position in the lane, ms since the last click), or ("refresh",) for a live
+    desk refresh; the lane is (id, project, held) items, by default ask (the card),
+    later-email, plain, all in bnm."""
     js = tmp_path / "page.js"
     js.write_text(SCRIPT)
+    argv = ["node", str(LANE_DOM), str(js), motion, json.dumps(clicks)]
+    if lane is not None:
+        argv.append(json.dumps(lane))
     out = subprocess.run(
-        ["node", str(LANE_DOM), str(js), motion, json.dumps(clicks)],
+        argv,
         check=True,
         capture_output=True,
         text=True,
@@ -201,6 +216,29 @@ def test_a_quick_click_on_another_row_swaps_instead_of_opening(tmp_path: Path) -
     steps = _run_lane(tmp_path, "reduce", [(1, 0), (2, 200)])["steps"]
     assert steps[1]["opened"] == [] and steps[1]["primary"] == "plain"
     assert steps[1]["order"] == ["plain", "ask", "later-email"]
+
+
+SHARED_ID = [("T001", "beta", False), ("T002", "alpha", False), ("T001", "alpha", False)]
+
+
+@needs_node
+def test_a_live_refresh_reopens_the_picked_project_s_item_when_ids_collide(
+    tmp_path: Path,
+) -> None:
+    steps = _run_lane(tmp_path, "reduce", [(0, 0), ("refresh",)], SHARED_ID)["steps"]
+    assert steps[0]["primary"] == "T001" and steps[0]["project"] == "/p/beta"
+    assert steps[1]["project"] == "/p/beta" and steps[1]["primary"] == "T001"
+    assert steps[1]["order"] == ["T001", "T002", "T001"] and steps[1]["opened"] == []
+
+
+@needs_node
+def test_a_double_tap_where_the_first_landed_opens_the_picked_item_s_project(
+    tmp_path: Path,
+) -> None:
+    lane = [("ask", "alpha", True), ("T001", "beta", False)]
+    steps = _run_lane(tmp_path, "reduce", [(1, 0), (1, 200)], lane)["steps"]
+    assert steps[0]["order"] == ["T001", "ask"]  # alpha's old card now sits under the pointer
+    assert steps[1]["opened"] == ["/p/beta"] and steps[1]["project"] == "/p/beta"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")

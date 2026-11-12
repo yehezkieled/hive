@@ -24,7 +24,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from hive.gateway import pages, terminal
 from hive.gateway.actions import Tokens
-from hive.gateway.app import create_app, terminal_csp
+from hive.gateway.app import FONTS_DIR, create_app, terminal_csp
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.terminal import Op
 from tests.gateway.test_stack_home import _in_chrome, needs_chrome
@@ -848,12 +848,48 @@ def test_fit_shows_the_whole_pane_after_a_font_change(
 ) -> None:
     """After A+ and back to Fit, the frame does not overflow and scroll the pane's top rows
     out of view: xterm's scrollbar follows the new font, and its hidden input stays small."""
+    r = _in_chrome(tmp_path, _live_page(), FIT_DRIVER, size, prelude=FAKE_DESK)
+    assert r["fit"] == "true"
+    assert abs(r["bar"] - r["xterm"]) <= 1, r
+    assert r["over"] <= 0 and r["top"] == 0, r
+
+
+def _live_page() -> str:
+    """The Terminal page with the pinned emulator inline and the desk's own fonts (a file://
+    page cannot fetch from the desk): the fit depends on the real font's cell size."""
     page = pages.render_terminal(pages.Ctx("t"), True)
     tag = f"<script src='/vendor/{pages.XTERM_JS}' integrity='{pages.XTERM_SRI}'></script>"
     assert tag in page
     xterm = (pages.VENDOR_DIR / pages.XTERM_JS).read_text().replace("</script", "<\\/script")
     page = page.replace(tag, f"<script>{xterm}</script>")
-    r = _in_chrome(tmp_path, page, FIT_DRIVER, size, prelude=FAKE_DESK)
-    assert r["fit"] == "true"
-    assert abs(r["bar"] - r["xterm"]) <= 1, r
+    return page.replace("url(/fonts/", f"url({FONTS_DIR.as_uri()}/")
+
+
+OPEN_DRIVER = r"""
+function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}
+await document.fonts.ready;q('#term-open').requestSubmit();await wait(600);
+var f=q('#term-frame'),k=q('#term-keys'),b=k.querySelectorAll('button');
+R.plex=document.fonts.check('500 13px "IBM Plex Mono"');
+R.top=f.scrollTop;R.over=f.scrollHeight-f.clientHeight;
+R.keys=b[b.length-1].getBoundingClientRect().right-k.getBoundingClientRect().right;
+R.sideways=k.scrollWidth-k.clientWidth;
+"""
+
+
+@needs_chrome
+@pytest.mark.parametrize("start", [8, 10, 22], ids=lambda n: f"from-{n}px")
+@pytest.mark.parametrize(
+    "size", [(768, 1024), (820, 1180), (1024, 768), (1180, 820), (1280, 800), (1440, 900)]
+)
+def test_a_fresh_open_shows_the_whole_pane_and_every_key(
+    tmp_path: Path, size: tuple[int, int], start: int
+) -> None:
+    """The terminal opens at the font size the last visit saved, and Fit guesses from a cell at
+    that size; xterm rounds a cell to whole pixels, so the guess can come out a row too tall and
+    scroll the pane's top row away. On an iPad or a PC the whole pane shows as it opens, and the
+    key row holds every key, Fit included, without scrolling sideways (a phone's row scrolls)."""
+    saved = f"localStorage.setItem('hive-terminal','{{\"fs\":{start},\"fit\":true}}');"
+    r = _in_chrome(tmp_path, _live_page(), OPEN_DRIVER, size, prelude=saved + FAKE_DESK)
+    assert r["plex"], r  # measured in the desk's font, not a fallback
     assert r["over"] <= 0 and r["top"] == 0, r
+    assert r["keys"] <= 0 and r["sideways"] == 0, r

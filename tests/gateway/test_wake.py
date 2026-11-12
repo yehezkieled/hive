@@ -686,7 +686,7 @@ def test_desk_shows_down_with_a_wake_button(tmp_path: Path) -> None:
     c.get("/", headers=GOOD)
     time.sleep(0.1)
     page = c.get("/", headers=GOOD).text
-    assert "firstmate · down" in page and "no session process" in page
+    assert "firstmate · </span>down</span>" in page and "no session process" in page
     assert "action='/act/wake'" in page and "Wake firstmate</button>" in page
 
 
@@ -695,7 +695,7 @@ def test_desk_shows_alive_without_a_button(tmp_path: Path) -> None:
     c.get("/", headers=GOOD)
     time.sleep(0.1)
     page = c.get("/", headers=GOOD).text
-    assert "firstmate · alive" in page and "session running" in page
+    assert "firstmate · </span>alive</span>" in page and "session running" in page
     assert "/act/wake" not in page and "/act/restart" not in page
 
 
@@ -704,7 +704,7 @@ def test_desk_shows_restart_not_wake_for_a_silent_watcher(tmp_path: Path) -> Non
     c.get("/", headers=GOOD)
     time.sleep(0.1)
     page = c.get("/", headers=GOOD).text
-    assert "firstmate · session up, watcher silent" in page
+    assert "firstmate · </span>session up, watcher silent</span>" in page
     assert "action='/act/restart'" in page and "Restart session</button>" in page
     assert "/act/wake" not in page
 

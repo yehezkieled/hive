@@ -798,7 +798,7 @@ def test_the_page_lists_each_sign_in_with_renew_where_the_desk_can_do_it(
         res = c.get("/signins", headers=GOOD)
         assert res.status_code == 200
         main = _main(res.text)
-    assert "<h1>Sign-ins</h1>" in main and main.count("<li class='mrow sgrow") == 3
+    assert "<h1>Sign-ins</h1>" in main and main.count("<li class='sgrow sgrow--") == 3
     for label in ("<b>Claude</b>", "<b>GitHub</b>", "<b>Tailscale, this PC</b>"):
         assert label in main
     assert ">21 Nov 2026, 4:51 PM</time>" in main  # the Claude sign-in's end, with its year
@@ -1080,7 +1080,10 @@ def test_every_action_and_the_page_answer_within_a_second_when_the_commands_hang
     with _client(create_app(fakes.settings(tmp_path, home), tokens=CSRF)) as c:
         for label in ("page, nothing read yet", "page, reads still hanging"):
             page = clock(label, lambda: c.get("/signins", headers=GOOD))
-            assert page.status_code == 200 and _main(page.text).count("mrow--unknown") == 3
+            assert (
+                page.status_code == 200
+                and _main(page.text).count("<li class='sgrow sgrow--unknown") == 3
+            )
         first = clock("confirm", lambda: act(c, "signin", provider="claude")).json()
         fields = {"provider": "claude", "rid": first["rid"], "step": first["step"]}
         token = clock("start", lambda: act(c, "signin", **fields)).json()["flow"]
@@ -1157,20 +1160,23 @@ def test_the_panel_reads_plainly_in_every_state() -> None:
 
 LAYOUT_DRIVER = """
 var f=q('#f');
-if(!(f.contentDocument&&f.contentDocument.querySelector('.mach')))
+if(!(f.contentDocument&&f.contentDocument.querySelector('.sgb')))
 await new Promise(function(r){f.addEventListener('load',r);});
-var w=f.contentWindow,d=w.document,e=d.documentElement;
+var w=f.contentWindow,d=w.document,e=d.documentElement,m=d.querySelector('main');
 function all(s){return [].slice.call(d.querySelectorAll(s));}
 function tall(x){return Math.round(x.getBoundingClientRect().height);}
 var a=d.getElementById('alerts');a.hidden=false;a.textContent='Alerts off';
 R.iw=w.innerWidth;R.ih=w.innerHeight;R.sw=e.scrollWidth;R.sh=e.scrollHeight;
+R.mainOver=m.scrollHeight>m.clientHeight+1;
 R.rows=all('.sgrow').length;
-R.cut=all('.chrome *,.mach *').filter(function(x){
+R.cut=all('.chrome *,main *').filter(function(x){
 return x.offsetParent&&x.getBoundingClientRect().right>w.innerWidth+0.5;}).length;
 R.navTops=all('.chrome__brand,.chrome nav a,#alerts').map(function(x){
-return Math.round(x.getBoundingClientRect().top);});
-R.chips=all('.sgrow .mstate').map(function(x){return Math.round(x.getBoundingClientRect().width);});
-R.taps=all('.mach button,.mach a.sgf__link,.mach input[type=text]').map(tall);
+var b=x.getBoundingClientRect();return Math.round(b.top+b.height/2);});
+function mid(x){var b=x.getBoundingClientRect();return b.top+b.height/2;}
+R.chips=all('.sgrow').map(function(x){
+return Math.round(Math.abs(mid(x.querySelector('.sgrow__top b'))-mid(x.querySelector('.sc'))));});
+R.taps=all('main button,main a.sgf__link,main input[type=text]').map(tall);
 var l=d.querySelector('.sgf__link');R.link=l?tall(l):0;
 R.dark=w.getComputedStyle(d.body).backgroundColor;
 """
@@ -1216,12 +1222,11 @@ def test_the_page_fits_phone_and_ipad_without_sideways_scroll(
     assert r["rows"] == 3
     assert r["sw"] <= r["iw"] and r["cut"] == 0, r  # no sideways scroll, nothing cut off
     _assert_link_rows(r["navTops"], size[0])
-    assert len(set(r["chips"])) == 1, r  # equal chips, so the labels line up down the page
+    assert max(r["chips"]) <= 2, r  # each state chip sits beside its sign-in's name
     assert r["taps"] and min(r["taps"]) >= 44, r  # every control is a full touch target
     if flow in ("claude", "github"):
         assert r["link"] >= 56, r  # the sign-in link is the biggest thing to tap
-    if name.startswith("ipad") and flow in ("idle", "claude"):
-        assert r["sh"] <= r["ih"], r  # the whole page in one screen
+    assert r["sh"] <= r["ih"] and not r["mainOver"], r  # one screen: the cards scroll inside
 
 
 COLOUR_DRIVER = """
@@ -1246,13 +1251,13 @@ def test_the_page_follows_light_and_dark(tmp_path: Path) -> None:
     (tmp_path / "dark").mkdir()
     lit = _in_chrome(tmp_path / "light", page, COLOUR_DRIVER, (820, 1180))
     dim = _in_chrome(tmp_path / "dark", dark, COLOUR_DRIVER, (820, 1180))
-    assert (lit["page"], dim["page"]) == ("rgb(242, 236, 216)", "rgb(22, 20, 15)")
+    assert (lit["page"], dim["page"]) == ("rgb(244, 239, 229)", "rgb(12, 10, 8)")
     assert "missing" not in lit.values()
     same = [k for k in lit if lit[k] == dim[k]]
     assert same == [], same
-    # the big link stays readable in both: light on dark, then dark on light
-    assert (lit["link"], lit["linkText"]) == ("rgb(31, 24, 18)", "rgb(250, 247, 237)")
-    assert (dim["link"], dim["linkText"]) == ("rgb(239, 233, 218)", "rgb(32, 29, 22)")
+    # the big link is the desk's primary button in both: white on amber, then ink on honey
+    assert (lit["link"], lit["linkText"]) == ("rgb(140, 100, 24)", "rgb(255, 255, 255)")
+    assert (dim["link"], dim["linkText"]) == ("rgb(201, 164, 90)", "rgb(12, 10, 8)")
 
 
 FLOW_FETCH = (

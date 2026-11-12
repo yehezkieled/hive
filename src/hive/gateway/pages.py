@@ -40,500 +40,602 @@ CSS = """
 @font-face{font-family:"IBM Plex Mono";font-weight:500;font-display:swap;src:url(/fonts/ibm-plex-mono-500.woff2) format("woff2")}
 @font-face{font-family:"IBM Plex Mono";font-weight:600;font-display:swap;src:url(/fonts/ibm-plex-mono-600.woff2) format("woff2")}
 @font-face{font-family:"IBM Plex Mono";font-weight:700;font-display:swap;src:url(/fonts/ibm-plex-mono-700.woff2) format("woff2")}
-@font-face{font-family:"Nunito";font-weight:200 1000;font-display:swap;src:url(/fonts/nunito.woff2) format("woff2")}
-@font-face{font-family:"Nunito Sans";font-weight:200 1000;font-display:swap;src:url(/fonts/nunito-sans.woff2) format("woff2")}
+@font-face{font-family:"Familjen Grotesk";font-weight:400 700;font-display:swap;src:url(/fonts/familjen-grotesk.woff2) format("woff2")}
+/* Comb (docs/design/comb-redesign.html): cream ground, honey for identity, one action colour */
 :root{
---paper:#faf7ed;--paper-2:#f2ecd8;--paper-soft:#f6f1de;--paper-shadow:rgba(60,45,25,.08);
---ink:#1f1812;--ink-2:#3d332a;--ink-3:#6f6356;--ink-4:#a79a89;
---rule:#1f1812;--rule-soft:#d9cfb6;--rule-faint:#e8dfc8;
---accent:#c8382a;--accent-soft:#f6dcd6;--amber:#b7741a;--amber-soft:#f4e4c8;
---honey:#e0a726;--honey-soft:#f9ecc6;--ochre:#8a6a1a;--sage:#4d8a3a;--sage-soft:#d7e6c5;
---bar:#1f1812;--bar-ink:#faf7ed;
---font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
---font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
---font-display:"Nunito","Inter",system-ui,sans-serif;
---bg:var(--paper-2);--card:var(--paper);--mute:var(--ink-3);--line:var(--rule-soft);--acc:var(--amber);--ok:var(--sage)}
+--bg:#f4efe5;--card:#fffcf6;--surface:#e7dfcf;--ink:#29251e;--muted:#675e51;
+--line:rgba(41,37,30,.13);--line2:rgba(41,37,30,.28);--field:rgba(41,37,30,.54);
+--action:#8c6418;--action-ink:#fff;--honey:#e1ac10;--honey-ink:#2a1d04;--you-dot:#b8860b;--mark:#af7f0a;
+--ok:#2c7a3c;--warn:#b5530b;--down:#c0341d;--unk:#7d7262;--run:#3a6b8c;--armed-ink:#fff;
+--ok-t:rgba(44,122,60,.12);--warn-t:rgba(214,110,20,.15);--down-t:rgba(192,52,29,.11);--unk-t:rgba(41,37,30,.07);
+--run-t:rgba(58,107,140,.13);--you-t:rgba(225,172,16,.24);
+--comb-o:.08;--shadow:rgba(40,25,0,.16);--scrim:rgba(20,16,12,.5);
+--fd:"Familjen Grotesk",system-ui,sans-serif;--ft:"Familjen Grotesk",system-ui,sans-serif;
+--fm:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+--r1:4px;--r2:8px;--r3:12px;--rb:8px;--e:cubic-bezier(.2,.8,.2,1);
+--hex:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);
+--arrow:polygon(12.5% 43.75%,68.25% 43.75%,49.75% 25.25%,58.58% 16.42%,92.17% 50%,58.58% 83.58%,49.75% 74.75%,68.25% 56.25%,12.5% 56.25%);
+--gut:80px}
 @media (prefers-color-scheme:dark){:root{
---paper:#201d16;--paper-2:#16140f;--paper-soft:#2a261d;--paper-shadow:rgba(0,0,0,.35);
---ink:#efe9da;--ink-2:#d6cfbf;--ink-3:#a39c8a;--ink-4:#7c7566;
---rule:#8f8775;--rule-soft:#3a352a;--rule-faint:#2e2a21;
---accent:#f0715f;--accent-soft:#4a2620;--amber:#e0a050;--amber-soft:#43331c;
---honey:#e8b640;--honey-soft:#3d3218;--ochre:#d9b45a;--sage:#7fc48c;--sage-soft:#22351f;
---bar:#efe9da;--bar-ink:#16140f}}
+--bg:#0c0a08;--card:#181512;--surface:#26211b;--ink:#f7f2e8;--muted:#a39b8f;
+--line:rgba(247,242,232,.12);--line2:rgba(247,242,232,.27);--field:rgba(247,242,232,.38);
+--action:#c9a45a;--action-ink:#0c0a08;--honey:#f0b429;--honey-ink:#1a1206;--you-dot:#f0b429;--mark:#f0b429;
+--ok:#6cc784;--warn:#f0904a;--down:#ff7a66;--unk:#a39b8f;--run:#8db9d8;--armed-ink:#1a1206;
+--ok-t:rgba(108,199,132,.15);--warn-t:rgba(240,144,74,.17);--down-t:rgba(255,122,102,.15);--unk-t:rgba(247,242,232,.09);
+--run-t:rgba(141,185,216,.15);--you-t:rgba(240,180,41,.2);
+--comb-o:.07;--shadow:rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6)}}
+@media (max-width:1279px){:root{--gut:32px}}
+@media (max-width:1023px){:root{--gut:24px}}
+@media (max-width:640px){:root{--gut:16px}}
 *,*::before,*::after{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--font-sans);
--webkit-font-smoothing:antialiased;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+/* one screen: the viewport is the page. Nothing scrolls the page; a long list scrolls inside its panel */
+html{height:100%;background:var(--bg);-webkit-text-size-adjust:100%}
+body{margin:0;height:100vh;height:var(--app-h,100dvh);display:flex;flex-direction:column;overflow:hidden;position:relative;isolation:isolate;
+background:var(--bg);color:var(--ink);font:16px/1.45 var(--ft);-webkit-font-smoothing:antialiased}
+.comb{position:absolute;inset:0;z-index:-1;width:100%;height:100%;color:var(--ink);opacity:var(--comb-o);pointer-events:none}
 button,input,label,summary,a{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-main{max-width:960px;margin:0 auto;padding:12px 0 calc(48px + var(--bar-room,0px) + env(safe-area-inset-bottom))}
-h1{font:900 1.4rem var(--font-display);letter-spacing:-.4px;margin:.6rem 0}
-h2{font:800 1.05rem var(--font-display);margin:1.6rem 0 .6rem}
-a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
-/* the top bar: one frame, one layout and the same links on every page, so it never moves when the
-   page changes. The links sit right after the brand, so the chips' changing labels cannot push them,
-   and the stable gutter keeps a page's own scrollbar from shifting the frame. */
-html{scrollbar-gutter:stable}
-.chrome{flex:none;width:100%;max-width:960px;margin:0 auto;padding:12px 2px 0;display:grid;align-items:center;
-column-gap:10px;grid-template-columns:auto auto minmax(0,1fr) auto;grid-template-areas:"brand nav fm q"}
-.chrome__brand{grid-area:brand;font-family:var(--font-display);font-weight:900;font-size:17px;letter-spacing:-.3px;
-color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
-.chrome__brand span{color:var(--accent)}
-.chrome nav{grid-area:nav;display:flex;align-items:center;gap:2px}
-.chrome nav a,#alerts{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 10px;
-border-radius:999px;font:700 11px var(--font-mono);letter-spacing:.4px;color:var(--ink-3);text-decoration:none;
-white-space:nowrap;background:transparent;border:1.5px solid transparent;cursor:pointer}
-#alerts[hidden]{display:none}
-.chrome nav a[aria-current]{color:var(--ink);border-color:var(--rule-soft);background:var(--paper)}
-#fmchip{grid-area:fm;justify-self:end;min-width:0}#qchip{grid-area:q}
-#fmchip .qchip{white-space:normal;padding:4px 12px}#fmchip>*{text-align:left}
-@media (min-width:1100px){.chrome{max-width:1480px}}
-/* narrower than a desktop (iPad portrait, phones): the chips share the brand's row and the links get
-   a row of their own; the firstmate label may wrap and its panel hangs from the bar's right edge */
-@media (max-width:999px){.chrome{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"brand fm q" "nav nav nav";
-row-gap:6px;position:relative}#fmchip{position:static}#fmchip .fmpop{top:auto;margin-top:6px}}
-/* phones: the links as two even rows of four */
-@media (max-width:599px){.chrome nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
-.chrome nav a,#alerts{padding:0 4px}}
-@media (max-width:450px){.chrome{column-gap:6px}.chrome nav a,#alerts{letter-spacing:.2px}}
-@media (max-width:400px){.chrome nav a,#alerts{padding:0 2px;letter-spacing:0;font-size:10.5px}}
-.tail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;
-font:12px/1.35 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;
-min-height:12rem;max-height:70vh;overflow:auto}
-.banner{border:1px solid var(--accent);border-radius:10px;padding:12px;margin:12px 0;
-background:var(--card)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
-.need{background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:12px;
-margin:8px 0;overflow-wrap:anywhere}
-.need .what{font-weight:700}.sub{display:block;color:var(--mute);font-size:.8rem;margin-top:2px}
-.tag{display:inline-block;font:700 .66rem var(--font-mono);text-transform:uppercase;letter-spacing:.06em;
-border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-right:6px;color:var(--mute)}
-.row{padding:10px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
-form{margin:8px 0}textarea,input[type=text],select{width:100%;font:inherit;color:var(--ink);
-background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px}
-textarea{min-height:5.5rem}label{display:block;font-size:.88rem;color:var(--mute);margin:6px 0 2px}
-button{font:inherit;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);
-border-radius:8px;padding:8px 14px;min-height:44px;cursor:pointer}
-button.quiet{background:transparent;color:var(--ink)}button.danger{background:var(--accent);border-color:var(--accent);color:#fff}
-.inline{display:inline-block;margin:4px 6px 4px 0}details{margin-top:8px}summary{cursor:pointer;color:var(--acc);
-min-height:32px}
-.ok{border-color:var(--ok)}.bubble{white-space:pre-wrap;overflow-wrap:anywhere}
-.thread{display:flex;flex-direction:column;gap:10px;margin:12px 0}
-.msg{max-width:85%;border-radius:14px;padding:8px 12px;border:1px solid var(--line);
-background:var(--card)}
-.msg.me{align-self:flex-end;border-color:var(--acc)}.msg.fm{align-self:flex-start;border-color:var(--ok)}
-.msg .meta{display:block;color:var(--mute);font-size:.78rem;margin-top:4px}
-.msg.is-err{border-color:var(--accent)}.msg.is-err .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
-.msg .meta button{min-height:44px;padding:0 16px}
-.dock{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(8px + env(safe-area-inset-bottom));
-border-top:1px solid var(--line)}
-.dock form{margin:0}.dock textarea{min-height:3rem}
-/* chat: one full-height screen; only the message list scrolls, the box stays put */
-body.chatpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
-display:flex;flex-direction:column}
-.chatpage main{flex:1;min-height:0;width:100%;box-sizing:border-box;display:flex;flex-direction:column;
-position:relative;padding:0 12px}
-.chatpage h1{flex:none;font-size:1.15rem;margin:8px 0 0}.chatpage .banner{flex:none}
-.chatpage .thread{flex:1;min-height:0;margin:0;padding:12px 0;overflow-y:auto;overflow-x:hidden;
--webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.chatpage .dock{flex:none;position:static;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
-.chatpage .dock form{display:flex;gap:8px;align-items:flex-end}
-.chatpage .dock label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.chatpage .dock textarea{flex:1;min-height:44px;max-height:30vh;resize:none;margin:0;font-size:16px}
-.chatpage .dock button{flex:none;min-height:44px;min-width:64px}
-#jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
-min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
-#jump[hidden]{display:none}
-@media (max-width:480px){.msg{max-width:94%}.dbar__go{padding:0 12px}}
-/* quota chip: the busier of the two plan windows, as percent used; tap shows both */
-.qwrap{position:relative;margin:0}
-.qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
-background:var(--paper);padding:0 12px;min-height:44px;font:700 11px var(--font-mono);cursor:pointer;
-color:var(--ink);list-style:none;white-space:nowrap}
+button,input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+main{flex:1 1 0;min-height:0;width:min(1280px,100% - 2 * var(--gut));margin-inline:auto;display:flex;flex-direction:column;
+overflow-x:hidden;overflow-y:auto;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+h1{font:600 28px/1.1 var(--fd);letter-spacing:-.03em;margin:0}
+h2{font:600 18px/1.2 var(--fd);letter-spacing:-.015em;margin:0}
+p{margin:0}
+a{color:inherit;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+a:hover{text-decoration-color:currentColor}
+.mute{color:var(--muted);font-size:15px}
+code{font:13px var(--fm)}
+/* the top bar: one width, one height and the same links on every page, so it never moves when the
+   page changes. The links sit right after the brand, so the chips' changing labels cannot push them */
+.chrome{flex:none;position:relative;z-index:20;display:grid;grid-template-columns:auto auto minmax(0,1fr);
+grid-template-areas:"brand nav st";align-items:center;column-gap:28px;height:calc(57px + env(safe-area-inset-top));
+padding:env(safe-area-inset-top) max(var(--gut),50% - 640px) 0;background:var(--card);border-bottom:1px solid var(--line)}
+.chrome__brand{grid-area:brand;display:inline-flex;align-items:center;gap:9px;height:44px;font:600 21px/1 var(--fd);
+letter-spacing:-.025em;color:var(--ink);text-decoration:none}
+.chrome__brand svg{flex:none;width:24px;height:24px;fill:var(--honey)}
+.chrome nav{grid-area:nav;display:flex;align-items:stretch;align-self:stretch;min-width:0}
+.chrome nav a{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;
+font:500 15px var(--ft);color:var(--muted);text-decoration:none;white-space:nowrap;transition:color .15s var(--e)}
+.chrome nav a:hover,.chrome nav a[aria-current]{color:var(--ink)}
+.chrome nav a[aria-current]::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;
+border-radius:2px 2px 0 0;background:var(--mark)}
+.chrome__st{grid-area:st;justify-self:end;display:flex;align-items:center;gap:8px;min-width:0}
+/* below a laptop the chips share the brand's row and the links get a full-width row of their own */
+@media (max-width:1023px){
+.chrome{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"brand st" "nav nav";height:calc(101px + env(safe-area-inset-top))}
+.chrome__brand{height:52px}
+.chrome nav{height:48px;margin-inline:calc(-1 * var(--gut));padding-inline:calc(var(--gut) - 12px);border-top:1px solid var(--line);
+justify-content:space-between;overflow-x:auto;scrollbar-width:none}
+.chrome nav::-webkit-scrollbar{display:none}}
+@media (max-width:640px){
+.chrome nav{padding-inline:4px}
+.chrome nav a{flex:1 0 auto;padding:0 6px;min-width:44px;font-size:14px}
+.chrome nav a[aria-current]::after{left:6px;right:6px}
+.chrome__st .qchip{padding:0 10px;gap:6px}
+.tchip__l{display:none}}
+@media (max-width:400px){.chrome nav a{padding:0 2px}.chrome nav a[aria-current]::after{left:2px;right:2px}}
+/* a 320 px slide-over still takes all seven in one row: smaller type, no padding to spare */
+@media (max-width:374px){.chrome nav{padding-inline:0}.chrome nav a{min-width:0;font-size:13px}
+.chrome{column-gap:10px}.chrome__brand{min-width:44px}.chrome__brand span{display:none}
+.chrome__st{gap:6px}.chrome__st .qchip{padding:0 8px}}
+/* the chips: firstmate's liveness and the busier plan window; a tap opens a panel under the bar */
+.qwrap{margin:0}
+.qchip{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border:1px solid var(--line);
+border-radius:var(--rb);background:var(--card);font:500 14px var(--ft);color:var(--ink);cursor:pointer;list-style:none;white-space:nowrap}
 .qchip::-webkit-details-marker{display:none}
-.qchip__bar{width:30px;height:5px;border-radius:3px;background:var(--rule-faint);overflow:hidden;display:inline-block}
-.qchip__bar i{display:block;height:100%;background:var(--sage)}
-.qchip--warn{border-color:var(--amber)}.qchip--warn .qchip__bar i{background:var(--amber)}
-.qchip--hot{border-color:var(--accent);background:var(--accent-soft)}.qchip--hot .qchip__bar i{background:var(--accent)}
-.qchip--unknown{color:var(--ink-4)}
-.qpop{position:absolute;right:0;top:50px;z-index:5;background:var(--paper);border:1.5px solid var(--rule);
-border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px var(--paper-shadow);font:10.5px/1.4 var(--font-mono);
-min-width:210px;color:var(--ink-2)}
-.qpop{max-width:min(320px,calc(100vw - 24px))}
-.qpop__alerts{margin-top:6px;padding-top:8px;border-top:1px solid var(--rule-faint);white-space:normal}
-.qpop__alerts h3{margin:0 0 4px;font:800 11px var(--font-mono);color:var(--ink);text-transform:uppercase;letter-spacing:.04em}
-.qpop__alerts p{margin:0 0 4px}.qpop__alerts ol{margin:0 0 4px;padding-left:18px}.qpop__alerts li{padding:2px 0}
+.qwrap[open]>.qchip{border-color:var(--ink)}
+#alerts{color:var(--muted)}#alerts[hidden]{display:none}
+.dot{flex:none;width:9px;height:10px;clip-path:var(--hex);background:var(--unk)}
+.qchip__bar{display:inline-block;width:28px;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.qchip__bar i{display:block;height:100%;background:var(--unk)}
+.qchip--ok .dot,.qchip--ok .qchip__bar i,.dot--ok{background:var(--ok)}
+.qchip--warn .dot,.qchip--warn .qchip__bar i,.dot--warn{background:var(--warn)}
+.qchip--hot .dot,.qchip--hot .qchip__bar i,.dot--hot{background:var(--down)}
+.qchip--hot{border-color:var(--down)}
+.qchip--unknown{color:var(--muted)}
+.qpop{position:absolute;right:max(var(--gut),50% - 640px);top:calc(100% + 8px);z-index:30;width:360px;
+max-width:calc(100% - 2 * var(--gut));max-height:calc(var(--app-h,100dvh) - 140px);overflow-y:auto;padding:18px;
+border:1px solid var(--line2);border-radius:var(--r3);background:var(--card);color:var(--ink);
+box-shadow:0 16px 40px var(--shadow);font:15px/1.45 var(--ft);white-space:normal}
+.qpop h3{display:flex;align-items:center;gap:8px;margin:0 0 4px;font:600 16px var(--fd)}
+.qpop>div{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line)}
+.qpop b{font-weight:600;text-align:right}.qpop span,.qpop b{min-width:0}
+.qpop .qpop__note{min-height:0;padding-top:8px;border-bottom:0;color:var(--muted);font-size:14px}
+.qpop__alerts{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.qpop__alerts h3{font-size:15px}
+.qpop__alerts p{margin:0 0 4px;color:var(--muted)}.qpop__alerts ol{margin:0 0 4px;padding-left:20px}.qpop__alerts li{padding:2px 0}
 .qpop__alerts #alerts-note:empty{display:none}
-.qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
-.fmpop{white-space:normal;max-width:min(300px,86vw)}.fmpop p{margin:0 0 8px}.fmpop form{margin:0}
-.wdpanel{margin-top:6px;padding-top:8px;border-top:1px solid var(--rule-faint)}.wdpanel p{margin:0 0 6px}
-.wdlog{list-style:none;margin:6px 0 0;padding:0;font-size:12px;color:var(--ink-4)}.wdlog li{padding:2px 0}
-.qpop b{color:var(--ink)}.qpop span,.qpop b{white-space:nowrap}.qpop .qpop__note{color:var(--ink-4)}
-/* the Stack home (docs/design/T002-stack-home.html) */
-.screen{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.4}
-.screen :where(p,h1,h2,h3,li,span,code,b){overflow-wrap:anywhere}
-.screen form{margin:0}
-.stamp{font:10px var(--font-mono);color:var(--ink-3);letter-spacing:.5px;margin:0 2px}
-.land{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
-.land__col{display:flex;flex-direction:column;gap:12px;min-width:0}
-@media (min-width:900px){.land{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}}
-/* wide desk: use the width; the phone layout above is untouched */
-@media (min-width:1100px){
-.wide main{max-width:1480px}
-.wide .screen{min-height:calc(100vh - 96px);gap:16px}
-.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr);gap:20px}
-.wide .land__col{gap:16px}
-.wide .pcs{grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-.wide .dbar{padding:10px 10px 10px 16px;box-shadow:0 8px 24px var(--paper-shadow)}
-.wide input.dbar__in{font-size:15px}
-}
-/* the desk is one screen at every size: the viewport is the page, only the content scrolls, and the
-   delegate bar is its last row, flush with the viewport bottom (the safe-area inset lives inside it) */
-body.wide{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
-display:flex;flex-direction:column;padding-bottom:0}
-.wide main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:8px 0 0;overflow-y:auto}
-.wide .screen{flex:1;min-height:0;gap:10px}
-.wide .land{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.wide .dbar-wrap{position:static;margin:0;flex:none;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
-/* on PC, laptop and tablet each panel scrolls on its own */
-@media (min-width:700px) and (min-height:560px){
-.wide .land{overflow:visible;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:14px;align-items:stretch}
-.wide .land__col{min-height:0;gap:10px}
-.wide .nyl{display:flex;flex-direction:column;min-height:0;height:100%}
-.wide .nyl__head{flex:none}
-.wide .nyl__body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.wide .pcsec{display:flex;flex-direction:column;gap:6px;min-height:0;flex:0 1 auto;max-height:55%}
-.wide .pcs{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-align-content:start;grid-auto-rows:max-content;min-height:0;padding-bottom:2px}
-.wide .rvs{flex:1 1 0;min-height:0}
-.wide .rv__box{flex:1;min-height:0}
-.wide .rv__list{flex:1;max-height:none;min-height:0}
-.wide .stamp{flex:none}
-}
-@media (min-width:1100px) and (min-height:560px){.wide .land{grid-template-columns:minmax(440px,5fr) minmax(0,7fr)}}
-@media (min-width:700px) and (min-height:560px) and (max-width:1099px) and (orientation:portrait){
-.wide .land{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1.1fr) minmax(0,1fr)}
-.wide .land__col:last-child{flex-direction:row}
-.wide .land__col:last-child>*{flex:1 1 0;min-width:0}
-.wide .pcs{grid-template-columns:minmax(0,1fr)}
-.wide .pcsec{max-height:none}
-}
-.nyl{background:var(--paper);border:1.5px solid var(--rule);border-radius:16px;
-box-shadow:0 8px 24px var(--paper-shadow);overflow:hidden}
-.nyl__head{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1.5px solid var(--rule)}
-.nyl__head>*{min-width:0}
-.nyl__glyph{color:var(--accent);font-size:14px;line-height:1}
-.nyl__title{font-family:var(--font-display);font-weight:800;font-size:14px;margin:0}
-.nyl__count{margin-left:auto;font:700 10px var(--font-mono);letter-spacing:1px;background:var(--accent);
-color:#fff;padding:2px 9px;border-radius:999px}
-.nyl__body{padding:12px;display:flex;flex-direction:column;gap:10px}
-.state-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.state-dot--active{background:var(--sage)}.state-dot--idle{background:var(--ink-4)}
-.state-dot--error{background:var(--accent)}.state-dot--gated{background:var(--honey)}
-.nyi__entity{font:600 12px var(--font-mono);color:var(--ink)}
-.nyi__summary{width:100%;color:var(--ink-2);font-size:12.5px;margin:0}
-.nyi__summary b{color:var(--ink);font-weight:700}
-.dq__q{display:block;font-weight:600;color:var(--ink);line-height:1.4}
-.nyi__summary>b+.dq__q{margin-top:2px}
-.dq__opts{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
-.dq__opt{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:5px 8px;border:1px solid var(--rule-faint);border-radius:6px}
-.dq__opt b{font:700 .8rem var(--font-mono);color:var(--ink)}
-.dq__opt.is-rec{border-color:var(--honey);background:rgba(200,150,40,.12);color:var(--ink)}
-.dq__rec{margin-left:auto;font:700 10px var(--font-mono);text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2)}
-.dq__more{margin-top:6px}
-.dq__more summary{display:inline-flex;align-items:center;min-height:44px;min-width:44px;cursor:pointer;font-weight:700;color:var(--ink-2)}
-.dq__more p{margin:0 0 4px;white-space:pre-wrap;overflow-wrap:anywhere}
-.nyi__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.nyi__actions>*{min-width:0}
-.nyi__btns{display:flex;gap:7px;flex-wrap:wrap}
-input.nyi__reply{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:12px var(--font-mono);padding:6px 9px;
-border:1px solid var(--rule-soft);border-radius:7px;background:var(--paper);color:var(--ink)}
-.nyg{display:flex;flex-direction:column;gap:6px}
-.nyg+.nyg{border-top:1px solid var(--rule-faint);padding-top:10px}
-.nyg__head{display:flex;align-items:center;gap:8px;min-height:44px;color:inherit;text-decoration:none;flex-wrap:wrap}
-.nyg__head>*{min-width:0}
-.nyg__name{font:700 13px var(--font-display)}
-.nyg__mate{font:9px var(--font-mono);color:var(--ink-4)}
-.nyg__wait{font:700 9px var(--font-mono);letter-spacing:.5px;color:var(--ochre);background:var(--honey-soft);
-border-radius:999px;padding:2px 8px;white-space:nowrap}
-.nyg__count{margin-left:auto;font:700 10px var(--font-mono);color:var(--ink-3)}
-.nyg__items{display:flex;flex-direction:column;gap:2px}
-.nyx{position:relative;border:1px solid transparent;border-left:4px solid transparent;border-radius:12px}
-.nyx__bar{display:flex;align-items:center;gap:2px}
-.nyx__head{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;min-height:44px;padding:4px 6px;
-color:inherit;text-decoration:none;border-radius:7px;cursor:pointer}
-.nyx__head:hover{background:var(--paper-soft)}
-.nyx__head:focus-visible,.nyx__open:focus-visible{outline:2px solid var(--ochre);outline-offset:-2px}
-.nyx__id{font:10px var(--font-mono);color:var(--ink-4);flex-shrink:0;max-width:34%;overflow:hidden;
-text-overflow:ellipsis;white-space:nowrap}
-.nyx__title{flex:1 1 150px;min-width:0;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;
-white-space:nowrap}
-.nyx__tag{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
-border:1px solid var(--rule-faint);border-radius:999px;padding:1px 7px;background:var(--paper-soft);
-white-space:nowrap}
-.nyx__tag--hold{color:var(--ochre);border-color:var(--honey-soft);background:var(--honey-soft)}
-.nyx__open{font:9px var(--font-mono);color:var(--ink-4);white-space:nowrap;min-height:44px;min-width:44px;
-display:inline-flex;align-items:center;justify-content:center;padding:0 6px;border-radius:7px;text-decoration:none}
-.nyx__open:hover{background:var(--paper-soft);color:var(--ink-2)}
-.nyx .state-dot,.nyx__more{display:none}
-.nyx.is-primary{background:var(--paper);border-color:var(--rule-soft);padding:2px 8px 12px;margin:4px 0}
-.nyx.is-primary.nyi--decision{border-left-color:var(--honey)}
-.nyx.is-primary.nyi--gate{border-left-color:var(--ochre)}
-.nyx.is-primary.nyi--mode{border-left-color:var(--amber)}
-.nyx.is-primary.nyi--queued{border-left-color:var(--sage)}
-.nyx.is-primary.nyi--blocked{border-left-color:var(--ink-4)}
-.nyx.is-primary .state-dot{display:block}
-.nyx.is-primary .nyx__title{display:none}
-.nyx.is-primary .nyx__id{font:600 12px var(--font-mono);color:var(--ink);max-width:none}
-.nyx.is-primary .nyx__head:hover{background:none}
-.nyx.is-primary .nyx__more{display:block;padding:0 4px}
-.nyx__more>.nyi__summary{margin:2px 0 6px}
-.nyx__desc{margin:0 0 8px;font-size:12.5px;line-height:1.45;color:var(--ink-3);border-left:2px solid var(--rule-faint);
-padding-left:9px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
+.fmpop p{margin:0 0 8px;color:var(--muted)}.fmpop form{margin:0}
+.fmpop>form{margin-top:12px}
+.fmpop__term{margin-top:12px!important}
+.wdpanel{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.wdpanel>p{flex:1 1 160px;margin:0;color:var(--ink)}
+.wdlog{flex-basis:100%;list-style:none;margin:0;padding:0;font-size:14px;color:var(--muted)}.wdlog li{padding:2px 0}
+/* shared parts */
+.ph{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;padding:20px 0 14px}
+.ph .sub,.ph>.mute{font-size:15px;color:var(--muted)}
+.ph__back{display:inline-flex;align-items:center;min-height:44px;font-size:15px;font-weight:600}
+@media (max-width:640px){.ph{padding:14px 0 10px}h1{font-size:23px}.ph .sub,.ph>.mute{flex-basis:100%;font-size:14px}}
+.meta,.stamp{font-size:13px;color:var(--muted)}
+.hexn{display:inline-grid;place-items:center;flex:none;width:28px;height:32px;clip-path:var(--hex);background:var(--honey);
+color:var(--honey-ink);font:600 14px/1 var(--ft)}
+.hexn--q{background:var(--surface);color:var(--ink)}
+.sl{display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:13px;font-weight:600;color:var(--muted)}
+.sl:first-child{margin-top:0}
+.sc{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;background:var(--unk-t);
+font:500 13px var(--ft);color:var(--ink);white-space:nowrap;flex:none}
+.sc i{flex:none;width:8px;height:9px;clip-path:var(--hex);background:var(--unk)}
+.sc--ok{background:var(--ok-t)}.sc--ok i{background:var(--ok)}
+.sc--warn{background:var(--warn-t)}.sc--warn i{background:var(--warn)}
+.sc--down{background:var(--down-t)}.sc--down i{background:var(--down)}
+.sc--run{background:var(--run-t)}.sc--run i{background:var(--run)}
+.sc--you{background:var(--you-t)}.sc--you i{background:var(--you-dot)}
+.sc--q{background:none;box-shadow:inset 0 0 0 1px var(--line2)}.sc--q i{background:var(--line2)}
+.tag{display:inline-block;padding:3px 8px;border-radius:var(--r1);background:var(--surface);font:13px var(--fm);color:var(--ink);white-space:nowrap}
+.bar{flex:1 1 auto;display:inline-block;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ink)}
+/* buttons: one filled primary (with its arrow), outlined secondaries */
+.btn{min-height:44px}
+.btn,button:not([class]):not([type=button]),button.quiet,button.danger{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+min-height:44px;padding:0 20px;border:1px solid transparent;border-radius:var(--rb);font:600 16px/1 var(--ft);cursor:pointer;
+white-space:nowrap;text-decoration:none;transition:transform .15s var(--e),filter .15s var(--e),border-color .15s var(--e)}
+.btn--p,button:not([class]):not([type=button]){background:var(--action);color:var(--action-ink)}
+.btn--p::after,button:not([class]):not([type=button])::after{content:"";flex:none;width:12px;height:12px;margin-right:-2px;background:currentColor;
+clip-path:var(--arrow);transition:transform .15s var(--e)}
+.btn--s,button.quiet,button.danger{background:var(--card);border-color:var(--line2);color:var(--ink)}
+.btn--danger,button.danger{color:var(--down)}
+.btn--sm{padding:0 14px;font-size:14px}
+.btn:hover,button:not([class]):not([type=button]):hover,button.quiet:hover,button.danger:hover{transform:translateY(-1px)}
+.btn--p:hover,button:not([class]):not([type=button]):hover{filter:brightness(1.08)}
+.btn--p:hover::after,button:not([class]):not([type=button]):hover::after{transform:translateX(3px)}
+.btn:active,button:not([class]):not([type=button]):active,button.quiet:active,button.danger:active{transform:translateY(1px) scale(.985)}
+.is-armed,button.is-armed{background:var(--warn)!important;border-color:var(--warn)!important;color:var(--armed-ink)!important}
+.is-armed::after{display:none}
+button:disabled,.btn[disabled]{opacity:.42;cursor:not-allowed;transform:none!important;filter:none!important}
+.lnk{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0;border:0;background:none;font-size:15px;font-weight:600;
+color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.lnk:hover{text-decoration-color:currentColor}
+form{margin:0}
+/* a field's edge is how you find it: --field keeps it at 3:1 or more on every ground (WCAG 1.4.11) */
+textarea,input[type=text],select,.inp{width:100%;min-height:44px;padding:9px 14px;border:1px solid var(--field);border-radius:var(--rb);
+background:var(--card);color:var(--ink);font:16px/1.4 var(--ft)}
+textarea{min-height:5.5rem;resize:vertical}
+::placeholder{color:var(--muted);opacity:1}
+label{display:block;margin:8px 0 4px;font-size:14px;font-weight:600;color:var(--muted)}
+label:has(input[type=checkbox]){display:flex;align-items:center;gap:8px;min-height:44px;color:var(--ink);font-weight:500}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--action)}
+details>summary{cursor:pointer}
+.banner{padding:12px 14px;border-radius:var(--r2);background:var(--warn-t);color:var(--ink);font-size:15px;overflow-wrap:anywhere}
+.banner.ok{background:var(--ok-t)}
+.banner form{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}.banner form p{flex-basis:100%}
+.act-err,.act-warn,.act-ok{margin:8px 0 0;font:600 14px/1.4 var(--ft);color:var(--down);white-space:normal}
+.act-ok{color:var(--ok)}
+.empty{display:grid;place-content:center;justify-items:center;gap:12px;height:100%;min-height:150px;color:var(--muted);text-align:center}
+.empty::before{content:"";width:44px;height:50px;clip-path:var(--hex);background:var(--surface)}
+/* panels: anything long scrolls here, never the page */
+.pgb{flex:1 1 0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:16px}
+.pn{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--card);border:1px solid var(--line);
+border-radius:var(--r3);container-type:inline-size;container-name:pn}
+.pn__h{flex:none;display:flex;align-items:center;gap:10px;min-height:54px;padding:8px 16px;border-bottom:1px solid var(--line)}
+.pn__h h2{white-space:nowrap}
+.pn__h .meta{margin-left:auto;white-space:nowrap}
+/* a panel's scrollbar is the only sign it scrolls, so its thumb takes --field's 3:1 too */
+.pn__b{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 16px 16px;overscroll-behavior:contain;
+-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--field) transparent}
+.pn__b--flush{padding:0 16px 8px}
+/* phone tabs: the panels of a page become tabs under its title */
+.tabs{display:none;flex:none;gap:4px;padding:4px;border-radius:var(--r2);background:var(--surface)}
+.tabs button{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;height:44px;padding:0 10px;
+border:0;border-radius:var(--r1);background:none;font:600 15px var(--ft);color:var(--muted);cursor:pointer;white-space:nowrap}
+.tabs button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px var(--shadow)}
+.tabs button small{font:400 13px var(--fm);color:var(--muted)}
+@media (max-width:640px){
+.pgb[data-tabs]{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important;gap:8px}
+.pgb[data-tabs]>.tabs--p{display:flex}
+.pgb[data-tabs] [data-tp]:not(.is-on){display:none!important}
+.pgb[data-tabs] .pn[data-tp]>.pn__h{display:none}}
+/* a modal sheet over the page */
+.sheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
+background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:var(--r3);
+box-shadow:0 16px 48px var(--shadow);overflow:hidden}
+.sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s var(--e)}
+.sheet.is-restored[open]{animation:none}
+.sheet{cursor:pointer}.sheet>*{cursor:auto}
+.sheet::backdrop{background:var(--scrim)}
+.sheet__head{flex:none;display:flex;align-items:center;gap:8px;min-height:54px;padding:4px 6px 4px 16px;border-bottom:1px solid var(--line)}
+.sheet__head>*{min-width:0}
+.sheet__head h2{flex:1;overflow-wrap:anywhere}
+.sheet__x{flex:none;min-width:44px;min-height:44px;padding:0;border:0;border-radius:var(--r2);background:transparent;color:var(--ink);font-size:26px;line-height:1;cursor:pointer}
+.sheet__x:hover{background:var(--surface)}
+.sheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;padding:0 16px env(safe-area-inset-bottom);
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.sheet__meta{flex:none;margin:0;padding:12px 16px;font-size:15px;color:var(--muted);border-bottom:1px solid var(--line)}
+.sheet__meta b{color:var(--ink);font-weight:600}
+.sheet__text{margin:0;padding:14px 0;font-size:16px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.sheet__about{flex:none;margin:0;padding:12px 16px 4px;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+.sheet__empty{margin:0;padding:14px 0;font-size:15px;color:var(--muted)}
+@keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+/* chat: one screen; the thread scrolls inside its panel and the box stays at the panel's foot */
+.chatpage main{width:min(880px,100% - 2 * var(--gut))}
+.chatpage .banner{flex:none;margin-bottom:12px}
+.chatpn{flex:1 1 0;min-height:0}
+.thread{display:flex;flex-direction:column;gap:20px}
+.msg{display:flex;flex-direction:column;align-items:flex-start;gap:5px;max-width:86%;min-width:0}
+.msg.me{align-self:flex-end;align-items:flex-end}
+.msg.fm{align-self:flex-start}
+.bubble{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.me .bubble{padding:11px 15px;border-radius:var(--r3);background:var(--surface)}
+.msg.me .rc{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;border:1px solid var(--line2);background:var(--card)}
+.rc>span:last-child{flex-basis:100%}
+.msg.fm .bubble{padding-left:14px;border-left:3px solid var(--honey)}
+.msg__who{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}
+.msg__who i{width:10px;height:11px;clip-path:var(--hex);background:var(--honey)}
+.msg .meta{display:block}
+.msg.is-err .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;color:var(--down)}
+.msg .meta button{min-height:44px;padding:0 16px}
+.dock{flex:none;padding:12px 16px;border-top:1px solid var(--line)}
+.dock form{display:flex;gap:8px;align-items:flex-end}
+.dock label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.dock textarea{flex:1;min-width:0;height:44px;min-height:44px;padding:10px 14px;resize:none;margin:0}
+.dock .btn{flex:none}
+#jump{position:absolute;left:50%;bottom:calc(var(--dock-h,69px) + 12px);transform:translateX(-50%);z-index:2;border-radius:999px;
+box-shadow:0 4px 14px var(--shadow)}
+#jump[hidden]{display:none}
+@media (max-width:640px){.msg{max-width:94%}.chatpage .dock{padding:10px 12px}}
+/* the desk: three panels side by side over the delegate bar. Below a laptop the two right-hand
+   panels share one column behind tabs; a phone tabs all three */
+.sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+body.wide main:has(>.screen){width:100%;padding-bottom:0;overflow:hidden}
+.screen{flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+.desk{width:min(1280px,100% - 2 * var(--gut));margin-inline:auto;padding:16px 0;
+grid-template-columns:minmax(0,5fr) minmax(0,4fr) minmax(0,3fr)}
+.desk--two{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.dcol{display:contents}
+@media (min-width:641px) and (max-width:1279px){
+.desk{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.desk .dcol{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0}
+.desk .dcol>.tabs--r{display:flex}
+.desk .dcol>.pn{flex:1 1 0}
+.desk:not(.desk--two) .dcol>.pn:not(.is-ron){display:none}
+.desk:not(.desk--two) .dcol>.pn>.pn__h{display:none}}
+@media (min-width:641px) and (max-width:1023px){
+.desk{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,3fr) minmax(0,2fr)}}
+@media (max-width:640px){.desk{padding:10px 0}}
+/* Needs you: decision cards (one open at a time), then held, blocked and queued tickets as rows */
+.nyl__body{display:flex;flex-direction:column}
+.nyg{display:flex;flex-direction:column}
+.nyg--cards{gap:8px}
+.nyx__head{color:inherit;text-decoration:none;cursor:pointer}
+.nyx__head:focus-visible{outline-offset:-2px}
+.nyx__more{display:none}
+.nyx.is-primary .nyx__more{display:block}
+.nyc{border:1px solid var(--line);border-radius:var(--r3);background:var(--card)}
+.nyc__head{display:flex;flex-wrap:wrap;align-items:center;gap:0 10px;width:100%;min-height:50px;padding:10px 16px;border-radius:var(--r3)}
+.nyc__head:hover{background:var(--surface)}
+.nyx.is-primary .nyc__head{padding-bottom:0;cursor:default}
+.nyx.is-primary .nyc__head:hover,.nyc--calm .nyc__head:hover{background:none}
+.nyc__where{flex:0 1 auto;display:flex;align-items:baseline;gap:8px;min-width:0;font-size:15px;font-weight:600;overflow:hidden;white-space:nowrap}
+.nyc__where code{font-weight:400;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.nyc__chev{margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)}
+.nyx.is-primary .nyc__chev{display:none}
+.nyc__head .nyc__what{flex-basis:100%;min-width:0;padding-top:4px;font-size:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.nyx.is-primary .nyc__head .nyc__what,.nyc__body .nyc__what{padding-top:10px;font:600 19px/1.3 var(--fd);letter-spacing:-.012em;
+white-space:normal;overflow-wrap:anywhere}
+.nyc__body .nyc__what{padding-top:0}
+.nyc__body{padding:0 16px 16px}
+.nyc__mean{margin-top:4px;font-size:16px;color:var(--muted);overflow-wrap:anywhere}
+.nyc__mean a{color:inherit}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
+.opt{display:flex;align-items:center;gap:12px;min-height:58px;padding:8px 16px;border:1px solid var(--line2);border-radius:var(--r2);
+background:var(--card);color:var(--ink);font:16px/1.3 var(--ft);text-align:left;cursor:pointer;
+transition:transform .15s var(--e),border-color .15s var(--e)}
+.opt b{flex:none;font:500 13px var(--fm);color:var(--muted)}
+.opt span{min-width:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
+.opt em{font-style:normal;font-size:13px;font-weight:600;color:var(--action)}
+.opt.is-rec{border:2px solid var(--action);padding:7px 15px}
+.opt:hover{transform:translateY(-1px)}
+.opt[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.opt[aria-pressed=true] b,.opt[aria-pressed=true] em{color:var(--bg)}
+.nyc__act{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.nyc__act>.btn{flex:none}
+input.nyi__reply{flex:1 1 100%;min-width:0;
+min-height:44px}
+.nyc__links{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 20px;margin-top:2px}
+.nyc__full>summary{list-style:none}
+.nyc__full>summary::-webkit-details-marker{display:none}
+.nyc__full[open]{flex-basis:100%}
+.nyc__full p{padding-bottom:8px;font-size:15px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.nyc__form label:first-child{margin-top:14px}
+.nyc__form>.btn{margin-top:10px}
+.nyx__desc{margin:10px 0 0;padding-left:10px;border-left:2px solid var(--line2);font-size:15px;line-height:1.45;color:var(--muted);
+overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden}
 .nyx__desc[data-ready]{cursor:pointer}
-.nyx__desc[data-ready]:hover{color:var(--ink-2)}
-.nyx__desc:focus-visible{outline:2px solid var(--ochre);outline-offset:2px}
+.nyx__desc[data-ready]:hover{color:var(--ink)}
 .nyx__desc[hidden]{display:none}
-.nyx__desc.is-pending{color:var(--ink-4);animation:nyx-pulse 1.4s ease-in-out infinite}
-.nyx.is-flip{transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
+.nyx__desc.is-pending{animation:nyx-pulse 1.4s ease-in-out infinite}
+.nyr{border-bottom:1px solid var(--line)}
+.nyr:last-child{border-bottom:0}
+.nyr .nyx__head{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 0}
+.nyr .nyx__head:hover .r__t{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.r__t{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px}
+.r__p{font:13px var(--fm);color:var(--muted);white-space:nowrap}
+.nyr.is-primary .r__t{white-space:normal;overflow-wrap:anywhere;font-weight:600}
+.nyr .nyx__more{padding:0 0 12px}
+.nyr__why{font-size:15px;color:var(--muted);overflow-wrap:anywhere}
+.nyx.is-flip{transition:transform .3s var(--e);will-change:transform}
 .nyx.is-lifted{z-index:2}
 .nyx.is-opening .nyx__more{animation:nyx-in .28s ease-out both}
 @keyframes nyx-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 @keyframes nyx-pulse{50%{opacity:.45}}
-@media (prefers-reduced-motion:reduce){.nyx,.nyx__more,.nyx__desc{animation:none!important;transition:none!important}}
-.nyq__more{display:inline-flex;align-items:center;font:10px var(--font-mono);color:var(--ink-3);text-decoration:none;
-padding:0 4px;min-height:44px}
-.rvs{display:flex;flex-direction:column;gap:6px}
-.rv__box{display:flex;flex-direction:column;background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;overflow:hidden}
-.rv__list{display:flex;flex-direction:column;max-height:min(44vh,300px);overflow-y:auto;overflow-x:hidden;
--webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.rvrow{display:flex;align-items:stretch;border-top:1px solid var(--rule-faint);flex:none}
-.rvrow:first-child{border-top:0}
-.rvrow:hover{background:var(--paper-soft)}
-.rvrow>form{display:flex;margin:0;flex:none}
-.rv{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:48px;padding:8px 6px 8px 12px;color:inherit;text-decoration:none}
-.rv>*{min-width:0}
-.rv__title{flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rv__proj{font:10px var(--font-mono);color:var(--ink-3);max-width:34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rv__reply{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ochre);
-background:var(--honey-soft);border-radius:999px;padding:2px 8px}
-.rv__go{font:10px var(--font-mono);color:var(--ink-4)}
-.rv__done{font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;color:var(--ink-3);
-border:1px solid var(--rule);border-radius:999px;padding:1px 7px;white-space:nowrap}
-.rv__x{min-width:56px;min-height:44px;align-self:center;padding:0 10px;border:0;border-radius:8px;background:transparent;
-color:var(--ink-3);font:700 10px var(--font-mono);cursor:pointer;white-space:nowrap}
-.rv__x:hover{background:var(--paper-soft);color:var(--ink)}
-.rv__x.is-armed{background:var(--accent);color:#fff}
-.rv__x--bulk{border:1.5px solid var(--rule);margin-right:4px}
+.nyq{display:flex;flex-wrap:wrap;gap:0 20px;margin-top:4px}
+@container pn (max-width:440px){
+.opts{grid-template-columns:minmax(0,1fr)}
+.nyc__act>.btn{flex:1 1 auto}
+.nyr .nyx__head{flex-wrap:wrap;gap:2px 10px;padding:8px 0}
+.r__t{order:3;flex-basis:100%;white-space:normal}}
+/* Projects: one row each; a tap focuses it (the delegate bar retargets), a second tap opens its detail */
+.pcs{display:flex;flex-direction:column}
+.pcs>.stamp{padding-top:8px}
+.pc{flex:none;position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto 76px;align-items:center;gap:10px;
+min-height:44px;padding:8px;margin:0 -8px;border-radius:var(--r2);color:inherit;text-decoration:none;cursor:pointer}
+.pc::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:1px;background:var(--line)}
+.pc:last-of-type::after,.pc.is-selected::after,.pc:has(+.pc.is-selected)::after{display:none}
+.pc:hover{background:var(--surface)}
+.pc.is-selected{background:var(--you-t)}
+.pc__n{display:flex;flex-direction:column;min-width:0}
+.pc__name{font-size:15px;font-weight:600;line-height:1.35;overflow-wrap:break-word}
+.pc__n small{font-size:13px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pc__mae{white-space:nowrap}
+.aka{margin-left:6px;font:400 13px var(--fm);color:var(--muted);white-space:nowrap}
+.pc__prog{display:flex;align-items:center;gap:6px;font:13px var(--fm);color:var(--muted)}
+.pc--blocked .bar i{background:var(--down)}
+@container pn (max-width:330px){.pc{grid-template-columns:minmax(0,1fr) auto auto}.pc__prog .bar{display:none}}
+/* the review list: open Lavish sessions; the list scrolls and "+N more" stays under it */
+.rvs{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.rv__box{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.rv__list{flex:0 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 16px;overscroll-behavior:contain;
+-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--field) transparent}
+.rvrow{display:flex;align-items:center;gap:10px;min-height:62px;padding:6px 0;border-bottom:1px solid var(--line)}
+.rvrow:last-child{border-bottom:0}
+.rvrow>form{flex:none;display:flex}
+.rv{flex:1 1 auto;min-width:0;min-height:44px;display:flex;flex-direction:column;justify-content:center;gap:3px;color:inherit;text-decoration:none}
+.rv:hover .rv__title{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.rv__title{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px;font-weight:500}
+.rv__meta{display:flex;align-items:center;gap:8px;min-width:0;font:13px var(--fm);color:var(--muted)}
+.rv__meta .sc{height:22px}
+.rv__meta:empty{display:none}
+.rv__proj{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.rv__done{flex:none;padding:1px 7px;border-radius:var(--r1);background:var(--surface);color:var(--ink);font:13px var(--fm);white-space:nowrap}
 form.is-sending .rv__x{opacity:.5}
-.rvs__nudge{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;padding:6px 6px 6px 12px;background:var(--honey-soft);
-border-radius:12px;font-size:12.5px;color:var(--ink)}
-.rvs__nudge>span{flex:1 1 160px;min-width:0}
-.rvs__nudge form{display:flex;margin:0}
-.rv__review{min-height:44px;padding:0 12px;border:1.5px solid var(--rule);border-radius:8px;background:transparent;
-color:var(--ink);font:700 10px var(--font-mono);cursor:pointer}
-.rv__morebtn{display:flex;align-items:center;width:100%;min-height:44px;padding:0 12px;border:0;border-top:1px solid var(--rule-faint);
-border-radius:0;background:transparent;color:var(--ink-3);font:10px var(--font-mono);cursor:pointer;text-align:left}
-.rv__morebtn:hover{background:var(--paper-soft)}
-.sheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
-background:var(--paper);color:var(--ink);border:1.5px solid var(--rule);border-radius:16px;
-box-shadow:0 16px 48px var(--paper-shadow);overflow:hidden}
-.sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s ease-out}
-.sheet.is-restored[open]{animation:none}
-.sheet{cursor:pointer}.sheet>*{cursor:auto}
-body:has(dialog[open]){overflow:hidden}
-.sheet::backdrop{background:rgba(20,16,12,.5)}
-.sheet__head{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 16px;border-bottom:1.5px solid var(--rule);flex:none}
-.sheet__head>*{min-width:0}
-.sheet__head h2{flex:1;margin:0;font:800 .95rem var(--font-display);overflow-wrap:anywhere}
-.sheet__x{min-width:44px;min-height:44px;padding:0;border:0;background:transparent;color:var(--ink);font-size:26px;line-height:1}
-.sheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;
--webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom)}
-.sheet__meta{margin:0;padding:10px 16px;font-size:12.5px;color:var(--ink-2);border-bottom:1px solid var(--rule-faint);flex:none}
-.sheet__text{margin:0;padding:14px 16px;font-size:14px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
-.sheet__about{margin:0;padding:12px 16px 4px;font-size:14px;line-height:1.5;color:var(--ink);overflow-wrap:anywhere;flex:none}
-.sheet__empty{margin:0;padding:14px 16px;font:10px var(--font-mono);color:var(--ink-3)}
-@keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.sheet[open]{animation:none}}
-.nyi__reply::placeholder{color:var(--ink-4)}
-.btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
-border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
-white-space:nowrap;text-decoration:none}
-.btn:active{transform:translateY(1px)}
-.btn--go{background:var(--ink);color:var(--paper)}
-.btn--allow{border-color:var(--sage);color:var(--sage)}
-.btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
-.calm{text-align:center;padding:16px 16px 18px}
-.calm__check{font-size:20px;color:var(--sage);line-height:1}
-.calm__line{font-family:var(--font-display);font-weight:800;font-size:15px;margin:8px 0 2px}
-.calm__sub{font:10px var(--font-mono);color:var(--ink-3);letter-spacing:.5px;margin:0}
-.nyl--calm .nyl__head{border-bottom-color:var(--rule-faint)}
-.nyl--calm .nyl__glyph{color:var(--sage)}
-.nyl--calm .nyl__count{background:var(--sage-soft);color:var(--ochre)}
-.cfg h2{margin:1.2rem 0 .4rem}
-.cfg .tblw{overflow-x:auto;border:1.5px solid var(--rule-soft);border-radius:10px;background:var(--paper)}
-.cfg table{border-collapse:collapse;width:100%;font-size:.88rem}
-.cfg th,.cfg td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule-faint);vertical-align:top;overflow-wrap:anywhere}
-.cfg th{font:700 9.5px var(--font-mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3)}
-.cfg th{white-space:nowrap}.cfg td:first-child{white-space:nowrap}
-.cfg tr:last-child td{border-bottom:0}
-.cfg .unk{color:var(--accent);font-weight:700}
-.cfg ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.cfg li{background:var(--paper);border:1.5px solid var(--rule-soft);border-radius:10px;padding:9px 11px;min-width:0}
-.cfg .when{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:.88rem}
-.cfg .prof{font:11px var(--font-mono);color:var(--ink-2);margin-top:4px;overflow-wrap:anywhere}
-.cfg .kv{font:12px var(--font-mono);display:flex;flex-wrap:wrap;gap:4px 14px;margin:0}
-.sec-label{font:700 9.5px var(--font-mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);margin:2px 2px -4px}
-.pcs{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
-.pc{display:flex;flex-direction:column;gap:7px;text-align:left;width:100%;min-height:44px;font:inherit;color:inherit;
-text-decoration:none;background:var(--paper);border:1.5px solid var(--rule-soft);border-left-width:4px;border-radius:12px;
-padding:11px 12px;cursor:pointer}
-.pc:hover{background:var(--paper-soft)}
-.pc--running{border-left-color:var(--sage)}.pc--idle{border-left-color:var(--ink-4)}.pc--blocked{border-left-color:var(--accent)}
-.pc.is-selected{border-color:var(--rule);border-left-width:4px;background:var(--honey-soft);
-box-shadow:0 0 0 2px var(--paper),0 0 0 3.5px var(--ink)}
-.pc__top{display:flex;align-items:center;gap:8px}
-.pc__top>*{min-width:0}
-.aka{font:10px var(--font-mono);color:var(--ink-4);font-weight:400;margin-left:6px;white-space:nowrap}
-.pc__name{font-family:var(--font-display);font-weight:800;font-size:14px}
-.pc__mae{font:10px var(--font-mono);color:var(--ink-3);flex:none;white-space:nowrap}
-.pc__status{margin-left:auto;flex:none;white-space:nowrap;font:700 8.5px var(--font-mono);letter-spacing:1px;text-transform:uppercase;
-border-radius:999px;padding:2px 8px;border:1px solid var(--rule-faint);background:var(--paper-soft);color:var(--ink-3)}
-.pc--running .pc__status{background:var(--sage-soft);color:var(--sage);border-color:var(--sage-soft)}
-.pc--blocked .pc__status{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-soft)}
-.pc__now{font-size:12px;color:var(--ink-2);margin:0}
-.pc__now b{color:var(--ink)}
-.pc__prog{display:flex;align-items:center;gap:8px;font:10px var(--font-mono);color:var(--ink-3)}
-.pc__track{flex:1;height:6px;border-radius:3px;background:var(--rule-faint);overflow:hidden}
-.pc__track i{display:block;height:100%;background:var(--sage)}
-.pc--blocked .pc__track i{background:var(--accent)}.pc--idle .pc__track i{background:var(--ink-4)}
-.pc__open{font:9px var(--font-mono);color:var(--ink-4);display:none}
-.pc.is-selected .pc__open{display:inline;color:var(--ink-2);font-weight:600}
-.dbar{display:flex;align-items:center;gap:8px;background:var(--bar);color:var(--bar-ink);border-radius:16px;padding:8px 8px 8px 12px}
-.dbar>*{min-width:0}
-.dbar__target{font:700 10px var(--font-mono);letter-spacing:.6px;white-space:nowrap;background:var(--honey);
-color:#1f1812;border-radius:999px;padding:4px 10px;overflow:hidden;text-overflow:ellipsis;max-width:45%}
-input.dbar__in{flex:1;min-width:0;width:auto;min-height:44px;background:transparent;border:0;color:var(--bar-ink);
-font:13px var(--font-sans);outline:none;padding:0}
-.dbar__in::placeholder{color:#a79a89}
-.dbar__go{font:700 11px var(--font-mono);border:0;border-radius:10px;padding:0 16px;min-height:44px;
-background:var(--bar-ink);color:var(--bar);cursor:pointer}
-.dbar-info{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0 4px 6px}
-.dbar-note{font:9px var(--font-mono);color:var(--ink-3);margin:0}
-.dbar-info .stamp{margin:0}
-.dbar-flash{font:700 11px var(--font-mono);color:var(--ochre);margin:0 4px 6px}
-.dbar-flash--err{color:var(--accent)}
+.rv__morebtn{flex:none;align-self:flex-start;display:inline-flex;align-items:center;min-height:44px;margin:0 16px 4px;padding:0;border:0;
+background:none;color:var(--ink);font:600 15px var(--ft);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.rv__morebtn:hover{text-decoration-color:currentColor}
+.rvs__nudge{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:10px 16px 0;padding:6px 6px 6px 12px;
+border-radius:var(--r2);background:var(--you-t);font-size:14px}
+.rvs__nudge>span{flex:1 1 100%;min-width:0;padding:4px 0}
+.rvs__nudge form{display:flex}
+.sheet__list>*{flex:none}
+.sheet__list .rvrow,.sheet__list>a.rv{min-height:56px;border-bottom:1px solid var(--line)}
+.sheet__list>a.rv:last-child{border-bottom:0}
+/* the delegate bar: who it sends to, the goal, Delegate and when the desk last read firstmate */
+.dbar-wrap{position:relative;flex:none;padding:10px 0 calc(10px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line)}
+.dbar__row{width:min(1280px,100% - 2 * var(--gut));margin-inline:auto;display:flex;align-items:center;gap:8px}
+form.dbar{display:contents}
+.dbar__target{flex:none;max-width:40%;height:44px;padding:0 14px;border-radius:var(--rb);background:var(--you-t);
+font-size:15px;font-weight:600;line-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+input.dbar__in{flex:1 1 200px;width:auto;min-width:0;
+min-height:44px}
+.dbar__go{flex:none;
+min-height:44px}
+.dbar__row>.stamp{flex:none;margin-left:8px;white-space:nowrap}
+.dbar.is-sending>*{opacity:.7}
+.dbar-flash{position:absolute;left:50%;bottom:calc(100% + 10px);z-index:5;transform:translateX(-50%);width:max-content;
+max-width:calc(100% - 2 * var(--gut));padding:10px 16px;border-radius:var(--r2);background:var(--ink);color:var(--card);
+font:600 15px/1.35 var(--ft);box-shadow:0 8px 24px var(--shadow)}
+.dbar-flash--err{background:var(--down)}
 .dbar-flash[hidden]{display:none}
-.dbar-wrap:has(.dbar-flash:not([hidden])) .dbar-info{display:none}
-.dbar.is-sending{opacity:.7}
-form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
-.act-err{font:700 11px var(--font-mono);color:var(--accent);margin:6px 0 0}
-.act-warn{font:700 11px/1.4 var(--font-mono);color:var(--accent);margin:8px 0 0;white-space:normal}
+@media (max-width:640px){
+.dbar__row{flex-wrap:wrap}
+.dbar__target{order:1;height:32px;padding:0 10px;font-size:14px;line-height:32px;max-width:calc(100% - 140px)}
+.dbar__row>.stamp{order:2;margin-left:auto}
+input.dbar__in{order:3;flex:1 1 calc(100% - 150px)}
+.dbar__go{order:4}}
+/* config: merge posture beside the worker panels; phone tabs between the two */
+.cfg{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.cfg__col{display:flex;flex-direction:column;gap:16px;min-height:0;min-width:0}
+.cfg__col>.cfg__prof{flex:1 1 0}
+.cfg__col>.pn:last-child{flex:none}
+.cfg .unk{color:var(--down);font-weight:600;overflow-wrap:anywhere}
+.tbl{width:100%;border-collapse:collapse;font-size:15px}
+.tbl th{position:sticky;top:0;z-index:1;height:40px;padding:0 12px 0 0;background:var(--card);border-bottom:1px solid var(--line2);
+font-size:13px;font-weight:600;color:var(--muted);text-align:left;white-space:nowrap}
+.tbl td{height:40px;padding:0 12px 0 0;border-bottom:1px solid var(--line)}
+.tbl th:last-child,.tbl td:last-child{padding-right:0}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td:first-child{font-weight:600;overflow-wrap:anywhere}
+.prof{list-style:none;margin:0;padding:0}
+.prof li{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.prof li:first-child{padding-top:0}
+.prof li:last-child{border-bottom:0}
+.prof__w{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:15px}
+.ms{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:center;margin:0;font-size:16px}
+.kv dt{color:var(--muted);font-size:15px}
+.kv dd{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0;min-width:0}
+@container pn (max-width:400px){
+.tbl thead{display:none}
+.tbl tr{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.tbl tr:last-child{border-bottom:0}
+.tbl td{height:auto;padding:0;border:0}
+.tbl td:first-child{flex-basis:100%}}
+form.is-sent button{opacity:.75}
 /* the Machine page: the chain that has to hold and the upcoming risks; read-only */
-.mach{display:flex;flex-direction:column;gap:10px}
-.mach__head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:.5rem}
-.mach h1{margin:0}
-.mach__lead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0}
-.mach__lead p{margin:0}
-.mach__term a,.fmpop__term a{font:700 12px var(--font-mono);letter-spacing:.02em}.fmpop__term a{font-size:11px}
+/* the Machine page: the chain that has to hold beside the upcoming risks; read-only */
+.mach{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+@media (min-width:641px) and (max-width:1023px){.mach{grid-template-columns:minmax(0,1fr);grid-template-rows:fit-content(60%) minmax(0,1fr)}}
 .mach__sum{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
-.mach__sum .mstate{min-width:0}
-.mach__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
-.mach__col{display:flex;flex-direction:column;gap:8px;min-width:0}
-.mach__col h2{margin:2px 2px -2px}
-@media (min-width:1000px){.mach__cols{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
-.mlist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
-.mrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:2px 10px;min-width:0;
-background:var(--paper);border:1.5px solid var(--rule-soft);border-left:4px solid var(--ink-4);border-radius:10px;padding:8px 10px}
-.mrow--ok{border-left-color:var(--sage)}
-.mrow--warn{border-left-color:var(--amber);background:var(--amber-soft)}
-.mrow--down,.mrow--urgent{border-left-color:var(--accent);background:var(--accent-soft)}
-.mstate{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:82px;white-space:nowrap;
-font:700 10px var(--font-mono);letter-spacing:.6px;text-transform:uppercase;color:var(--ink);
-background:var(--paper);border:1.5px solid var(--ink-4);border-radius:999px;padding:3px 8px}
-.mstate::before{content:'?';color:var(--ink-3)}
-.mstate--ok{border-color:var(--sage)}.mstate--ok::before{content:'✓';color:var(--sage)}
-.mstate--warn{border-color:var(--amber)}.mstate--warn::before{content:'!';color:var(--amber)}
-.mstate--down{border-color:var(--accent)}.mstate--down::before{content:'✕';color:var(--accent)}
-.mstate--run{border-color:var(--honey)}.mstate--run::before{content:'…';color:var(--ochre)}
-.mrow--urgent .mstate{border-color:var(--accent)}.mrow--urgent .mstate::before{color:var(--accent)}
-.mrow__body{min-width:0}
-.mrow__top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
-.mrow__top b{font:800 14px var(--font-display)}
-.mrow__head{font-size:13px}
-.mrow__detail{margin:1px 0 0;font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}
-.mrow__detail time{white-space:nowrap}
-.mrow__side{font:10px var(--font-mono);color:var(--ink-3);text-align:right;white-space:nowrap}
-.mrow__due{font-weight:700;font-size:11px;color:var(--ink)}
-@media (max-width:480px){.mrow{grid-template-columns:auto minmax(0,1fr)}.mrow__side{grid-column:2;text-align:left}}
-/* the Run page: fixed fix buttons and the last runs */
-.runq{display:flex;flex-direction:column;gap:10px}
-.runq__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
-.runq__col{display:flex;flex-direction:column;gap:8px;min-width:0}
-.runq__col h2{margin:8px 2px -2px}.runq__col h2:first-child{margin-top:2px}
-@media (min-width:1000px){.runq__cols{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}
-/* the runs column is narrow: each run's time goes under its words, its chip at the top */
-.rqrun{grid-template-columns:auto minmax(0,1fr);align-items:start}.rqrun .mrow__side{grid-column:2;text-align:left}}
-.runq .banner{margin:0}.runq .banner p{margin:0}.runq .banner p+p{margin-top:4px}
-.rqlist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.rq{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:4px 14px;min-width:0;
-background:var(--paper);border:1.5px solid var(--rule-soft);border-left:4px solid var(--ink-4);border-radius:10px;padding:10px 12px}
-.rq--down{border-left-color:var(--accent)}.rq--off{background:var(--paper-soft);border-left-color:var(--rule-soft)}
-.rq__top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
-.rq__top b{font:800 14px var(--font-display)}
-.rq__took{font:10px var(--font-mono);color:var(--ink-3);white-space:nowrap}
-.rq__what{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
-.rq__cmd{display:inline-block;max-width:100%;margin-top:6px;font:11px/1.4 var(--font-mono);color:var(--ink);
-background:var(--paper-soft);border:1px solid var(--rule-faint);border-radius:6px;padding:3px 7px;overflow-wrap:anywhere}
-.rq__off{margin:6px 0 0;font:700 11px var(--font-mono);color:var(--ink-3)}
-.rq form{margin:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center;max-width:300px}
-.rq form label{margin:0;font-size:12px}
-.rq select{width:auto;min-height:44px;padding:0 8px}
-.rq button{white-space:nowrap}
-.rq form .act-warn,.rq form .act-err,.rq form .act-ok{flex-basis:100%;text-align:left}
-/* the confirm step's words: read first, then tap; calm, with a red edge on the ones that take things down */
-.rq form .act-warn{order:-1;margin:2px 0 4px;font-family:inherit;font-size:13px;line-height:1.45;font-weight:600;
-letter-spacing:0;color:var(--ink);background:var(--paper-soft);border:1px solid var(--rule-soft);
-border-left:3px solid var(--ink-4);border-radius:8px;padding:8px 10px}
-.rq--down form .act-warn{border-left-color:var(--accent)}
-.act-ok{font:700 11px/1.4 var(--font-mono);color:var(--sage);margin:6px 0 0;white-space:normal}
-@media (max-width:640px){.rq{grid-template-columns:minmax(0,1fr)}.rq form{justify-content:flex-start;max-width:none}}
-.rqnote{margin:0;font-size:12px;color:var(--ink-3)}
-.rqrun .mrow__detail{white-space:normal}.rqrun .mstate{min-width:100px}
-/* an armed or answered button's words take the card's whole width, under its text */
-.rq form[data-step],.rq form.is-shown{grid-column:1/-1;max-width:none;justify-content:flex-start}
-.mach__lead a{white-space:nowrap}
-/* the Sign-ins page: each sign-in's state, and the one renewal that may be running */
-.sgrow__act{display:flex;flex-direction:column;align-items:flex-end;min-width:0}
-.sgrow__act form{margin:0;display:flex;flex-direction:column;align-items:flex-end}
+.mach__term{font-size:15px}
+@media (max-width:640px){.mach__term{display:none}}
+.chain{position:relative;list-style:none;margin:0;padding:0}
+.chain::before{content:"";position:absolute;left:13px;top:26px;bottom:26px;width:2px;background:var(--line2)}
+.chain--one::before{display:none}
+.ch{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:14px;align-items:center;min-height:48px;padding:3px 0}
+.ch__n{display:grid;place-items:center;width:28px;height:32px;clip-path:var(--hex);background:var(--unk)}
+.ch--ok .ch__n{background:var(--ok)}.ch--warn .ch__n{background:var(--warn)}.ch--down .ch__n,.ch--urgent .ch__n{background:var(--down)}
+.ch__n svg{width:14px;height:14px;fill:none;stroke:var(--card);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.ch__b{min-width:0}
+.ch__l{font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.ch__l b{font-weight:600}
+.ch__d{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.ch__d time,.risk .d time{white-space:nowrap}
+.ch--urgent .ch__l b{color:var(--down)}
+.mach .sl{margin:14px 0 4px}
+.tl{position:relative;height:96px;margin:2px 14px 8px}
+.tl__ax{position:absolute;left:0;right:0;top:42px;height:10px;border-radius:5px;background:var(--surface);overflow:hidden}
+.tl__w{position:absolute;top:0;bottom:0;left:0;background:var(--down-t)}
+.tl__m{position:absolute;top:36px;width:20px;height:22px;margin-left:-10px;clip-path:var(--hex);background:var(--unk)}
+.tl__m--ok{background:var(--ok)}.tl__m--warn{background:var(--warn)}.tl__m--down{background:var(--down)}
+.tl__lab{position:absolute;transform:translateX(-50%);font-size:13px;font-weight:600;white-space:nowrap}
+.tl__lab--up{top:10px}.tl__lab--dn{top:64px}
+.tl__lab--first{transform:translateX(-12px)}
+.risks{list-style:none;margin:0;padding:0}
+.risk{display:grid;grid-template-columns:92px minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.risks .risk:first-child{border-top:0}
+.tl+.risks .risk:first-child{border-top:1px solid var(--line)}
+.risk b{font-weight:600;overflow-wrap:anywhere}
+.risk .sc{justify-self:start}
+.risk .d{grid-column:2/4;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.risk .when{font-size:15px;font-weight:600;text-align:right;white-space:nowrap}
+.risk--urgent b,.risk--urgent .when{color:var(--down)}
+@container pn (max-width:300px){.risk{grid-template-columns:minmax(0,1fr) auto}.risk .sc{grid-column:1/3}.risk .d{grid-column:1/3}}
+/* the Run page: the Linux fixes, the Windows fixes and the last runs, side by side */
+.run{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (min-width:641px) and (max-width:1179px){
+.run{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-rows:fit-content(55%) minmax(0,1fr)}
+.run>[data-tp=runs]{grid-column:2;grid-row:1/3}.run>[data-tp=linux]{grid-column:1;grid-row:1}.run>[data-tp=win]{grid-column:1;grid-row:2}}
+.ars,.runs{list-style:none;margin:0;padding:0}
+.ar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.ar:first-child{padding-top:0}
+.ar:last-child{border-bottom:0}
+.ar__t{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}
+.ar__t b{font-weight:600;font-size:15px}
+.ar__d{grid-column:1;min-width:0;font-size:13px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ar__cmd{grid-column:1;min-width:0;font:13px/1.4 var(--fm);color:var(--muted);overflow-wrap:anywhere}
+.ar__off{grid-column:1/-1;font-size:13px;font-weight:600;color:var(--muted)}
+.ar>form,.ar>button{grid-row:1/4;grid-column:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin:0;max-width:260px}
+.ar form label{font-size:13px;color:var(--muted)}
+.ar select{width:auto;min-height:44px;padding:0 10px}
+.ar button{white-space:nowrap}
+.ar--off .ar__t,.ar--off .ar__d,.ar--off .ar__cmd{opacity:.72}
+/* the first tap: the card turns amber, its words take the whole width, read first, then tap */
+.ar:has(form[data-step]){margin:0 -10px;padding:10px;border-radius:var(--r2);background:var(--warn-t);border-bottom-color:transparent}
+.ar>form[data-step],.ar>form.is-shown{grid-column:1/-1;grid-row:auto;max-width:none;justify-content:flex-start;margin-top:8px}
+.ar:has(form[data-step]) .ar__d,.ar:has(form[data-step]) .ar__cmd{display:none}
+.ar form .act-warn,.ar form .act-err,.ar form .act-ok{flex-basis:100%;margin:0;text-align:left}
+.ar form .act-warn{order:-1;padding:8px 10px;border-radius:var(--r1);background:var(--card);font:600 14px/1.45 var(--ft);color:var(--ink);overflow-wrap:anywhere}
+.ar--down form .act-warn{box-shadow:inset 3px 0 0 var(--down)}
+.note{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:6px;border-radius:var(--r2);background:var(--warn-t);font-size:14px}
+.note>span:last-child{flex:1 1 220px}
+.run__lead{margin-bottom:6px}
+.fold{margin-top:6px;border-top:1px solid var(--line)}
+.fold summary{display:flex;align-items:center;min-height:44px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;list-style:none}
+.fold summary::-webkit-details-marker{display:none}
+.fold summary::after{content:"Show";margin-left:auto;color:var(--ink);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.fold[open] summary::after{content:"Hide"}
+.fold ul{list-style:none;margin:0;padding:0}
+.fold li{padding:6px 0;font-size:14px}
+.fold li span{display:block;color:var(--muted);font-size:13px}
+/* a project: what needs you beside its crews and backlog (the board's Needs page) */
+.ph__back{margin-right:4px;font-size:15px}
+.npg{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+@media (min-width:641px) and (max-width:1023px){.npg{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,3fr) minmax(0,2fr)}}
+.npg .pn__b>.sl:first-child{margin-top:0}
+.crews,.bls{list-style:none;margin:0;padding:0}
+.crew,.bl{padding:10px 0;border-bottom:1px solid var(--line)}
+.crew:last-child,.bl:last-child{border-bottom:0}
+.crew__top{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px}
+.crew__top b{flex:1 1 auto;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.crew__top .lnk{min-height:44px}
+.crew__d{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.crew__d span{display:block}
+.crew__ctl{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+.crew__ctl .act-warn,.crew__ctl .act-err{flex-basis:100%;margin:0}
+.bl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:start}
+.bl .sc{margin-top:1px}
+.bl__t{display:block;font-weight:600;overflow-wrap:anywhere}
+.bl__d{margin-top:2px;font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.bl__d code,.crew__d code,.ph .sub code{font:13px var(--fm)}
+.tk>summary{display:inline-flex;align-items:center;min-height:44px;font-size:14px;font-weight:600;color:var(--ink);
+text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.fold.tk{margin:0 0 6px}
+.fold.tk>summary{display:flex;color:var(--ink);text-decoration:none}
+.tk[open]{padding-bottom:6px}
+.tk button{margin-top:10px}
+/* a crew's live output, and the confirm and result steps */
+.watch{flex:1 1 0;min-height:0}
+.tail{margin:0;padding:14px 16px;background:#16140f;color:#e9dfc9;border-radius:0 0 calc(var(--r3) - 1px) calc(var(--r3) - 1px);
+font:13px/1.5 var(--fm);white-space:pre-wrap;overflow-wrap:anywhere}
+.step{width:min(640px,100%);display:flex;flex-direction:column;align-items:flex-start;gap:12px}
+.step--ask{padding:22px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card)}
+.step--ask form p{font-size:16px;overflow-wrap:anywhere}
+.step__act{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-top:16px}
+.step .banner{align-self:stretch}
+.runrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.runrow:first-child{padding-top:0}
+.runrow:last-child{border-bottom:0}
+.runrow b{font-weight:600;overflow-wrap:anywhere}
+.runrow .d{grid-column:2;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.runrow .d time{white-space:nowrap}
+@container pn (max-width:340px){.ar{grid-template-columns:minmax(0,1fr)}.ar>form{grid-row:auto;grid-column:1;justify-content:flex-start;max-width:none;margin-top:6px}
+.ar>button{grid-row:auto;grid-column:1;justify-self:start;margin-top:6px}}
+/* the Sign-ins page: a card per sign-in, under the one renewal that may be running */
+.sgb{display:flex;flex-direction:column;gap:14px;overflow-y:auto;overscroll-behavior:contain;padding:2px}
+.sg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;list-style:none;margin:0;padding:0}
+.sgrow{display:flex;flex-direction:column;gap:4px;min-width:0;padding:18px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card)}
+.sgrow--urgent{border-color:var(--down)}
+.sgrow__top{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.sgrow__top b{font-size:16px;font-weight:600;overflow-wrap:anywhere}
+.sgrow__big{margin-top:8px;font:600 28px/1.15 var(--fd);letter-spacing:-.02em;overflow-wrap:anywhere}
+.sgrow__d{font-size:15px;color:var(--muted);overflow-wrap:anywhere}
+.sgrow__d time{white-space:nowrap}
+.sgrow__act{margin-top:auto;padding-top:12px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.sgrow__act form{margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%}
 .sgrow__act button{white-space:nowrap}
-.sgrow__act button.is-armed{background:var(--accent);border-color:var(--accent);color:#fff}
-.sgrow__act:has(.act-warn,.act-err){grid-column:1/-1;align-items:flex-start;margin-top:4px}
-.sgrow__act:has(.act-warn,.act-err) form{align-items:flex-start}
-.sgrow__why{margin:3px 0 0;font-size:12px;color:var(--ink-3);overflow-wrap:anywhere}
-.sgrow__why a{white-space:nowrap}
-@media (max-width:480px){.sgrow__act{grid-column:2;align-items:flex-start;margin-top:4px}}
+.sgrow__act .act-warn,.sgrow__act .act-err{margin:0;font-size:14px}
+.sgrow__why{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.sgflow{flex:none}
 .sgflow:empty{display:none}
-.sgf{background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;padding:12px 14px;
-display:flex;flex-direction:column;gap:8px;min-width:0}
-.sgf--ok{border-color:var(--sage)}.sgf--failed{border-color:var(--accent)}.sgf--quiet{border-color:var(--rule-soft)}
-.sgf p{margin:0}
-.sgf__title{font:800 15px var(--font-display);display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
-.sgf__title .mute{font:400 12px var(--font-sans)}
-.sgf__steps{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:12px;font-size:14px}
-.sgf__steps label{color:var(--ink);font-size:14px;margin:0}
-.sgf__link{display:flex;align-items:center;justify-content:center;min-height:56px;margin:6px 0 4px;padding:8px 16px;
-border-radius:10px;background:var(--ink);color:var(--paper);font:800 16px var(--font-display);text-decoration:none;text-align:center}
+.sgf{padding:18px 22px;border:2px solid var(--honey);border-radius:var(--r3);background:var(--card)}
+.sgf--ok{border-color:var(--ok)}.sgf--failed{border-color:var(--down)}.sgf--quiet{border-color:var(--line2)}
+.sgf>p+p,.sgf>*+.meta{margin-top:10px}
+.sgf__h{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}
+.sgf__h form{margin:0 0 0 auto}
+.sgf__title{font:600 18px var(--fd);letter-spacing:-.01em}
+.sgf>p:not(.sgf__note){margin-top:8px}
+.sgf__steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin:14px 0 0;padding:0;
+list-style:none;counter-reset:sgstep}
+.sgf__steps>li{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;padding:14px 14px 14px 58px;
+border-radius:var(--r2);background:var(--surface);counter-increment:sgstep;font-size:15px;overflow-wrap:anywhere}
+.sgf__steps>li::before{content:counter(sgstep);position:absolute;left:14px;top:12px;display:grid;place-items:center;width:30px;height:34px;
+clip-path:var(--hex);background:var(--honey);color:var(--honey-ink);font-weight:700}
+.sgf__steps b,.sgf__steps label{font-weight:600;color:var(--ink)}
+.sgf__link{display:flex;align-items:center;justify-content:center;align-self:stretch;min-height:56px;padding:8px 18px;border-radius:var(--rb);
+background:var(--action);color:var(--action-ink);font:600 16px var(--ft);text-decoration:none;text-align:center;
+transition:transform .15s var(--e),filter .15s var(--e)}
+.sgf__link:hover{filter:brightness(1.06)}
 .sgf__link:active{transform:translateY(1px)}
-.sgf__host{font:11px var(--font-mono);color:var(--ink-3)}
-.sgf__code{display:inline-block;margin-top:6px;padding:8px 14px;border:1.5px dashed var(--rule);border-radius:8px;
-font:700 24px var(--font-mono);letter-spacing:3px;user-select:all;-webkit-user-select:all}
-.sgf__paste{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0}
-.sgf__paste input{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:14px var(--font-mono)}
+.sgf__host{font:13px var(--fm);color:var(--muted)}
+.sgf__code{display:inline-block;padding:8px 14px;border:1.5px dashed var(--line2);border-radius:var(--r1);background:var(--card);
+font:600 22px var(--fm);letter-spacing:.12em}
+.sgf__paste{display:flex;flex-wrap:wrap;gap:8px;margin:0;align-self:stretch}
+.sgf__paste input{flex:1 1 160px;min-width:0;width:auto;font:15px var(--fm)}
 .sgf__paste .act-err{flex-basis:100%;margin:0}
-.sgf__note{font:700 12px/1.4 var(--font-mono);color:var(--accent)}
-.sgf__steps .sgf__note{margin-top:6px}
-.sgf__foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
-.sgf__foot form{margin:0}
+.sgf__note{margin-top:8px;font-size:14px;font-weight:600;color:var(--down)}
+.sgf__steps .sgf__note{margin-top:0}
+@media (max-width:1023px){.sg{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))}}
+@media (max-width:640px){.sg{grid-template-columns:minmax(0,1fr)}.sgrow{padding:14px}.sgrow__big{font-size:22px;margin-top:4px}.sgf{padding:14px}
+.sgf__steps>li{padding-left:54px}}
 """
 
 # Local time, live updates (SSE with a polling fallback), live tail and the alerts button.
@@ -600,7 +702,8 @@ if(!o)return;if(!n){o.parentNode.removeChild(o);return;}
 if(rsig(n)===rsig(o))return;
 var d=o.querySelector('dialog[open]'),sl=d?d.querySelector('.sheet__list'):null,st=sl?sl.scrollTop:0,
 bl=o.querySelector('.rv__list'),bt=bl?bl.scrollTop:0;
-o.outerHTML=n.outerHTML;
+o.outerHTML=n.outerHTML;var rn=doc.querySelectorAll('[data-rvn]'),ro=document.querySelectorAll('[data-rvn]');
+for(var i=0;i<rn.length&&i<ro.length;i++)ro[i].textContent=rn[i].textContent;
 var nl=document.querySelector('.rvs .rv__list');if(nl)nl.scrollTop=bt;
 if(d){var nd=document.getElementById('rvs-sheet');
 if(nd){nd.classList.add('is-restored');if(nd.showModal)nd.showModal();else nd.setAttribute('open','');
@@ -616,8 +719,8 @@ if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;});
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
 var y=window.scrollY,ps=panels();c.innerHTML=m.innerHTML;restore();panels(ps);stamps();showFlash();
 window.scrollTo(0,y);});}
-function panels(v){return ['.nyl__body','.pcs','.rv__list'].map(function(s,i){var e=c.querySelector(s);
-if(!e)return 0;if(v)e.scrollTop=v[i];return e.scrollTop;});}
+function panels(v){return [].map.call(c.querySelectorAll('.pn__b,.rv__list'),function(e,i){
+if(v&&v[i])e.scrollTop=v[i];return e.scrollTop;});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
 function connect(){es=new EventSource('/events');
 es.onopen=function(){live=true;seen=Date.now();};
@@ -639,8 +742,8 @@ url='/w/'+encodeURIComponent(tail)+'/out';
 function tick(){if(document.hidden)return;fetch(url,{credentials:'same-origin',cache:'no-store'})
 .then(function(r){return r.json();}).then(function(j){
 if(!j.ok){st.textContent='Cannot read output: '+j.error;return;}
-var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-120;
-if(pre.textContent!==j.text){pre.textContent=j.text;if(near)bottom();}
+var near=pre.scrollHeight-pre.clientHeight-pre.scrollTop<120;
+if(pre.textContent!==j.text){pre.textContent=j.text;if(near)pre.scrollTop=pre.scrollHeight;}
 st.textContent='Live · updated '+new Date().toLocaleTimeString();})
 .catch(function(){st.textContent='Connection lost, retrying…';});}
 tick();setInterval(tick,3000);document.addEventListener('visibilitychange',tick);}
@@ -822,6 +925,7 @@ if(e.key!=='Enter'||e.shiftKey||e.isComposing||e.keyCode===229)return;e.preventD
 var picks={},lastPick=null;
 function calm(){return !(window.matchMedia&&matchMedia('(prefers-reduced-motion: no-preference)').matches);}
 function groups(){return document.querySelectorAll('[data-group]');}
+function itemKey(it){return it.getAttribute('data-open')+' '+it.getAttribute('data-item');}
 function sync(g){var cur=g.querySelector('.nyx.is-primary'),a=g.querySelectorAll('.nyx__head');
 for(var i=0;i<a.length;i++){var on=a[i].closest('.nyx')===cur;a[i].setAttribute('role','button');
 a[i].setAttribute('aria-expanded',on?'true':'false');}}
@@ -851,8 +955,21 @@ setTimeout(function(){list.forEach(function(r){r.classList.remove('is-flip','is-
 r.style.transition='';r.style.transform='';});},340);}
 function restore(){var g=groups();for(var i=0;i<g.length;i++){var k=g[i].getAttribute('data-group'),id=picks[k];
 if(id!==undefined){var its=g[i].querySelectorAll('.nyx'),hit=null;
-for(var j=0;j<its.length;j++)if(its[j].getAttribute('data-item')===id)hit=its[j];
-if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();barRoom();sgRestore();}
+for(var j=0;j<its.length;j++)if(itemKey(its[j])===id)hit=its[j];
+if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}if(tabsel)tabShow(tabsel);describeAll();barRoom();sgRestore();}
+var tabsel=null;
+function tabShow(k){[].forEach.call(document.querySelectorAll('[data-tabset]'),function(s){var on=s.querySelector('[data-tab="'+k+'"]');
+if(!on)return;[].forEach.call(s.querySelectorAll('[data-tab]'),function(b){b.setAttribute('aria-selected',b===on?'true':'false');});
+var r=s.getAttribute('data-tabset')==='r',at=r?'data-rp':'data-tp',pg=s.closest('.pgb')||document;
+[].forEach.call(pg.querySelectorAll('['+at+']'),function(p){p.classList.toggle(r?'is-ron':'is-on',p.getAttribute(at)===k);});});}
+document.addEventListener('click',function(e){var b=e.target.closest?e.target.closest('[data-tab]'):null;if(!b)return;
+e.preventDefault();tabsel=b.getAttribute('data-tab');tabShow(tabsel);});
+document.addEventListener('click',function(e){var o=e.target.closest?e.target.closest('.opt[data-pick]'):null;if(!o)return;
+var all=o.parentNode.querySelectorAll('.opt[data-pick]'),ls='',L=o.getAttribute('data-pick');
+for(var i=0;i<all.length;i++){all[i].setAttribute('aria-pressed',all[i]===o?'true':'false');ls+=all[i].getAttribute('data-pick');}
+var c=o.closest('.nyx,.need'),t=c&&c.querySelector('textarea[name=text],input[name=text]');if(!t)return;
+var m=new RegExp('^['+ls+'](?:$|[.] *)').exec(t.value),rest=m?t.value.slice(m[0].length):t.value;
+t.value=L+(rest?'. '+rest:'');});
 document.addEventListener('click',function(e){
 var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
@@ -860,8 +977,8 @@ var it=h.closest('.nyx'),g=it.closest('[data-group]'),k=g.getAttribute('data-gro
 pos=[].indexOf.call(g.querySelectorAll('.nyx'),it);
 e.preventDefault();
 if(lastPick&&lastPick.k===k&&now-lastPick.t<450&&g.querySelector('.nyx.is-primary')===lastPick.it&&
-(it===lastPick.it||pos===lastPick.pos)){lastPick=null;location.href=g.getAttribute('data-open');return;}
-lastPick={k:k,it:it,pos:pos,t:now};picks[k]=it.getAttribute('data-item');
+(it===lastPick.it||pos===lastPick.pos)){var o=lastPick.it.getAttribute('data-open');lastPick=null;location.href=o;return;}
+lastPick={k:k,it:it,pos:pos,t:now};picks[k]=itemKey(it);
 pick(g,it,!calm());describe(it);});
 var sheetOpener=null;
 function sheetOpen(d,b){if(!d||d.open)return;sheetOpener=b;
@@ -893,7 +1010,7 @@ function barRoom(){try{var w=document.querySelector('.dbar-wrap,.dock');
 document.documentElement.style.setProperty('--bar-room',(w?Math.ceil(w.getBoundingClientRect().height)+28:0)+'px');}catch(e){}}
 try{barRoom();window.addEventListener('resize',barRoom);
 if(window.ResizeObserver){var bw=document.querySelector('.dbar-wrap,.dock');if(bw)new ResizeObserver(barRoom).observe(bw);}}catch(e){}
-if(!th&&document.body&&document.body.classList&&document.body.classList.contains('wide')&&window.visualViewport){var dv=window.visualViewport;
+if(!th&&document.body&&document.body.classList&&!document.body.classList.contains('termpage')&&window.visualViewport){var dv=window.visualViewport;
 function dfit(){document.documentElement.style.setProperty('--app-h',dv.height+'px');window.scrollTo(0,0);}
 dv.addEventListener('resize',dfit);dv.addEventListener('scroll',function(){window.scrollTo(0,0);});dfit();}
 if(th&&window.visualViewport){var vv=window.visualViewport;
@@ -1074,7 +1191,8 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
         chip = (
             f"<summary class='qchip qchip--{q.level}' "
             f"aria-label='Plan quota, busiest window {worst.used} percent used'>"
-            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span>{worst.used}% used</summary>"
+            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span><span>{worst.used}%"
+            "<span class=tchip__l> used</span></span></summary>"
         )
         rows = "".join(
             f"<div><span>{esc(w.label)}</span><b>{w.used}% used · {_resets(w.resets_at, ctx.tz, now)}"
@@ -1088,7 +1206,7 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
                 "</span></div>"
             )
     return (
-        f"<details class=qwrap id=qchip>{chip}<div class=qpop>{rows}"
+        f"<details class=qwrap id=qchip>{chip}<div class=qpop><h3>Plan quota</h3>{rows}"
         "<div class=qpop__note><span>account-wide · shared with your own use</span></div>"
         "<section class=qpop__alerts aria-labelledby=qpop-alerts-h>"
         "<h3 id=qpop-alerts-h>Get alerts</h3>"
@@ -1107,9 +1225,11 @@ def _watchdog_panel(ctx: Ctx) -> str:
     if wd is None or not ctx.wake_enabled:
         return ""
     if wd.enabled:
-        button = "<button name=to value=off class=danger type=submit>Turn off</button>"
+        button = (
+            "<button name=to value=off class='btn btn--s btn--sm' type=submit>Turn off</button>"
+        )
     else:
-        button = "<button name=to value=on class=danger type=submit>Turn on</button>"
+        button = "<button name=to value=on class='btn btn--s btn--sm' type=submit>Turn on</button>"
     form = ctx.form("watchdog", button, always=True)
     state = f"Automatic recovery: {esc(wd.label)}"
     if wd.config_error:
@@ -1164,26 +1284,45 @@ def _fm_chip(ctx: Ctx) -> str:
     if ctx.wake_enabled and fm is not None and fm.can_wake:
         wake = ctx.form(
             "wake",
-            "<button class=danger type=submit>Wake firstmate</button>",
+            "<button class='btn btn--p' type=submit>Wake firstmate</button>",
             always=True,
         )
     elif ctx.wake_enabled and fm is not None and fm.can_restart:
         wake = ctx.form(
             "restart",
-            "<button class=danger type=submit>Restart session</button>",
+            "<button class='btn btn--p' type=submit>Restart session</button>",
             always=True,
         )
     if ctx.terminal:
-        wake += "<p class=fmpop__term><a href='/terminal'>Open firstmate’s terminal</a></p>"
+        wake += (
+            "<p class=fmpop__term><a class=lnk href='/terminal'>Open firstmate’s terminal</a></p>"
+        )
     wake += _watchdog_panel(ctx)
+    cls = _FM_DOT.get(state, "unknown")
     return (
         "<details class=qwrap id=fmchip>"
-        f"<summary class='qchip qchip--{_FM_DOT.get(state, 'unknown')}' "
+        f"<summary class='qchip qchip--{cls}' "
         f"aria-label='Firstmate {esc(label)}'>"
-        f"<span class=qchip__bar><i style='width:100%'></i></span>firstmate · {esc(label)}</summary>"
-        f"<div class='qpop fmpop'><p>{detail}</p>{wake}</div></details>"
+        f"<span class=dot></span><span><span class=tchip__l>firstmate · </span>{esc(label)}</span></summary>"
+        f"<div class='qpop fmpop'><h3><span class='dot dot--{cls}'></span>Firstmate · {esc(label)}</h3>"
+        f"<p>{detail}</p>{wake}</div></details>"
     )
 
+
+# The hive mark (three cells) and the faint honeycomb behind every page, drawn inline: the CSP
+# allows no image but the desk's own files, and an inline SVG is not an image fetch.
+MARK = (
+    "<svg viewBox='0 0 24 24' aria-hidden=true focusable=false><path d='M6.63 1.5 11.74 4.45v5.9"
+    "L6.63 13.3 1.52 10.35v-5.9ZM17.37 1.5l5.11 2.95v5.9L17.37 13.3l-5.11-2.95v-5.9ZM12 10.8l5.11 "
+    "2.95v5.9L12 22.6l-5.11-2.95v-5.9Z'/></svg>"
+)
+COMB = (
+    "<svg class=comb aria-hidden=true focusable=false><defs><pattern id=comb width=46.77 height=81 "
+    "patternUnits=userSpaceOnUse viewBox='0 0 31.18 54'><path fill=none stroke=currentColor "
+    "d='M0-18 15.59-9v18L0 18-15.59 9V-9ZM31.18-18 46.77-9v18L31.18 18 15.59 9V-9ZM15.59 9 31.18 18v18"
+    "L15.59 45 0 36V18ZM0 36l15.59 9v18L0 72-15.59 63V45ZM31.18 36l15.59 9v18L31.18 72 15.59 63V45Z'/>"
+    "</pattern></defs><rect width=100% height=100% fill=url(#comb) /></svg>"
+)
 
 # The top bar's links, the same on every page: (``active`` name, href, label).
 NAV = (
@@ -1202,7 +1341,7 @@ def _nav(active: str) -> str:
         f"<a href='{href}'{' aria-current=page' if name == active else ''}>{label}</a>"
         for name, href, label in NAV
     )
-    return f"<nav>{links}<button id=alerts hidden type=button>Alerts</button></nav>"
+    return f"<nav aria-label=Pages>{links}</nav>"
 
 
 def _page(
@@ -1214,12 +1353,14 @@ def _page(
     css: str = "",
     tail: str = "",
 ) -> str:
-    chip = (_fm_chip(ctx) + _chip(ctx)) if ctx is not None else ""
+    chips = (_fm_chip(ctx) + _chip(ctx)) if ctx is not None else ""
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
         "<meta name=color-scheme content='light dark'>"
-        "<meta name=theme-color content='#b4531a'>"
+        # the phone's status bar takes the top bar's colour, in each theme
+        "<meta name=theme-color media='(prefers-color-scheme: light)' content='#fffcf6'>"
+        "<meta name=theme-color media='(prefers-color-scheme: dark)' content='#181512'>"
         "<meta name=mobile-web-app-capable content=yes>"
         "<meta name=apple-mobile-web-app-capable content=yes>"
         "<meta name=apple-mobile-web-app-title content='Hive desk'>"
@@ -1227,9 +1368,10 @@ def _page(
         "<link rel=icon href='/icons/icon-192.png'>"
         "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
         f"<title>{esc(title)}</title><style>{CSS}{css}</style></head>"
-        f"<body{attrs}{_BODY_CLASS.get(active, '')}><header class=chrome>"
-        "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
-        f"{_nav(active)}{chip}"
+        f"<body{attrs}{_BODY_CLASS.get(active, '')}>{COMB}<header class=chrome>"
+        f"<a class=chrome__brand href='/' aria-label='Hive desk'>{MARK}<span>hive</span></a>"
+        f"{_nav(active)}<div class=chrome__st>{chips}"
+        "<button id=alerts class=qchip hidden type=button>Alerts</button></div>"
         f"</header><main>{body}</main><script>{SCRIPT}</script>{tail}</body></html>"
     )
 
@@ -1247,31 +1389,60 @@ def _banner(snap: Snapshot, ctx: Ctx) -> str:
     )
 
 
-def _structured(text: str, ctx: Ctx) -> str:
-    """A decision text as a card body: the question, a short option list with the recommended
-    one marked, and the full wording behind a native "More" disclosure."""
+def _sc(kind: str, word: str) -> str:
+    """A state chip: a small hex in the state's colour and its word (never colour alone)."""
+    return f"<span class='sc sc--{kind}'><i></i>{esc(word)}</span>"
+
+
+def _tabs(kind: str, items: list[tuple[str, str, int | str | None]], current: str) -> str:
+    """Phone (``p``) or right-column (``r``) tabs over a page's panels; the page script swaps
+    which panel shows. The server marks the first panel shown."""
+    buttons = "".join(
+        f"<button type=button role=tab data-tab={key} "
+        f"aria-selected={'true' if key == current else 'false'}>{esc(label)}"
+        + (f" <small{' data-rvn' if key == 'reviews' else ''}>{n}</small>" if n is not None else "")
+        + "</button>"
+        for key, label, n in items
+    )
+    return f"<div class='tabs tabs--{kind}' role=tablist data-tabset={kind}>{buttons}</div>"
+
+
+def _decision(text: str, ctx: Ctx) -> tuple[str, str, str]:
+    """A decision text as card parts: its question (HTML), its options as big buttons with the
+    recommended one marked (a tap fills the reply), and the full wording behind "Full text"."""
     card = parse_card(text)
     if not card.question:
-        return ""
-    out = f"<span class=dq__q>{ctx.plain(card.question)}</span>"
+        return "", "", ""
+    opts = ""
     if card.options:
-        out += (
-            "<ul class=dq__opts>"
+        opts = (
+            "<div class=opts role=group aria-label='Answer options'>"
             + "".join(
-                f"<li class='dq__opt{' is-rec' if o.recommended else ''}'><b>{esc(o.letter)}</b> "
-                f"{ctx.plain(o.label)}"
-                + ("<span class=dq__rec>recommended</span>" if o.recommended else "")
-                + "</li>"
+                f"<button type=button class='opt{' is-rec' if o.recommended else ''}' "
+                f"data-pick='{esc(o.letter)}' aria-pressed=false><b>{esc(o.letter)}</b>"
+                f"<span>{ctx.plain(o.label)}"
+                + ("<em>Recommended</em>" if o.recommended else "")
+                + "</span></button>"
                 for o in card.options
             )
-            + "</ul>"
+            + "</div>"
         )
-    if card.more:
-        out += f"<details class=dq__more><summary>More</summary><p>{ctx.plain(card.more)}</p></details>"
-    return out
+    full = (
+        "<details class=nyc__full><summary class=lnk>Full text</summary>"
+        f"<p>{ctx.plain(card.more)}</p></details>"
+        if card.more
+        else ""
+    )
+    return ctx.plain(card.question), opts, full
 
 
 _NEED_LABEL = {"hold": "Question on hold", "decision": "Decision", "merge": "Merge approval"}
+# Needs-you kinds: (row class, chip kind, chip word).
+_WAIT = {
+    "decision": ("nyi--decision", "you", "Decision"),
+    "hold": ("nyi--gate", "you", "Waiting on you"),
+    "merge": ("nyi--mode", "ok", "Merge"),
+}
 
 
 def _posture_tag(project: str, ctx: Ctx) -> str:
@@ -1279,15 +1450,37 @@ def _posture_tag(project: str, ctx: Ctx) -> str:
     if ctx.postures is None:
         return ""
     label = fmconfig.posture_label(ctx.postures, project)
-    return f"<span class=sub>Merge posture: {esc(label)} · <a href='/config'>config</a></span>"
+    return f"Merge posture: {esc(label)} · <a href='/config'>config</a>"
+
+
+def _links(links: list[tuple[str, str]], full: str = "") -> str:
+    out = "".join(
+        f'<a class=lnk href="{esc(url)}" rel="noopener noreferrer">{label}</a>'
+        for url, label in links
+    )
+    return f"<div class=nyc__links>{out}{full}</div>" if out or full else ""
+
+
+def _lines(n: NeedsYou, lead: str, ctx: Ctx) -> tuple[str, str, str, str]:
+    """A needs-you item's card lines: (what happened, what it means, option buttons, full text).
+    ``lead`` is the item's own title, if any; the question then says what it means."""
+    question, opts, full = _decision(n.text, ctx)
+    if lead and n.text and lead != n.text:
+        what, mean = ctx.plain(lead), question
+    else:
+        what, mean = question or ctx.plain(lead or n.ref), ""
+    posture = _posture_tag(n.project, ctx) if n.kind == "merge" else ""
+    mean = "".join(f"<p class=nyc__mean>{m}</p>" for m in (mean, posture) if m)
+    return what, mean, opts, full
 
 
 def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
+    """A project page's decision card: what happened, what it means, the options and the answer
+    form (the page's full form, with its release choice)."""
+    links = [(b, "Open board ↗") for b in ctx.boards(n.text)]
     url = ctx.link(n.url)
-    link = f' <a href="{esc(url)}" rel="noopener noreferrer">Open PR</a>' if url else ""
-    link += "".join(
-        f' <a href="{esc(b)}" rel="noopener noreferrer">Open board</a>' for b in ctx.boards(n.text)
-    )
+    if url:
+        links.append((url, "Open PR ↗"))
     title = n.title or n.ref.partition("/")[0]
     where = n.project if show_project and not title.lower().startswith(n.project.lower()) else ""
     lead = " · ".join(p for p in (where, title) if p)
@@ -1299,7 +1492,8 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
             "<label>Your answer</label><textarea name=text required maxlength=512></textarea>"
             f"<label><input type=checkbox name=release value=1{checked}> "
             "Release the work item (resume it) instead of closing the question</label>"
-            "<button>Record answer</button>",
+            "<button class='btn btn--p'>Record answer</button>",
+            "nyc__form",
             task=n.ref,
             rid=new_request_id(),
         )
@@ -1308,7 +1502,9 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
         act = ctx.form(
             "decision",
             "<label>Your answer (sent to the first mate)</label>"
-            "<textarea name=text required maxlength=4000></textarea><button>Send answer</button>",
+            "<textarea name=text required maxlength=4000></textarea>"
+            "<button class='btn btn--p'>Send answer</button>",
+            "nyc__form",
             task=task,
             key=key,
             rid=new_request_id(),
@@ -1316,140 +1512,134 @@ def _need(n: NeedsYou, show_project: bool, ctx: Ctx) -> str:
     elif n.kind == "merge":
         act = ctx.form(
             "merge",
-            "<button class=quiet>Give merge word…</button>",
+            "<button class='btn btn--p'>Give merge word…</button>",
+            "nyc__form",
             task=n.ref,
             rid=new_request_id(),
-        ) + _posture_tag(n.project, ctx)
-    detail = f"{_NEED_LABEL.get(n.kind, n.kind)} · {n.ref}"
+        )
+    what, mean, opts, full = _lines(n, lead, ctx)
+    _, kind, word = _WAIT.get(n.kind, ("", "you", n.kind))
     return (
-        f"<div class=need><span class=what>{esc(lead)}</span>{link}"
-        f"<div class=dq>{_structured(n.text, ctx)}</div><span class=sub>{esc(detail)}</span>{act}</div>"
+        f"<article class='need nyc'><div class=nyc__head>{_sc(kind, word)}"
+        f"<span class=nyc__where>{esc(_NEED_LABEL.get(n.kind, n.kind))}"
+        f"<code>{esc(n.ref)}</code></span></div><div class=nyc__body>"
+        f"<p class=nyc__what>{what}</p>{mean}{opts}{act}{_links(links, full)}</div></article>"
     )
-
-
-# Needs-you kinds on the T001 lane: (row class, state dot, badge).
-_LANE = {
-    "decision": ("nyi--decision", "idle", "decision"),
-    "hold": ("nyi--gate", "gated", "waiting on you"),
-    "merge": ("nyi--mode", "active", "merge"),
-}
-
-
-def _hold_parts(n: NeedsYou, ctx: Ctx) -> tuple[str, str, str, str, str]:
-    """A captain hold's lane parts: row class, state dot, badge, summary and the answer form."""
-    row, dot, badge = _LANE.get(n.kind, ("nyi--decision", "idle", n.kind))
-    ref = n.ref.partition("/")[0]
-    entity = f"{ctx.show(n.project)} · {ref}"  # the reply label; the lane's group header names the project
-    if n.title and n.text and n.title != n.text:
-        summary = f"<b>{ctx.plain(n.title)}</b>{_structured(n.text, ctx)}"
-    else:
-        summary = _structured(n.text, ctx) or ctx.plain(n.title or n.ref)
-    links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
-    pr = ctx.link(n.url)
-    if pr:
-        links.append((pr, "Open PR ↗"))
-    extra = "".join(
-        f'<a class="btn btn--deny" href="{esc(url)}" rel="noopener noreferrer">{label}</a>'
-        for url, label in links
-    )
-    reply = (
-        "<input type=text class=nyi__reply name=text required "
-        f"maxlength=MAX placeholder='Reply to {esc(entity)}…' aria-label='Reply to {esc(entity)}'>"
-    )
-    if n.kind == "decision":
-        task, _, key = n.ref.partition("/")
-        act = ctx.form(
-            "decision",
-            reply.replace("MAX", "4000", 1)
-            + f"<span class=nyi__btns><button class='btn btn--go'>Send</button>{extra}</span>",
-            "nyi__actions",
-            task=task,
-            key=key,
-            rid=new_request_id(),
-        )
-    elif n.kind == "hold":
-        resume = "<button class='btn btn--{}' name=release value=1>Answer &amp; resume</button>"
-        close = "<button class='btn btn--{}' name=release value=0>Answer &amp; close</button>"
-        buttons = (
-            resume.format("go") + close.format("deny")
-            if n.gated
-            else close.format("go") + resume.format("deny")
-        )
-        act = ctx.form(
-            "answer",
-            reply.replace("MAX", "512", 1) + f"<span class=nyi__btns>{buttons}{extra}</span>",
-            "nyi__actions",
-            task=n.ref,
-            rid=new_request_id(),
-        )
-    elif n.kind == "merge":
-        act = ctx.form(
-            "merge",
-            f"<button class='btn btn--allow'>Give merge word…</button>{extra}",
-            "nyi__actions",
-            task=n.ref,
-            rid=new_request_id(),
-        ) + _posture_tag(n.project, ctx)
-    else:
-        act = f"<div class=nyi__actions>{extra}</div>" if extra else ""
-    return row, dot, badge, summary, act
 
 
 _QUEUED_SHOWN = 4  # queued tickets listed per project before "+N more"
+_ROW_ORDER = {"Held": 0, "Blocked": 1, "Queued": 2}
 
 
-def _row_parts(r: Row, href: str, ctx: Ctx) -> tuple[str, str, str, str, str]:
-    """A queued ticket's lane parts: row class, tag, tag class, summary and actions."""
+def _queue_state(r: Row, ctx: Ctx) -> tuple[str, str, str, str]:
+    """A queued ticket's (row class, chip kind, chip word, why it waits)."""
     if r.hold:
-        cls, tag, status = "nyi--gate", "held", f"Held: {ctx.plain(r.hold)}"
-    elif r.blocked_by:
-        cls, tag = "nyi--blocked", "blocked"
-        status = "Blocked by " + ", ".join(esc(b) for b in r.blocked_by)
-    else:
-        cls, tag, status = "nyi--queued", "", "Queued, nothing blocking it"
-    summary = f"<b>{ctx.plain(r.title or r.id)}</b> — {status}"
-    act = (
-        f"<div class=nyi__actions><a class='btn btn--deny' href='{esc(href)}'>"
-        "Open project ↗</a></div>"
-    )
-    return cls, tag, "nyx__tag--hold" if r.hold else "", summary, act
+        return "nyi--gate", "unk", "Held", f"Held: {ctx.plain(r.hold)}"
+    if r.blocked_by:
+        why = "Blocked by " + ", ".join(esc(b) for b in r.blocked_by)
+        return "nyi--blocked", "down", "Blocked", why
+    return "nyi--queued", "q", "Queued", "Queued, nothing blocking it"
 
 
 def _nyx(
     *,
-    group: BacklogGroup,
+    project: str,
     item_id: str,
     title: str,
     cls: str,
-    dot: str,
-    tag: str,
-    tag_cls: str,
-    summary: str,
-    act: str,
+    head: str,
+    more: tuple[str, str],
     primary: bool,
     ctx: Ctx,
 ) -> str:
-    """One lane item. The same element is a compact row or the expanded card (``is-primary``):
-    the page script swaps which one is the group's card when a row is picked."""
-    href = "/p/" + quote(group.project, safe="")
-    text = ctx.descriptions.get(f"{group.project}/{item_id}")
-    desc_url = "/describe?" + urlencode({"p": group.project, "id": item_id})
+    """One Needs-you item: a shut card or row whose head opens it in place (``is-primary``).
+    The page script makes a picked item its group's open one; a double tap opens the project.
+    Without the script the head is a plain link to the project. ``more`` is the open item's
+    body, before and after the agent-written description."""
+    card = cls.startswith("nyc ")
+    head_cls = "'nyx__head nyc__head'" if card else "nyx__head"
+    body_cls = "'nyx__more nyc__body'" if card else "nyx__more"
+    href = "/p/" + quote(project, safe="")
+    text = ctx.descriptions.get(f"{project}/{item_id}")
+    desc_url = "/describe?" + urlencode({"p": project, "id": item_id})
     desc = (
         "<p class=nyx__desc data-ready=1 tabindex=0 role=button aria-haspopup=dialog>"
         f"{esc(text)}</p>"
         if text
         else "<p class=nyx__desc hidden></p>"
     )
-    badge = f"<span class='nyx__tag {tag_cls}'>{esc(tag)}</span>" if tag else ""
     state = " is-primary" if primary else ""
     return (
-        f"<div class='nyx {cls}{state}' data-item='{esc(item_id)}' data-desc='{esc(desc_url)}'>"
-        f"<div class=nyx__bar><a class=nyx__head href='{esc(href)}' title='{esc(title or item_id)}'>"
-        f"<span class='state-dot state-dot--{dot}'></span><span class=nyx__id>{esc(item_id)}</span>"
-        f"<span class=nyx__title>{esc(title or item_id)}</span>{badge}</a>"
-        f"<a class=nyx__open href='{esc(href)}' aria-label='Open {esc(group.project)}'>"
-        "open ↗</a></div>"
-        f"<div class=nyx__more><div class=nyi__summary>{summary}</div>{desc}{act}</div></div>"
+        f"<div class='nyx {cls}{state}' data-item='{esc(item_id)}' data-desc='{esc(desc_url)}' "
+        f"data-open='{esc(href)}'><a class={head_cls} href='{esc(href)}' "
+        f"title='{esc(title or item_id)}'>{head}</a>"
+        f"<div class={body_cls}>{more[0]}{desc}{more[1]}</div></div>"
+    )
+
+
+def _wait_card(n: NeedsYou, ctx: Ctx, primary: bool) -> str:
+    """A captain hold as a decision card: line 1 what happened, line 2 what it means, then big
+    option buttons (recommended marked; a tap fills the reply), the reply and its two answer
+    buttons (the one the hold asks for first), and the links."""
+    cls, kind, word = _WAIT["hold"]
+    ref = n.ref.partition("/")[0]
+    entity = f"{ctx.show(n.project)} · {ref}"
+    what, mean, opts, full = _lines(n, n.title, ctx)
+    links = [(url, "Open board ↗") for url in ctx.boards(n.text)]
+    pr = ctx.link(n.url)
+    if pr:
+        links.append((pr, "Open PR ↗"))
+    links.append(("/p/" + quote(n.project, safe=""), "Open project ↗"))
+    resume = "<button class='btn btn--{}' name=release value=1>Answer &amp; resume</button>"
+    close = "<button class='btn btn--{}' name=release value=0>Answer &amp; close</button>"
+    buttons = (
+        resume.format("p") + close.format("s")
+        if n.gated
+        else close.format("p") + resume.format("s")
+    )
+    act = ctx.form(
+        "answer",
+        "<input type=text class=nyi__reply name=text required maxlength=512 "
+        f"placeholder='Reply to {esc(entity)}…' aria-label='Reply to {esc(entity)}'>{buttons}",
+        "nyi__actions nyc__act",
+        task=n.ref,
+        rid=new_request_id(),
+    )
+    head = (
+        f"{_sc(kind, word)}<span class=nyc__where>{esc(ctx.show(n.project))}"
+        f"<code class=nyx__id>{esc(ref)}</code></span><span class=nyc__chev>Open</span>"
+        f"<span class=nyc__what>{what}</span>"
+    )
+    return _nyx(
+        project=n.project,
+        item_id=n.ref,
+        title=n.title or n.text,
+        cls=f"nyc {cls}",
+        head=head,
+        more=(mean + opts, act + _links(links, full)),
+        primary=primary,
+        ctx=ctx,
+    )
+
+
+def _queue_row(r: Row, project: str, ctx: Ctx) -> str:
+    """A held, blocked or queued ticket: its chip, title and project on one line; opened, why
+    it waits and the agent-written description."""
+    cls, kind, word, why = _queue_state(r, ctx)
+    href = "/p/" + quote(project, safe="")
+    head = (
+        f"{_sc(kind, word)}<span class=r__t>{esc(r.title or r.id)}</span>"
+        f"<span class=r__p>{esc(ctx.show(project))}</span>"
+    )
+    return _nyx(
+        project=project,
+        item_id=r.id,
+        title=r.title,
+        cls=f"nyr {cls}",
+        head=head,
+        more=(f"<p class=nyr__why>{why}</p>", _links([(href, "Open project ↗")])),
+        primary=False,
+        ctx=ctx,
     )
 
 
@@ -1465,14 +1655,13 @@ def _sheet(sid: str, title: str, body: str, close: str, head: str = "") -> str:
 
 
 def _open_project(href: str) -> str:
-    return f"<a class='btn btn--deny' href='{esc(href)}'>Open project ↗</a>"
+    return f"<a class='btn btn--s btn--sm' href='{esc(href)}'>Open project ↗</a>"
 
 
-def _sheet_row(href: str, item_id: str, title: str, tag: str) -> str:
-    badge = f"<span class=rv__reply>{esc(tag)}</span>" if tag else ""
+def _sheet_row(href: str, item_id: str, title: str, chip: tuple[str, str]) -> str:
     return (
         f"<a class=rv href='{esc(href)}'><span class=rv__title>{esc(title or item_id)}</span>"
-        f"<span class=rv__proj>{esc(item_id)}</span>{badge}<span class=rv__go>↗</span></a>"
+        f"<span class=rv__meta>{_sc(*chip)}<span class=rv__proj>{esc(item_id)}</span></span></a>"
     )
 
 
@@ -1482,98 +1671,75 @@ def _items_list(g: BacklogGroup | None, ctx: Ctx) -> str:
         return "<p class=sheet__empty>Nothing waiting on you or queued.</p>"
     href = "/p/" + quote(g.project, safe="")
     rows = [
-        _sheet_row(href, n.ref, n.title or n.text, _LANE.get(n.kind, ("", "", n.kind))[2])
+        _sheet_row(href, n.ref, n.title or n.text, _WAIT.get(n.kind, ("", "you", n.kind))[1:])
         for n in g.waiting
     ]
-    rows += [_sheet_row(href, r.id, r.title, _row_parts(r, href, ctx)[1]) for r in g.queued]
+    rows += [_sheet_row(href, r.id, r.title, _queue_state(r, ctx)[1:3]) for r in g.queued]
     return f"<div class=sheet__list>{''.join(rows)}</div>"
 
 
-def _group(g: BacklogGroup, ctx: Ctx, sid: str) -> str:
-    """One project's slice: the first held item is the card, the rest are rows; picking a row
-    (page script) swaps it into the card slot. Without the script every row opens the project.
-    "+N more" opens a sheet listing the whole slice (without the script, the project page)."""
-    href = "/p/" + quote(g.project, safe="")
-    shown = g.queued[:_QUEUED_SHOWN]
-    rest = len(g.queued) - len(shown)
-    more = (
-        f"<a class=nyq__more href='{esc(href)}' data-sheet-open={sid} aria-haspopup=dialog "
-        f"aria-controls={sid}>+{rest} more</a>"
-        + _sheet(
-            sid,
-            f"{ctx.name_html(g.project)} · {g.count}",
-            _items_list(g, ctx),
-            f"Close {ctx.show(g.project)}",
-            _open_project(href),
-        )
-        if rest
-        else ""
-    )
-    waiting = f"<span class=nyg__wait>{len(g.waiting)} waiting on you</span>" if g.waiting else ""
-    items = []
-    for i, n in enumerate(g.waiting):
-        cls, dot, badge, summary, act = _hold_parts(n, ctx)
-        items.append(
-            _nyx(
-                group=g,
-                item_id=n.ref,
-                title=n.title or n.text,
-                cls=cls,
-                dot=dot,
-                tag=badge,
-                tag_cls="nyx__tag--hold",
-                summary=summary,
-                act=act,
-                primary=i == 0,
-                ctx=ctx,
-            )
-        )
-    for r in shown:
-        cls, tag, tag_cls, summary, act = _row_parts(r, href, ctx)
-        items.append(
-            _nyx(
-                group=g,
-                item_id=r.id,
-                title=r.title,
-                cls=cls,
-                dot="gated" if r.hold else "idle",
-                tag=tag,
-                tag_cls=tag_cls,
-                summary=summary,
-                act=act,
-                primary=False,
-                ctx=ctx,
-            )
-        )
-    return (
-        f"<section class=nyg data-group='{esc(g.project)}' data-open='{esc(href)}'>"
-        f"<a class=nyg__head href='{esc(href)}'>"
-        f"<span class=nyg__name>{ctx.name_html(g.project)}</span>"
-        f"<span class=nyg__mate>{'second mate' if g.mate else 'first mate'}</span>{waiting}"
-        f"<span class=nyg__count>{g.count}</span></a>"
-        f"<div class=nyg__items>{''.join(items)}</div>{more}</section>"
-    )
-
-
 def _lane(desk: Desk, ctx: Ctx) -> str:
-    """ "Needs you": the backlog across every project, grouped by project (not worker chatter)."""
+    """ "Needs you": what waits on the owner, as decision cards (the first open), then every
+    held, blocked or queued ticket across the projects, as rows (the first few per project;
+    "+N more" opens that project's whole slice in a sheet)."""
+    waiting = [n for g in desk.backlog for n in g.waiting]
+    queued = sum(len(g.queued) for g in desk.backlog)
+    hexn = "hexn" if waiting else "hexn hexn--q"
+    meta = f"<span class=meta>{len(waiting)} waiting · {queued} held or queued</span>"
     head = (
-        "<div class=nyl__head><span class=nyl__glyph aria-hidden=true>◆</span>"
-        f"<h2 class=nyl__title>Needs you</h2><span class=nyl__count>{desk.backlog_count}</span></div>"
+        f"<div class=pn__h><h2>Needs you</h2><span class='{hexn} nyl__count'>"
+        f"{desk.backlog_count}</span>{meta if desk.backlog else ''}</div>"
     )
     if not desk.backlog:
         n = desk.loops_running
         return (
-            f"<section class='nyl nyl--calm'>{head}<div class=calm>"
-            "<div class=calm__check aria-hidden=true>✓</div>"
-            f"<p class=calm__line>✓ all clear · {n} loop{'' if n == 1 else 's'} running</p>"
-            "<p class=calm__sub>backlog is empty</p></div></section>"
+            f"<section class='pn nyl nyl--calm is-on' data-tp=needs>{head}"
+            "<div class='pn__b nyl__body'><div class='nyc nyc--calm'><div class=nyc__head>"
+            f"{_sc('ok', 'All clear')}</div><div class=nyc__body>"
+            "<p class=nyc__what>Nothing waits on you.</p>"
+            f"<p class=nyc__mean>Backlog is empty · {n} loop{'' if n == 1 else 's'} running</p>"
+            "</div></div></div></section>"
         )
-    groups = "".join(_group(g, ctx, f"nys-{i}") for i, g in enumerate(desk.backlog))
-    return f"<section class=nyl>{head}<div class=nyl__body>{groups}</div></section>"
+    body = ""
+    if waiting:
+        cards = "".join(_wait_card(n, ctx, i == 0) for i, n in enumerate(waiting))
+        body += (
+            f"<p class=sl>Waiting on you · {len(waiting)}</p>"
+            f"<div class='nyg nyg--cards' data-group=waiting>{cards}</div>"
+        )
+    if queued:
+        rows: list[tuple[tuple[int, int, int], str]] = []
+        more = ""
+        for i, g in enumerate(desk.backlog):
+            shown = g.queued[:_QUEUED_SHOWN]
+            for j, r in enumerate(shown):
+                rank = _ROW_ORDER[_queue_state(r, ctx)[2]]
+                rows.append(((rank, i, j), _queue_row(r, g.project, ctx)))
+            rest = len(g.queued) - len(shown)
+            if rest:
+                sid, href = f"nys-{i}", "/p/" + quote(g.project, safe="")
+                more += (
+                    f"<a class='nyq__more lnk' href='{esc(href)}' data-sheet-open={sid} "
+                    f"aria-haspopup=dialog aria-controls={sid}>+{rest} more · "
+                    f"{esc(ctx.show(g.project))}</a>"
+                    + _sheet(
+                        sid,
+                        f"{ctx.name_html(g.project)} · {g.count}",
+                        _items_list(g, ctx),
+                        f"Close {ctx.show(g.project)}",
+                        _open_project(href),
+                    )
+                )
+        rows.sort(key=lambda row: row[0])
+        body += (
+            f"<p class=sl>Held or queued · {queued}</p>"
+            f"<div class='nyg nyg--rows' data-group=queued>{''.join(h for _, h in rows)}</div>"
+            + (f"<div class=nyq>{more}</div>" if more else "")
+        )
+    return f"<section class='pn nyl is-on' data-tp=needs>{head}<div class='pn__b nyl__body'>{body}</div></section>"
 
 
-_DOT = {"blocked": "error", "running": "active", "idle": "idle"}
+_CHIP = {"blocked": ("down", "Blocked"), "running": ("run", "Running"), "idle": ("unk", "Idle")}
 
 
 def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
@@ -1584,17 +1750,28 @@ def _target(p: Project, ctx: Ctx) -> tuple[str, str]:
 
 
 def _card_text(p: Project) -> tuple[Glance, str, str]:
-    """A card's glance, its activity line (HTML) and its progress label."""
+    """A project's glance, its activity line (HTML) and its progress label, for its sheet."""
     g = glance(p)
     prog = "done" if g.total and g.done == g.total else f"{g.done} / {g.total} tasks"
     now = f"<b>{esc(g.lead)}</b> — {esc(g.now)}" if g.lead else esc(g.now)
     return g, now, prog
 
 
+def _row_now(g: Glance) -> str:
+    """The project row's one short line: who waits, what runs, or what is queued."""
+    if g.status == "blocked":
+        return g.lead
+    if g.status == "running":
+        return f"{g.lead} · {g.now}"
+    head, _, rest = g.now.partition(" · ")
+    line = rest.replace(" · ", ", ") if head == "Idle" and rest else g.now
+    return line[:1].upper() + line[1:]
+
+
 def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
-    """A project card: a tap focuses it (retargets the delegate bar); a tap on the focused card
-    opens its detail sheet ``sid``. Without the script the focused card opens the project."""
-    g, now, prog = _card_text(p)
+    """A project row: a tap focuses it (retargets the delegate bar); a tap on the focused row
+    opens its detail sheet ``sid``. Without the script the focused row opens the project."""
+    g = glance(p)
     label, field = _target(p, ctx)
     nxt = "/?focus=" + quote(p.name, safe="")
     open_href = "/p/" + quote(p.name, safe="")
@@ -1605,18 +1782,16 @@ def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
         f"data-card data-name='{esc(p.name)}' data-label='{esc(label)}' "
         f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}' "
         f"data-detail={sid}{' aria-current=true' if selected else ''}>"
-        f"<span class=pc__top><span class='state-dot state-dot--{_DOT[g.status]}'></span>"
-        f"<span class=pc__name>{ctx.name_html(p.name)}</span>"
-        f"<span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span>"
-        f"<span class=pc__status>{g.status}</span></span>"
-        f"<p class=pc__now>{now}</p>"
-        f"<span class=pc__prog><span class=pc__track><i style='width:{pct}%'></i></span>{prog}"
-        "<span class=pc__open>· tap for details</span></span></a>"
+        f"<span class=pc__n><span class=pc__name>{ctx.name_html(p.name)}</span>"
+        f"<small><span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span> · "
+        f"{esc(_row_now(g))}</small></span>{_sc(*_CHIP[g.status])}"
+        f"<span class=pc__prog><span class=bar><i style='width:{pct}%'></i></span>"
+        f"{g.done}/{g.total}</span><span class='pc__open sr'>, tap for details</span></a>"
     )
 
 
 def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> str:
-    """The focused card's detail: status, activity, progress and its Needs-you items."""
+    """The focused project's detail: status, activity, progress and its Needs-you items."""
     g, now, prog = _card_text(p)
     meta = (
         f"<p class=sheet__meta><b>{g.status}</b> · {'second mate' if p.mate else 'first mate'}"
@@ -1634,33 +1809,36 @@ def _card_sheet(p: Project, group: BacklogGroup | None, ctx: Ctx, sid: str) -> s
 
 
 def _dbar(focus: Project | None, ctx: Ctx, stamp: str = "") -> str:
+    """The delegate bar along the bottom: who it sends to, the goal, Delegate, and when the
+    desk last read firstmate. Tapping a project row retargets it (page script)."""
     label, field = _target(focus, ctx) if focus else ("first mate", "")
     nxt = "/?focus=" + quote(focus.name, safe="") if focus else "/"
     form = ctx.form(
         "delegate",
         f"<span class=dbar__target data-target>→ {esc(label)}</span>"
         "<input type=text class=dbar__in name=text required maxlength=4000 placeholder='Describe a goal…' "
-        "aria-label='Delegate a goal'><button class=dbar__go>Delegate</button>",
+        "aria-label='Delegate a goal'><button class='dbar__go btn btn--p'>Delegate</button>",
         "dbar",
         rid=new_request_id(),
         project=field,
         next=nxt,
     )
     if not form:
-        return stamp
+        return f"<div class=dbar-wrap><div class=dbar__row>{stamp}</div></div>" if stamp else ""
     hidden = " hidden" if field else ""
     return (
         "<div class=dbar-wrap><p class=dbar-flash data-flash role=status hidden></p>"
-        f"<div class=dbar-info><p class=dbar-note>Delegate to <b data-tname>{esc(label)}</b>"
+        f"<p class='dbar-note sr'>Delegate to <b data-tname>{esc(label)}</b>"
         f"<span data-nofocus{hidden}> · no project focus</span>"
-        f" · tapping a project card retargets this bar</p>{stamp}</div>{form}</div>"
+        f" · tapping a project card retargets this bar</p><div class=dbar__row>{form}{stamp}</div></div>"
     )
 
 
 _REVIEWS_SHOWN = 10
+_CLOSE_BTN = "btn btn--s btn--sm rv__x"
 
 
-def _review_form(action: str, label: str, ctx: Ctx, cls: str = "rv__x", **hidden: str) -> str:
+def _review_form(action: str, label: str, ctx: Ctx, cls: str = _CLOSE_BTN, **hidden: str) -> str:
     """A POST form that ends review sessions. The page script turns the first tap into an
     in-place confirm ("Tap again"); without it the server shows a confirm page."""
     btn = f"<button class='{cls}' data-label='{esc(label)}'>{esc(label)}</button>"
@@ -1670,25 +1848,25 @@ def _review_form(action: str, label: str, ctx: Ctx, cls: str = "rv__x", **hidden
 
 def _review(r: Review, ctx: Ctx) -> str:
     href = f"{ctx.board_url}/session/{r.key}"
-    reply = "<span class=rv__reply>reply</span>" if r.reply else ""
+    reply = "<span class='sc sc--run rv__reply'><i></i>Reply</span>" if r.reply else ""
     done = "<span class=rv__done>looks done</span>" if r.stale else ""
     where = f"<span class=rv__proj>{esc(ctx.show(r.project))}</span>" if r.project else ""
     close = _review_form("review-close", "Close", ctx, key=r.key) if ctx.can_close_reviews else ""
     return (
         f"<div class='rvrow{' rvrow--stale' if r.stale else ''}'>"
         f"<a class=rv href='{esc(href)}' target=_blank rel='noopener noreferrer'>"
-        f"<span class=rv__title>{esc(r.title)}</span>{where}{done}{reply}<span class=rv__go>↗</span>"
-        f"</a>{close}</div>"
+        f"<span class=rv__title>{esc(r.title)}</span><span class=rv__meta>{reply}{where}{done}"
+        f"</span></a>{close}</div>"
     )
 
 
 def _reviews(reviews: list[Review], ctx: Ctx) -> str:
-    """Open Lavish review sessions as tap targets that open on the tailnet board URL.
+    """Open Lavish review sessions as rows that open on the tailnet board URL, in a panel.
 
-    The first few sit in a scrollable box; "+N more" is always its last row and opens a
-    sheet listing every session (the same unread-replies-first order). Each row has a Close
-    button; pages that look done (old, or beyond the newest eight) are tagged, nudged about
-    above the list, and closed together by "Close all old".
+    The first few are listed; "+N more" is always the list's last row and opens a sheet of
+    every session (the same unread-replies-first order). Each row has a Close button; pages
+    that look done (old, or beyond the newest eight) are tagged, nudged about above the list,
+    and closed together by "Close all old".
     """
     if not reviews:
         return ""
@@ -1703,32 +1881,29 @@ def _reviews(reviews: list[Review], ctx: Ctx) -> str:
             "<button type=button class=rv__morebtn data-sheet-open=rvs-sheet aria-haspopup=dialog "
             f"aria-controls=rvs-sheet>+{rest} more</button>"
         )
+    bulk = f"{_CLOSE_BTN} rv__x--bulk"
     if stale and can:
         word = "page looks" if stale == 1 else "pages look"
         nudge = (
             f"<div class=rvs__nudge role=status><span>{stale} {word} done: close "
             f"{'it' if stale == 1 else 'them'}?</span>"
-            "<button type=button class=rv__review data-sheet-open=rvs-sheet aria-haspopup=dialog "
-            "aria-controls=rvs-sheet>Review</button>"
-            f"{_review_form('review-close-old', f'Close {stale}', ctx, 'rv__x rv__x--bulk')}</div>"
+            "<button type=button class='btn btn--s btn--sm rv__review' data-sheet-open=rvs-sheet "
+            "aria-haspopup=dialog aria-controls=rvs-sheet>Review</button>"
+            f"{_review_form('review-close-old', f'Close {stale}', ctx, bulk)}</div>"
         )
     if rest > 0 or (stale and can):
-        bulk = (
-            _review_form("review-close-old", "Close all old", ctx, "rv__x rv__x--bulk")
-            if stale and can
-            else ""
-        )
         sheet = _sheet(
             "rvs-sheet",
             f"Review pages · {n}",
             f"<div class=sheet__list>{''.join(_review(r, ctx) for r in reviews)}</div>",
             "Close review pages",
-            bulk,
+            _review_form("review-close-old", "Close all old", ctx, bulk) if stale and can else "",
         )
     return (
-        f"<section class=rvs><p class=sec-label>Review pages · {n}</p>{nudge}"
-        f"<div class=rv__box><div class=rv__list tabindex=0 role=region "
-        f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</section>"
+        "<section class='pn rvp' data-tp=reviews data-rp=reviews>"
+        f"<div class=pn__h><h2>Review pages</h2><span class='hexn hexn--q' data-rvn>{n}</span></div>"
+        f"<div class=rvs>{nudge}<div class=rv__box><div class=rv__list tabindex=0 role=region "
+        f"aria-label='Open review pages'>{shown}</div>{more}</div>{sheet}</div></section>"
     )
 
 
@@ -1739,30 +1914,47 @@ def render_home(
     focus: str | None = None,
     reviews: list[Review] | None = None,
 ) -> str:
+    """The desk: Needs you, Projects and Review pages side by side over the delegate bar.
+    Narrower screens tab the right-hand panels; a phone tabs all three."""
     attrs = " data-refresh=30000"
     if desk is None:
-        return _page("Hive desk", f"<h1>Hive desk</h1>{_banner(snap, ctx)}", "desk", attrs, ctx)
+        body = f"<div class=ph><h1>Hive desk</h1></div>{_banner(snap, ctx)}"
+        return _page("Hive desk", body, "desk", attrs, ctx)
     if focus not in desk.projects:
         focus = desk.default_focus()
     groups = {g.project: g for g in desk.backlog}
     cards = details = ""
+    blocked = 0
     for i, p in enumerate(desk.projects.values()):
         cards += _card(p, p.name == focus, ctx, f"pcs-{i}")
         details += _card_sheet(p, groups.get(p.name), ctx, f"pcs-{i}")
+        blocked += glance(p).status == "blocked"
     more = "".join(
         f"<p class=stamp>+{n} more owned by {esc(owner)}, not shown</p>"
         for owner, n in desk.more.items()
     )
+    count = len(desk.projects)
     projects = (
-        f"<section class=pcsec><p class=sec-label>Projects · tap to focus</p>"
-        f"<div class=pcs>{cards}</div>{details}{more}</section>"
-        if cards
-        else f"<section class=pcsec><p class=sec-label>No projects yet</p>{more}</section>"
+        "<section class='pn pcsec is-ron' data-tp=projects data-rp=projects>"
+        f"<div class=pn__h><h2>Projects</h2><span class='hexn hexn--q'>{count}</span>"
+        + (f"<span class=meta>{blocked} blocked</span>" if blocked else "")
+        + f"</div><div class='pn__b pcs'>{cards or '<p class=empty>No projects yet</p>'}{more}</div>"
+        f"{details}</section>"
     )
-    stamp = f"<p class=stamp>Updated {ctx.time(desk.generated)}</p>" if desk.generated else ""
+    review = _reviews(reviews or [], ctx)
+    tabs = [("needs", "Needs you", desk.backlog_count), ("projects", "Projects", count)]
+    right = ""
+    if review:
+        tabs.append(("reviews", "Reviews", len(reviews or [])))
+        right = _tabs(
+            "r",
+            [("projects", "Projects", count), ("reviews", "Review pages", len(reviews or []))],
+            "projects",
+        )
+    stamp = f"<span class=stamp>Updated {ctx.time(desk.generated)}</span>" if desk.generated else ""
     body = (
-        f"<div class=screen data-stack><div class=land><div class=land__col>{_lane(desk, ctx)}"
-        f"</div><div class=land__col>{projects}{_reviews(reviews or [], ctx)}</div></div>"
+        f"<div class=screen data-stack><div class='pgb desk{'' if review else ' desk--two'}' data-tabs>"
+        f"{_tabs('p', tabs, 'needs')}{_lane(desk, ctx)}<div class=dcol>{right}{projects}{review}</div></div>"
         f"{_dbar(desk.projects.get(focus) if focus else None, ctx, stamp)}"
         + _sheet(
             "desc-sheet",
@@ -1775,18 +1967,32 @@ def render_home(
     return _page("Hive desk", body, "desk", attrs, ctx)
 
 
+# a crew's state: its chip colour; the word is the state itself
+_CREW_CHIP = {"working": "run", "done": "ok", "idle": "q", "waiting": "you", "stuck": "down"}
+# a backlog ticket's state, when it is not queued: (chip colour, chip word)
+_ROW_CHIP = {"done": ("ok", "Done"), "in_progress": ("run", "In progress")}
+
+
+def _word(state: str) -> str:
+    return esc(state.replace("_", " ").capitalize())
+
+
 def _crew(c: Crew, ctx: Ctx) -> str:
     controls = ctx.form(
         "control",
-        "<button class='quiet inline' name=verb value=interrupt>Interrupt…</button>"
-        "<button class='quiet inline' name=verb value=relaunch>Relaunch…</button>",
+        "<button class='btn btn--s btn--sm' name=verb value=interrupt>Interrupt…</button>"
+        "<button class='btn btn--s btn--sm' name=verb value=relaunch>Relaunch…</button>",
+        "crew__ctl",
         task=c.id,
     )
     return (
-        f"<div class=row><span class=tag>{esc(c.state)}</span><strong>{esc(c.title or c.id)}"
-        f"</strong> <span class=mute>{esc(c.detail)}</span>"
-        f"<span class=sub>{esc(c.id)} · {esc(c.kind)} · {esc(c.harness)} · "
-        f"<a href='/w/{esc(quote(c.id, safe=''))}'>Watch live</a></span>{controls}</div>"
+        f"<li class=crew><div class=crew__top>{_sc(_CREW_CHIP.get(c.state, 'unk'), _word(c.state))}"
+        f"<b>{esc(c.title or c.id)}</b>"
+        f"<a class=lnk href='/w/{esc(quote(c.id, safe=''))}'>Watch live</a></div>"
+        f"<p class=crew__d>{esc(c.detail)}"
+        f"<span>{' · '.join([f'<code>{esc(c.id)}</code>'] + [esc(x) for x in (c.kind, c.harness) if x])}"
+        "</span></p>"
+        f"{controls}</li>"
     )
 
 
@@ -1796,7 +2002,7 @@ def _ticket_edit(r: Row, project: str, ctx: Ctx) -> str:
     options = "".join(f"<option>{esc(f)}</option>" for f in TICKET_FIELDS)
     return ctx.form(
         "ticket",
-        f"<details><summary>Request an edit</summary><label>Field</label>"
+        f"<details class=tk><summary>Request an edit</summary><label>Field</label>"
         f"<select name=field>{options}</select><label>New text</label>"
         "<textarea name=text required maxlength=4000></textarea>"
         "<button>Send edit request</button></details>",
@@ -1810,7 +2016,7 @@ def _ticket_edit(r: Row, project: str, ctx: Ctx) -> str:
 def _new_ticket(project: str, ctx: Ctx) -> str:
     return ctx.form(
         "ticket",
-        "<details><summary>New ticket</summary><label>Title</label>"
+        "<details class='fold tk'><summary>New ticket</summary><label>Title</label>"
         "<input type=text name=title required maxlength=200><label>Details</label>"
         "<textarea name=text maxlength=4000></textarea>"
         "<button>Send create request</button></details>",
@@ -1820,58 +2026,77 @@ def _new_ticket(project: str, ctx: Ctx) -> str:
     )
 
 
+def _backlog_row(r: Row, titles: dict[str, str], project: str, ctx: Ctx) -> str:
+    if r.state == "queued":
+        _, kind, word, _ = _queue_state(r, ctx)
+    else:
+        kind, word = _ROW_CHIP.get(r.state, ("unk", _word(r.state)))
+    extra = [f"<code>{esc(r.id)}</code>"]
+    if r.owner and r.owner != "main":
+        extra.append(f"owner: {esc(r.owner)}")
+    if r.hold:
+        extra.append(f"held: {esc(r.hold)}")
+    if r.blocked_by:
+        extra.append("blocked by " + esc(", ".join(titles.get(b) or b for b in r.blocked_by)))
+    pr = ctx.link(r.pr_url)
+    if pr:
+        extra.append(f'<a href="{esc(pr)}" rel="noopener noreferrer">PR</a>')
+    return (
+        f"<li class='bl bl--{esc(r.state)}'>{_sc(kind, word)}<div class=bl__b>"
+        f"<b class=bl__t>{esc(r.title or r.id)}</b><p class=bl__d>{' · '.join(extra)}</p>"
+        f"{_ticket_edit(r, project, ctx)}</div></li>"
+    )
+
+
 def render_project(
     name: str,
     snap: Snapshot,
     project: Project | None,
     ctx: Ctx,
 ) -> str:
+    """A project lens: what needs the owner beside its crews and backlog, as two panels (tabs
+    on a phone), the approved board's Needs page."""
     attrs = " data-refresh=30000"
+    back = "<a class='lnk ph__back' href='/'>← Desk</a>"
     if project is None:
         body = _banner(snap, ctx) if not snap.ok else "<p>Unknown project.</p>"
-        return _page(name, f"<p><a href='/'>← Desk</a></p>{body}", "", attrs, ctx)
+        return _page(name, f"<div class=ph>{back}</div>{body}", "", attrs, ctx)
     needs = (
         "".join(_need(n, False, ctx) for n in project.needs_you)
-        or "<p class=mute>Nothing needs you.</p>"
+        or "<p class=empty>Nothing needs you.</p>"
     )
     titles = {r.id: r.title for r in project.rows}
-    rows = []
-    for r in project.rows:
-        extra = [r.id]
-        if r.owner and r.owner != "main":
-            extra.append(f"owner: {esc(r.owner)}")
-        if r.hold:
-            extra.append(f"held: {esc(r.hold)}")
-        if r.blocked_by:
-            extra.append("blocked by " + esc(", ".join(titles.get(b) or b for b in r.blocked_by)))
-        pr = ctx.link(r.pr_url)
-        if pr:
-            extra.append(f'<a href="{esc(pr)}" rel="noopener noreferrer">PR</a>')
-        sub = f"<span class=sub>{' · '.join(extra)}</span>"
-        rows.append(
-            f"<div class=row><span class=tag>{esc(r.state.replace('_', ' '))}</span>"
-            f"<strong>{esc(r.title or r.id)}</strong>{sub}"
-            f"{_ticket_edit(r, project.name, ctx)}</div>"
-        )
-    crews = "".join(_crew(c, ctx) for c in project.crews) or "<p class=mute>No live crews.</p>"
+    rows = "".join(_backlog_row(r, titles, project.name, ctx) for r in project.rows)
+    crews = "".join(_crew(c, ctx) for c in project.crews)
+    n_need, n_rows, n_crews = len(project.needs_you), len(project.rows), len(project.crews)
     return _page(
         f"{ctx.show(name)} · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>{ctx.name_html(name)}</h1>"
-        f"<h2>Needs you ({len(project.needs_you)})</h2>"
-        f"{needs}<h2>Crews</h2>{crews}<h2>Backlog ({len(project.rows)})</h2>"
-        f"{_new_ticket(project.name, ctx)}{''.join(rows) or '<p class=mute>Empty.</p>'}",
+        f"<div class=ph>{back}<h1>{ctx.name_html(name)}</h1></div><div class='pgb npg' data-tabs>"
+        + _tabs("p", [("needs", "Needs you", n_need), ("work", "Work", n_rows)], "needs")
+        + "<section class='pn is-on' data-tp=needs><div class=pn__h><h2>Needs you</h2>"
+        + (f"<span class=hexn>{n_need}</span>" if n_need else "")
+        + f"</div><div class=pn__b>{needs}</div></section>"
+        "<section class=pn data-tp=work><div class=pn__h><h2>Work</h2>"
+        f"<span class=meta>{n_crews} {'crew' if n_crews == 1 else 'crews'} · {n_rows} "
+        f"{'ticket' if n_rows == 1 else 'tickets'}</span></div><div class=pn__b>"
+        f"<p class=sl>Crews · {n_crews}</p>"
+        + (f"<ul class=crews>{crews}</ul>" if crews else "<p class=meta>No live crews.</p>")
+        + f"<p class=sl>Backlog · {n_rows}</p>{_new_ticket(project.name, ctx)}"
+        + (f"<ul class=bls>{rows}</ul>" if rows else "<p class=meta>Empty.</p>")
+        + "</div></section></div>",
         "",
         attrs,
         ctx,
     )
 
 
+# a sent note's kind: (chip colour, chip word); plain chat has no chip
 _KIND_LABEL = {
-    "chat": "",
-    "ticket": "ticket request",
-    "merge": "merge word",
-    "decision": "answer",
-    "delegate": "delegated",
+    "chat": ("", ""),
+    "ticket": ("q", "Ticket request"),
+    "merge": ("ok", "Merge word"),
+    "decision": ("you", "Answer"),
+    "delegate": ("run", "Delegated"),
 }
 _STATE_LABEL = {
     "pending": "Sent",
@@ -1885,32 +2110,39 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
         return "<p class=mute>Messages are unavailable (firstmate inbox script did not answer).</p>"
     msgs = []
     for r in sorted(view.receipts, key=lambda r: r.at):  # oldest first, newest at the bottom
-        kind = f"<span class=tag>{esc(_KIND_LABEL[r.kind])}</span>" if _KIND_LABEL[r.kind] else ""
         rid = f" data-rid='{esc(r.request_id)}'" if r.request_id else ""
+        if _KIND_LABEL[r.kind][1]:  # a request, not a plain note: a receipt card led by its kind
+            bubble = f"<div class='bubble rc'>{_sc(*_KIND_LABEL[r.kind])}<span>{esc(r.body)}</span></div>"
+        else:
+            bubble = f"<div class=bubble>{esc(r.body)}</div>"
         msgs.append(
-            f"<div class='msg me'{rid}>{kind}<div class=bubble>{esc(r.body)}</div>"
+            f"<div class='msg me'{rid}>{bubble}"
             f"<span class=meta>{ctx.time(r.at)} · {esc(_STATE_LABEL[r.state])}</span></div>"
         )
         if r.reply is not None:
             msgs.append(
-                f"<div class='msg fm'><span class=tag>first mate</span>"
+                "<div class='msg fm'><span class=msg__who><i></i>First mate</span>"
                 f"<div class=bubble>{esc(r.reply)}</div>"
                 f"<span class=meta>{ctx.time(r.reply_at)}</span></div>"
             )
     out = "".join(msgs) or "<p class='mute empty'>No messages yet. Say hello below.</p>"
     if view.omitted:
-        out = "<p class=mute>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>" + out
+        out = "<p class=meta>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>" + out
     return out
 
 
 def render_watch(crew: Crew, ctx: Ctx) -> str:
+    """One crew's recent output, live: the output scrolls inside its panel."""
     return _page(
         f"{crew.id} · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>{esc(crew.title or crew.id)}</h1>"
-        f"<p class=mute><span class=tag>{esc(crew.state)}</span>{esc(crew.detail)} · "
-        f"{esc(crew.id)} · {esc(crew.harness)}</p>"
-        "<p class=mute id=tail-status role=status>Loading…</p>"
-        "<pre class=tail id=tail aria-label='Recent output' aria-live=off></pre>",
+        "<div class=ph><a class='lnk ph__back' href='/'>← Desk</a>"
+        f"<h1>{esc(crew.title or crew.id)}</h1>"
+        f"{_sc(_CREW_CHIP.get(crew.state, 'unk'), _word(crew.state))}"
+        f"<span class=sub>{esc(crew.detail)} · <code>{esc(crew.id)}</code> · "
+        f"{esc(crew.harness)}</span></div>"
+        "<section class='pn watch'><div class=pn__h><h2>Recent output</h2>"
+        "<span class=meta id=tail-status role=status>Loading…</span></div>"
+        "<pre class='pn__b tail' id=tail aria-label='Recent output' aria-live=off></pre></section>",
         "",
         f" data-tail='{esc(crew.id)}'",
         ctx,
@@ -1928,17 +2160,17 @@ def render_chat(view: ChatView, ctx: Ctx) -> str:
     form = ctx.form(
         "chat",
         "<label for=chat-text>Message the first mate</label><textarea id=chat-text name=text "
-        "required maxlength=4000 enterkeyhint=send placeholder='Ask, delegate, or steer…'>"
-        "</textarea><button>Send</button>",
+        "rows=1 required maxlength=4000 enterkeyhint=send placeholder='Ask, delegate, or steer…'>"
+        "</textarea><button class='btn btn--p'>Send</button>",
         "chatf",
         rid=new_request_id(),
     )
     return _page(
         "Chat · Hive desk",
-        f"<h1>Chat with the first mate</h1>{status}"
-        f"<div class=thread id=thread aria-live=polite>{_thread(view, ctx)}</div>"
-        "<button id=jump type=button hidden>New messages \u2193</button>"
-        f"<div class=dock>{form}</div>",
+        f"<div class=ph><h1>Chat with the first mate</h1></div>{status}<section class='pn chatpn'>"
+        f"<div class='pn__b thread' id=thread aria-live=polite>{_thread(view, ctx)}</div>"
+        "<button id=jump class='btn btn--s btn--sm' type=button hidden>New messages \u2193</button>"
+        f"<div class=dock>{form}</div></section>",
         "chat",
         " data-poll=4000",
         ctx,
@@ -1949,64 +2181,104 @@ def _cfg_note(error: str) -> str:
     return f"<p class=unk>unknown: {esc(error)}</p>"
 
 
-def _profile_line(p: fmconfig.Profile) -> str:
-    parts = (p.harness, p.model or "harness default model", p.effort or "default effort")
-    return " · ".join(esc(x) for x in parts)
+def _profile_tags(p: fmconfig.Profile) -> str:
+    """One worker profile as tags: harness, model and effort; a default reads as plain text."""
+    tags = [f"<span class=tag>{esc(p.harness)}</span>"]
+    tags.append(
+        f"<span class=tag>{esc(p.model)}</span>"
+        if p.model
+        else "<span class=meta>harness default model</span>"
+    )
+    tags.append(
+        f"<span class=tag>{esc(p.effort)}</span>"
+        if p.effort
+        else "<span class=meta>default effort</span>"
+    )
+    return f"<span class=ms>{''.join(tags)}</span>"
 
 
 def render_config(cfg: fmconfig.FmConfig, ctx: Ctx) -> str:
     """Firstmate's merge posture and worker profiles, read-only. A source that cannot be
     read shows ``unknown`` with the reason; the page itself never fails."""
     pr = cfg.projects
+    count = ""
     if pr.error:
-        merge = _cfg_note(pr.error)
+        merge = f"<div class='pn__b'>{_cfg_note(pr.error)}</div>"
     else:
         rows = [
-            f"<tr><td>{esc(n)}</td><td>{esc(p.mode)}</td><td>{'on' if p.yolo else 'off'}</td></tr>"
+            f"<tr><td>{esc(n)}</td><td><span class=tag>{esc(p.mode)}</span></td>"
+            f"<td>{_sc('run', 'On') if p.yolo else _sc('q', 'Off')}</td></tr>"
             for n, p in sorted(pr.postures.items())
         ] + [
             f"<tr><td>{esc(n)}</td><td colspan=2 class=unk>unknown: {esc(why)}</td></tr>"
             for n, why in sorted(pr.ambiguous.items())
         ]
+        count = str(len(rows))
         merge = (
-            "<div class=tblw><table><thead><tr><th>Project</th><th>Delivery</th><th>Yolo</th>"
-            f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+            "<div class='pn__b pn__b--flush'><table class=tbl><thead><tr><th>Project</th>"
+            f"<th>Delivery</th><th>Yolo</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
         )
     d = cfg.dispatch
+    rules = ""
     if d.error:
         profiles = _cfg_note(d.error)
     else:
         items = [
-            f"<li><div class=when title='{esc(r.when)}'>{esc(r.when)}</div>"
-            f"<div class=prof>{'<br>'.join(_profile_line(p) for p in r.profiles)}</div></li>"
+            f"<li><span class=prof__w title='{esc(r.when)}'>{esc(r.when)}</span>"
+            f"{''.join(_profile_tags(p) for p in r.profiles)}</li>"
             for r in d.rules
         ]
         if d.default:
             items.append(
-                "<li><div class=when>Anything else (default)</div>"
-                f"<div class=prof>{'<br>'.join(_profile_line(p) for p in d.default)}</div></li>"
+                "<li><span class=prof__w>Anything else (default)</span>"
+                f"{''.join(_profile_tags(p) for p in d.default)}</li>"
             )
-        profiles = f"<ul>{''.join(items)}</ul>"
-    harness = _cfg_note(cfg.harness.error) if cfg.harness.error else esc(cfg.harness.text)
+        rules = str(len(items))
+        profiles = f"<ul class=prof>{''.join(items)}</ul>"
     if cfg.harness.absent:
-        harness = "not set"
-    perm = _cfg_note(cfg.permission.error) if cfg.permission.error else esc(cfg.permission.text)
-    if cfg.permission.absent:
-        perm += " (default)"
+        harness = "<span class=meta>not set</span>"
+    elif cfg.harness.error:
+        harness = _cfg_note(cfg.harness.error)
+    else:
+        harness = f"<span class=tag>{esc(cfg.harness.text)}</span>"
+    if cfg.permission.error:
+        perm = _cfg_note(cfg.permission.error)
+    else:
+        perm = f"<span class=tag>{esc(cfg.permission.text)}</span>"
+        if cfg.permission.absent:
+            perm += " <span class=meta>default</span>"
     gate = cfg.workers_ready
     ready = (
-        f"<p class=unk>Workers will not start: {esc(gate)}</p>"
+        f"{_sc('down', 'Will not start')} <span class=meta>{esc(gate)}</span>"
         if gate
-        else "<p class=mute>Workers can start from these settings.</p>"
+        else _sc("ok", "Can start")
     )
+
+    def hexn(n: str) -> str:
+        return f"<span class='hexn hexn--q'>{n}</span>" if n else ""
+
     return _page(
         "Config · Hive desk",
-        "<div class=cfg><h1>Firstmate config</h1>"
-        "<p class=mute>Read from firstmate on each load. Hive keeps no copy and cannot edit it.</p>"
-        f"<h2>Merge posture</h2>{merge}"
-        f"<h2>Worker profiles</h2>{profiles}"
-        f"<h2>Worker launch</h2><p class=kv><span>Crew harness: {harness}</span>"
-        f"<span>Claude permission mode: {perm}</span></p>{ready}</div>",
+        f"<div class=ph><h1>Config</h1>{_sc('q', 'Read-only')}"
+        "<span class=sub>From firstmate on each load. Hive cannot edit it.</span></div>"
+        "<div class='pgb cfg' data-tabs>"
+        + _tabs(
+            "p",
+            [
+                ("posture", "Merge posture", int(count) if count else None),
+                ("workers", "Workers", None),
+            ],
+            "posture",
+        )
+        + "<section class='pn is-on' data-tp=posture><div class=pn__h><h2>Merge posture</h2>"
+        f"{hexn(count)}</div>{merge}</section>"
+        "<div class=cfg__col data-tp=workers>"
+        f"<section class='pn cfg__prof'><div class=pn__h><h2>Worker profiles</h2>{hexn(rules)}</div>"
+        f"<div class=pn__b>{profiles}</div></section>"
+        "<section class=pn><div class=pn__h><h2>Worker launch</h2></div><div class=pn__b>"
+        f"<dl class=kv><dt>Crew harness</dt><dd>{harness}</dd>"
+        f"<dt>Claude permission mode</dt><dd>{perm}</dd>"
+        f"<dt>Workers</dt><dd>{ready}</dd></dl></div></section></div></div>",
         "config",
         "",
         ctx,
@@ -2029,18 +2301,61 @@ def _moment(m: machine.Moment | None, ctx: Ctx, lead: bool = False) -> str:
     return f"{esc(label)} {ctx.date(m.at) if m.exact else ctx.time(_iso(m.at))}"
 
 
-def _mrow(state: str, urgent: bool, label: str, head: str, detail: list[str], side: str) -> str:
-    """One line of the Machine page: a state chip (a word, not colour alone), text, a side note."""
+# a state as a chip colour and as the glyph in the chain's hex (the chip carries the word)
+_MCHIP = {"ok": "ok", "warn": "warn", "down": "down", "unknown": "unk"}
+_MGLYPH = {
+    "ok": "M3 7.4 5.8 10 11 4",
+    "warn": "M7 3.5v4.2M7 10.4v.2",
+    "down": "M4.2 4.2l5.6 5.6M9.8 4.2l-5.6 5.6",
+    "unknown": "M5 5.3a2 2 0 1 1 2.7 1.9c-.5.2-.7.5-.7 1v.3M7 10.4v.2",
+}
+
+
+def _mchip(state: str, word: str = "") -> str:
     state = _mstate(state)
-    cls = f"mrow mrow--{state}" + (" mrow--urgent" if urgent else "")
+    return _sc(_MCHIP[state], word or _MSTATE[state])
+
+
+def _mrow(state: str, urgent: bool, label: str, head: str, detail: list[str]) -> str:
+    """One link of the chain: a hex mark, its label and reading, then a state chip (a word,
+    not colour alone)."""
+    state = _mstate(state)
+    cls = f"ch ch--{state}" + (" ch--urgent" if urgent else "")
     line = " · ".join(d for d in detail if d)
     return (
-        f"<li class='{cls}'><span class='mstate mstate--{state}'>{_MSTATE[state]}</span>"
-        f"<div class=mrow__body><div class=mrow__top><b>{esc(label)}</b>"
-        + (f"<span class=mrow__head>{esc(head)}</span>" if head else "")
-        + "</div>"
-        + (f"<p class=mrow__detail>{line}</p>" if line else "")
-        + f"</div>{side}</li>"
+        f"<li class='{cls}'><span class=ch__n><svg viewBox='0 0 14 14' aria-hidden=true>"
+        f"<path d='{_MGLYPH[state]}'/></svg></span><div class=ch__b><p class=ch__l><b>{esc(label)}</b>"
+        + (f" · {esc(head)}" if head else "")
+        + "</p>"
+        + (f"<p class=ch__d>{line}</p>" if line else "")
+        + f"</div>{_mchip(state)}</li>"
+    )
+
+
+def _timeline(view: machine.MachineView) -> str:
+    """The dated risks as marks on a line from now, the red band's days shaded."""
+    now = view.checked_at
+    if now is None:
+        return ""
+    dated = [(k, max(0.0, (k.order - now) / 86400)) for k in view.risks if k.order != float("inf")]
+    if not dated:
+        return ""
+    span = max(30.0, max(d for _, d in dated) * 1.08)
+
+    def x(days: float) -> str:
+        return f"{min(days, span) / span * 100:.2f}%"
+
+    marks = "".join(
+        f"<span class='tl__m tl__m--{_MCHIP[_mstate(k.state)]}' style='left:{x(d)}'></span>"
+        f"<span class='tl__lab tl__lab--{'dn' if i % 2 else 'up'}"
+        f"{' tl__lab--first' if d < span * 0.04 else ''}' style='left:{x(d)}'>"
+        f"{'Now' if d < 1 else f'{int(d)} d'}</span>"
+        for i, (k, d) in enumerate(dated)
+    )
+    return (
+        "<div class=tl role=img aria-label='Upcoming risks by days from now'>"
+        f"<div class=tl__ax><span class=tl__w style='width:{x(machine.URGENT_DAYS)}'></span></div>"
+        f"{marks}</div>"
     )
 
 
@@ -2056,60 +2371,78 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
             r.urgent,
             r.label,
             r.headline,
-            [esc(r.detail), _moment(r.moment, ctx)],
-            f"<span class=mrow__side>checked {ctx.time(_iso(r.checked_at))}</span>"
-            if r.checked_at
-            else "",
+            [
+                esc(r.detail),
+                _moment(r.moment, ctx),
+                f"<span class=ch__at>checked {ctx.time(_iso(r.checked_at))}</span>"
+                if r.checked_at and (view.checked_at is None or r.checked_at < view.checked_at - 60)
+                else "",  # a reading older than the round says when it was taken
+            ],
         )
         for r in view.rows
     )
     risks = "".join(
-        _mrow(
-            k.state,
-            k.urgent,
-            k.label,
-            "",
-            [_moment(k.moment, ctx, lead=True), esc(k.detail)],
-            f"<span class='mrow__side mrow__due'>{esc(k.due)}</span>",
+        f"<li class='risk risk--{_mstate(k.state)}{' risk--urgent' if k.urgent else ''}'>"
+        f"{_mchip(k.state)}<b>{esc(k.label)}</b><span class=when>{esc(k.due)}</span>"
+        + (
+            f"<span class=d>{line}</span>"
+            if (
+                line := " · ".join(
+                    d for d in (_moment(k.moment, ctx, lead=True), esc(k.detail)) if d
+                )
+            )
+            else ""
         )
+        + "</li>"
         for k in view.risks
     )
     counts = {
         s: sum(_mstate(r.state) == s for r in view.rows) for s in ("down", "warn", "unknown", "ok")
     }
-    summary = "".join(
-        f"<li class='mstate mstate--{s}'>{n} {_MSTATE[s]}</li>" for s, n in counts.items() if n
-    )
+    summary = "".join(f"<li>{_mchip(s, f'{n} {_MSTATE[s]}')}</li>" for s, n in counts.items() if n)
+    worst = next((f"{n} {_MSTATE[s]}" for s, n in counts.items() if n), "")
     stamp = (
-        f"<p class=stamp>Checked {ctx.time(_iso(view.checked_at))}</p>" if view.checked_at else ""
+        f"<span class=stamp>Checked {ctx.time(_iso(view.checked_at))}</span>"
+        if view.checked_at
+        else ""
     )
     note = esc(view.note) or "Nothing to report."
     a = view.alarm
     alarm = (
-        "<h2 class=sec-label>Gone-dark alarm</h2><ul class=mlist>"
-        + _mrow(a.state, False, a.label, a.headline, [esc(a.detail), _moment(a.moment, ctx)], "")
-        + "</ul>"
+        "<p class=sl>Gone-dark alarm</p><ol class='chain chain--one'>"
+        + _mrow(a.state, False, a.label, a.headline, [esc(a.detail), _moment(a.moment, ctx)])
+        + "</ol>"
         if a is not None
         else ""
     )
     return _page(
         "Machine · Hive desk",
-        "<div class=mach><div class=mach__head><h1>Machine</h1>"
-        f"<ul class=mach__sum aria-label='Chain summary'>{summary}</ul></div>"
-        "<div class=mach__lead><p class=mute>Read-only. Every link has to hold to reach firstmate. "
-        "Renew a sign-in on the <a href='/signins'>Sign-ins page</a>.</p>"
-        f"{stamp}"
+        f"<div class=ph><h1>Machine</h1><ul class=mach__sum aria-label='Chain summary'>{summary}</ul>"
+        "<span class=sub>Every link has to hold to reach firstmate. Renew a sign-in on the "
+        f"<a href='/signins'>Sign-ins page</a>.</span>{stamp}"
         + (
-            "<p class=mach__term><a href='/terminal'>Open firstmate’s terminal</a></p>"
+            "<a class='lnk mach__term' href='/terminal'>Open firstmate’s terminal</a>"
             if ctx.terminal
             else ""
         )
-        + "</div>"
-        "<div class=mach__cols><section class=mach__col><h2 class=sec-label>The chain</h2>"
-        f"<ol class=mlist>{rows}</ol>{alarm}</section>"
-        "<section class=mach__col><h2 class=sec-label>Upcoming risks</h2>"
-        + (f"<ul class=mlist>{risks}</ul>" if risks else f"<p class=mute>{note}</p>")
-        + "</section></div></div>",
+        + "</div><div class='pgb mach' data-tabs>"
+        + _tabs(
+            "p",
+            [("chain", "The chain", worst or None), ("risks", "Upcoming risks", len(view.risks))],
+            "chain",
+        )
+        + "<section class='pn mach__col is-on' data-tp=chain><div class=pn__h><h2>The chain</h2>"
+        "<span class=meta>Read-only</span></div>"
+        f"<div class=pn__b><ol class=chain>{rows}</ol>{alarm}</div></section>"
+        "<section class='pn mach__col' data-tp=risks><div class=pn__h><h2>Upcoming risks</h2>"
+        + (f"<span class='hexn hexn--q'>{len(view.risks)}</span>" if view.risks else "")
+        + "</div><div class=pn__b>"
+        + (
+            f"{_timeline(view)}<ul class=risks>{risks}</ul>"
+            if risks
+            else f"<p class=empty>{note}</p>"
+        )
+        + "</div></section></div>",
         "machine",
         f" data-refresh={MACHINE_REFRESH_MS} data-machine",
         ctx,
@@ -2139,17 +2472,12 @@ def _secs(seconds: float | None) -> str:
 
 
 def _run_card(card: runqueue.Card, ctx: Ctx) -> str:
-    """One fix button: what it does, the exact command or helper verb, how long it takes."""
+    """One fix button: what it does, how long it takes, the exact command or helper verb."""
     a = card.action
-    cls = "rq" + (" rq--down" if a.down else "") + (" rq--off" if card.why_not else "")
-    body = (
-        f"<div class=rq__body><div class=rq__top><b>{esc(a.label)}</b>"
-        f"<span class=rq__took>{esc(a.took)}</span></div>"
-        f"<p class=rq__what>{esc(a.plain)}</p><code class=rq__cmd>{esc(a.command())}</code>"
-        + (f"<p class=rq__off>{esc(card.why_not)}</p>" if card.why_not else "")
-        + "</div>"
-    )
-    form = ""
+    cls = "ar" + (" ar--down" if a.down else "") + (" ar--off" if card.why_not else "")
+    # off: a disabled button; its reason is said once by the Windows note when it is the same
+    form = "<button class='btn btn--s' type=button disabled>Run</button>"
+    off = card.why_not if card.why_not and card.why_not != runqueue.NOT_SET_UP else ""
     if not card.why_not:
         pick = ""
         if a.choice:
@@ -2159,71 +2487,97 @@ def _run_card(card: runqueue.Card, ctx: Ctx) -> str:
                 for v in a.choices
             )
             pick = f"<label for={fid}>For</label><select id={fid} name=n>{opts}</select>"
-        cls_b = " class=danger" if a.down else ""
+        btn = "btn btn--s btn--danger" if a.down else "btn btn--s"
         form = ctx.form(
-            "run", f"{pick}<button{cls_b} type=submit>Run</button>", always=True, do=a.key
+            "run", f"{pick}<button class='{btn}' type=submit>Run</button>", always=True, do=a.key
         )
-    return f"<li class='{cls}'>{body}{form}</li>"
+    return (
+        f"<li class='{cls}'><div class=ar__t><b>{esc(a.label)}</b>"
+        f"<span class=meta>{esc(a.took)}</span></div>{form}"
+        f"<p class=ar__d title='{esc(a.plain)}'>{esc(a.plain)}</p>"
+        f"<code class=ar__cmd>{esc(a.command())}</code>"
+        + (f"<p class=ar__off>{esc(off)}</p>" if off else "")
+        + "</li>"
+    )
 
 
 def _run_row(r: runqueue.Run, owner: str, ctx: Ctx) -> str:
     row, chip, word = _RUN_RESULT.get(r.result, _RUN_RESULT[runqueue.UNKNOWN])
     who = "you" if r.who == owner else machine.redact(r.who or "-", 40)
     took = _secs(r.duration_s)
-    detail = " · ".join(x for x in (esc(r.detail), f"took {took}" if took else "") if x)
+    line = " · ".join(
+        x
+        for x in (f"by {esc(who)}", ctx.time(_iso(r.start)), esc(r.detail), took and f"took {took}")
+        if x
+    )
     return (
-        f"<li class='mrow mrow--{row} rqrun'><span class='mstate mstate--{chip}'>{word}</span>"
-        f"<div class=mrow__body><div class=mrow__top><b>{esc(r.label)}</b>"
-        f"<span class=mrow__head>by {esc(who)}</span></div>"
-        + (f"<p class=mrow__detail>{detail}</p>" if detail else "")
-        + f"</div><span class=mrow__side>{ctx.time(_iso(r.start))}</span></li>"
+        f"<li class='runrow runrow--{row}'>{_sc(_MCHIP.get(chip, chip), word)}"
+        f"<b>{esc(r.label)}</b><span class=d>{line}</span></li>"
     )
 
 
 def _helper_note(state: str) -> str:
     if state == runqueue.READY:
         return (
-            "<p class=rqnote>Through the admin helper only: each button writes one request "
-            "line for it and starts its task, and its answer is shown below.</p>"
+            "<p class='meta run__lead'>Through the admin helper only: each button writes one "
+            "request line for it and starts its task, and its answer is shown below.</p>"
         )
-    more = (
-        "It has not answered the desk yet. If the sitting is done, tap Check the admin "
-        "helper; the other Windows buttons are offered once it answers."
+    chip, more = (
+        (
+            "Not answered",
+            "It has not answered the desk yet. If the sitting is done, tap Check the admin "
+            "helper; the other Windows buttons are offered once it answers.",
+        )
         if state == runqueue.UNPROVEN
-        else "The one sitting at the PC sets it up. Until then no Windows button is offered."
+        else (
+            "Not set up",
+            "The one sitting at the PC sets it up. Until then no Windows button is offered.",
+        )
     )
     return (
-        f"<div class=banner role=status><p><b>{esc(runqueue.NOT_SET_UP)}</b></p>"
-        f"<p class=mute>{esc(more)} ({esc(runqueue.SITTING)})</p></div>"
+        f"<div class=note role=status>{_sc('warn', chip)}<span><b>{esc(runqueue.NOT_SET_UP)}</b> "
+        f"{esc(more)} ({esc(runqueue.SITTING)})</span></div>"
     )
 
 
 def render_run(view: runqueue.RunView, ctx: Ctx) -> str:
     """The Run page: fixed fix buttons, then the last runs. Nothing runs from a page load;
     each button needs a confirm step (two for the ones that take things down)."""
-    linux = "".join(_run_card(c, ctx) for c in view.cards if c.action.side == "linux")
-    windows = "".join(_run_card(c, ctx) for c in view.cards if c.action.side == "windows")
-    windows += "".join(
-        "<li class='rq rq--off'><div class=rq__body><div class=rq__top>"
-        f"<b>{esc(label)}</b></div><p class=rq__what>{esc(why)}</p>"
-        "<p class=rq__off>Not offered.</p></div></li>"
-        for label, why in view.not_offered
+    linux = [c for c in view.cards if c.action.side == "linux"]
+    windows = [c for c in view.cards if c.action.side == "windows"]
+    fold = (
+        f"<details class=fold><summary>Not offered · {len(view.not_offered)}</summary><ul>"
+        + "".join(
+            f"<li>{esc(label)}<span>{esc(why)}</span></li>" for label, why in view.not_offered
+        )
+        + "</ul></details>"
+        if view.not_offered
+        else ""
     )
     rows = "".join(_run_row(r, view.owner, ctx) for r in view.runs)
-    runs = f"<ol class=mlist>{rows}</ol>" if rows else "<p class=mute>No runs yet.</p>"
+    runs = f"<ol class=runs>{rows}</ol>" if rows else "<p class=empty>No runs yet.</p>"
     return _page(
         "Run · Hive desk",
-        "<div class=runq><div class=mach__head><h1>Run</h1></div>"
-        "<div class=mach__lead><p class=mute>Fixed fixes only. A tap shows exactly what will "
-        "run; it runs only after you tap again, and every run is logged.</p></div>"
-        "<div class=runq__cols><section class=runq__col>"
-        "<h2 class=sec-label>This desk · Linux</h2>"
-        "<p class=rqnote>Runs as you inside WSL, never as root.</p>"
-        f"<ol class=rqlist>{linux}</ol>"
-        "<h2 class=sec-label>The PC · Windows</h2>"
-        f"{_helper_note(view.helper)}<ol class=rqlist>{windows}</ol></section>"
-        f"<section class=runq__col><h2 class=sec-label>Last {runqueue.SHOWN_RUNS} runs</h2>"
-        f"{runs}</section></div></div>",
+        "<div class=ph><h1>Run</h1><span class=sub>Fixed fixes only. Tap, check what runs, tap "
+        "again. Every run is logged.</span></div><div class='pgb run' data-tabs>"
+        + _tabs(
+            "p",
+            [
+                ("linux", "Linux", len(linux)),
+                ("win", "Windows", len(windows)),
+                ("runs", "Runs", None),
+            ],
+            "linux",
+        )
+        + "<section class='pn is-on' data-tp=linux><div class=pn__h><h2>This desk · Linux</h2>"
+        "<span class=meta>runs as you, never as root</span></div>"
+        f"<div class=pn__b><ul class=ars>{''.join(_run_card(c, ctx) for c in linux)}</ul></div></section>"
+        "<section class=pn data-tp=win><div class=pn__h><h2>The PC · Windows</h2></div>"
+        f"<div class=pn__b>{_helper_note(view.helper)}"
+        f"<ul class=ars>{''.join(_run_card(c, ctx) for c in windows)}</ul>{fold}</div></section>"
+        f"<section class=pn data-tp=runs><div class=pn__h><h2>Last {runqueue.SHOWN_RUNS} runs</h2>"
+        + (f"<span class='hexn hexn--q'>{len(view.runs)}</span>" if view.runs else "")
+        + f"</div><div class=pn__b>{runs}</div></section></div>",
         "run",
         f" data-refresh={RUN_REFRESH_MS} data-run",
         ctx,
@@ -2236,7 +2590,7 @@ SIGNINS_REFRESH_MS = 30000  # an open Sign-ins page re-reads its rows this often
 def _signin_poll(ctx: Ctx, token: str, visible: bool) -> str:
     """The form the page asks "how is the sign-in going" with. The starting page's token goes
     in the request body, never in a link. Hidden on the page the script drives."""
-    button = "<button class=quiet type=submit>Check again</button>" if visible else ""
+    button = "<button class='btn btn--s' type=submit>Check again</button>" if visible else ""
     return (
         f"<form id=signin-poll method=post action='/act/signin-flow'{'' if visible else ' hidden'}>"
         f'<input type=hidden name=csrf value="{esc(ctx.csrf)}">'
@@ -2275,23 +2629,21 @@ def signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
             if v.expires and v.phase == signins.DONE_OK
             else ""
         )
+        chip = {signins.DONE_OK: _sc("ok", "Done"), signins.DONE_FAILED: _sc("down", "Failed")}
         return (
-            f"<div class='sgf {cls}' role=status><p class=sgf__title>{name} sign-in{when}</p>"
-            f"<p>{esc(v.message)}{good}</p></div>"
+            f"<div class='sgf {cls}' role=status><div class=sgf__h><p class=sgf__title>{name} "
+            f"sign-in</p>{chip.get(v.phase, '')}{when}</div><p>{esc(v.message)}{good}</p></div>"
         )
     cancel = ""
     if v.phase != signins.STOPPING:
         label = "Cancel" if v.mine else "Stop that sign-in"
         cancel = ctx.form(
             "signin-cancel",
-            f"<button class=quiet type=submit>{label}</button>",
+            f"<button class='btn btn--s btn--sm' type=submit>{label}</button>",
             always=True,
             flow=v.token,
         )
-    foot = (
-        f"<div class=sgf__foot><p class=mute>Stops by itself at {_time_of_day(v.ends_at, ctx)}.</p>"
-        f"{cancel}</div>"
-    )
+    stops = f"<span class=meta>Stops by itself at {_time_of_day(v.ends_at, ctx)}.</span>"
     note = f"<p class=sgf__note role=alert>{esc(v.note)}</p>" if v.note else ""
     if not v.mine:
         body = (
@@ -2307,21 +2659,21 @@ def signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
     else:
         host = esc(urlsplit(v.link).hostname or "")
         steps = (
-            "<li>Open the sign-in page and sign in as yourself."
+            "<li><b>Open the sign-in page and sign in as yourself.</b>"
             f'<a class=sgf__link href="{esc(v.link)}" target=_blank rel="noopener noreferrer">'
             f"Open the {name} sign-in page ↗</a><span class=sgf__host>{host}</span></li>"
         )
         if v.code:
             steps += (
-                "<li>Enter this one-time code there.<br>"
+                "<li><b>Enter this one-time code there.</b>"
                 f"<strong class=sgf__code>{esc(v.code)}</strong></li>"
-                f"<li>Come back here. This page shows when {name} has signed the PC in.</li>"
+                f"<li><b>Come back here.</b> This page shows when {name} has signed the PC in.</li>"
             )
         if v.takes_code:
             box = (
                 "<input type=text name=code id=sgcode autocomplete=off autocapitalize=off "
                 f"autocorrect=off spellcheck=false maxlength={signins.MAX_CODE} required>"
-                "<button type=submit>Send code</button>"
+                "<button class='btn btn--s' type=submit>Send code</button>"
             )
             steps += (
                 f"<li><label for=sgcode>{name} then shows a code. Paste it here.</label>"
@@ -2331,37 +2683,45 @@ def signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
             note = ""
         body = (
             f"<ol class=sgf__steps>{steps}</ol>"
-            "<p class=mute>The link works once and is shown only on this page.</p>"
+            "<p class=meta>The link works once and is shown only on this page.</p>"
         )
     ends = f" data-ends='{int(v.ends_at * 1000)}'" if v.mine and v.ends_at else ""
     return (
-        f"<div class='sgf sgf--live'{ends}><p class=sgf__title>{name} sign-in"
-        f"<span class=mute>in progress</span></p>{body}{note}{foot}</div>"
+        f"<div class='sgf sgf--live'{ends}><div class=sgf__h><p class=sgf__title>{name} sign-in</p>"
+        f"{_sc('run', 'In progress')}{stops}{cancel}</div>{body}{note}</div>"
     )
 
 
 def _sgrow(r: signins.SignIn, ctx: Ctx, busy: bool) -> str:
-    """One sign-in: the Machine page's state chip and wording, plus Renew or why not."""
+    """One sign-in as a card: its name and state chip, how long it has, then Renew or why not."""
     state = _mstate(r.state)
-    cls = f"mrow sgrow mrow--{state}" + (" mrow--urgent" if r.urgent else "")
+    cls = f"sgrow sgrow--{state}" + (" sgrow--urgent" if r.urgent else "")
     line = " · ".join(d for d in (esc(r.detail), _moment(r.moment, ctx)) if d)
     why, act = esc(r.why_not), ""
-    if r.help_url:
-        why += (
-            f' <a href="{esc(r.help_url)}" target=_blank rel="noopener noreferrer">'
+    if r.help_url:  # the board's order: the link, then why Renew is not here
+        act = (
+            f'<a class=lnk href="{esc(r.help_url)}" target=_blank rel="noopener noreferrer">'
             f"{esc(r.help_label)} ↗</a>"
         )
     if r.renewable and busy:
         why = "A sign-in is running. Renew is back when it ends."
     elif r.renewable:
-        act = ctx.form("signin", "<button type=submit>Renew</button>", always=True, provider=r.key)
+        act = (
+            ctx.form(
+                "signin",
+                "<button class='btn btn--s' type=submit>Renew</button>",
+                always=True,
+                provider=r.key,
+            )
+            + act
+        )
     return (
-        f"<li class='{cls}'><span class='mstate mstate--{state}'>{_MSTATE[state]}</span>"
-        f"<div class=mrow__body><div class=mrow__top><b>{esc(r.label)}</b>"
-        f"<span class=mrow__head>{esc(r.headline)}</span></div>"
-        + (f"<p class=mrow__detail>{line}</p>" if line else "")
+        f"<li class='{cls}'><div class=sgrow__top><b>{esc(r.label)}</b>{_mchip(state)}</div>"
+        f"<p class=sgrow__big>{esc(r.headline)}</p>"
+        + (f"<p class=sgrow__d>{line}</p>" if line else "")
+        + f"<div class=sgrow__act>{act}"
         + (f"<p class=sgrow__why>{why}</p>" if why else "")
-        + f"</div><div class=sgrow__act>{act}</div></li>"
+        + "</div></li>"
     )
 
 
@@ -2380,21 +2740,21 @@ def render_signins(panel: signins.Panel, ctx: Ctx) -> str:
     counts = {
         s: sum(_mstate(r.state) == s for r in panel.rows) for s in ("down", "warn", "unknown", "ok")
     }
-    summary = "".join(
-        f"<li class='mstate mstate--{s}'>{n} {_MSTATE[s]}</li>" for s, n in counts.items() if n
-    )
+    summary = "".join(f"<li>{_mchip(s, f'{n} {_MSTATE[s]}')}</li>" for s, n in counts.items() if n)
     stamp = (
-        f"<p class=stamp>Checked {ctx.time(_iso(panel.checked_at))}</p>" if panel.checked_at else ""
+        f"<span class=stamp>Checked {ctx.time(_iso(panel.checked_at))}</span>"
+        if panel.checked_at
+        else ""
     )
     return _page(
         "Sign-ins · Hive desk",
-        "<div class=mach><div class=mach__head><h1>Sign-ins</h1>"
-        f"<ul class=mach__sum aria-label='Sign-in summary'>{summary}</ul></div>"
-        "<div class=mach__lead><p class=mute>Renew a sign-in from here before it runs out. "
-        f"<a href='/machine'>Back to Machine</a></p>{stamp}</div>"
+        "<div class=ph><h1>Sign-ins</h1>"
+        f"<ul class=mach__sum aria-label='Sign-in summary'>{summary}</ul>"
+        f"<span class=sub>Renew a sign-in here before it runs out.</span>{stamp}</div>"
+        "<div class='pgb sgb'>"
         + _signin_box(panel.flow, ctx)
         + _signin_poll(ctx, "", visible=False)
-        + f"<ul class=mlist>{rows}</ul></div>",
+        + f"<ul class=sg>{rows}</ul></div>",
         "signins",
         f" data-refresh={SIGNINS_REFRESH_MS} data-signins",
         ctx,
@@ -2407,7 +2767,7 @@ def render_signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
     poll = _signin_poll(ctx, view.token, visible=True) if view.active else ""
     return _page(
         "Sign-ins · Hive desk",
-        "<div class=mach><h1>Sign-ins</h1>"
+        "<div class=ph><h1>Sign-ins</h1></div><div class='pgb sgb'>"
         + _signin_box(view, ctx)
         + poll
         + "<p><a href='/signins'>Back to Sign-ins</a></p></div>",
@@ -2418,20 +2778,24 @@ def render_signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
 def render_confirm(title: str, detail: str, action: str, ctx: Ctx, hidden: dict[str, str]) -> str:
     """Step-up page: nothing runs until this form is posted back with ``step``."""
     inner = (
-        f"<p>{esc(detail)}</p>"
-        "<button class=danger name=confirm value=1>Confirm</button> "
-        f"<a href='{esc(ctx.nxt)}'>Cancel</a>"
+        f"<p>{esc(detail)}</p><div class=step__act>"
+        "<button class=danger name=confirm value=1>Confirm</button>"
+        f"<a class=lnk href='{esc(ctx.nxt)}'>Cancel</a></div>"
     )
     form = ctx.form(action, inner, **hidden)
-    return _page(f"{title} · Hive desk", f"<h1>{esc(title)}</h1><div class=banner>{form}</div>")
+    return _page(
+        f"{title} · Hive desk",
+        f"<div class=ph><h1>{esc(title)}</h1></div><section class='step step--ask'>{form}</section>",
+    )
 
 
 def render_result(title: str, message: str, nxt: str, ok: bool) -> str:
     cls = "banner ok" if ok else "banner"
     return _page(
         f"{title} · Hive desk",
-        f"<h1>{esc(title)}</h1><div class='{cls}' role=status>{esc(message)}</div>"
-        f"<p><a href='{esc(nxt)}'>Back</a></p>",
+        f"<div class=ph><h1>{esc(title)}</h1></div><section class=step>"
+        f"<div class='{cls}' role=status>{esc(message)}</div>"
+        f"<a class=lnk href='{esc(nxt)}'>Back</a></section>",
     )
 
 
@@ -2453,68 +2817,81 @@ XTERM_SRI = (
 XTERM_CSS = (VENDOR_DIR / "xterm-6.0.0.css").read_text()
 
 TERMINAL_CSS = """
-body.termpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
-display:flex;flex-direction:column}
-.termpage main{flex:1;min-height:0;width:100%;max-width:1200px;display:flex;flex-direction:column;
-padding:0 0 calc(8px + env(safe-area-inset-bottom))}
-.term{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
-.term__head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px}
-.term__head h1{margin:8px 0 0;font-size:1.15rem}.term__head p{margin:0}
-.tbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:58px;
-padding:6px 6px 6px 8px;background:var(--card);border:1.5px solid var(--line);border-radius:12px}
-.tbar[data-s=mine]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.tstate{flex:none;display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border-radius:999px;
-border:1.5px solid var(--rule-soft);font:700 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
-color:var(--ink-3);white-space:nowrap}
-.tstate--ro{border-color:var(--sage);color:var(--sage);background:var(--sage-soft)}
-.tstate--mine{border-color:var(--accent);background:var(--accent);color:#fff}
-.tstate--other{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
-.tstate--down{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
-.tstate--wait{border-color:var(--honey);color:var(--ochre);background:var(--honey-soft)}
-.tbar__who{flex:1 1 240px;min-width:0;font-size:.86rem;line-height:1.35;color:var(--ink-2);overflow-wrap:anywhere}
-.tbar__btns{flex:none;display:flex;gap:6px;margin-left:auto}.tbar__btns:empty{display:none}
-.tbar button{min-height:44px;padding:0 14px;font:700 12px var(--font-mono);letter-spacing:.02em}
-.tbar button[hidden]{display:none}.tbar button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
-.term button.is-armed{box-shadow:0 0 0 3px var(--accent-soft)}
-.term .act-warn{margin:0}.term .act-warn[hidden]{display:none}
-.tgate{flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;padding:4px 0 16px}
+body.termpage{position:fixed;top:0;left:0;width:100%}
+.termpage main{overflow:hidden}
+.term{display:flex;flex-direction:column;gap:10px}
+.tbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:60px;
+padding:8px 10px 8px 14px;border:1px solid var(--line2);border-radius:var(--r3);background:var(--card)}
+.tbar[data-s=mine]{border-color:var(--down);box-shadow:0 0 0 3px var(--down-t)}
+.tstate{flex:none;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;
+background:var(--unk-t);font:500 13px var(--ft);color:var(--ink);white-space:nowrap}
+.tstate::before{content:"";flex:none;width:8px;height:9px;clip-path:var(--hex);background:var(--unk)}
+.tstate--closed{background:none;box-shadow:inset 0 0 0 1px var(--line2)}.tstate--closed::before{background:var(--line2)}
+.tstate--ro{background:var(--ok-t)}.tstate--ro::before{background:var(--ok)}
+.tstate--mine,.tstate--down{background:var(--down-t)}.tstate--mine::before,.tstate--down::before{background:var(--down)}
+.tstate--other{background:var(--warn-t)}.tstate--other::before{background:var(--warn)}
+.tstate--wait{background:var(--run-t)}.tstate--wait::before{background:var(--run)}
+.tbar__who{flex:1 1 240px;min-width:0;font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+.tbar__btns{flex:none;display:flex;gap:8px;margin-left:auto}.tbar__btns:empty{display:none}
+.tbar button[hidden]{display:none}.tbar button:disabled{opacity:.45;cursor:not-allowed}
+.term>.act-warn{flex:none;margin:0;padding:10px 14px;border-radius:var(--r2);background:var(--warn-t);color:var(--ink)}
+.term .act-warn[hidden]{display:none}
+.tgate{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:2px}
 .tgate[hidden],.tlive[hidden]{display:none}
-.tgate .card{width:100%;max-width:560px}
-.tgate h2{margin:0 0 6px}.tgate p{margin:0 0 8px}
-.tgate ul{margin:0 0 12px;padding-left:20px;color:var(--ink-2);font-size:.92rem}.tgate li{margin:3px 0}
-.tgate form{margin:0}.tgate button{min-height:48px;padding:0 20px;font-weight:700}
-.tlive{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.gate{width:min(680px,100%);margin:auto 0;padding:28px;border:1px solid var(--line);border-radius:var(--r3);
+background:var(--card);text-align:center}
+.gate h2{font-size:26px;letter-spacing:-.02em}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:20px 0 22px;padding:0;list-style:none;
+text-align:left}
+.facts li{display:flex;align-items:center;gap:12px;min-height:58px;padding:10px 14px;border-radius:var(--r2);
+background:var(--surface)}
+.facts svg{flex:none;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;
+stroke-linejoin:round}
+.facts span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.facts b{font-size:16px;font-weight:600}
+.facts small{font-size:13px;color:var(--muted)}
+.gate form{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0}
+.gate .act-warn{margin:0;color:var(--ink);font-weight:500}
+.tnote{flex:none;min-height:1.3em;margin:0;font:600 14px/1.4 var(--ft);color:var(--down)}
+.tnote:empty{min-height:0}
+.gate .tnote:not(:empty){margin-top:10px}
+.tlive{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
 .twrap{position:relative;flex:1;min-height:140px;display:flex}
 .tframe{flex:1;min-width:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-padding:8px;background:#16140f;border:1.5px solid var(--rule-soft);border-radius:12px}
+padding:8px;background:#16140f;border:1px solid var(--line2);border-radius:var(--r3)}
 .tframe .xterm{display:inline-block;vertical-align:top}
 /* The desk's textarea min-height would stretch xterm's hidden input below the screen. */
 .tframe .xterm-helper-textarea{min-height:0}
-.tframe__msg{position:absolute;inset:1.5px;display:flex;align-items:center;justify-content:center;margin:0;
-padding:24px;border-radius:11px;background:#16140f;color:#d6cfbf;font:600 14px/1.5 var(--font-sans);text-align:center}
+.tframe__msg{position:absolute;inset:1px;display:flex;align-items:center;justify-content:center;margin:0;
+padding:24px;border-radius:calc(var(--r3) - 1px);background:#16140f;color:#e9dfc9;font:600 15px/1.5 var(--ft);
+text-align:center}
 .tframe__msg[hidden]{display:none}
-.tjump{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);border-radius:999px;min-height:40px;
-padding:0 16px;font:700 12px var(--font-mono);background:var(--paper);color:var(--ink);border-color:var(--rule-soft);
-box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.tjump{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:inline-flex;align-items:center;
+min-height:44px;padding:0 16px;border:1px solid var(--line2);border-radius:999px;background:var(--card);color:var(--ink);
+font:600 14px var(--ft);box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer}
 .tjump[hidden]{display:none}
 .tkeys{flex:none;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:1px}
 .tkeys::-webkit-scrollbar{display:none}
-.tkeys button{flex:none;min-width:48px;min-height:44px;padding:0 10px;font:700 13px var(--font-mono);
-background:var(--card);color:var(--ink);border:1.5px solid var(--line);border-radius:8px}
-.tkeys button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
-.tkeys button:disabled{opacity:.4;cursor:not-allowed}
-.tkeys__gap{flex:1 0 6px}
-.tpaste{flex:none;display:flex;gap:6px;align-items:flex-end;margin:0}
-.tpaste textarea{flex:1;min-width:0;min-height:44px;max-height:22vh;margin:0;resize:none;font:16px/1.35 var(--font-mono)}
+.tkeys button{flex:none;min-width:54px;height:48px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r2);
+background:var(--card);color:var(--ink);font:500 15px var(--fm);cursor:pointer}
+.tkeys button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--card)}
+.tkeys button:disabled{opacity:.45;cursor:not-allowed}
+.tkeys__gap{flex:1 0 12px}
+.tpaste{flex:none;display:flex;gap:8px;align-items:flex-end;margin:0}
+.tpaste textarea{flex:1;min-width:0;height:48px;min-height:48px;max-height:22vh;margin:0;resize:none;
+font:16px/1.35 var(--fm)}
 .tpaste textarea:disabled{opacity:.6}
-.tpaste button{flex:none;min-height:44px;padding:0 12px;font:700 12px var(--font-mono)}
-.tpaste button:disabled{opacity:.4;cursor:not-allowed}
-.tnote{flex:none;min-height:1.3em;margin:0;font:600 12px/1.4 var(--font-mono);color:var(--accent)}
-.tnote:empty{min-height:0}
-@media (prefers-color-scheme:dark){.tframe,.tframe__msg{background:#0f0d09}.tframe{border-color:#3a352a}}
-@media (max-width:760px){.term__head p{display:none}}
-@media (max-width:480px){.tbar{padding:6px}.tbar__who{flex-basis:100%;order:3}.tbar__btns{margin-left:auto}
-.tkeys button{min-width:44px;padding:0 8px}.tpaste button{padding:0 9px}}
+.tpaste .btn{flex:none;min-height:48px}
+.tpaste .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+@media (prefers-color-scheme:dark){.tframe,.tframe__msg{background:#0f0d09}}
+/* A phone keeps every row it can for the screen: the live terminal drops the page title (the
+menu marks the page) and the paste box keeps one row, so 30 rows fit at the smallest font. */
+@media (max-width:640px){.termpage .ph .sub{display:none}.termpage:has(.tlive:not([hidden])) .ph{display:none}
+.termpage:has(.tlive:not([hidden])) .term{padding-top:12px}.tbar{padding:8px}.tbar__who{flex-basis:100%;order:3}
+.facts{grid-template-columns:minmax(0,1fr)}.facts li{min-height:48px}.gate{padding:18px}.gate h2{font-size:22px}
+.tpaste .btn{padding:0 12px}}
+/* every key in one row on an iPad in portrait too (a phone's row scrolls sideways) */
+@media (max-width:1023px){.tkeys{gap:4px}.tkeys button{min-width:46px;padding:0 8px}}
 """
 
 # Pinned by hash in the Terminal page's CSP, as ``SCRIPT`` is everywhere. It takes no server
@@ -2609,7 +2986,11 @@ function refit(force){if(!term)return;if(!fit){font(fs);label();return;}
 var w=frame.clientWidth-16,h=frame.clientHeight-16;if(w<=0||h<=0)return;
 if(!force&&w===lastW&&h<=lastH)return;lastW=w;lastH=h;var k=measure();if(!k)return;
 var n=Math.floor(Math.min(w/(term.cols*k.w),h/(term.rows*k.h)));n=Math.max(7,Math.min(18,n));
-font(n);label();toBottom();}
+font(n);while(n>7&&over(w,h)){n--;font(n);}label();toBottom();}
+// xterm rounds a cell to whole pixels, so a cell does not grow in step with the font and the
+// guess above can come out a row too tall, scrolling the top row out of view: step down to fit.
+function over(w,h){var el=term.element&&term.element.querySelector('.xterm-screen');
+if(!el)return false;var r=el.getBoundingClientRect();return r.width>w+0.5||r.height>h+0.5;}
 function toBottom(){requestAnimationFrame(function(){frame.scrollTop=frame.scrollHeight;frame.scrollLeft=0;});}
 function setFs(n){fit=false;fs=Math.max(6,Math.min(28,n));if(term)font(fs);save();label();toBottom();}
 function vh(){var v=window.visualViewport;
@@ -2714,6 +3095,18 @@ _KEY_ROW = (
 )
 
 
+_TICON = {  # the gate's four facts, drawn as the board draws them
+    "eye": "<svg viewBox='0 0 24 24' aria-hidden=true><path d='M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 "
+    "12 2 12z'/><circle cx=12 cy=12 r=3 /></svg>",
+    "key": "<svg viewBox='0 0 24 24' aria-hidden=true><rect x=2 y=6 width=20 height=12 rx=2 />"
+    "<path d='M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10'/></svg>",
+    "clock": "<svg viewBox='0 0 24 24' aria-hidden=true><circle cx=12 cy=12 r=9 />"
+    "<path d='M12 7v5l3 2'/></svg>",
+    "lock": "<svg viewBox='0 0 24 24' aria-hidden=true><rect x=4 y=11 width=16 height=10 rx=2 />"
+    "<path d='M8 11V7a4 4 0 0 1 8 0v4'/></svg>",
+}
+
+
 def render_terminal(ctx: Ctx, enabled: bool) -> str:
     """The Terminal page: a "confirm it is you" screen, and the live terminal it opens into.
 
@@ -2721,13 +3114,13 @@ def render_terminal(ctx: Ctx, enabled: bool) -> str:
     websocket, after a finished step-up.
     """
     head = (
-        "<div class=term__head><h1>Terminal</h1>"
-        "<p class=mute>Firstmate’s own session, live, as it shows on the PC.</p></div>"
+        "<div class=ph><h1>Terminal</h1>"
+        "<span class=sub>Firstmate’s own session, live, as it shows on the PC.</span></div>"
     )
     if not enabled:
         return _page(
             "Terminal · Hive desk",
-            f"<div class=term id=term>{head}<div class=banner role=status>The Terminal page is "
+            f"{head}<div class='pgb term' id=term><div class=banner role=status>The Terminal page is "
             "switched off on this desk (<code>HIVE_GATEWAY_TERMINAL=off</code>).</div></div>",
             "terminal",
             "",
@@ -2743,26 +3136,28 @@ def render_terminal(ctx: Ctx, enabled: bool) -> str:
     )
     form = ctx.form(
         "terminal",
-        "<button class=danger type=submit>Open terminal</button>",
+        "<button class='btn btn--p' type=submit>Open terminal</button>",
         always=True,
     ).replace("<form ", "<form id=term-open ", 1)
     body = (
-        f"<div class=term id=term>{head}"
+        f"{head}<div class='pgb term' id=term>"
         "<div class=tbar id=term-bar data-s=closed role=status aria-live=polite>"
         "<span class='tstate tstate--closed' id=term-state>Not open</span>"
         "<span class=tbar__who id=term-who>Confirm it is you to open firstmate’s session."
         "</span><span class=tbar__btns>"
-        "<button type=button class=danger id=term-take hidden>Take keyboard</button>"
-        "<button type=button class=quiet id=term-release hidden>Release keyboard</button>"
+        "<button type=button class='btn btn--s' id=term-take hidden>Take keyboard</button>"
+        "<button type=button class='btn btn--s' id=term-release hidden>Release keyboard</button>"
         "</span></div><p class=act-warn id=term-warn role=alert hidden></p>"
-        "<section class=tgate id=term-gate aria-label='Confirm it is you'><div class=card>"
-        "<h2>Confirm it is you</h2>"
-        "<p>The terminal shows firstmate’s own session, exactly as it is on the PC.</p>"
-        "<ul><li>It opens read-only. Typing needs a second confirm: <b>Take keyboard</b>.</li>"
-        "<li>Only one tab can hold the keyboard. It goes back to read-only after 10 minutes "
-        "without typing.</li>"
-        "<li>It closes after 30 minutes. Then confirm again.</li>"
-        "<li>Nothing it shows or you type is saved or logged.</li></ul>"
+        "<section class=tgate id=term-gate aria-label='Confirm it is you'><div class=gate>"
+        "<h2>Confirm it is you</h2><ul class=facts>"
+        f"<li>{_TICON['eye']}<span><b>Opens read-only</b>"
+        "<small>Typing needs a second confirm: Take keyboard.</small></span></li>"
+        f"<li>{_TICON['key']}<span><b>One tab types at a time</b>"
+        "<small>Read-only again after 10 minutes without typing.</small></span></li>"
+        f"<li>{_TICON['clock']}<span><b>Closes after 30 min</b>"
+        "<small>Then confirm again.</small></span></li>"
+        f"<li>{_TICON['lock']}<span><b>Nothing saved or logged</b>"
+        "<small>Not what it shows, not what you type.</small></span></li></ul>"
         f"{form}<p class=tnote id=term-gate-note role=alert></p>"
         "<noscript><p class=tnote>The terminal needs the page script.</p></noscript>"
         "</div></section>"
@@ -2778,8 +3173,9 @@ def render_terminal(ctx: Ctx, enabled: bool) -> str:
         "<div class=tpaste><textarea id=term-paste rows=1 maxlength=4096 disabled "
         "aria-label='Text to send' autocomplete=off autocapitalize=off spellcheck=false "
         "placeholder='Read-only'></textarea>"
-        "<button type=button id=term-send disabled>Send</button>"
-        "<button type=button class=danger id=term-send-enter disabled>Send + Enter</button></div>"
+        "<button type=button class='btn btn--s' id=term-send disabled>Send</button>"
+        "<button type=button class='btn btn--s' id=term-send-enter disabled>Send + Enter</button>"
+        "</div>"
         "<p class=tnote id=term-note role=status aria-live=polite></p></section></div>"
     )
     tail = (

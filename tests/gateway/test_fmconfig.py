@@ -243,22 +243,29 @@ def test_no_worker_defaults_live_in_hive(tmp_path: Path) -> None:
 # ---- desk view --------------------------------------------------------------------
 
 
+def _tags(*words: str) -> str:
+    return "".join(f"<span class=tag>{w}</span>" for w in words)
+
+
 def test_config_page_renders_postures_and_profiles(client: TestClient) -> None:
     res = client.get("/config", headers=GOOD)
     assert res.status_code == 200
     html = res.text
     for want in (
         "Merge posture",
-        "<td>alpha</td><td>no-mistakes</td><td>on</td>",
-        "<td>beta</td><td>direct-PR</td><td>off</td>",
-        "claude · claude-opus-x · medium",
-        "codex · gpt-x · high",
-        "claude · claude-sonnet-x · default effort",
+        "<td>alpha</td><td><span class=tag>no-mistakes</span></td>"
+        "<td><span class='sc sc--run'><i></i>On</span></td>",
+        "<td>beta</td><td><span class=tag>direct-PR</span></td>"
+        "<td><span class='sc sc--q'><i></i>Off</span></td>",
+        _tags("claude", "claude-opus-x", "medium"),
+        _tags("codex", "gpt-x", "high"),
+        _tags("claude", "claude-sonnet-x") + "<span class=meta>default effort</span>",
         "Anything else (default)",
-        "codex · gpt-y · medium",
-        "Crew harness: codex",
-        "Claude permission mode: bypass (default)",
-        "Workers can start from these settings.",
+        _tags("codex", "gpt-y", "medium"),
+        "<dt>Crew harness</dt><dd><span class=tag>codex</span></dd>",
+        "<dt>Claude permission mode</dt><dd><span class=tag>bypass</span> "
+        "<span class=meta>default</span></dd>",
+        "<dt>Workers</dt><dd><span class='sc sc--ok'><i></i>Can start</span></dd>",
     ):
         assert want in html, want
     assert "href='/config'" in html  # the nav entry
@@ -298,9 +305,9 @@ def test_config_page_survives_a_missing_firstmate_home(tmp_path: Path) -> None:
     assert (
         res.status_code == 200
         and res.text.count("unknown:") >= 2
-        and "Crew harness: not set" in res.text
+        and "<dt>Crew harness</dt><dd><span class=meta>not set</span></dd>" in res.text
     )
-    assert "Workers will not start" in res.text
+    assert "<i></i>Will not start</span>" in res.text
 
 
 def test_config_page_escapes_config_text(client: TestClient, home: Path) -> None:

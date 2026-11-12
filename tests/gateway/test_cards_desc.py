@@ -80,9 +80,14 @@ def _decision_data() -> dict:
 
 def test_decision_card_renders_structure_and_more(tmp_path: Path) -> None:
     html = _client(tmp_path, _decision_data()).get("/", headers=GOOD).text
-    assert "<span class=dq__q>Should the desk hide merged PRs?</span>" in html
-    assert "<li class='dq__opt is-rec'><b>B</b> show greyed out" in html
-    assert "<details class=dq__more><summary>More</summary><p>Should the desk" in html
+    assert "<p class=nyc__mean>Should the desk hide merged PRs?</p>" in html
+    assert (
+        "<button type=button class='opt is-rec' data-pick='B' aria-pressed=false><b>B</b>"
+        "<span>show greyed out<em>Recommended</em></span></button>"
+    ) in html
+    assert (
+        "<details class=nyc__full><summary class=lnk>Full text</summary><p>Should the desk" in html
+    )
     assert STRUCTURED in html
 
 

@@ -91,8 +91,7 @@ FONT_FILES = frozenset(
         "ibm-plex-mono-500.woff2",
         "ibm-plex-mono-600.woff2",
         "ibm-plex-mono-700.woff2",
-        "nunito.woff2",
-        "nunito-sans.woff2",
+        "familjen-grotesk.woff2",
     }
 )
 ICON_FILES = {
@@ -106,8 +105,8 @@ MANIFEST = {
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    "background_color": "#16140f",
-    "theme_color": "#b4531a",
+    "background_color": "#f4efe5",  # the Comb page ground and top bar, light theme
+    "theme_color": "#fffcf6",
     "icons": [
         {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
         {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},

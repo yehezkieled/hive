@@ -413,7 +413,7 @@ def test_chat_page_shows_receipts_and_replies(client: TestClient, home: Path) ->
     (home / "receipts.json").write_text(json.dumps(receipts))
     html = client.get("/chat", headers={k: v for k, v in GOOD.items() if k != "origin"}).text
     assert "done, applied" in html and "Answered" in html
-    assert "Sent" in html and "ticket request" in html
+    assert "Sent" in html and "<i></i>Ticket request</span>" in html
     mine = _tags(html).find("div", class_="me")
     assert [m.get("data-rid") for m in mine] == [None, "web-00000000000000a2", None]
     assert "<b>note</b>" not in html and "&lt;b&gt;note&lt;/b&gt;" in html
