@@ -44,7 +44,7 @@ CSS = """
 /* Comb (docs/design/comb-redesign.html): cream ground, honey for identity, one action colour */
 :root{
 --bg:#f4efe5;--card:#fffcf6;--surface:#e7dfcf;--ink:#29251e;--muted:#675e51;
---line:rgba(41,37,30,.13);--line2:rgba(41,37,30,.28);
+--line:rgba(41,37,30,.13);--line2:rgba(41,37,30,.28);--field:rgba(41,37,30,.54);
 --action:#8c6418;--action-ink:#fff;--honey:#e1ac10;--honey-ink:#2a1d04;--you-dot:#b8860b;
 --ok:#2c7a3c;--warn:#b5530b;--down:#c0341d;--unk:#7d7262;--run:#3a6b8c;--armed-ink:#fff;
 --ok-t:rgba(44,122,60,.12);--warn-t:rgba(214,110,20,.15);--down-t:rgba(192,52,29,.11);--unk-t:rgba(41,37,30,.07);
@@ -58,7 +58,7 @@ CSS = """
 --gut:80px}
 @media (prefers-color-scheme:dark){:root{
 --bg:#0c0a08;--card:#181512;--surface:#26211b;--ink:#f7f2e8;--muted:#a39b8f;
---line:rgba(247,242,232,.12);--line2:rgba(247,242,232,.27);
+--line:rgba(247,242,232,.12);--line2:rgba(247,242,232,.27);--field:rgba(247,242,232,.38);
 --action:#c9a45a;--action-ink:#0c0a08;--honey:#f0b429;--honey-ink:#1a1206;--you-dot:#f0b429;
 --ok:#6cc784;--warn:#f0904a;--down:#ff7a66;--unk:#a39b8f;--run:#8db9d8;--armed-ink:#1a1206;
 --ok-t:rgba(108,199,132,.15);--warn-t:rgba(240,144,74,.17);--down-t:rgba(255,122,102,.15);--unk-t:rgba(247,242,232,.09);
@@ -196,7 +196,8 @@ button:disabled,.btn[disabled]{opacity:.42;cursor:not-allowed;transform:none!imp
 color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
 .lnk:hover{text-decoration-color:currentColor}
 form{margin:0}
-textarea,input[type=text],select,.inp{width:100%;min-height:44px;padding:9px 14px;border:1px solid var(--line2);border-radius:var(--rb);
+/* a field's edge is how you find it: --field keeps it at 3:1 or more on every ground (WCAG 1.4.11) */
+textarea,input[type=text],select,.inp{width:100%;min-height:44px;padding:9px 14px;border:1px solid var(--field);border-radius:var(--rb);
 background:var(--card);color:var(--ink);font:16px/1.4 var(--ft)}
 textarea{min-height:5.5rem;resize:vertical}
 ::placeholder{color:var(--muted);opacity:1}
