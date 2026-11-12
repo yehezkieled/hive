@@ -619,7 +619,7 @@ def test_chat_thread_labels_a_delegated_goal() -> None:
     items, _ = parse_receipts(data)
     assert [r.kind for r in items] == ["delegate"]
     html = render_chat(ChatView(True, True, items, []), Ctx("t"))
-    assert "<span class=tag>delegated</span>" in html
+    assert "<span class='sc sc--run'><i></i>Delegated</span>" in html
 
 
 # ---- Review pages: open Lavish sessions ------------------------------------------

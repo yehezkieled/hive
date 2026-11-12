@@ -256,34 +256,33 @@ box-shadow:0 16px 48px var(--shadow);overflow:hidden}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 /* bridge for page sections not yet on Comb; removed once every page is */
 :root{--paper:var(--card);--paper-2:var(--bg);--paper-soft:var(--surface);--paper-shadow:var(--shadow);--ink-2:var(--ink);--ink-3:var(--muted);--ink-4:var(--muted);--rule:var(--line2);--rule-soft:var(--line2);--rule-faint:var(--line);--accent:var(--down);--accent-soft:var(--down-t);--amber:var(--warn);--amber-soft:var(--warn-t);--honey-soft:var(--you-t);--ochre:var(--action);--sage:var(--ok);--sage-soft:var(--ok-t);--bar:var(--ink);--bar-ink:var(--card);--font-mono:var(--fm);--font-sans:var(--ft);--font-display:var(--fd);--mute:var(--muted);--acc:var(--action)}
-.ok{border-color:var(--ok)}.bubble{white-space:pre-wrap;overflow-wrap:anywhere}
-.thread{display:flex;flex-direction:column;gap:10px;margin:12px 0}
-.msg{max-width:85%;border-radius:14px;padding:8px 12px;border:1px solid var(--line);
-background:var(--card)}
-.msg.me{align-self:flex-end;border-color:var(--acc)}.msg.fm{align-self:flex-start;border-color:var(--ok)}
-.msg .meta{display:block;color:var(--mute);font-size:.78rem;margin-top:4px}
-.msg.is-err{border-color:var(--accent)}.msg.is-err .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+/* chat: one screen; the thread scrolls inside its panel and the box stays at the panel's foot */
+.chatpage main{width:min(880px,100% - 2 * var(--gut))}
+.chatpage .banner{flex:none;margin-bottom:12px}
+.chatpn{flex:1 1 0;min-height:0}
+.thread{display:flex;flex-direction:column;gap:20px}
+.msg{display:flex;flex-direction:column;align-items:flex-start;gap:5px;max-width:86%;min-width:0}
+.msg.me{align-self:flex-end;align-items:flex-end}
+.msg.fm{align-self:flex-start}
+.bubble{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.me .bubble{padding:11px 15px;border-radius:var(--r3);background:var(--surface)}
+.msg.me .rc{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;border:1px solid var(--line2);background:var(--card)}
+.rc>span:last-child{flex-basis:100%}
+.msg.fm .bubble{padding-left:14px;border-left:3px solid var(--honey)}
+.msg__who{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}
+.msg__who i{width:10px;height:11px;clip-path:var(--hex);background:var(--honey)}
+.msg .meta{display:block}
+.msg.is-err .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;color:var(--down)}
 .msg .meta button{min-height:44px;padding:0 16px}
-.dock{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(8px + env(safe-area-inset-bottom));
-border-top:1px solid var(--line)}
-.dock form{margin:0}.dock textarea{min-height:3rem}
-/* chat: one full-height screen; only the message list scrolls, the box stays put */
-body.chatpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
-display:flex;flex-direction:column}
-.chatpage main{flex:1;min-height:0;width:100%;box-sizing:border-box;display:flex;flex-direction:column;
-position:relative;padding:0 12px}
-.chatpage h1{flex:none;font-size:1.15rem;margin:8px 0 0}.chatpage .banner{flex:none}
-.chatpage .thread{flex:1;min-height:0;margin:0;padding:12px 0;overflow-y:auto;overflow-x:hidden;
--webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-.chatpage .dock{flex:none;position:static;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
-.chatpage .dock form{display:flex;gap:8px;align-items:flex-end}
-.chatpage .dock label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-.chatpage .dock textarea{flex:1;min-height:44px;max-height:30vh;resize:none;margin:0;font-size:16px}
-.chatpage .dock button{flex:none;min-height:44px;min-width:64px}
-#jump{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(var(--dock-h,72px) + 8px);
-min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
+.dock{flex:none;padding:12px 16px;border-top:1px solid var(--line)}
+.dock form{display:flex;gap:8px;align-items:flex-end}
+.dock label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.dock textarea{flex:1;min-width:0;height:44px;min-height:44px;padding:10px 14px;resize:none;margin:0}
+.dock .btn{flex:none}
+#jump{position:absolute;left:50%;bottom:calc(var(--dock-h,69px) + 12px);transform:translateX(-50%);z-index:2;border-radius:999px;
+box-shadow:0 4px 14px var(--shadow)}
 #jump[hidden]{display:none}
-@media (max-width:480px){.msg{max-width:94%}}
+@media (max-width:640px){.msg{max-width:94%}.chatpage .dock{padding:10px 12px}}
 /* the desk: three panels side by side over the delegate bar. Below a laptop the two right-hand
    panels share one column behind tabs; a phone tabs all three */
 .sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
@@ -1982,12 +1981,13 @@ def render_project(
     )
 
 
+# a sent note's kind: (chip colour, chip word); plain chat has no chip
 _KIND_LABEL = {
-    "chat": "",
-    "ticket": "ticket request",
-    "merge": "merge word",
-    "decision": "answer",
-    "delegate": "delegated",
+    "chat": ("", ""),
+    "ticket": ("q", "Ticket request"),
+    "merge": ("ok", "Merge word"),
+    "decision": ("you", "Answer"),
+    "delegate": ("run", "Delegated"),
 }
 _STATE_LABEL = {
     "pending": "Sent",
@@ -2001,21 +2001,24 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
         return "<p class=mute>Messages are unavailable (firstmate inbox script did not answer).</p>"
     msgs = []
     for r in sorted(view.receipts, key=lambda r: r.at):  # oldest first, newest at the bottom
-        kind = f"<span class=tag>{esc(_KIND_LABEL[r.kind])}</span>" if _KIND_LABEL[r.kind] else ""
         rid = f" data-rid='{esc(r.request_id)}'" if r.request_id else ""
+        if _KIND_LABEL[r.kind][1]:  # a request, not a plain note: a receipt card led by its kind
+            bubble = f"<div class='bubble rc'>{_sc(*_KIND_LABEL[r.kind])}<span>{esc(r.body)}</span></div>"
+        else:
+            bubble = f"<div class=bubble>{esc(r.body)}</div>"
         msgs.append(
-            f"<div class='msg me'{rid}>{kind}<div class=bubble>{esc(r.body)}</div>"
+            f"<div class='msg me'{rid}>{bubble}"
             f"<span class=meta>{ctx.time(r.at)} · {esc(_STATE_LABEL[r.state])}</span></div>"
         )
         if r.reply is not None:
             msgs.append(
-                f"<div class='msg fm'><span class=tag>first mate</span>"
+                "<div class='msg fm'><span class=msg__who><i></i>First mate</span>"
                 f"<div class=bubble>{esc(r.reply)}</div>"
                 f"<span class=meta>{ctx.time(r.reply_at)}</span></div>"
             )
     out = "".join(msgs) or "<p class='mute empty'>No messages yet. Say hello below.</p>"
     if view.omitted:
-        out = "<p class=mute>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>" + out
+        out = "<p class=meta>Older entries omitted: " + esc("; ".join(view.omitted)) + "</p>" + out
     return out
 
 
@@ -2044,17 +2047,17 @@ def render_chat(view: ChatView, ctx: Ctx) -> str:
     form = ctx.form(
         "chat",
         "<label for=chat-text>Message the first mate</label><textarea id=chat-text name=text "
-        "required maxlength=4000 enterkeyhint=send placeholder='Ask, delegate, or steer…'>"
-        "</textarea><button>Send</button>",
+        "rows=1 required maxlength=4000 enterkeyhint=send placeholder='Ask, delegate, or steer…'>"
+        "</textarea><button class='btn btn--p'>Send</button>",
         "chatf",
         rid=new_request_id(),
     )
     return _page(
         "Chat · Hive desk",
-        f"<h1>Chat with the first mate</h1>{status}"
-        f"<div class=thread id=thread aria-live=polite>{_thread(view, ctx)}</div>"
-        "<button id=jump type=button hidden>New messages \u2193</button>"
-        f"<div class=dock>{form}</div>",
+        f"<div class=ph><h1>Chat with the first mate</h1></div>{status}<section class='pn chatpn'>"
+        f"<div class='pn__b thread' id=thread aria-live=polite>{_thread(view, ctx)}</div>"
+        "<button id=jump class='btn btn--s btn--sm' type=button hidden>New messages \u2193</button>"
+        f"<div class=dock>{form}</div></section>",
         "chat",
         " data-poll=4000",
         ctx,

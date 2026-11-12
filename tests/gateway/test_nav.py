@@ -109,7 +109,10 @@ Promise.all(Object.keys(PAGES).flatMap(function(name){return SIZES.map(function(
         stRight:h.querySelector('.chrome__st').getBoundingClientRect().right,
         nav:box(h.querySelector('nav')),
         links:links.map(function(a){return [a.textContent].concat(box(a));}),
-        pageScrollsSideways:d.documentElement.scrollWidth>d.documentElement.clientWidth};
+        pageScrollsSideways:d.documentElement.scrollWidth>d.documentElement.clientWidth,
+        pageScrolls:d.documentElement.scrollHeight>s[1]+1,
+        mainScrolls:(function(m){return m.scrollHeight>m.clientHeight+1;})(
+          d.querySelector('main'))};
       done();};
     f.srcdoc=PAGES[name];document.body.appendChild(f);});});}))
 .then(function(){var o=document.createElement('pre');o.id='result';
@@ -118,10 +121,14 @@ Promise.all(Object.keys(PAGES).flatMap(function(name){return SIZES.map(function(
 """
 
 
-@needs_chrome
-def test_the_bar_does_not_move_between_pages_in_a_real_browser(
-    rendered: dict[str, str], tmp_path: Path
-) -> None:
+@pytest.fixture(scope="module")
+def measured(
+    rendered: dict[str, str], tmp_path_factory: pytest.TempPathFactory
+) -> dict[str, dict[str, dict]]:
+    """Every rendered page at every size in one headless Chrome run: {size: {page: geometry}}."""
+    if not CHROME:
+        pytest.skip("no Chrome")
+    tmp_path = tmp_path_factory.mktemp("nav-chrome")
     doc = MEASURE.replace("__PAGES__", json.dumps(rendered).replace("</", "<\\/")).replace(
         "__SIZES__", json.dumps(SIZES)
     )
@@ -146,7 +153,14 @@ def test_the_bar_does_not_move_between_pages_in_a_real_browser(
     )
     m = re.search(r'<pre id="result">(.*?)</pre>', out.stdout, re.S)
     assert m, out.stdout[-500:]
-    result = json.loads(html_mod.unescape(m.group(1)))
+    return json.loads(html_mod.unescape(m.group(1)))
+
+
+@needs_chrome
+def test_the_bar_does_not_move_between_pages_in_a_real_browser(
+    rendered: dict[str, str], measured: dict[str, dict[str, dict]]
+) -> None:
+    result = measured
     assert sorted(result) == sorted("x".join(map(str, s)) for s in SIZES)
     for size, by_page in result.items():
         assert sorted(by_page) == sorted(rendered), size
@@ -168,3 +182,17 @@ def test_the_bar_does_not_move_between_pages_in_a_real_browser(
             assert geo["stRight"] == width - gutter, (size, page)  # chips end at the gutter
             for part in ("bar", "brand", "nav", "links"):
                 assert geo[part] == desk[part], (size, page, part)
+
+
+# The pages already on the approved Comb layout: each is one screen at every size, so neither
+# the page nor its main area scrolls; long lists scroll inside their own panel.
+ONE_SCREEN = ("/", "/chat")
+
+
+@needs_chrome
+def test_each_page_is_one_screen_at_every_size(measured: dict[str, dict[str, dict]]) -> None:
+    for size, by_page in measured.items():
+        for page in ONE_SCREEN:
+            geo = by_page[page]
+            assert not geo["pageScrolls"] and not geo["mainScrolls"], (size, page)
+            assert not geo["pageScrollsSideways"], (size, page)
