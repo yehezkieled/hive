@@ -16,15 +16,20 @@ Off by default. Nothing runs until you give it a ping address.
 
 `hive-gonedark.service` runs `python -m hive.gonedark`
 ([`src/hive/gonedark.py`](../src/hive/gonedark.py)). Every interval it checks, on the
-PC itself, that the desk answers on loopback and that a firstmate session runs. Only
-then does it ping. If either check fails it skips the ping and writes why to its log,
-so the missing ping is the alarm.
+PC itself, that the desk answers on loopback, that a firstmate session runs and that
+Tailscale is signed in and connected (`tailscale status --json`, read only). Only then
+does it ping. If any check fails it skips the ping and writes why to its log, so the
+missing ping is the alarm. If Tailscale's answer cannot be read (its command is missing,
+it does not answer, or its answer is unreadable), that check counts as passed, so a
+probe glitch never raises a false alarm.
 
 | Situation | Ping | What happens |
 | --- | --- | --- |
-| Desk up, firstmate session up | Sent | Nothing: all is well. |
+| Desk up, firstmate session up, Tailscale connected | Sent | Nothing: all is well. |
 | Desk not answering | Skipped, logged | Alert after period + grace. |
 | No firstmate session | Skipped, logged | Alert after period + grace. |
+| Tailscale signed out, stopped, or running but offline | Skipped, logged | Alert after period + grace. |
+| Tailscale's answer cannot be read | Sent | No alert: a probe glitch is not an outage. |
 | PC off, asleep, at the sign-in screen, or WSL stopped | Nothing runs | Alert after period + grace. |
 | Home internet down | Failed, logged | Alert after period + grace. |
 | Ping service slow or erroring | Failed (8 s time-out), logged | Tried again at the next tick, never sooner. |

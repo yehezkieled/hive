@@ -301,7 +301,7 @@ async def test_health_needs_the_desk(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
     with fake_desk() as port:
         pass  # closed again: nothing answers there now
-    assert await gonedark.local_health(port, tmp_path)() == gonedark.DESK_DOWN
+    assert await gonedark.local_health(port, tmp_path, None)() == gonedark.DESK_DOWN
 
 
 async def test_health_needs_a_firstmate_session(
@@ -309,9 +309,9 @@ async def test_health_needs_a_firstmate_session(
 ) -> None:
     with fake_desk() as port:
         monkeypatch.setattr(gonedark, "read_status", _status(()))
-        assert await gonedark.local_health(port, tmp_path)() == gonedark.NO_FIRSTMATE
+        assert await gonedark.local_health(port, tmp_path, None)() == gonedark.NO_FIRSTMATE
         monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
-        assert await gonedark.local_health(port, tmp_path)() is None
+        assert await gonedark.local_health(port, tmp_path, None)() is None
 
 
 async def test_an_unreadable_proc_is_not_healthy(
@@ -322,7 +322,63 @@ async def test_an_unreadable_proc_is_not_healthy(
 
     monkeypatch.setattr(gonedark, "read_status", broken)
     with fake_desk() as port:
-        assert await gonedark.local_health(port, tmp_path)() == gonedark.CHECK_FAILED
+        assert await gonedark.local_health(port, tmp_path, None)() == gonedark.CHECK_FAILED
+
+
+def _tailscale(tmp_path: Path, answer: str) -> Path:
+    binary = tmp_path / "tailscale"
+    binary.write_text(f"#!/bin/sh\ncat <<'EOF'\n{answer}\nEOF\n")
+    binary.chmod(0o755)
+    return binary
+
+
+@pytest.mark.parametrize(
+    ("answer", "reason"),
+    [
+        ('{"BackendState": "NeedsLogin", "Self": {"Online": false}}', gonedark.TAILSCALE_DOWN),
+        ('{"BackendState": "Stopped", "Self": {"Online": false}}', gonedark.TAILSCALE_DOWN),
+        ('{"BackendState": "Running", "Self": {"Online": false}}', gonedark.TAILSCALE_DOWN),
+        ('{"BackendState": "Running", "Self": {"Online": true}}', None),
+        ("not json", None),
+    ],
+    ids=["logged-out", "stopped", "offline", "connected", "unreadable"],
+)
+async def test_health_needs_tailscale_connected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str, reason: str | None
+) -> None:
+    monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
+    binary = _tailscale(tmp_path, answer)
+    with fake_desk() as port:
+        assert await gonedark.local_health(port, tmp_path, binary)() == reason
+
+
+async def test_a_missing_tailscale_command_still_pings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
+    with fake_desk() as port:
+        assert await gonedark.local_health(port, tmp_path, None)() is None
+
+
+async def test_a_signed_out_tailscale_skips_the_ping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
+    binary = _tailscale(tmp_path, '{"BackendState": "NeedsLogin"}')
+    pings: list[str] = []
+
+    async def ping() -> str | None:
+        pings.append("ping")
+        return None
+
+    with fake_desk() as port:
+        sender = gonedark.Sender(
+            gonedark.local_health(port, tmp_path, binary), ping, tmp_path / "state", 60
+        )
+        outcome = await sender.tick()
+    assert (outcome.result, outcome.reason) == (gonedark.SKIPPED, gonedark.TAILSCALE_DOWN)
+    assert pings == []
+    assert gonedark.read_last(tmp_path / "state") == outcome
 
 
 # ---- the sender: schedule, skips, records --------------------------------------------------

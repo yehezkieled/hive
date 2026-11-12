@@ -2,10 +2,11 @@
 
 ``python -m hive.gonedark`` (run by ``scripts/hive-gonedark.sh`` under
 ``hive-gonedark.service``). Every ``interval`` (default 5 minutes) it checks, cheaply
-and locally, that the desk answers on loopback and that a firstmate session runs. Only
-then does it make ONE HTTPS GET to the ping address the owner configured, at a hosted
-dead-man's-switch service that alerts their phone when the pings stop. When the check
-fails it skips the ping, so the missing ping is the alarm, and logs why.
+and locally, that the desk answers on loopback, that a firstmate session runs and that
+Tailscale is signed in and connected. Only then does it make ONE HTTPS GET to the ping
+address the owner configured, at a hosted dead-man's-switch service that alerts their
+phone when the pings stop. When the check fails it skips the ping, so the missing ping
+is the alarm, and logs why.
 
 Rules:
 
@@ -44,8 +45,14 @@ from typing import IO
 
 import httpx
 
-from hive.gateway.settings import DEFAULT_FM_HOME, DEFAULT_GONEDARK_STATE, DEFAULT_PORT
+from hive.gateway.settings import (
+    DEFAULT_FM_HOME,
+    DEFAULT_GONEDARK_STATE,
+    DEFAULT_PORT,
+    tailscale_binary,
+)
 from hive.gateway.wake import desk_probe, read_status
+from hive.telegram.remote import tailscale_state
 
 logger = logging.getLogger("hive.gonedark")
 
@@ -68,13 +75,14 @@ SENT, SKIPPED, FAILED = "sent", "skipped", "failed"
 # Every reason the state file and the log can carry. Fixed phrases, never raw output.
 DESK_DOWN = "the desk is not answering"
 NO_FIRSTMATE = "no firstmate session is running"
+TAILSCALE_DOWN = "Tailscale is signed out or not connected"
 CHECK_FAILED = "the health check could not run"
 TIMED_OUT = "the ping timed out"
 NOT_SENT = "the ping could not be sent"
 REDIRECTED = "the ping service answered with a redirect"
 REFUSED = "the ping service answered with an error"
 REASONS = frozenset({"", DESK_DOWN, NO_FIRSTMATE, CHECK_FAILED, TIMED_OUT, NOT_SENT})
-REASONS |= {REDIRECTED, REFUSED}
+REASONS |= {REDIRECTED, REFUSED, TAILSCALE_DOWN}
 
 
 class GoneDarkConfigError(ValueError):
@@ -144,8 +152,12 @@ Health = Callable[[], Awaitable[str | None]]
 Ping = Callable[[], Awaitable[str | None]]
 
 
-def local_health(port: int, fm_home: Path) -> Health:
-    """The desk answers on loopback and a firstmate session runs: both cheap, both local."""
+def local_health(port: int, fm_home: Path, tailscale: Path | None) -> Health:
+    """The desk answers on loopback, a firstmate session runs and Tailscale is connected.
+
+    A Tailscale answer that cannot be read ("unknown ...") counts as healthy, so a probe
+    glitch never raises a false alarm.
+    """
 
     async def check() -> str | None:
         if not await desk_probe(port):
@@ -154,7 +166,12 @@ def local_health(port: int, fm_home: Path) -> Health:
             status = await asyncio.to_thread(read_status, fm_home)
         except Exception:  # an unreadable /proc is not a healthy PC
             return CHECK_FAILED
-        return None if status.session else NO_FIRSTMATE
+        if not status.session:
+            return NO_FIRSTMATE
+        state = await tailscale_state(tailscale)
+        if state == "connected" or state.startswith("unknown"):
+            return None
+        return TAILSCALE_DOWN
 
     return check
 
@@ -342,7 +359,10 @@ def main(env: Mapping[str, str] | None = None) -> int:
     port = int(env.get("HIVE_GATEWAY_PORT", "") or DEFAULT_PORT)
     fm_home = Path(env.get("HIVE_GATEWAY_FM_HOME", "") or DEFAULT_FM_HOME)
     sender = Sender(
-        local_health(port, fm_home), https_ping(config.url), state_dir, config.interval_s
+        local_health(port, fm_home, tailscale_binary(env)),
+        https_ping(config.url),
+        state_dir,
+        config.interval_s,
     )
 
     async def _main() -> int:
@@ -351,7 +371,7 @@ def main(env: Mapping[str, str] | None = None) -> int:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
         logger.info(
-            "gone-dark alarm on: one ping every %ds while the desk and firstmate are up",
+            "gone-dark alarm on: one ping every %ds while the desk, firstmate and Tailscale are up",
             config.interval_s,
         )
         await sender.run(stop)
