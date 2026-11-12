@@ -681,6 +681,7 @@ class TerminalService:
         try:
             wait = await asyncio.to_thread(self._claim_open, time.time())
         except OSError as exc:
+            self._audit(who, "", "refused", "unrecorded")
             raise ActionError(
                 "The desk could not record the attempt, so the terminal was not opened.", 503
             ) from exc

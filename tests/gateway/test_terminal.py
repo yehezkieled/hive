@@ -658,6 +658,26 @@ def test_opens_are_rate_limited_across_restarts(make: Callable[..., object], wor
     assert "reason=rate-limited" in world.audit()
 
 
+def test_a_refused_open_is_logged_once(
+    make: Callable[..., object], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    with make(open_limit=1) as c:  # type: ignore[attr-defined]
+        open_pass(c)
+        first = act(c).json()
+        caplog.clear()
+        res = act(c, step=first["step"], rid=first["rid"])
+        assert res.status_code == 429
+    refused = [
+        r.getMessage()
+        for r in caplog.records
+        if "action=terminal" in r.getMessage() and "outcome=refused" in r.getMessage()
+    ]
+    assert refused == [
+        "gateway-audit action=terminal subject=- outcome=refused reason=rate-limited"
+    ]
+
+
 def test_attach_attempts_are_rate_limited(make: Callable[..., object]) -> None:
     with make(attach_limit=3) as c:  # type: ignore[attr-defined]
         for _ in range(3):

@@ -596,7 +596,7 @@ async def _terminal_open(
         try:
             grant = await term.open(who)
         except ActionError as exc:
-            return refuse(str(exc), exc.status)
+            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
         return JSONResponse({"ok": True, "pass": grant.token, "ends": int(grant.ends)})
     found = await term.look(terminal.OPEN_LOOK_S)
     if found.pane is None:
