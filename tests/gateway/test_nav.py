@@ -90,6 +90,10 @@ def test_each_menu_page_marks_itself_and_only_itself(rendered: dict[str, str]) -
 
 # One Chrome run renders every page in a same-origin frame of each size and measures the bar.
 SIZES = [(375, 667), (820, 1180), (1180, 820), (1440, 500)]  # phone, iPad both ways, short PC
+# The approved Comb board's bar at each size (docs/design/comb-redesign.html): the content's left
+# edge (the page gutter, which the right edge mirrors) and the bar's height. Below 1024 px the
+# links take a row of their own under the brand and chips.
+GEOMETRY = {"375x667": (16, 101), "820x1180": (24, 101), "1180x820": (32, 57), "1440x500": (80, 57)}
 MEASURE = """
 <!doctype html><html><body style="margin:0"><script>
 var PAGES=__PAGES__,SIZES=__SIZES__,R={};
@@ -102,6 +106,7 @@ Promise.all(Object.keys(PAGES).flatMap(function(name){return SIZES.map(function(
       var links=[].filter.call(h.querySelectorAll('nav a,nav button'),function(a){
         return a.getClientRects().length;});
       (R[s.join('x')]=R[s.join('x')]||{})[name]={bar:box(h),brand:box(h.firstChild),
+        stRight:h.querySelector('.chrome__st').getBoundingClientRect().right,
         nav:box(h.querySelector('nav')),
         links:links.map(function(a){return [a.textContent].concat(box(a));}),
         pageScrollsSideways:d.documentElement.scrollWidth>d.documentElement.clientWidth};
@@ -151,7 +156,15 @@ def test_the_bar_does_not_move_between_pages_in_a_real_browser(
         width = int(size.split("x")[0])
         for link in desk["links"]:  # every link is on screen, none pushed past the edge
             assert 0 <= link[1] and link[1] + link[3] <= width, (size, link)
+            assert link[4] >= 44, (size, link)  # a full-height tap target
+        gutter, height = GEOMETRY[size]
+        assert desk["bar"] == [0, 0, width, height], size
+        assert desk["brand"][0] == gutter, size
+        assert len({round(link[2]) for link in desk["links"]}) == 1, size  # one row of links
+        if width < 1024:  # the links' own row runs under the brand
+            assert desk["links"][0][2] >= desk["brand"][1] + desk["brand"][3], size
         for page, geo in by_page.items():
             assert not geo["pageScrollsSideways"], (size, page)
+            assert geo["stRight"] == width - gutter, (size, page)  # chips end at the gutter
             for part in ("bar", "brand", "nav", "links"):
                 assert geo[part] == desk[part], (size, page, part)

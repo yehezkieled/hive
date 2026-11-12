@@ -326,7 +326,11 @@ def test_recorded_quota_axi_output_reads_as_what_is_used() -> None:
     assert q.worst.used == 66  # the Fable-only window does not drive the headline
     now = datetime(2026, 10, 7, 8, 24, tzinfo=UTC)
     html = _chip(Ctx("t", quota=q, tz="UTC"), now)
-    assert "66% used</summary>" in html and "width:66%" in html and "% left" not in html
+    assert (
+        "66%<span class=tchip__l> used</span></span></summary>" in html
+        and "width:66%" in html
+        and "% left" not in html
+    )
     five, week = "2026-10-07T12:29:59.584507+00:00", "2026-10-08T14:59:59.584532+00:00"
     fable = "2026-10-08T14:59:59.584750+00:00"
 
@@ -352,7 +356,11 @@ def test_second_recorded_capture_reads_as_used_and_hot() -> None:
     assert [w.used for w in q.windows] == [77, 42, 91]  # 100 - percentRemaining
     assert (q.worst.label, q.worst.used, q.level) == ("5-hour window", 77, "warn")
     html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2026, 10, 7, 13, 5, tzinfo=UTC))
-    assert "qchip--warn" in html and "77% used</summary>" in html and "% left" not in html
+    assert (
+        "qchip--warn" in html
+        and "77%<span class=tchip__l> used</span></span></summary>" in html
+        and "% left" not in html
+    )
 
 
 def test_windows_past_their_reset_are_not_shown() -> None:
@@ -360,7 +368,9 @@ def test_windows_past_their_reset_are_not_shown() -> None:
     assert q is not None
     after_five = datetime(2026, 10, 7, 18, 0, tzinfo=UTC)  # 5-hour window has reset
     html = _chip(Ctx("t", quota=q, tz="UTC"), after_five)
-    assert "42% used</summary>" in html and "77% used" not in html
+    assert (
+        "42%<span class=tchip__l> used</span></span></summary>" in html and "77% used" not in html
+    )
     after_week = datetime(2026, 10, 8, 15, 0, tzinfo=UTC)  # every window has reset
     html = _chip(Ctx("t", quota=q, tz="UTC"), after_week)
     assert "qchip--unknown" in html and "% used" not in html
@@ -416,7 +426,7 @@ def test_rate_limits_cache_reads_as_used_with_its_resets() -> None:
     assert q is not None and q.as_of == datetime(2030, 1, 2, 3, 0, tzinfo=UTC)
     assert [(w.label, w.used) for w in q.windows] == [("5-hour window", 7), ("7-day window", 59)]
     html = _chip(Ctx("t", quota=q, tz="UTC"), datetime(2030, 1, 2, 3, 5, tzinfo=UTC))
-    assert "qchip--ok" in html and "59% used</summary>" in html
+    assert "qchip--ok" in html and "59%<span class=tchip__l> used</span></span></summary>" in html
     reset = "<time class=reset datetime='2030-01-02T05:14:00+00:00'>5:14 am</time>"
     assert f"<b>7% used · resets {reset}</b>" in html
     assert "Claude Code figures from" not in html  # five minutes old: no age shown
@@ -523,7 +533,10 @@ async def test_rate_limits_cache_alone_without_quota_axi(tmp_path: Path) -> None
 def test_page_reads_quota_axi(tmp_path: Path) -> None:
     fake = _exe(tmp_path / "q" / "quota-axi", f"echo '{_quota_json(93, 61)}'")
     html = _client(tmp_path, _calm(), fake).get("/", headers=GOOD).text
-    assert "class='qchip qchip--hot'" in html and ">93% used</summary>" in html
+    assert (
+        "class='qchip qchip--hot'" in html
+        and ">93%<span class=tchip__l> used</span></span></summary>" in html
+    )
     # every desk page carries the chip in its chrome
     assert "id=qchip" in _client(tmp_path, _calm()).get("/p/alpha", headers=GOOD).text
 

@@ -40,82 +40,222 @@ CSS = """
 @font-face{font-family:"IBM Plex Mono";font-weight:500;font-display:swap;src:url(/fonts/ibm-plex-mono-500.woff2) format("woff2")}
 @font-face{font-family:"IBM Plex Mono";font-weight:600;font-display:swap;src:url(/fonts/ibm-plex-mono-600.woff2) format("woff2")}
 @font-face{font-family:"IBM Plex Mono";font-weight:700;font-display:swap;src:url(/fonts/ibm-plex-mono-700.woff2) format("woff2")}
-@font-face{font-family:"Nunito";font-weight:200 1000;font-display:swap;src:url(/fonts/nunito.woff2) format("woff2")}
-@font-face{font-family:"Nunito Sans";font-weight:200 1000;font-display:swap;src:url(/fonts/nunito-sans.woff2) format("woff2")}
+@font-face{font-family:"Familjen Grotesk";font-weight:400 700;font-display:swap;src:url(/fonts/familjen-grotesk.woff2) format("woff2")}
+/* Comb (docs/design/comb-redesign.html): cream ground, honey for identity, one action colour */
 :root{
---paper:#faf7ed;--paper-2:#f2ecd8;--paper-soft:#f6f1de;--paper-shadow:rgba(60,45,25,.08);
---ink:#1f1812;--ink-2:#3d332a;--ink-3:#6f6356;--ink-4:#a79a89;
---rule:#1f1812;--rule-soft:#d9cfb6;--rule-faint:#e8dfc8;
---accent:#c8382a;--accent-soft:#f6dcd6;--amber:#b7741a;--amber-soft:#f4e4c8;
---honey:#e0a726;--honey-soft:#f9ecc6;--ochre:#8a6a1a;--sage:#4d8a3a;--sage-soft:#d7e6c5;
---bar:#1f1812;--bar-ink:#faf7ed;
---font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
---font-sans:"Nunito Sans","Inter",system-ui,sans-serif;
---font-display:"Nunito","Inter",system-ui,sans-serif;
---bg:var(--paper-2);--card:var(--paper);--mute:var(--ink-3);--line:var(--rule-soft);--acc:var(--amber);--ok:var(--sage)}
+--bg:#f4efe5;--card:#fffcf6;--surface:#e7dfcf;--ink:#29251e;--muted:#675e51;
+--line:rgba(41,37,30,.13);--line2:rgba(41,37,30,.28);
+--action:#8c6418;--action-ink:#fff;--honey:#e1ac10;--honey-ink:#2a1d04;--you-dot:#b8860b;
+--ok:#2c7a3c;--warn:#b5530b;--down:#c0341d;--unk:#7d7262;--run:#3a6b8c;--armed-ink:#fff;
+--ok-t:rgba(44,122,60,.12);--warn-t:rgba(214,110,20,.15);--down-t:rgba(192,52,29,.11);--unk-t:rgba(41,37,30,.07);
+--run-t:rgba(58,107,140,.13);--you-t:rgba(225,172,16,.24);
+--comb-o:.08;--shadow:rgba(40,25,0,.16);--scrim:rgba(20,16,12,.5);
+--fd:"Familjen Grotesk",system-ui,sans-serif;--ft:"Familjen Grotesk",system-ui,sans-serif;
+--fm:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+--r1:4px;--r2:8px;--r3:12px;--rb:8px;--e:cubic-bezier(.2,.8,.2,1);
+--hex:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);
+--arrow:polygon(12.5% 43.75%,68.25% 43.75%,49.75% 25.25%,58.58% 16.42%,92.17% 50%,58.58% 83.58%,49.75% 74.75%,68.25% 56.25%,12.5% 56.25%);
+--gut:80px}
 @media (prefers-color-scheme:dark){:root{
---paper:#201d16;--paper-2:#16140f;--paper-soft:#2a261d;--paper-shadow:rgba(0,0,0,.35);
---ink:#efe9da;--ink-2:#d6cfbf;--ink-3:#a39c8a;--ink-4:#7c7566;
---rule:#8f8775;--rule-soft:#3a352a;--rule-faint:#2e2a21;
---accent:#f0715f;--accent-soft:#4a2620;--amber:#e0a050;--amber-soft:#43331c;
---honey:#e8b640;--honey-soft:#3d3218;--ochre:#d9b45a;--sage:#7fc48c;--sage-soft:#22351f;
---bar:#efe9da;--bar-ink:#16140f}}
+--bg:#0c0a08;--card:#181512;--surface:#26211b;--ink:#f7f2e8;--muted:#a39b8f;
+--line:rgba(247,242,232,.12);--line2:rgba(247,242,232,.27);
+--action:#c9a45a;--action-ink:#0c0a08;--honey:#f0b429;--honey-ink:#1a1206;--you-dot:#f0b429;
+--ok:#6cc784;--warn:#f0904a;--down:#ff7a66;--unk:#a39b8f;--run:#8db9d8;--armed-ink:#1a1206;
+--ok-t:rgba(108,199,132,.15);--warn-t:rgba(240,144,74,.17);--down-t:rgba(255,122,102,.15);--unk-t:rgba(247,242,232,.09);
+--run-t:rgba(141,185,216,.15);--you-t:rgba(240,180,41,.2);
+--comb-o:.07;--shadow:rgba(0,0,0,.5);--scrim:rgba(0,0,0,.6)}}
+@media (max-width:1279px){:root{--gut:32px}}
+@media (max-width:1023px){:root{--gut:24px}}
+@media (max-width:640px){:root{--gut:16px}}
 *,*::before,*::after{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--font-sans);
--webkit-font-smoothing:antialiased;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+/* one screen: the viewport is the page. Nothing scrolls the page; a long list scrolls inside its panel */
+html{height:100%;background:var(--bg);-webkit-text-size-adjust:100%}
+body{margin:0;height:100vh;height:var(--app-h,100dvh);display:flex;flex-direction:column;overflow:hidden;position:relative;isolation:isolate;
+background:var(--bg);color:var(--ink);font:16px/1.45 var(--ft);-webkit-font-smoothing:antialiased}
+.comb{position:absolute;inset:0;z-index:-1;width:100%;height:100%;color:var(--ink);opacity:var(--comb-o);pointer-events:none}
 button,input,label,summary,a{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-main{max-width:960px;margin:0 auto;padding:12px 0 calc(48px + var(--bar-room,0px) + env(safe-area-inset-bottom))}
-h1{font:900 1.4rem var(--font-display);letter-spacing:-.4px;margin:.6rem 0}
-h2{font:800 1.05rem var(--font-display);margin:1.6rem 0 .6rem}
-a{color:var(--acc)}.mute{color:var(--mute);font-size:.88rem}
-/* the top bar: one frame, one layout and the same links on every page, so it never moves when the
-   page changes. The links sit right after the brand, so the chips' changing labels cannot push them,
-   and the stable gutter keeps a page's own scrollbar from shifting the frame. */
-html{scrollbar-gutter:stable}
-.chrome{flex:none;width:100%;max-width:960px;margin:0 auto;padding:12px 2px 0;display:grid;align-items:center;
-column-gap:10px;grid-template-columns:auto auto minmax(0,1fr) auto;grid-template-areas:"brand nav fm q"}
-.chrome__brand{grid-area:brand;font-family:var(--font-display);font-weight:900;font-size:17px;letter-spacing:-.3px;
-color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
-.chrome__brand span{color:var(--accent)}
-.chrome nav{grid-area:nav;display:flex;align-items:center;gap:2px}
-.chrome nav a,#alerts{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 10px;
-border-radius:999px;font:700 11px var(--font-mono);letter-spacing:.4px;color:var(--ink-3);text-decoration:none;
-white-space:nowrap;background:transparent;border:1.5px solid transparent;cursor:pointer}
-#alerts[hidden]{display:none}
-.chrome nav a[aria-current]{color:var(--ink);border-color:var(--rule-soft);background:var(--paper)}
-#fmchip{grid-area:fm;justify-self:end;min-width:0}#qchip{grid-area:q}
-#fmchip .qchip{white-space:normal;padding:4px 12px}#fmchip>*{text-align:left}
-@media (min-width:1100px){.chrome{max-width:1480px}}
-/* narrower than a desktop (iPad portrait, phones): the chips share the brand's row and the links get
-   a row of their own; the firstmate label may wrap and its panel hangs from the bar's right edge */
-@media (max-width:999px){.chrome{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"brand fm q" "nav nav nav";
-row-gap:6px;position:relative}#fmchip{position:static}#fmchip .fmpop{top:auto;margin-top:6px}}
-/* phones: the links as two even rows of four */
-@media (max-width:599px){.chrome nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
-.chrome nav a,#alerts{padding:0 4px}}
-@media (max-width:450px){.chrome{column-gap:6px}.chrome nav a,#alerts{letter-spacing:.2px}}
-@media (max-width:400px){.chrome nav a,#alerts{padding:0 2px;letter-spacing:0;font-size:10.5px}}
-.tail{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;
-font:12px/1.35 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;
-min-height:12rem;max-height:70vh;overflow:auto}
-.banner{border:1px solid var(--accent);border-radius:10px;padding:12px;margin:12px 0;
-background:var(--card)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
-.need{background:var(--card);border:1px solid var(--accent);border-radius:12px;padding:12px;
-margin:8px 0;overflow-wrap:anywhere}
-.need .what{font-weight:700}.sub{display:block;color:var(--mute);font-size:.8rem;margin-top:2px}
-.tag{display:inline-block;font:700 .66rem var(--font-mono);text-transform:uppercase;letter-spacing:.06em;
-border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-right:6px;color:var(--mute)}
-.row{padding:10px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
-form{margin:8px 0}textarea,input[type=text],select{width:100%;font:inherit;color:var(--ink);
-background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px}
-textarea{min-height:5.5rem}label{display:block;font-size:.88rem;color:var(--mute);margin:6px 0 2px}
-button{font:inherit;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);
-border-radius:8px;padding:8px 14px;min-height:44px;cursor:pointer}
-button.quiet{background:transparent;color:var(--ink)}button.danger{background:var(--accent);border-color:var(--accent);color:#fff}
-.inline{display:inline-block;margin:4px 6px 4px 0}details{margin-top:8px}summary{cursor:pointer;color:var(--acc);
-min-height:32px}
+button,input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+main{flex:1 1 0;min-height:0;width:min(1280px,100% - 2 * var(--gut));margin-inline:auto;display:flex;flex-direction:column;
+overflow-x:hidden;overflow-y:auto;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+h1{font:600 28px/1.1 var(--fd);letter-spacing:-.03em;margin:0}
+h2{font:600 18px/1.2 var(--fd);letter-spacing:-.015em;margin:0}
+p{margin:0}
+a{color:inherit;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+a:hover{text-decoration-color:currentColor}
+.mute{color:var(--muted);font-size:15px}
+code{font:13px var(--fm)}
+/* the top bar: one width, one height and the same links on every page, so it never moves when the
+   page changes. The links sit right after the brand, so the chips' changing labels cannot push them */
+.chrome{flex:none;position:relative;z-index:20;display:grid;grid-template-columns:auto auto minmax(0,1fr);
+grid-template-areas:"brand nav st";align-items:center;column-gap:28px;height:calc(57px + env(safe-area-inset-top));
+padding:env(safe-area-inset-top) max(var(--gut),50% - 640px) 0;background:var(--card);border-bottom:1px solid var(--line)}
+.chrome__brand{grid-area:brand;display:inline-flex;align-items:center;gap:9px;height:44px;font:600 21px/1 var(--fd);
+letter-spacing:-.025em;color:var(--ink);text-decoration:none}
+.chrome__brand svg{flex:none;width:24px;height:24px;fill:var(--honey)}
+.chrome nav{grid-area:nav;display:flex;align-items:stretch;align-self:stretch;min-width:0}
+.chrome nav a{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;
+font:500 15px var(--ft);color:var(--muted);text-decoration:none;white-space:nowrap;transition:color .15s var(--e)}
+.chrome nav a:hover,.chrome nav a[aria-current]{color:var(--ink)}
+.chrome nav a[aria-current]::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;
+border-radius:2px 2px 0 0;background:var(--honey)}
+.chrome__st{grid-area:st;justify-self:end;display:flex;align-items:center;gap:8px;min-width:0}
+/* below a laptop the chips share the brand's row and the links get a full-width row of their own */
+@media (max-width:1023px){
+.chrome{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"brand st" "nav nav";height:calc(101px + env(safe-area-inset-top))}
+.chrome__brand{height:52px}
+.chrome nav{height:48px;margin-inline:calc(-1 * var(--gut));padding-inline:calc(var(--gut) - 12px);border-top:1px solid var(--line);
+justify-content:space-between;overflow-x:auto;scrollbar-width:none}
+.chrome nav::-webkit-scrollbar{display:none}}
+@media (max-width:640px){
+.chrome nav{padding-inline:4px}
+.chrome nav a{flex:1 0 auto;padding:0 6px;min-width:44px;font-size:14px}
+.chrome nav a[aria-current]::after{left:6px;right:6px}
+.chrome__st .qchip{padding:0 10px;gap:6px}
+.tchip__l{display:none}}
+@media (max-width:400px){.chrome nav a{padding:0 2px}.chrome nav a[aria-current]::after{left:2px;right:2px}}
+/* a 320 px slide-over still takes all seven in one row: smaller type, no padding to spare */
+@media (max-width:374px){.chrome nav{padding-inline:0}.chrome nav a{min-width:0;font-size:13px}
+.chrome{column-gap:10px}.chrome__brand{min-width:44px}.chrome__brand span{display:none}
+.chrome__st{gap:6px}.chrome__st .qchip{padding:0 8px}}
+/* the chips: firstmate's liveness and the busier plan window; a tap opens a panel under the bar */
+.qwrap{margin:0}
+.qchip{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border:1px solid var(--line);
+border-radius:var(--rb);background:var(--card);font:500 14px var(--ft);color:var(--ink);cursor:pointer;list-style:none;white-space:nowrap}
+.qchip::-webkit-details-marker{display:none}
+.qwrap[open]>.qchip{border-color:var(--ink)}
+#alerts{color:var(--muted)}#alerts[hidden]{display:none}
+.dot{flex:none;width:9px;height:10px;clip-path:var(--hex);background:var(--unk)}
+.qchip__bar{display:inline-block;width:28px;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.qchip__bar i{display:block;height:100%;background:var(--unk)}
+.qchip--ok .dot,.qchip--ok .qchip__bar i,.dot--ok{background:var(--ok)}
+.qchip--warn .dot,.qchip--warn .qchip__bar i,.dot--warn{background:var(--warn)}
+.qchip--hot .dot,.qchip--hot .qchip__bar i,.dot--hot{background:var(--down)}
+.qchip--hot{border-color:var(--down)}
+.qchip--unknown{color:var(--muted)}
+.qpop{position:absolute;right:max(var(--gut),50% - 640px);top:calc(100% + 8px);z-index:30;width:360px;
+max-width:calc(100% - 2 * var(--gut));max-height:calc(var(--app-h,100dvh) - 140px);overflow-y:auto;padding:18px;
+border:1px solid var(--line2);border-radius:var(--r3);background:var(--card);color:var(--ink);
+box-shadow:0 16px 40px var(--shadow);font:15px/1.45 var(--ft);white-space:normal}
+.qpop h3{display:flex;align-items:center;gap:8px;margin:0 0 4px;font:600 16px var(--fd)}
+.qpop>div{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line)}
+.qpop b{font-weight:600;text-align:right}.qpop span,.qpop b{min-width:0}
+.qpop .qpop__note{min-height:0;padding-top:8px;border-bottom:0;color:var(--muted);font-size:14px}
+.qpop__alerts{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.qpop__alerts h3{font-size:15px}
+.qpop__alerts p{margin:0 0 4px;color:var(--muted)}.qpop__alerts ol{margin:0 0 4px;padding-left:20px}.qpop__alerts li{padding:2px 0}
+.qpop__alerts #alerts-note:empty{display:none}
+.fmpop p{margin:0 0 8px;color:var(--muted)}.fmpop form{margin:0}
+.fmpop>form{margin-top:12px}
+.fmpop__term{margin-top:12px!important}
+.wdpanel{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.wdpanel>p{flex:1 1 160px;margin:0;color:var(--ink)}
+.wdlog{flex-basis:100%;list-style:none;margin:0;padding:0;font-size:14px;color:var(--muted)}.wdlog li{padding:2px 0}
+/* shared parts */
+.ph{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;padding:20px 0 14px}
+.ph .sub,.ph>.mute{font-size:15px;color:var(--muted)}
+.ph__back{display:inline-flex;align-items:center;min-height:44px;font-size:15px;font-weight:600}
+@media (max-width:640px){.ph{padding:14px 0 10px}h1{font-size:23px}.ph .sub,.ph>.mute{flex-basis:100%;font-size:14px}}
+.meta,.stamp{font-size:13px;color:var(--muted)}
+.hexn{display:inline-grid;place-items:center;flex:none;width:28px;height:32px;clip-path:var(--hex);background:var(--honey);
+color:var(--honey-ink);font:600 14px/1 var(--ft)}
+.hexn--q{background:var(--surface);color:var(--ink)}
+.sl{display:flex;align-items:center;gap:8px;margin:18px 0 8px;font-size:13px;font-weight:600;color:var(--muted)}
+.sl:first-child{margin-top:0}
+.sc{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;background:var(--unk-t);
+font:500 13px var(--ft);color:var(--ink);white-space:nowrap;flex:none}
+.sc i{flex:none;width:8px;height:9px;clip-path:var(--hex);background:var(--unk)}
+.sc--ok{background:var(--ok-t)}.sc--ok i{background:var(--ok)}
+.sc--warn{background:var(--warn-t)}.sc--warn i{background:var(--warn)}
+.sc--down{background:var(--down-t)}.sc--down i{background:var(--down)}
+.sc--run{background:var(--run-t)}.sc--run i{background:var(--run)}
+.sc--you{background:var(--you-t)}.sc--you i{background:var(--you-dot)}
+.sc--q{background:none;box-shadow:inset 0 0 0 1px var(--line2)}.sc--q i{background:var(--line2)}
+.tag{display:inline-block;padding:3px 8px;border-radius:var(--r1);background:var(--surface);font:13px var(--fm);color:var(--ink);white-space:nowrap}
+.bar{flex:1 1 auto;display:inline-block;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ink)}
+/* buttons: one filled primary (with its arrow), outlined secondaries */
+.btn{min-height:44px}
+.btn,button:not([class]):not([type=button]),button.quiet,button.danger{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+min-height:44px;padding:0 20px;border:1px solid transparent;border-radius:var(--rb);font:600 16px/1 var(--ft);cursor:pointer;
+white-space:nowrap;text-decoration:none;transition:transform .15s var(--e),filter .15s var(--e),border-color .15s var(--e)}
+.btn--p,button:not([class]):not([type=button]){background:var(--action);color:var(--action-ink)}
+.btn--p::after,button:not([class]):not([type=button])::after{content:"";flex:none;width:12px;height:12px;margin-right:-2px;background:currentColor;
+clip-path:var(--arrow);transition:transform .15s var(--e)}
+.btn--s,button.quiet,button.danger{background:var(--card);border-color:var(--line2);color:var(--ink)}
+.btn--danger,button.danger{color:var(--down)}
+.btn--sm{padding:0 14px;font-size:14px}
+.btn:hover,button:not([class]):not([type=button]):hover,button.quiet:hover,button.danger:hover{transform:translateY(-1px)}
+.btn--p:hover,button:not([class]):not([type=button]):hover{filter:brightness(1.08)}
+.btn--p:hover::after,button:not([class]):not([type=button]):hover::after{transform:translateX(3px)}
+.btn:active,button:not([class]):not([type=button]):active,button.quiet:active,button.danger:active{transform:translateY(1px) scale(.985)}
+.is-armed,button.is-armed{background:var(--warn)!important;border-color:var(--warn)!important;color:var(--armed-ink)!important}
+.is-armed::after{display:none}
+button:disabled,.btn[disabled]{opacity:.42;cursor:not-allowed;transform:none!important;filter:none!important}
+.lnk{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0;border:0;background:none;font-size:15px;font-weight:600;
+color:var(--ink);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.lnk:hover{text-decoration-color:currentColor}
+form{margin:0}
+textarea,input[type=text],select,.inp{width:100%;min-height:44px;padding:9px 14px;border:1px solid var(--line2);border-radius:var(--rb);
+background:var(--card);color:var(--ink);font:16px/1.4 var(--ft)}
+textarea{min-height:5.5rem;resize:vertical}
+::placeholder{color:var(--muted);opacity:1}
+label{display:block;margin:8px 0 4px;font-size:14px;font-weight:600;color:var(--muted)}
+label:has(input[type=checkbox]){display:flex;align-items:center;gap:8px;min-height:44px;color:var(--ink);font-weight:500}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--action)}
+details>summary{cursor:pointer}
+.banner{padding:12px 14px;border-radius:var(--r2);background:var(--warn-t);color:var(--ink);font-size:15px;overflow-wrap:anywhere}
+.banner.ok{background:var(--ok-t)}
+.banner form{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}.banner form p{flex-basis:100%}
+.act-err,.act-warn,.act-ok{margin:8px 0 0;font:600 14px/1.4 var(--ft);color:var(--down);white-space:normal}
+.act-ok{color:var(--ok)}
+.empty{display:grid;place-content:center;justify-items:center;gap:12px;height:100%;min-height:150px;color:var(--muted);text-align:center}
+.empty::before{content:"";width:44px;height:50px;clip-path:var(--hex);background:var(--surface)}
+/* panels: anything long scrolls here, never the page */
+.pgb{flex:1 1 0;min-height:0;display:grid;grid-template-rows:minmax(0,1fr);gap:16px}
+.pn{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--card);border:1px solid var(--line);
+border-radius:var(--r3);container-type:inline-size;container-name:pn}
+.pn__h{flex:none;display:flex;align-items:center;gap:10px;min-height:54px;padding:8px 16px;border-bottom:1px solid var(--line)}
+.pn__h h2{white-space:nowrap}
+.pn__h .meta{margin-left:auto;white-space:nowrap}
+.pn__b{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 16px 16px;overscroll-behavior:contain;
+-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+.pn__b--flush{padding:0 16px 8px}
+/* phone tabs: the panels of a page become tabs under its title */
+.tabs{display:none;flex:none;gap:4px;padding:4px;border-radius:var(--r2);background:var(--surface)}
+.tabs button{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;height:44px;padding:0 10px;
+border:0;border-radius:var(--r1);background:none;font:600 15px var(--ft);color:var(--muted);cursor:pointer;white-space:nowrap}
+.tabs button[aria-selected=true]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px var(--shadow)}
+.tabs button small{font:400 13px var(--fm);color:var(--muted)}
+@media (max-width:640px){
+.pgb[data-tabs]{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto minmax(0,1fr)!important;gap:8px}
+.pgb[data-tabs]>.tabs--p{display:flex}
+.pgb[data-tabs] [data-tp]:not(.is-on){display:none!important}
+.pgb[data-tabs] .pn[data-tp]>.pn__h{display:none}}
+/* a modal sheet over the page */
+.sheet{width:min(560px,calc(100vw - 24px));max-height:min(80vh,calc(100dvh - 24px));margin:auto;padding:0;
+background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:var(--r3);
+box-shadow:0 16px 48px var(--shadow);overflow:hidden}
+.sheet[open]{display:flex;flex-direction:column;animation:sheet-in .18s var(--e)}
+.sheet.is-restored[open]{animation:none}
+.sheet{cursor:pointer}.sheet>*{cursor:auto}
+.sheet::backdrop{background:var(--scrim)}
+.sheet__head{flex:none;display:flex;align-items:center;gap:8px;min-height:54px;padding:4px 6px 4px 16px;border-bottom:1px solid var(--line)}
+.sheet__head>*{min-width:0}
+.sheet__head h2{flex:1;overflow-wrap:anywhere}
+.sheet__x{flex:none;min-width:44px;min-height:44px;padding:0;border:0;border-radius:var(--r2);background:transparent;color:var(--ink);font-size:26px;line-height:1;cursor:pointer}
+.sheet__x:hover{background:var(--surface)}
+.sheet__list{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;min-height:0;padding:0 16px env(safe-area-inset-bottom);
+-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.sheet__meta{flex:none;margin:0;padding:12px 16px;font-size:15px;color:var(--muted);border-bottom:1px solid var(--line)}
+.sheet__meta b{color:var(--ink);font-weight:600}
+.sheet__text{margin:0;padding:14px 0;font-size:16px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.sheet__about{flex:none;margin:0;padding:12px 16px 4px;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+.sheet__empty{margin:0;padding:14px 0;font-size:15px;color:var(--muted)}
+@keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+/* bridge for page sections not yet on Comb; removed once every page is */
+:root{--paper:var(--card);--paper-2:var(--bg);--paper-soft:var(--surface);--paper-shadow:var(--shadow);--ink-2:var(--ink);--ink-3:var(--muted);--ink-4:var(--muted);--rule:var(--line2);--rule-soft:var(--line2);--rule-faint:var(--line);--accent:var(--down);--accent-soft:var(--down-t);--amber:var(--warn);--amber-soft:var(--warn-t);--honey-soft:var(--you-t);--ochre:var(--action);--sage:var(--ok);--sage-soft:var(--ok-t);--bar:var(--ink);--bar-ink:var(--card);--font-mono:var(--fm);--font-sans:var(--ft);--font-display:var(--fd);--mute:var(--muted);--acc:var(--action)}
 .ok{border-color:var(--ok)}.bubble{white-space:pre-wrap;overflow-wrap:anywhere}
 .thread{display:flex;flex-direction:column;gap:10px;margin:12px 0}
 .msg{max-width:85%;border-radius:14px;padding:8px 12px;border:1px solid var(--line);
@@ -144,30 +284,6 @@ position:relative;padding:0 12px}
 min-height:44px;border-radius:999px;padding:0 16px;box-shadow:0 4px 14px var(--paper-shadow)}
 #jump[hidden]{display:none}
 @media (max-width:480px){.msg{max-width:94%}.dbar__go{padding:0 12px}}
-/* quota chip: the busier of the two plan windows, as percent used; tap shows both */
-.qwrap{position:relative;margin:0}
-.qchip{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--rule-soft);border-radius:999px;
-background:var(--paper);padding:0 12px;min-height:44px;font:700 11px var(--font-mono);cursor:pointer;
-color:var(--ink);list-style:none;white-space:nowrap}
-.qchip::-webkit-details-marker{display:none}
-.qchip__bar{width:30px;height:5px;border-radius:3px;background:var(--rule-faint);overflow:hidden;display:inline-block}
-.qchip__bar i{display:block;height:100%;background:var(--sage)}
-.qchip--warn{border-color:var(--amber)}.qchip--warn .qchip__bar i{background:var(--amber)}
-.qchip--hot{border-color:var(--accent);background:var(--accent-soft)}.qchip--hot .qchip__bar i{background:var(--accent)}
-.qchip--unknown{color:var(--ink-4)}
-.qpop{position:absolute;right:0;top:50px;z-index:5;background:var(--paper);border:1.5px solid var(--rule);
-border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px var(--paper-shadow);font:10.5px/1.4 var(--font-mono);
-min-width:210px;color:var(--ink-2)}
-.qpop{max-width:min(320px,calc(100vw - 24px))}
-.qpop__alerts{margin-top:6px;padding-top:8px;border-top:1px solid var(--rule-faint);white-space:normal}
-.qpop__alerts h3{margin:0 0 4px;font:800 11px var(--font-mono);color:var(--ink);text-transform:uppercase;letter-spacing:.04em}
-.qpop__alerts p{margin:0 0 4px}.qpop__alerts ol{margin:0 0 4px;padding-left:18px}.qpop__alerts li{padding:2px 0}
-.qpop__alerts #alerts-note:empty{display:none}
-.qpop div{display:flex;justify-content:space-between;gap:14px;padding:3px 0}
-.fmpop{white-space:normal;max-width:min(300px,86vw)}.fmpop p{margin:0 0 8px}.fmpop form{margin:0}
-.wdpanel{margin-top:6px;padding-top:8px;border-top:1px solid var(--rule-faint)}.wdpanel p{margin:0 0 6px}
-.wdlog{list-style:none;margin:6px 0 0;padding:0;font-size:12px;color:var(--ink-4)}.wdlog li{padding:2px 0}
-.qpop b{color:var(--ink)}.qpop span,.qpop b{white-space:nowrap}.qpop .qpop__note{color:var(--ink-4)}
 /* the Stack home (docs/design/T002-stack-home.html) */
 .screen{display:flex;flex-direction:column;gap:12px;font-size:13px;line-height:1.4}
 .screen :where(p,h1,h2,h3,li,span,code,b){overflow-wrap:anywhere}
@@ -355,10 +471,6 @@ body:has(dialog[open]){overflow:hidden}
 @keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.sheet[open]{animation:none}}
 .nyi__reply::placeholder{color:var(--ink-4)}
-.btn{font:600 11px var(--font-mono);letter-spacing:.4px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;
-border:1.5px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--ink);cursor:pointer;
-white-space:nowrap;text-decoration:none}
-.btn:active{transform:translateY(1px)}
 .btn--go{background:var(--ink);color:var(--paper)}
 .btn--allow{border-color:var(--sage);color:var(--sage)}
 .btn--deny{border-color:var(--rule-soft);color:var(--ink-3)}
@@ -434,7 +546,7 @@ form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
 .mach h1{margin:0}
 .mach__lead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0}
 .mach__lead p{margin:0}
-.mach__term a,.fmpop__term a{font:700 12px var(--font-mono);letter-spacing:.02em}.fmpop__term a{font-size:11px}
+.mach__term a{font:700 12px var(--font-mono);letter-spacing:.02em}
 .mach__sum{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
 .mach__sum .mstate{min-width:0}
 .mach__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
@@ -1074,7 +1186,8 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
         chip = (
             f"<summary class='qchip qchip--{q.level}' "
             f"aria-label='Plan quota, busiest window {worst.used} percent used'>"
-            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span>{worst.used}% used</summary>"
+            f"<span class=qchip__bar><i style='width:{worst.used}%'></i></span><span>{worst.used}%"
+            "<span class=tchip__l> used</span></span></summary>"
         )
         rows = "".join(
             f"<div><span>{esc(w.label)}</span><b>{w.used}% used · {_resets(w.resets_at, ctx.tz, now)}"
@@ -1088,7 +1201,7 @@ def _chip(ctx: Ctx, now: datetime | None = None) -> str:
                 "</span></div>"
             )
     return (
-        f"<details class=qwrap id=qchip>{chip}<div class=qpop>{rows}"
+        f"<details class=qwrap id=qchip>{chip}<div class=qpop><h3>Plan quota</h3>{rows}"
         "<div class=qpop__note><span>account-wide · shared with your own use</span></div>"
         "<section class=qpop__alerts aria-labelledby=qpop-alerts-h>"
         "<h3 id=qpop-alerts-h>Get alerts</h3>"
@@ -1107,9 +1220,11 @@ def _watchdog_panel(ctx: Ctx) -> str:
     if wd is None or not ctx.wake_enabled:
         return ""
     if wd.enabled:
-        button = "<button name=to value=off class=danger type=submit>Turn off</button>"
+        button = (
+            "<button name=to value=off class='btn btn--s btn--sm' type=submit>Turn off</button>"
+        )
     else:
-        button = "<button name=to value=on class=danger type=submit>Turn on</button>"
+        button = "<button name=to value=on class='btn btn--s btn--sm' type=submit>Turn on</button>"
     form = ctx.form("watchdog", button, always=True)
     state = f"Automatic recovery: {esc(wd.label)}"
     if wd.config_error:
@@ -1164,26 +1279,45 @@ def _fm_chip(ctx: Ctx) -> str:
     if ctx.wake_enabled and fm is not None and fm.can_wake:
         wake = ctx.form(
             "wake",
-            "<button class=danger type=submit>Wake firstmate</button>",
+            "<button class='btn btn--p' type=submit>Wake firstmate</button>",
             always=True,
         )
     elif ctx.wake_enabled and fm is not None and fm.can_restart:
         wake = ctx.form(
             "restart",
-            "<button class=danger type=submit>Restart session</button>",
+            "<button class='btn btn--p' type=submit>Restart session</button>",
             always=True,
         )
     if ctx.terminal:
-        wake += "<p class=fmpop__term><a href='/terminal'>Open firstmate’s terminal</a></p>"
+        wake += (
+            "<p class=fmpop__term><a class=lnk href='/terminal'>Open firstmate’s terminal</a></p>"
+        )
     wake += _watchdog_panel(ctx)
+    cls = _FM_DOT.get(state, "unknown")
     return (
         "<details class=qwrap id=fmchip>"
-        f"<summary class='qchip qchip--{_FM_DOT.get(state, 'unknown')}' "
+        f"<summary class='qchip qchip--{cls}' "
         f"aria-label='Firstmate {esc(label)}'>"
-        f"<span class=qchip__bar><i style='width:100%'></i></span>firstmate · {esc(label)}</summary>"
-        f"<div class='qpop fmpop'><p>{detail}</p>{wake}</div></details>"
+        f"<span class=dot></span><span><span class=tchip__l>firstmate · </span>{esc(label)}</span></summary>"
+        f"<div class='qpop fmpop'><h3><span class='dot dot--{cls}'></span>Firstmate · {esc(label)}</h3>"
+        f"<p>{detail}</p>{wake}</div></details>"
     )
 
+
+# The hive mark (three cells) and the faint honeycomb behind every page, drawn inline: the CSP
+# allows no image but the desk's own files, and an inline SVG is not an image fetch.
+MARK = (
+    "<svg viewBox='0 0 24 24' aria-hidden=true focusable=false><path d='M6.63 1.5 11.74 4.45v5.9"
+    "L6.63 13.3 1.52 10.35v-5.9ZM17.37 1.5l5.11 2.95v5.9L17.37 13.3l-5.11-2.95v-5.9ZM12 10.8l5.11 "
+    "2.95v5.9L12 22.6l-5.11-2.95v-5.9Z'/></svg>"
+)
+COMB = (
+    "<svg class=comb aria-hidden=true focusable=false><defs><pattern id=comb width=46.77 height=81 "
+    "patternUnits=userSpaceOnUse viewBox='0 0 31.18 54'><path fill=none stroke=currentColor "
+    "d='M0-18 15.59-9v18L0 18-15.59 9V-9ZM31.18-18 46.77-9v18L31.18 18 15.59 9V-9ZM15.59 9 31.18 18v18"
+    "L15.59 45 0 36V18ZM0 36l15.59 9v18L0 72-15.59 63V45ZM31.18 36l15.59 9v18L31.18 72 15.59 63V45Z'/>"
+    "</pattern></defs><rect width=100% height=100% fill=url(#comb) /></svg>"
+)
 
 # The top bar's links, the same on every page: (``active`` name, href, label).
 NAV = (
@@ -1202,7 +1336,7 @@ def _nav(active: str) -> str:
         f"<a href='{href}'{' aria-current=page' if name == active else ''}>{label}</a>"
         for name, href, label in NAV
     )
-    return f"<nav>{links}<button id=alerts hidden type=button>Alerts</button></nav>"
+    return f"<nav aria-label=Pages>{links}</nav>"
 
 
 def _page(
@@ -1214,7 +1348,7 @@ def _page(
     css: str = "",
     tail: str = "",
 ) -> str:
-    chip = (_fm_chip(ctx) + _chip(ctx)) if ctx is not None else ""
+    chips = (_fm_chip(ctx) + _chip(ctx)) if ctx is not None else ""
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
@@ -1227,9 +1361,10 @@ def _page(
         "<link rel=icon href='/icons/icon-192.png'>"
         "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
         f"<title>{esc(title)}</title><style>{CSS}{css}</style></head>"
-        f"<body{attrs}{_BODY_CLASS.get(active, '')}><header class=chrome>"
-        "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
-        f"{_nav(active)}{chip}"
+        f"<body{attrs}{_BODY_CLASS.get(active, '')}>{COMB}<header class=chrome>"
+        f"<a class=chrome__brand href='/' aria-label='Hive desk'>{MARK}<span>hive</span></a>"
+        f"{_nav(active)}<div class=chrome__st>{chips}"
+        "<button id=alerts class=qchip hidden type=button>Alerts</button></div>"
         f"</header><main>{body}</main><script>{SCRIPT}</script>{tail}</body></html>"
     )
 

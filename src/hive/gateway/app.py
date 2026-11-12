@@ -91,8 +91,7 @@ FONT_FILES = frozenset(
         "ibm-plex-mono-500.woff2",
         "ibm-plex-mono-600.woff2",
         "ibm-plex-mono-700.woff2",
-        "nunito.woff2",
-        "nunito-sans.woff2",
+        "familjen-grotesk.woff2",
     }
 )
 ICON_FILES = {

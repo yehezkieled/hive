@@ -1084,7 +1084,7 @@ R.sideBySide=c[1].getBoundingClientRect().left>c[0].getBoundingClientRect().righ
 R.cut=all('.chrome *,.mach *').filter(function(x){
 return x.offsetParent&&x.getBoundingClientRect().right>w.innerWidth+0.5;}).length;
 R.navTops=all('.chrome__brand,.chrome nav a,#alerts').map(function(x){
-return Math.round(x.getBoundingClientRect().top);});
+var b=x.getBoundingClientRect();return Math.round(b.top+b.height/2);});
 R.chips=all('.mrow .mstate').map(function(x){return Math.round(x.getBoundingClientRect().width);});
 R.end=Math.round(d.querySelector('.mach').getBoundingClientRect().bottom);
 """
@@ -1148,14 +1148,15 @@ SIZES = {
 }
 
 
-def _assert_link_rows(tops: list[int], width: int) -> None:
-    """The header's links, the alerts button at its widest among them, sit in the rows the bar
-    is laid out with: beside the brand on a wide screen, a row of their own under the brand and
-    chips below 1000 px, and two even rows of four on a phone. ``tops`` is the brand's top then
-    each link's; ``tests/gateway/test_nav.py`` pins the same bar on every page."""
-    rows = sorted(set(tops[1:]))
-    assert len(rows) == (2 if width < 600 else 1), tops
-    assert (rows[0] == tops[0]) is (width >= 1000), tops
+def _assert_link_rows(mids: list[int], width: int) -> None:
+    """The header's links sit in one row: beside the brand on a laptop-wide screen, in a row of
+    their own under the brand and chips below 1024 px. The alerts button sits with the chips, in
+    the brand's row. ``mids`` is the brand's vertical middle, then each link's, then the alerts
+    button's; ``tests/gateway/test_nav.py`` pins the same bar on every page."""
+    brand, links, alerts = mids[0], mids[1:-1], mids[-1]
+    assert max(links) - min(links) <= 1, mids
+    assert (abs(links[0] - brand) <= 2) is (width >= 1024), mids
+    assert abs(alerts - brand) <= 2, mids
 
 
 @needs_chrome

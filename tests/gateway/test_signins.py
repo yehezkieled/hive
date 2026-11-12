@@ -1168,7 +1168,7 @@ R.rows=all('.sgrow').length;
 R.cut=all('.chrome *,.mach *').filter(function(x){
 return x.offsetParent&&x.getBoundingClientRect().right>w.innerWidth+0.5;}).length;
 R.navTops=all('.chrome__brand,.chrome nav a,#alerts').map(function(x){
-return Math.round(x.getBoundingClientRect().top);});
+var b=x.getBoundingClientRect();return Math.round(b.top+b.height/2);});
 R.chips=all('.sgrow .mstate').map(function(x){return Math.round(x.getBoundingClientRect().width);});
 R.taps=all('.mach button,.mach a.sgf__link,.mach input[type=text]').map(tall);
 var l=d.querySelector('.sgf__link');R.link=l?tall(l):0;
@@ -1246,13 +1246,13 @@ def test_the_page_follows_light_and_dark(tmp_path: Path) -> None:
     (tmp_path / "dark").mkdir()
     lit = _in_chrome(tmp_path / "light", page, COLOUR_DRIVER, (820, 1180))
     dim = _in_chrome(tmp_path / "dark", dark, COLOUR_DRIVER, (820, 1180))
-    assert (lit["page"], dim["page"]) == ("rgb(242, 236, 216)", "rgb(22, 20, 15)")
+    assert (lit["page"], dim["page"]) == ("rgb(244, 239, 229)", "rgb(12, 10, 8)")
     assert "missing" not in lit.values()
     same = [k for k in lit if lit[k] == dim[k]]
     assert same == [], same
     # the big link stays readable in both: light on dark, then dark on light
-    assert (lit["link"], lit["linkText"]) == ("rgb(31, 24, 18)", "rgb(250, 247, 237)")
-    assert (dim["link"], dim["linkText"]) == ("rgb(239, 233, 218)", "rgb(32, 29, 22)")
+    assert (lit["link"], lit["linkText"]) == ("rgb(41, 37, 30)", "rgb(255, 252, 246)")
+    assert (dim["link"], dim["linkText"]) == ("rgb(247, 242, 232)", "rgb(24, 21, 18)")
 
 
 FLOW_FETCH = (

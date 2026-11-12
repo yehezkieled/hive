@@ -1,11 +1,9 @@
 Fonts served by the Hive desk (latin subsets as published by Google Fonts):
   ibm-plex-mono-*.woff2  IBM Plex Mono
-  nunito.woff2           Nunito (variable weight)
-  nunito-sans.woff2      Nunito Sans (variable weight)
+  familjen-grotesk.woff2 Familjen Grotesk (variable weight)
 
 Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
-Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
-Copyright 2016 The Nunito Sans Project Authors (https://github.com/Fonthausen/NunitoSans)
+Copyright 2021 The Familjen Grotesk Project Authors (https://github.com/Familjen-Sthlm/Familjen-Grotesk)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
