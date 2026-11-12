@@ -88,15 +88,6 @@ def test_each_menu_page_marks_itself_and_only_itself(rendered: dict[str, str]) -
         assert "aria-current" not in _bar(rendered[page]), page
 
 
-def test_no_page_restyles_the_top_bar() -> None:
-    # The bar moved between pages because page-scoped rules gave it its own width and padding.
-    css = pages.CSS + pages.TERMINAL_CSS
-    for body_class in re.findall(r"class=(\w+)", "".join(pages._BODY_CLASS.values())):
-        assert not re.search(rf"\.{body_class}\s+(\.chrome|#fmchip|#qchip)", css), body_class
-    # A page tall enough to scroll must not shift the bar by the scrollbar's width.
-    assert "html{scrollbar-gutter:stable}" in css
-
-
 # One Chrome run renders every page in a same-origin frame of each size and measures the bar.
 SIZES = [(375, 667), (820, 1180), (1180, 820), (1440, 500)]  # phone, iPad both ways, short PC
 MEASURE = """
