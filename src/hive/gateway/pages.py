@@ -2887,7 +2887,9 @@ menu marks the page) and the paste box keeps one row, so 30 rows fit at the smal
 @media (max-width:640px){.termpage .ph .sub{display:none}.termpage:has(.tlive:not([hidden])) .ph{display:none}
 .termpage:has(.tlive:not([hidden])) .term{padding-top:12px}.tbar{padding:8px}.tbar__who{flex-basis:100%;order:3}
 .facts{grid-template-columns:minmax(0,1fr)}.facts li{min-height:48px}.gate{padding:18px}.gate h2{font-size:22px}
-.tkeys button{min-width:46px;padding:0 9px}.tpaste .btn{padding:0 12px}}
+.tpaste .btn{padding:0 12px}}
+/* every key in one row on an iPad in portrait too (a phone's row scrolls sideways) */
+@media (max-width:1023px){.tkeys{gap:4px}.tkeys button{min-width:46px;padding:0 8px}}
 """
 
 # Pinned by hash in the Terminal page's CSP, as ``SCRIPT`` is everywhere. It takes no server
@@ -2982,7 +2984,11 @@ function refit(force){if(!term)return;if(!fit){font(fs);label();return;}
 var w=frame.clientWidth-16,h=frame.clientHeight-16;if(w<=0||h<=0)return;
 if(!force&&w===lastW&&h<=lastH)return;lastW=w;lastH=h;var k=measure();if(!k)return;
 var n=Math.floor(Math.min(w/(term.cols*k.w),h/(term.rows*k.h)));n=Math.max(7,Math.min(18,n));
-font(n);label();toBottom();}
+font(n);while(n>7&&over(w,h)){n--;font(n);}label();toBottom();}
+// xterm rounds a cell to whole pixels, so a cell does not grow in step with the font and the
+// guess above can come out a row too tall, scrolling the top row out of view: step down to fit.
+function over(w,h){var el=term.element&&term.element.querySelector('.xterm-screen');
+if(!el)return false;var r=el.getBoundingClientRect();return r.width>w+0.5||r.height>h+0.5;}
 function toBottom(){requestAnimationFrame(function(){frame.scrollTop=frame.scrollHeight;frame.scrollLeft=0;});}
 function setFs(n){fit=false;fs=Math.max(6,Math.min(28,n));if(term)font(fs);save();label();toBottom();}
 function vh(){var v=window.visualViewport;
