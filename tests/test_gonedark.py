@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import functools
 import ipaddress
 import json
 import logging
@@ -358,6 +359,32 @@ async def test_a_missing_tailscale_command_still_pings(
     monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
     with fake_desk() as port:
         assert await gonedark.local_health(port, tmp_path, None)() is None
+        assert await gonedark.local_health(port, tmp_path, tmp_path / "nope")() is None
+
+
+async def test_a_stopped_tailscale_daemon_skips_the_ping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
+    binary = tmp_path / "tailscale"
+    binary.write_text("#!/bin/sh\necho 'failed to connect to local tailscaled' >&2\nexit 1\n")
+    binary.chmod(0o755)
+    with fake_desk() as port:
+        assert await gonedark.local_health(port, tmp_path, binary)() == gonedark.TAILSCALE_DOWN
+
+
+async def test_a_tailscale_time_out_still_pings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(gonedark, "read_status", _status((4242,)))
+    monkeypatch.setattr(
+        gonedark, "tailscale_state", functools.partial(gonedark.tailscale_state, timeout_s=0.2)
+    )
+    binary = tmp_path / "tailscale"
+    binary.write_text("#!/bin/sh\nexec sleep 5\n")
+    binary.chmod(0o755)
+    with fake_desk() as port:
+        assert await gonedark.local_health(port, tmp_path, binary)() is None
 
 
 async def test_a_signed_out_tailscale_skips_the_ping(

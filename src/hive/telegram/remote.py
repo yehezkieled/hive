@@ -155,6 +155,8 @@ async def tailscale_state(binary: Path | None, timeout_s: float = TAILSCALE_TIME
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         return "unknown (Tailscale did not answer)"
+    if proc.returncode != 0 and not out.strip():
+        return "not connected: Tailscale is not running"
     try:
         data = json.loads(out)
         backend = str(data.get("BackendState", ""))
