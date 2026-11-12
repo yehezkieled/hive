@@ -219,8 +219,9 @@ border-radius:var(--r3);container-type:inline-size;container-name:pn}
 .pn__h{flex:none;display:flex;align-items:center;gap:10px;min-height:54px;padding:8px 16px;border-bottom:1px solid var(--line)}
 .pn__h h2{white-space:nowrap}
 .pn__h .meta{margin-left:auto;white-space:nowrap}
+/* a panel's scrollbar is the only sign it scrolls, so its thumb takes --field's 3:1 too */
 .pn__b{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 16px 16px;overscroll-behavior:contain;
--webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--field) transparent}
 .pn__b--flush{padding:0 16px 8px}
 /* phone tabs: the panels of a page become tabs under its title */
 .tabs{display:none;flex:none;gap:4px;padding:4px;border-radius:var(--r2);background:var(--surface)}
@@ -394,7 +395,7 @@ min-height:44px;padding:8px;margin:0 -8px;border-radius:var(--r2);color:inherit;
 .rvs{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .rv__box{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .rv__list{flex:0 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:6px 16px;overscroll-behavior:contain;
--webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--field) transparent}
 .rvrow{display:flex;align-items:center;gap:10px;min-height:62px;padding:6px 0;border-bottom:1px solid var(--line)}
 .rvrow:last-child{border-bottom:0}
 .rvrow>form{flex:none;display:flex}
