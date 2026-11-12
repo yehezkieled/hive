@@ -81,6 +81,9 @@ FAILED = "the check answered with an error"
 NOT_STARTED = "the check could not be started"
 NOT_UNDERSTOOD = "the answer was not understood"
 SWITCHED_OFF = "this check is switched off"
+# What to do about a sign-in that is running out: both are done from the Sign-ins page.
+RENEW_CLAUDE = "Renew it on the Sign-ins page"
+EXTEND_TAILSCALE = "Extend it: see the Sign-ins page"
 
 # ---- redaction ---------------------------------------------------------------------------
 
@@ -749,11 +752,12 @@ _BACKEND = {
 }
 
 
-def _tailscale_row(r: Readings, now: float) -> Row:
-    t = r.tailscale.value
+def tailscale_row(reading: Reading[Tailscale | Unknown], now: float) -> Row:
+    """This PC's Tailscale link and key, as the Machine and Sign-ins pages both show it."""
+    t = reading.value
     if isinstance(t, Unknown):
-        return _unknown("tailscale", r.tailscale)
-    key, label, at = "tailscale", LABELS["tailscale"], r.tailscale.at
+        return _unknown("tailscale", reading)
+    key, label, at = "tailscale", LABELS["tailscale"], reading.at
     expires = Moment("key expires", t.key_expiry, exact=True) if t.key_expiry else None
     if t.key_expired:
         return Row(key, label, DOWN, "Key expired", "Log in to Tailscale at the PC", at, expires)
@@ -844,20 +848,20 @@ def _firstmate_row(r: Readings) -> Row:
     return Row("firstmate", LABELS["firstmate"], state, headline, detail, at, active)
 
 
-def _claude_row(r: Readings, now: float) -> Row:
-    expiry = r.claude_expiry.value
+def claude_row(reading: Reading[float | Unknown], now: float) -> Row:
+    """The Claude sign-in and its expiry date, as the Machine and Sign-ins pages both show it."""
+    expiry = reading.value
     if isinstance(expiry, Unknown):
-        return _unknown("claude", r.claude_expiry)
-    key, label, at = "claude", LABELS["claude"], r.claude_expiry.at
+        return _unknown("claude", reading)
+    key, label, at = "claude", LABELS["claude"], reading.at
     state, urgent = _expiry_state(expiry, now)
     if state == DOWN:
         when = Moment("expired", expiry, exact=True)
-        return Row(key, label, DOWN, "Expired", "Sign in to Claude again at the PC", at, when, True)
+        return Row(key, label, DOWN, "Expired", RENEW_CLAUDE, at, when, True)
     when = Moment("expires", expiry, exact=True)
     headline = f"Valid, {left(expiry - now)} left"
     if state == WARN:
-        detail = "Sign in again at the PC"
-        return Row(key, label, WARN, headline, detail, at, when, urgent)
+        return Row(key, label, WARN, headline, RENEW_CLAUDE, at, when, urgent)
     return Row(key, label, OK, headline, "Sign-in is current", at, when)
 
 
@@ -925,13 +929,12 @@ def _risks(r: Readings, now: float) -> tuple[Risk, ...]:
     elif ts.key_expiry is None:
         risks.append(Risk(pc_key, OK, "no date", "This key does not expire"))
     else:
-        risks.append(_expiry_risk(pc_key, ts.key_expiry, now, "Log in to Tailscale at the PC"))
+        risks.append(_expiry_risk(pc_key, ts.key_expiry, now, EXTEND_TAILSCALE))
     claude = r.claude_expiry.value
     if isinstance(claude, Unknown):
         risks.append(Risk("Claude sign-in", UNKNOWN, "no date", _sentence(claude.why)))
     else:
-        fix = "Sign in to Claude again at the PC"
-        risks.append(_expiry_risk("Claude sign-in", claude, now, fix))
+        risks.append(_expiry_risk("Claude sign-in", claude, now, RENEW_CLAUDE))
     for device in () if isinstance(ts, Unknown) else ts.others:
         if device.key_expiry > now:  # an already expired device is not an upcoming risk
             fix = "Log in to Tailscale on that device"
@@ -953,12 +956,12 @@ def build_view(
     rows = (
         _power_row(r, now),
         _session_row(r),
-        _tailscale_row(r, now),
+        tailscale_row(r.tailscale, now),
         _wsl_row(r),
         _desk_row(r, now, started_at, os.getpid() if pid is None else pid),
         _fleet_row(r, now),
         _firstmate_row(r),
-        _claude_row(r, now),
+        claude_row(r.claude_expiry, now),
         _internet_row(r),
     )
     return MachineView(rows, _risks(r, now), r.at)

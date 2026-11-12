@@ -1203,7 +1203,7 @@ become no-ops — Hive still boots.
 
 ## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the desk (Home, Project, Chat, Config and Machine pages)
+`python -m hive.gateway` serves the desk (Home, Project, Chat, Config, Machine and Sign-ins pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
 Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
@@ -1244,10 +1244,28 @@ command or file read under a 3 s time-out, off the request path and cached (15 s
 boot time and installed updates 10 min); a link whose read fails shows `unknown`.
 What each row means and what to do about it: [machine.md](machine.md).
 
+**Sign-ins (`/signins`, ADR 0036).** Linked from the Machine page. It shows the
+state of the Claude, GitHub and Tailscale sign-ins on the PC, and **Renew** for
+Claude and GitHub. Renew is `POST /act/signin` behind the step-up; it runs the
+vendor's own login command (`claude auth login`, or
+`gh auth login --hostname github.com --web`; a fixed list, no shell, no argument
+from a request) in a pseudo-terminal the desk owns, one at a time, for at most 10
+minutes. The sign-in link, GitHub's one-time code and the box for Claude's code
+answer only the page that started the flow (`/act/signin-flow`, `/act/signin-code`;
+any owner page may `/act/signin-cancel`). They are held in memory while the flow
+runs and never reach the journal, the audit log, firstmate's files, the event
+stream, Web Push or Telegram. Output the desk cannot read offers no link and stops
+the command. Tailscale has no Renew: signing the PC in again from the desk would
+cut the link the desk is reached over, so its row points at Tailscale's admin page.
+Each start, result and refusal is one line in `signin-audit.log` and one
+`gateway-audit action=signin` line; starts are limited to 5 in 15 minutes. What
+each sign-in shows, what Renew does and what to do when it fails:
+[signins.md](signins.md).
+
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
-on top of the checks below; control and merge also need a short-lived
-step-up token minted by the confirm page. A hold answer and a control confirm
+on top of the checks below; control, merge and a sign-in Renew also need a
+short-lived step-up token minted by the confirm page. A hold answer and a control confirm
 carry a one-time request id kept in memory for the step-up lifetime (180 s):
 a repeat POST, even after a failed run, shows the first result and never
 re-runs the script. Every write logs one
@@ -1382,8 +1400,9 @@ opens only when the chip is tapped and closes on a tap outside or Escape. The de
 CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
 stream (below); only while that stream is down does it poll `/chat` every 4 s
-and Home and Project every 30 s (Machine asks every 30 s either way: each ask is
-what starts its next round of reads). It never swaps the page while text is
+and Home and Project every 30 s (Machine and Sign-ins ask every 30 s either way:
+each ask is what starts their next round of reads; Sign-ins also asks about a
+running sign-in every 2 s). It never swaps the page while text is
 selected, and the refresh also waits while a form is being used.
 
 Auth (everything else is a bare 403; a method other than GET/HEAD, or POST
@@ -1401,7 +1420,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
-| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake audit log and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
+| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake audit log, the Sign-ins page's `signin-audit.log` and `signin-starts`, and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate and Restart session actions run its `--only firstmate` step; `off` removes both) |
@@ -1409,10 +1428,12 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 | `HIVE_GATEWAY_LAVISH_AXI` | `lavish-axi` on `PATH`, else `~/.local/bin/lavish-axi` (ends a review session for Close; `off` hides the Close buttons) |
 | `HIVE_GATEWAY_POWERSHELL` | `powershell.exe` on `PATH`, else `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe` (the Machine page's Windows reads: boot time, session, restart pending; `off`, or a host without it, leaves those rows `unknown`) |
-| `HIVE_TAILSCALE_BIN` | `tailscale` on `PATH`, else `/mnt/c/Program Files/Tailscale/tailscale.exe` (the Machine page's Tailscale row, `status --json` only; shared with the Telegram bot's `/health`; `off` disables it) |
+| `HIVE_TAILSCALE_BIN` | `tailscale` on `PATH`, else `/mnt/c/Program Files/Tailscale/tailscale.exe` (the Machine and Sign-ins pages' Tailscale row, `status --json` only; shared with the Telegram bot's `/health`; `off` disables it) |
 | `HIVE_GATEWAY_SYSTEMCTL` | `systemctl` on `PATH` (the Machine page's Desk and Fleet-up timer rows, `--user show` only; `off` disables it) |
-| `HIVE_GATEWAY_CLAUDE_CREDENTIALS` | `~/.claude/.credentials.json` (the Machine page reads the sign-in's expiry date from it and nothing else; `off` leaves the row `unknown`) |
+| `HIVE_GATEWAY_CLAUDE_CREDENTIALS` | `~/.claude/.credentials.json` (the Machine and Sign-ins pages read the sign-in's expiry date from it and nothing else; `off` leaves the row `unknown`) |
 | `HIVE_GATEWAY_NET_CHECK` | `api.anthropic.com:443` (`host:port` for the Machine page's one outbound TCP connect, which sends nothing; `off` disables it) |
+| `HIVE_GATEWAY_CLAUDE` | `claude` on `PATH`, else `~/.local/bin/claude` (the Sign-ins page's Claude Renew runs its `auth login`; `off`, or a host without it, offers no Renew) |
+| `HIVE_GATEWAY_GH` | `gh` on `PATH` (the Sign-ins page's GitHub row, `auth status`, and its Renew, `auth login --web`; `off`, or a host without it, leaves the row `unknown` with no Renew) |
 
 ### Live updates, alerts and live tail
 

@@ -12,7 +12,7 @@ from html import escape as esc
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hive.gateway import fmconfig, machine
+from hive.gateway import fmconfig, machine, signins
 from hive.gateway.actions import TICKET_FIELDS, Outcome, new_request_id
 from hive.gateway.cards import parse_card
 from hive.gateway.chat import ChatView
@@ -453,6 +453,39 @@ background:var(--paper);border:1.5px solid var(--ink-4);border-radius:999px;padd
 .mrow__side{font:10px var(--font-mono);color:var(--ink-3);text-align:right;white-space:nowrap}
 .mrow__due{font-weight:700;font-size:11px;color:var(--ink)}
 @media (max-width:480px){.mrow{grid-template-columns:auto minmax(0,1fr)}.mrow__side{grid-column:2;text-align:left}}
+.mach__lead a{white-space:nowrap}
+/* the Sign-ins page: each sign-in's state, and the one renewal that may be running */
+.sgrow__act{display:flex;flex-direction:column;align-items:flex-end;min-width:0}
+.sgrow__act form{margin:0;display:flex;flex-direction:column;align-items:flex-end}
+.sgrow__act button{white-space:nowrap}
+.sgrow__act button.is-armed{background:var(--accent);border-color:var(--accent);color:#fff}
+.sgrow__act:has(.act-warn,.act-err){grid-column:1/-1;align-items:flex-start;margin-top:4px}
+.sgrow__act:has(.act-warn,.act-err) form{align-items:flex-start}
+.sgrow__why{margin:3px 0 0;font-size:12px;color:var(--ink-3);overflow-wrap:anywhere}
+.sgrow__why a{white-space:nowrap}
+@media (max-width:480px){.sgrow__act{grid-column:2;align-items:flex-start;margin-top:4px}}
+.sgflow:empty{display:none}
+.sgf{background:var(--paper);border:1.5px solid var(--rule);border-radius:12px;padding:12px 14px;
+display:flex;flex-direction:column;gap:8px;min-width:0}
+.sgf--ok{border-color:var(--sage)}.sgf--failed{border-color:var(--accent)}.sgf--quiet{border-color:var(--rule-soft)}
+.sgf p{margin:0}
+.sgf__title{font:800 15px var(--font-display);display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
+.sgf__title .mute{font:400 12px var(--font-sans)}
+.sgf__steps{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:12px;font-size:14px}
+.sgf__steps label{color:var(--ink);font-size:14px;margin:0}
+.sgf__link{display:flex;align-items:center;justify-content:center;min-height:56px;margin:6px 0 4px;padding:8px 16px;
+border-radius:10px;background:var(--ink);color:var(--paper);font:800 16px var(--font-display);text-decoration:none;text-align:center}
+.sgf__link:active{transform:translateY(1px)}
+.sgf__host{font:11px var(--font-mono);color:var(--ink-3)}
+.sgf__code{display:inline-block;margin-top:6px;padding:8px 14px;border:1.5px dashed var(--rule);border-radius:8px;
+font:700 24px var(--font-mono);letter-spacing:3px;user-select:all;-webkit-user-select:all}
+.sgf__paste{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0}
+.sgf__paste input{flex:1 1 180px;min-width:0;width:auto;min-height:44px;font:14px var(--font-mono)}
+.sgf__paste .act-err{flex-basis:100%;margin:0}
+.sgf__note{font:700 12px/1.4 var(--font-mono);color:var(--accent)}
+.sgf__steps .sgf__note{margin-top:6px}
+.sgf__foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.sgf__foot form{margin:0}
 /* phones: the five header links still share the brand's row, on the chat page's narrower header too */
 @media (max-width:420px){.chrome{gap:6px}.chrome nav{gap:0}.chrome nav a,#alerts{padding:0 5px;letter-spacing:.2px}}
 @media (max-width:370px){.chrome{gap:4px}.chrome nav a,#alerts{padding:0 3px;letter-spacing:0;font-size:10.5px}}
@@ -492,7 +525,7 @@ function load(cb){fetch(location.href,{credentials:'same-origin',cache:'no-store
 .then(function(r){return r.ok?r.text():null;}).then(function(t){
 if(t)cb(new DOMParser().parseFromString(t,'text/html'));}).catch(function(){});}
 var b=document.body,every=+b.getAttribute('data-refresh'),poll=+b.getAttribute('data-poll');
-var tail=b.getAttribute('data-tail'),mach=b.getAttribute('data-machine')!==null;
+var tail=b.getAttribute('data-tail'),mach=b.getAttribute('data-machine')!==null||b.getAttribute('data-signins')!==null;
 var th=document.getElementById('thread'),c=document.querySelector('main');
 var last=th?th.innerHTML:c?c.textContent:null,live=false,want=false,es,seen=0;
 function bottom(){if(th)th.scrollTop=th.scrollHeight;else window.scrollTo(0,document.documentElement.scrollHeight);}
@@ -645,7 +678,26 @@ clearTimeout(fm.rvT);extra.step=step;extra.rid=fm.getAttribute('data-rid');
 rvPost(fm,extra,function(j){rvDisarm(fm);
 if(j.ok){var row=fm.closest('.rvrow');if(row&&!fm.classList.contains('rv__x--bulk')&&row.parentNode)row.parentNode.removeChild(row);refreshMain();}
 else{b.textContent='Failed';b.title=j.message||'';fm.rvT=setTimeout(function(){rvDisarm(fm);},3000);}});});
-var CONFIRMED={merge:1,control:1,wake:1,restart:1,watchdog:1};
+var CONFIRMED={merge:1,control:1,wake:1,restart:1,watchdog:1,signin:1};
+var sgMem='',sgHtml=null,sgT=0,sgE=0,sgOn=false;
+function sgBox(){return document.getElementById('signin-flow');}
+function sgTok(v){if(v!==undefined){sgMem=v;try{if(v)sessionStorage.setItem('hive-signin',v);else sessionStorage.removeItem('hive-signin');}catch(e){}return v;}
+try{return sessionStorage.getItem('hive-signin')||sgMem;}catch(e){return sgMem;}}
+function sgPaint(h){var s=sgBox();if(!s)return;sgHtml=h;s.innerHTML=h;stamps();clearTimeout(sgE);
+var e=s.querySelector('[data-ends]');if(!e)return;
+sgE=setTimeout(function(){sgPaint('<p class=mute role=status>This sign-in has ended.</p>');sgPoll();},
+Math.max(0,+e.getAttribute('data-ends')-Date.now())+1500);}
+function sgRestore(){if(sgHtml!==null)sgPaint(sgHtml);}
+function sgGot(j,polled){var s=sgBox();if(!s)return;if(typeof j.flow==='string')sgTok(j.flow);
+var i=s.querySelector('input[name=code]'),typing=polled&&j.active&&i&&(i.value||document.activeElement===i);
+if(typeof j.html==='string'&&!typing&&j.html!==sgHtml)sgPaint(j.html);
+clearTimeout(sgT);
+if(j.active){sgT=setTimeout(sgPoll,2000);if(!sgOn){sgOn=true;refreshMain();}return;}
+sgTok('');sgHtml=null;clearTimeout(sgE);if(sgOn||!polled){sgOn=false;refreshMain();}}
+function sgPoll(){clearTimeout(sgT);var fm=document.getElementById('signin-poll');if(!fm||!sgBox())return;
+var p=new URLSearchParams(new FormData(fm)),t=sgTok();if(t&&!p.get('flow'))p.set('flow',t);
+actFetch(fm,p,function(j){if(j.ok)sgGot(j,true);else sgT=setTimeout(sgPoll,5000);});}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&sgOn)sgPoll();});
 function actName(fm){return (fm.getAttribute('action')||'').replace('/act/','');}
 function actWarn(fm,t){var w=fm.querySelector('.act-warn');if(!t){if(w)w.parentNode.removeChild(w);return;}
 if(!w){w=document.createElement('p');w.className='act-warn';w.setAttribute('role','alert');fm.appendChild(w);}w.textContent=t;}
@@ -671,6 +723,8 @@ actSettle(fm,p,function(j){fm.classList.remove('is-sending');
 if(j.ok&&j.confirm){b.classList.remove('is-sent');fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
 fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));fm.acBtn=sig;fm.acEl=b;b.classList.add('is-armed');b.textContent=j.label||'Tap again';actWarn(fm,j.detail);
 fm.acT=setTimeout(function(){actDisarm(fm,b);},j.detail?15000:8000);return;}
+if(j.ok&&act.indexOf('signin')===0){actDisarm(fm,b);b.classList.remove('is-sent');
+var sc=fm.querySelector('input[type=text]');if(sc)sc.value='';sgGot(j,false);return;}
 if(j.ok){fm.classList.add('is-sent');b.textContent=j.pending?'Sent ✓ saving…':'Sent ✓';
 b.classList.remove('is-armed');b.classList.add('is-sent');
 var t=fm.querySelector('textarea,input[type=text]');if(t)t.value='';
@@ -738,7 +792,7 @@ r.style.transition='';r.style.transform='';});},340);}
 function restore(){var g=groups();for(var i=0;i<g.length;i++){var k=g[i].getAttribute('data-group'),id=picks[k];
 if(id!==undefined){var its=g[i].querySelectorAll('.nyx'),hit=null;
 for(var j=0;j<its.length;j++)if(its[j].getAttribute('data-item')===id)hit=its[j];
-if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();barRoom();}
+if(hit)pick(g[i],hit,false);else delete picks[k];}sync(g[i]);}describeAll();barRoom();sgRestore();}
 document.addEventListener('click',function(e){
 var h=e.target.closest?e.target.closest('.nyx__head'):null;
 if(!h||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;
@@ -787,6 +841,7 @@ function fit(){var was=atBottom();document.documentElement.style.setProperty('--
 var d=document.querySelector('.dock');if(d)document.documentElement.style.setProperty('--dock-h',d.offsetHeight+'px');
 window.scrollTo(0,0);if(was)bottom();}
 vv.addEventListener('resize',fit);vv.addEventListener('scroll',function(){window.scrollTo(0,0);});fit();}
+if(sgBox()){sgOn=sgBox().hasAttribute('data-active');if(sgTok()||sgOn)sgPoll();}
 restore();stamps();setInterval(stamps,30000);
 })();
 """
@@ -1944,7 +1999,8 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
         "Machine · Hive desk",
         "<div class=mach><div class=mach__head><h1>Machine</h1>"
         f"<ul class=mach__sum aria-label='Chain summary'>{summary}</ul></div>"
-        "<div class=mach__lead><p class=mute>Read-only. Every link has to hold to reach firstmate.</p>"
+        "<div class=mach__lead><p class=mute>Read-only. Every link has to hold to reach firstmate. "
+        "Renew a sign-in on the <a href='/signins'>Sign-ins page</a>.</p>"
         f"{stamp}</div>"
         "<div class=mach__cols><section class=mach__col><h2 class=sec-label>The chain</h2>"
         f"<ol class=mlist>{rows}</ol></section>"
@@ -1954,6 +2010,191 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
         "machine",
         f" data-refresh={MACHINE_REFRESH_MS} data-machine",
         ctx,
+    )
+
+
+SIGNINS_REFRESH_MS = 30000  # an open Sign-ins page re-reads its rows this often
+
+
+def _signin_poll(ctx: Ctx, token: str, visible: bool) -> str:
+    """The form the page asks "how is the sign-in going" with. The starting page's token goes
+    in the request body, never in a link. Hidden on the page the script drives."""
+    button = "<button class=quiet type=submit>Check again</button>" if visible else ""
+    return (
+        f"<form id=signin-poll method=post action='/act/signin-flow'{'' if visible else ' hidden'}>"
+        f'<input type=hidden name=csrf value="{esc(ctx.csrf)}">'
+        "<input type=hidden name=next value='/signins'>"
+        f'<input type=hidden name=flow value="{esc(token)}">{button}</form>'
+    )
+
+
+def _time_of_day(epoch: float, ctx: Ctx) -> str:
+    """A time of day ("4:10 pm") for something minutes away, in the viewer's zone."""
+    at = datetime.fromtimestamp(epoch, UTC)
+    try:
+        local = at.astimezone(ZoneInfo(ctx.tz))
+    except Exception:  # unknown zone name or no tz database
+        local = at
+    shown = f"{local.hour % 12 or 12}:{local:%M} {local:%p}".lower()
+    return f"<time class=reset datetime='{esc(at.isoformat())}'>{esc(shown)}</time>"
+
+
+def signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
+    """The sign-in flow as one page may see it.
+
+    The link, the one-time code and the page's token are in it only for the page that
+    started the flow (``view.mine``) and only while it waits for the owner.
+    """
+    v, name = view, esc(view.label)
+    if v.phase == signins.IDLE:
+        return ""
+    if not v.active:
+        cls = {signins.DONE_OK: "sgf--ok", signins.DONE_FAILED: "sgf--failed"}.get(
+            v.phase, "sgf--quiet"
+        )
+        when = f"<span class=mute>{ctx.time(_iso(v.ended_at))}</span>" if v.ended_at else ""
+        good = (
+            f" Good until {ctx.date(v.expires)}."
+            if v.expires and v.phase == signins.DONE_OK
+            else ""
+        )
+        return (
+            f"<div class='sgf {cls}' role=status><p class=sgf__title>{name} sign-in{when}</p>"
+            f"<p>{esc(v.message)}{good}</p></div>"
+        )
+    cancel = ""
+    if v.phase != signins.STOPPING:
+        label = "Cancel" if v.mine else "Stop that sign-in"
+        cancel = ctx.form(
+            "signin-cancel",
+            f"<button class=quiet type=submit>{label}</button>",
+            always=True,
+            flow=v.token,
+        )
+    foot = (
+        f"<div class=sgf__foot><p class=mute>Stops by itself at {_time_of_day(v.ends_at, ctx)}.</p>"
+        f"{cancel}</div>"
+    )
+    note = f"<p class=sgf__note role=alert>{esc(v.note)}</p>" if v.note else ""
+    if not v.mine:
+        body = (
+            "<p>Its link is shown only on the page that started it. If that page is gone, "
+            "stop this sign-in and start again.</p>"
+        )
+    elif v.phase == signins.STARTING:
+        body = f"<p role=status>Starting the {name} login command…</p>"
+    elif v.phase == signins.CHECKING:
+        body = f"<p role=status>Checking with {name}…</p>"
+    elif v.phase == signins.STOPPING or not v.link:
+        body = "<p role=status>Stopping…</p>"
+    else:
+        host = esc(urlsplit(v.link).hostname or "")
+        steps = (
+            "<li>Open the sign-in page and sign in as yourself."
+            f'<a class=sgf__link href="{esc(v.link)}" target=_blank rel="noopener noreferrer">'
+            f"Open the {name} sign-in page ↗</a><span class=sgf__host>{host}</span></li>"
+        )
+        if v.code:
+            steps += (
+                "<li>Enter this one-time code there.<br>"
+                f"<strong class=sgf__code>{esc(v.code)}</strong></li>"
+                f"<li>Come back here. This page shows when {name} has signed the PC in.</li>"
+            )
+        if v.takes_code:
+            box = (
+                "<input type=text name=code id=sgcode autocomplete=off autocapitalize=off "
+                f"autocorrect=off spellcheck=false maxlength={signins.MAX_CODE} required>"
+                "<button type=submit>Send code</button>"
+            )
+            steps += (
+                f"<li><label for=sgcode>{name} then shows a code. Paste it here.</label>"
+                + ctx.form("signin-code", box, "sgf__paste", always=True, flow=v.token)
+                + f"{note}</li>"  # what the vendor said about the last code, under the box
+            )
+            note = ""
+        body = (
+            f"<ol class=sgf__steps>{steps}</ol>"
+            "<p class=mute>The link works once and is shown only on this page.</p>"
+        )
+    ends = f" data-ends='{int(v.ends_at * 1000)}'" if v.mine and v.ends_at else ""
+    return (
+        f"<div class='sgf sgf--live'{ends}><p class=sgf__title>{name} sign-in"
+        f"<span class=mute>in progress</span></p>{body}{note}{foot}</div>"
+    )
+
+
+def _sgrow(r: signins.SignIn, ctx: Ctx, busy: bool) -> str:
+    """One sign-in: the Machine page's state chip and wording, plus Renew or why not."""
+    state = _mstate(r.state)
+    cls = f"mrow sgrow mrow--{state}" + (" mrow--urgent" if r.urgent else "")
+    line = " · ".join(d for d in (esc(r.detail), _moment(r.moment, ctx)) if d)
+    why, act = esc(r.why_not), ""
+    if r.help_url:
+        why += (
+            f' <a href="{esc(r.help_url)}" target=_blank rel="noopener noreferrer">'
+            f"{esc(r.help_label)} ↗</a>"
+        )
+    if r.renewable and busy:
+        why = "A sign-in is running. Renew is back when it ends."
+    elif r.renewable:
+        act = ctx.form("signin", "<button type=submit>Renew</button>", always=True, provider=r.key)
+    return (
+        f"<li class='{cls}'><span class='mstate mstate--{state}'>{_MSTATE[state]}</span>"
+        f"<div class=mrow__body><div class=mrow__top><b>{esc(r.label)}</b>"
+        f"<span class=mrow__head>{esc(r.headline)}</span></div>"
+        + (f"<p class=mrow__detail>{line}</p>" if line else "")
+        + (f"<p class=sgrow__why>{why}</p>" if why else "")
+        + f"</div><div class=sgrow__act>{act}</div></li>"
+    )
+
+
+def _signin_box(view: signins.FlowView, ctx: Ctx) -> str:
+    active = " data-active" if view.active else ""
+    return f"<section id=signin-flow class=sgflow{active}>{signin_flow(view, ctx)}</section>"
+
+
+def render_signins(panel: signins.Panel, ctx: Ctx) -> str:
+    """Each sign-in's state and expiry, and Renew where the desk can do it.
+
+    This page is what any owner page gets, so it never holds a sign-in link or code: those
+    reach only the page that started the flow, through ``signin_flow``.
+    """
+    rows = "".join(_sgrow(r, ctx, panel.flow.active) for r in panel.rows)
+    counts = {
+        s: sum(_mstate(r.state) == s for r in panel.rows) for s in ("down", "warn", "unknown", "ok")
+    }
+    summary = "".join(
+        f"<li class='mstate mstate--{s}'>{n} {_MSTATE[s]}</li>" for s, n in counts.items() if n
+    )
+    stamp = (
+        f"<p class=stamp>Checked {ctx.time(_iso(panel.checked_at))}</p>" if panel.checked_at else ""
+    )
+    return _page(
+        "Sign-ins · Hive desk",
+        "<div class=mach><div class=mach__head><h1>Sign-ins</h1>"
+        f"<ul class=mach__sum aria-label='Sign-in summary'>{summary}</ul></div>"
+        "<div class=mach__lead><p class=mute>Renew a sign-in from here before it runs out. "
+        f"<a href='/machine'>Back to Machine</a></p>{stamp}</div>"
+        + _signin_box(panel.flow, ctx)
+        + _signin_poll(ctx, "", visible=False)
+        + f"<ul class=mlist>{rows}</ul></div>",
+        "machine",
+        f" data-refresh={SIGNINS_REFRESH_MS} data-signins",
+        ctx,
+    )
+
+
+def render_signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
+    """The answer to a sign-in action when the page script is not running: the same panel on
+    a page of its own, with a button to ask again."""
+    poll = _signin_poll(ctx, view.token, visible=True) if view.active else ""
+    return _page(
+        "Sign-ins · Hive desk",
+        "<div class=mach><h1>Sign-ins</h1>"
+        + _signin_box(view, ctx)
+        + poll
+        + "<p><a href='/signins'>Back to Sign-ins</a></p></div>",
+        "machine",
     )
 
 

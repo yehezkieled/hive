@@ -89,6 +89,10 @@ class GatewaySettings:
     # How old the Machine page's readings may get before a page view starts a new round.
     machine_ttl_s: float = 15.0
 
+    # The Sign-ins page's login commands. One left as None offers no Renew for that sign-in.
+    claude: Path | None = None
+    gh: Path | None = None
+
     @property
     def state_dir(self) -> Path:
         return self.fm_home / "state"
@@ -126,6 +130,12 @@ class GatewaySettings:
                 env.get("HIVE_GATEWAY_CLAUDE_CREDENTIALS", "").strip()
             ),
             net_check=_net_check(env.get("HIVE_GATEWAY_NET_CHECK", "").strip()),
+            claude=_binary(
+                env.get("HIVE_GATEWAY_CLAUDE", "").strip(),
+                "claude",
+                Path("~/.local/bin/claude").expanduser(),
+            ),
+            gh=_binary(env.get("HIVE_GATEWAY_GH", "").strip(), "gh"),
         )
 
 
