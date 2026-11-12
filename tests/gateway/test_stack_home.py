@@ -782,8 +782,13 @@ def _in_chrome(
     *flags: str,
     prelude: str = "",
 ) -> dict:
-    """Load the desk in headless Chrome, run ``prelude`` before the page script and ``driver``
-    (the body of an async function that fills ``R``) after it, and return ``R``."""
+    """Load the desk in headless Chrome at exactly ``size``, run ``prelude`` before the page
+    script and ``driver`` (the body of an async function that fills ``R``) after it, and
+    return ``R``.
+
+    Headless Chrome keeps a window at least 500 px wide and counts its own chrome in the
+    window's height, so the page runs in a frame of exactly the asked size inside a larger
+    window: a 390 x 844 phone is really 390 x 844. The frame hands its result to the host."""
     import html as html_mod
     import subprocess
 
@@ -796,12 +801,20 @@ def _in_chrome(
         "function click(el){var ev=new MouseEvent('click',{bubbles:true,cancelable:true});"
         "el.dispatchEvent(ev);return ev.defaultPrevented;}"
         f"(async function(){{{driver}}})().catch(function(e){{R.error=String(e);}})"
-        ".then(function(){var o=document.createElement('pre');o.id='result';"
-        "o.textContent=JSON.stringify(R);document.body.appendChild(o);});</script></body>"
+        ".then(function(){parent.postMessage(JSON.stringify(R),'*');});</script></body>"
     )
     page = page.replace("<script>", f"<script>{prelude}</script><script>", 1)
     file = tmp_path / "desk.html"
     file.write_text(page.replace("</body>", probe, 1))
+    width, height = size
+    host = tmp_path / "host.html"
+    host.write_text(
+        "<!doctype html><html><body style='margin:0'><script>"
+        "addEventListener('message',function(e){var o=document.createElement('pre');"
+        "o.id='result';o.textContent=e.data;document.body.appendChild(o);});</script>"
+        f"<iframe src='{file.name}' width={width} height={height} "
+        "style='display:block;border:0'></iframe></body></html>"
+    )
     out = subprocess.run(
         [
             str(CHROME),
@@ -810,11 +823,11 @@ def _in_chrome(
             "--disable-gpu",
             "--hide-scrollbars",
             f"--user-data-dir={tmp_path / 'chrome'}",
-            f"--window-size={size[0]},{size[1]}",
+            f"--window-size={max(width, 500) + 40},{height + 200}",
             "--virtual-time-budget=3000",
             *flags,
             "--dump-dom",
-            file.as_uri(),
+            host.as_uri(),
         ],
         capture_output=True,
         text=True,
@@ -940,7 +953,10 @@ def test_desk_is_one_page_with_independently_scrolling_panels(
                 assert v[panel]["bottom"] <= v["bar"]["top"] + 0.5, (name, panel)
         for body in ("laneBody", "pcs", "rvList"):
             if v[body] is not None:  # each shown panel scrolls on its own
-                assert v[body] == {"y": "auto", "over": True}, (name, body)
+                assert v[body]["y"] == "auto", (name, body)
+                # the busy data overruns every panel, except that a PC's full height holds the
+                # review list's ten rows
+                assert v[body]["over"] or (body == "rvList" and size[1] >= 900), (name, body)
         assert v["spilled"] == 0, name  # project rows keep their text inside them
     views, start = r["views"], r["views"]["start"]
     shown = {p for v in views.values() for p in ("lane", "pcsec", "rvp") if v[p]}
@@ -1067,7 +1083,8 @@ R.after=S.map(function(s){return q(s).scrollTop;});
 
 @needs_chrome
 def test_a_live_refresh_keeps_each_panel_scrolled_where_it_was(tmp_path: Path) -> None:
-    r = _in_chrome(tmp_path, _busy_desk(), REFRESH_DRIVER, (1440, 900), prelude=FAKE_LIVE)
+    # a laptop: all three panels side by side, each long enough to scroll
+    r = _in_chrome(tmp_path, _busy_desk(), REFRESH_DRIVER, (1280, 800), prelude=FAKE_LIVE)
     assert r["replaced"]  # the desk really was re-rendered from the new page
     assert all(b > 0 for b in r["before"]) and r["after"] == r["before"]
 
