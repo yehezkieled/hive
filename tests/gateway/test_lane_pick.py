@@ -154,13 +154,22 @@ def test_reduced_motion_css_turns_the_lane_animations_off(tmp_path: Path) -> Non
 LANE_DOM = Path(__file__).parent / "lane_dom.js"
 
 
-def _run_lane(tmp_path: Path, motion: str, clicks: list[tuple[int, int]]) -> dict:
-    """Clicks are (position in the lane, ms since the last click); the lane starts
-    ask (the card), later-email, plain."""
+def _run_lane(
+    tmp_path: Path,
+    motion: str,
+    clicks: list[tuple[int, int] | tuple[str]],
+    lane: list[tuple[str, str, bool]] | None = None,
+) -> dict:
+    """Clicks are (position in the lane, ms since the last click), or ("refresh",) for a live
+    desk refresh; the lane is (id, project, held) items, by default ask (the card),
+    later-email, plain, all in bnm."""
     js = tmp_path / "page.js"
     js.write_text(SCRIPT)
+    argv = ["node", str(LANE_DOM), str(js), motion, json.dumps(clicks)]
+    if lane is not None:
+        argv.append(json.dumps(lane))
     out = subprocess.run(
-        ["node", str(LANE_DOM), str(js), motion, json.dumps(clicks)],
+        argv,
         check=True,
         capture_output=True,
         text=True,
@@ -207,6 +216,29 @@ def test_a_quick_click_on_another_row_swaps_instead_of_opening(tmp_path: Path) -
     steps = _run_lane(tmp_path, "reduce", [(1, 0), (2, 200)])["steps"]
     assert steps[1]["opened"] == [] and steps[1]["primary"] == "plain"
     assert steps[1]["order"] == ["plain", "ask", "later-email"]
+
+
+SHARED_ID = [("T001", "beta", False), ("T002", "alpha", False), ("T001", "alpha", False)]
+
+
+@needs_node
+def test_a_live_refresh_reopens_the_picked_project_s_item_when_ids_collide(
+    tmp_path: Path,
+) -> None:
+    steps = _run_lane(tmp_path, "reduce", [(0, 0), ("refresh",)], SHARED_ID)["steps"]
+    assert steps[0]["primary"] == "T001" and steps[0]["project"] == "/p/beta"
+    assert steps[1]["project"] == "/p/beta" and steps[1]["primary"] == "T001"
+    assert steps[1]["order"] == ["T001", "T002", "T001"] and steps[1]["opened"] == []
+
+
+@needs_node
+def test_a_double_tap_where_the_first_landed_opens_the_picked_item_s_project(
+    tmp_path: Path,
+) -> None:
+    lane = [("ask", "alpha", True), ("T001", "beta", False)]
+    steps = _run_lane(tmp_path, "reduce", [(1, 0), (1, 200)], lane)["steps"]
+    assert steps[0]["order"] == ["T001", "ask"]  # alpha's old card now sits under the pointer
+    assert steps[1]["opened"] == ["/p/beta"] and steps[1]["project"] == "/p/beta"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
