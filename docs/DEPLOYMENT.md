@@ -1203,7 +1203,7 @@ become no-ops — Hive still boots.
 
 ## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the desk (Home, Project, Chat, Config, Machine, Sign-ins and Run pages)
+`python -m hive.gateway` serves the desk (Home, Project, Chat, Config, Machine, Sign-ins, Run and Terminal pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
 Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
@@ -1275,6 +1275,20 @@ and 10 runs per 10 minutes, each under a hard time-out. Each run is logged to
 offers no Windows button. The PC restarts only now: there is no restart at a set hour and no
 cancel button until the helper has a cancel verb. The buttons, their time-outs and what to
 do when one fails: [run-queue.md](run-queue.md).
+
+**Terminal (`/terminal`).** Firstmate's own herdr pane, live, read-only by default
+(`gateway/terminal.py`). Opening needs the two-tap step-up and gives the page a pass
+for one websocket (`/terminal/ws`, same port, same owner/Host checks plus a required
+allowed `Origin`) that ends after 30 minutes; typing needs a second two-tap **Take
+keyboard**, one holder at a time, back to read-only after 10 idle minutes. The bridge
+runs only `herdr pane list|layout|read|send-text|send-keys` against the one pane that
+matches firstmate's home, never a shell. Opens are limited to 6 per 15 minutes
+(`terminal-opens` in the data dir, so a restart does not reset it) and attach attempts
+to 30 per 10 minutes. Screen and keystrokes are never stored or logged; the audit
+(who, tab, event, reason, times) goes to `terminal-audit.log` (0600) and the journal.
+The page's own CSP adds its script hash and `connect-src` for the websocket; xterm.js
+6.0.0 is vendored under `/vendor/` (pinned by sha384). States, buttons and failures:
+[terminal.md](terminal.md).
 
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
@@ -1434,11 +1448,12 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |
-| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake audit log, the Sign-ins page's `signin-audit.log` and `signin-starts`, the Run page's `run-audit.log`, and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
+| `HIVE_GATEWAY_DATA_DIR` | `~/.local/state/hive-gateway` (VAPID key, push subscriptions, the wake audit log, the Sign-ins page's `signin-audit.log` and `signin-starts`, the Run page's `run-audit.log`, the Terminal page's `terminal-audit.log` and `terminal-opens`, and the automatic-recovery files `watchdog.json` / `watchdog-state.json`, mode 0600, outside the repo so they cannot be committed; the recovery ladder is off by default, see `docs/fleet-up.md` "Automatic recovery") |
 | `HIVE_GATEWAY_RATE_LIMITS` | `~/.claude/rate-limits-cache.json` (Claude Code's rate limits, the quota chip's headline source, read only; `off` leaves the chip on `quota-axi`) |
 | `HIVE_GATEWAY_QUOTA_AXI` | `quota-axi` on `PATH`, else `~/.local/bin/quota-axi` (the Fable week, and the headline fallback; `off` disables it) |
 | `HIVE_GATEWAY_FLEET_UP` | `scripts/fleet-up.sh` in this checkout (the Wake firstmate and Restart session actions run its `--only firstmate` step, the Run page's Repair the serve maps its `--only serve` step; `off` removes them) |
-| `HIVE_GATEWAY_HERDR` | `herdr` on `PATH`, else `~/.local/bin/herdr` (Wake firstmate and Restart session release a stale `claude` report on firstmate's one herdr pane with it) |
+| `HIVE_GATEWAY_HERDR` | `herdr` on `PATH`, else `~/.local/bin/herdr` (Wake firstmate and Restart session release a stale `claude` report on firstmate's one herdr pane with it; the Terminal page reads and types into that pane with it) |
+| `HIVE_GATEWAY_TERMINAL` | on (`off` removes the Terminal page's terminal, its websocket and `/vendor/`; the page then says it is switched off) |
 | `HIVE_GATEWAY_LAVISH_STATE` | `~/.lavish-axi/state.json` (Lavish session state for the Review pages list, read only; `off` hides the list) |
 | `HIVE_GATEWAY_LAVISH_AXI` | `lavish-axi` on `PATH`, else `~/.local/bin/lavish-axi` (ends a review session for Close; `off` hides the Close buttons) |
 | `HIVE_GATEWAY_POWERSHELL` | `powershell.exe` on `PATH`, else `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe` (the Machine page's Windows reads: boot time, session, restart pending; `off`, or a host without it, leaves those rows `unknown`) |

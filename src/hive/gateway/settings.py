@@ -91,6 +91,8 @@ class GatewaySettings:
     net_check: tuple[str, int] | None = None
     # How old the Machine page's readings may get before a page view starts a new round.
     machine_ttl_s: float = 15.0
+    # The Terminal page: firstmate's own herdr pane in the browser, behind the step-up.
+    terminal: bool = True
 
     # The Run page's Windows buttons: the admin helper's data folder (request file and audit
     # log) and schtasks.exe, which starts its task. Either None: no Windows buttons.
@@ -147,6 +149,7 @@ class GatewaySettings:
                 Path("~/.local/bin/claude").expanduser(),
             ),
             gh=_binary(env.get("HIVE_GATEWAY_GH", "").strip(), "gh"),
+            terminal=env.get("HIVE_GATEWAY_TERMINAL", "").strip().lower() != "off",
         )
 
 

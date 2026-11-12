@@ -2,7 +2,8 @@
 
 Everything that fails a check is a bare 403, with no hint about which check failed.
 Reads are GET/HEAD; the only other method is POST, and only under ``/act/``. A POST must
-also carry an allowed ``Origin`` and not be marked cross-site by the browser.
+also carry an allowed ``Origin`` and not be marked cross-site by the browser. The one
+websocket (the Terminal page's) is held to the same checks, with its ``Origin`` required.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 import hmac
 from urllib.parse import urlsplit
 
-from starlette.requests import Request
+from starlette.requests import HTTPConnection, Request
 from starlette.responses import PlainTextResponse, Response
 
 from hive.gateway.settings import GatewaySettings
@@ -26,7 +27,7 @@ def _hostname(host_header: str) -> str:
     return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
 
 
-def is_authorised(request: Request, settings: GatewaySettings) -> bool:
+def is_authorised(request: HTTPConnection, settings: GatewaySettings) -> bool:
     peer = request.client.host if request.client else ""
     if peer not in settings.trusted_peers:
         return False
@@ -48,6 +49,21 @@ def is_same_origin_write(request: Request) -> bool:
     if request.headers.get("origin") is None:
         return False
     return request.headers.get("sec-fetch-site", "same-origin") in ("same-origin", "none")
+
+
+def is_owner_websocket(conn: HTTPConnection, settings: GatewaySettings) -> bool:
+    """A websocket upgrade from the owner's own desk page.
+
+    The HTTP middleware never sees a websocket, so its route asks this before accepting.
+    Browsers always send ``Origin`` on an upgrade; one without it is not a desk page.
+    """
+    if conn.scope.get("type") != "websocket" or not is_authorised(conn, settings):
+        return False
+    origin = conn.headers.get("origin")
+    if origin is None:
+        return False
+    parts = urlsplit(origin)
+    return parts.scheme in ("https", "http") and (parts.hostname or "") in settings.allowed_hosts
 
 
 def forbidden() -> Response:

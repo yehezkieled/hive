@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import re
@@ -11,7 +12,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import FastAPI
 from starlette.requests import Request
@@ -22,10 +23,17 @@ from starlette.responses import (
     Response,
     StreamingResponse,
 )
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from hive.gateway import actions, fmconfig, machine, pages, runqueue, signins
+from hive.gateway import actions, fmconfig, machine, pages, runqueue, signins, terminal
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
-from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
+from hive.gateway.auth import (
+    forbidden,
+    is_authorised,
+    is_owner_websocket,
+    is_same_origin_write,
+    method_not_allowed,
+)
 from hive.gateway.chat import load_chat
 from hive.gateway.describe import Describer, Item
 from hive.gateway.desk import Desk, build_desk
@@ -52,6 +60,9 @@ SECURITY_HEADERS = {
         "base-uri 'none'; form-action 'self'"
     ),
 }
+# The vendored terminal emulator, served from the desk itself (never a CDN), pinned by name.
+VENDOR_DIR = pages.VENDOR_DIR
+VENDOR_FILES = {pages.XTERM_JS: "text/javascript"}
 MAX_BODY = 64 * 1024
 REVIEW_ACTIONS = ("review-close", "review-close-old")
 # Every name `POST /act/{name}` answers to. A test times each one; add new actions here.
@@ -64,6 +75,7 @@ ACT_NAMES = (
     "merge",
     "control",
     "run",
+    "terminal",
     *REVIEW_ACTIONS,
 )
 # The Sign-ins page's actions: start (behind the step-up), ask how it is going, hand over a
@@ -126,7 +138,7 @@ self.addEventListener('notificationclick', function(e){
 });
 """
 NEXT_RE = re.compile(
-    r"^/(chat|config|machine|run|signins|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$"
+    r"^/(chat|config|machine|run|signins|terminal|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$"
 )
 
 
@@ -136,6 +148,20 @@ def _safe_next(value: str) -> str:
 
 def _quote_project(name: str) -> str:
     return "/p/" + quote(name, safe="")
+
+
+def terminal_csp(origin: str) -> str:
+    """The Terminal page's policy: its own pinned script and the vendored emulator (same
+    origin), and the websocket back to this desk only."""
+    host = urlsplit(origin).netloc
+    socket = f" wss://{host}" if re.fullmatch(r"[A-Za-z0-9.-]+(:[0-9]{1,5})?", host) else ""
+    return (
+        "default-src 'none'; style-src 'unsafe-inline'; "
+        f"script-src '{pages.SCRIPT_CSP_HASH}' '{pages.TERMINAL_SCRIPT_CSP_HASH}' 'self'; "
+        f"connect-src 'self'{socket}; "
+        "manifest-src 'self'; img-src 'self'; worker-src 'self'; font-src 'self'; "
+        "base-uri 'none'; form-action 'self'"
+    )
 
 
 def create_app(
@@ -148,6 +174,7 @@ def create_app(
     monitor: machine.MachineMonitor | None = None,
     runq: RunQueue | None = None,
     signin: signins.SignInService | None = None,
+    term: terminal.TerminalService | None = None,
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
@@ -183,6 +210,9 @@ def create_app(
     runq = runq or RunQueue(settings, on_change=lambda: hub.publish("run"))
     # The Sign-ins page. Nothing about a flow is ever published to the event stream.
     signin = signin or signins.SignInService(settings)
+    # The Terminal page's bridge to firstmate's own herdr pane; None when it is switched off.
+    term = (term or terminal.TerminalService(settings)) if settings.terminal else None
+    term_csp = terminal_csp(settings.origin)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -194,6 +224,8 @@ def create_app(
             yield
         finally:
             await signin.stop()  # a login command must not outlive the desk
+            if term is not None:
+                await term.stop()
             await monitor.stop()
             await watchdog.stop()
             await hub.stop()
@@ -214,8 +246,13 @@ def create_app(
             return method_not_allowed()
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
-        if request.url.path.startswith("/fonts/") and response.status_code == 200:
+        path = request.url.path
+        if path == "/terminal":
+            response.headers["Content-Security-Policy"] = term_csp
+        if path.startswith("/fonts/") and response.status_code == 200:
             response.headers["Cache-Control"] = "private, max-age=604800"
+        if path.startswith("/vendor/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
         return response
 
     def make_ctx(
@@ -241,6 +278,7 @@ def create_app(
             firstmate=wake.status.peek(),
             wake_enabled=wake.available,
             watchdog=watchdog.store.view(),
+            terminal=term is not None,
         )
 
     async def ctx_for(snap: Snapshot, nxt: str, names: list[str] | None = None) -> pages.Ctx:
@@ -312,6 +350,24 @@ def create_app(
         snap = await provider.get()
         panel = await signin.panel()
         return HTMLResponse(pages.render_signins(panel, await ctx_for(snap, "/signins")))
+
+    @app.get("/terminal", response_class=HTMLResponse)
+    async def terminal_page() -> HTMLResponse:
+        """The "confirm it is you" screen. It holds no terminal data: that only ever arrives
+        over the websocket, after a finished step-up."""
+        snap = await provider.get()
+        ctx = await ctx_for(snap, "/terminal")
+        return HTMLResponse(pages.render_terminal(ctx, term is not None))
+
+    @app.websocket("/terminal/ws")
+    async def terminal_socket(ws: WebSocket) -> None:
+        # The HTTP middleware never sees a websocket: the owner check happens here, before
+        # the upgrade is accepted. Refused, the browser gets a bare 403.
+        if term is None or not is_owner_websocket(ws, settings):
+            await ws.close(code=1008)
+            return
+        await ws.accept()
+        await _terminal_session(ws, term, settings.owner_login)
 
     @app.get("/chat", response_class=HTMLResponse)
     async def chat() -> HTMLResponse:
@@ -419,6 +475,13 @@ def create_app(
             return PlainTextResponse("not found", status_code=404)
         return Response((ICONS_DIR / fname).read_bytes(), media_type="image/png")
 
+    @app.get("/vendor/{name}")
+    async def vendor(name: str) -> Response:
+        media = VENDOR_FILES.get(name)
+        if media is None or term is None or not (VENDOR_DIR / name).is_file():
+            return PlainTextResponse("not found", status_code=404)
+        return Response((VENDOR_DIR / name).read_bytes(), media_type=media)
+
     @app.get("/fonts/{name}")
     async def font(name: str) -> Response:
         if name not in FONT_FILES or not (FONTS_DIR / name).is_file():
@@ -442,6 +505,8 @@ def create_app(
             return await _chat(form, settings, nxt, wants_json)
         if name in SIGNIN_ACTIONS:  # the PC's own sign-ins; nothing of firstmate's
             return await _signin(name, form, signin, settings, tokens, wants_json)
+        if name == "terminal":  # herdr, not the snapshot
+            return await _terminal_open(form, term, tokens, settings.owner_login, wants_json)
         if name in REVIEW_ACTIONS:  # Lavish state, not the snapshot
             return await _review_action(
                 name, form, settings, tokens, runs, nxt, wants_json, hub.publish
@@ -524,6 +589,120 @@ async def _chat(
             status_code=202 if result.pending else 200,
         )
     return HTMLResponse(pages.render_outcome(result, nxt))
+
+
+TERMINAL_OPEN_DETAIL = (
+    "This shows firstmate’s own session, live, as it is on the PC. It opens read-only; "
+    "typing needs a second confirm."
+)
+
+
+async def _terminal_open(
+    form: dict[str, str],
+    term: terminal.TerminalService | None,
+    tokens: Tokens,
+    who: str,
+    wants_json: bool,
+) -> Response:
+    """Open the Terminal page: the first tap checks firstmate's session is there and arms the
+    step-up; the second, with the step token, hands the page its pass (see ``terminal.py``).
+    A step token opens once. Nothing here reads or types into the session."""
+
+    def refuse(message: str, status: int) -> Response:
+        actions.audit("terminal", "-", "refused", status=status)
+        if wants_json:
+            return JSONResponse({"ok": False, "message": message}, status_code=status)
+        return pages_error("Terminal", message, "/terminal", status)
+
+    if term is None:
+        return refuse("The Terminal page is switched off on this desk.", 404)
+    if not wants_json:
+        return refuse("The terminal needs the page script. Open it from the Terminal page.", 400)
+    # Each open's step is bound to its own request id, so it opens once and only that open.
+    step, rid = form.get("step", ""), form.get("rid", "")
+    if (
+        step
+        and actions.REQUEST_ID_RE.fullmatch(rid)
+        and tokens.check_step_up(step, "terminal", f"open:{rid}")
+        and term.spend_step(step)
+    ):
+        try:
+            grant = await term.open(who)
+        except ActionError as exc:
+            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
+        return JSONResponse({"ok": True, "pass": grant.token, "ends": int(grant.ends)})
+    found = await term.open_look()
+    if found.pane is None:
+        return refuse(terminal.WORDS[found.why], 503 if found.why.startswith("herdr") else 409)
+    rid = actions.new_request_id()
+    return JSONResponse(
+        {
+            "ok": True,
+            "confirm": True,
+            "rid": rid,
+            "step": tokens.step_up("terminal", f"open:{rid}"),
+            "label": "Tap again to open",
+            "detail": TERMINAL_OPEN_DETAIL,
+        }
+    )
+
+
+async def _terminal_session(ws: WebSocket, term: terminal.TerminalService, who: str) -> None:
+    """One attached tab: its pass first, then messages both ways until either side ends.
+
+    Nothing that passes through here (what the pane shows, what is typed) is logged."""
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), terminal.ATTACH_WAIT_S)
+        hello = json.loads(raw) if len(raw) <= terminal.MAX_MESSAGE else None
+    except (TimeoutError, ValueError, KeyError, RuntimeError, WebSocketDisconnect):
+        hello = None
+    if not isinstance(hello, dict) or hello.get("t") != "attach":
+        with contextlib.suppress(Exception):
+            await ws.close(code=terminal.CLOSE_STEP_UP)
+        return
+    try:
+        viewer = await term.attach(hello.get("pass"), who)
+    except terminal.AttachError as exc:
+        with contextlib.suppress(Exception):
+            await ws.send_text(
+                json.dumps({"t": "end", "reason": exc.reason, "text": terminal.WORDS[exc.reason]})
+            )
+            await ws.close(code=exc.code)
+        return
+
+    async def outbound() -> None:
+        while (msg := await viewer.next()) is not None:
+            await ws.send_text(json.dumps(msg, separators=(",", ":"), ensure_ascii=False))
+
+    sender = asyncio.create_task(outbound())
+    reason = "closed"
+    try:
+        while True:
+            incoming = asyncio.ensure_future(ws.receive())
+            done, _ = await asyncio.wait({incoming, sender}, return_when=asyncio.FIRST_COMPLETED)
+            if incoming not in done:
+                incoming.cancel()
+                reason = viewer.ended[1] if viewer.ended else "closed"
+                break
+            event = incoming.result()
+            if event["type"] == "websocket.disconnect":
+                break
+            if event.get("text") is not None:
+                await term.handle(viewer, event["text"])
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        await term.detach(viewer, reason)
+        sender.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await sender
+        code = viewer.ended[0] if viewer.ended else 1000
+        with contextlib.suppress(Exception):
+            # The last message (``end``) goes out before the close.
+            while (msg := await asyncio.wait_for(viewer.next(), 0.1)) is not None:
+                await ws.send_text(json.dumps(msg, separators=(",", ":"), ensure_ascii=False))
+        with contextlib.suppress(Exception):
+            await ws.close(code=code)
 
 
 def _step_subject(name: str, keys: list[str]) -> str:

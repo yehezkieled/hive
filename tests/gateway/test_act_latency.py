@@ -78,6 +78,16 @@ def home(tmp_path: Path) -> Path:
     (tmp_path / "lavish-state.json").write_text(json.dumps({"sessions": sessions}))
     # lavish-axi is not run with FM_HOME, so its switch is an absolute path
     _write(tmp_path / "lavish-axi", f"[ -e '{tmp_path}/slow' ] && sleep {SLOW_S}\nexit 0")
+    # a fake herdr (never the real one): firstmate's pane and its layout, answered at once
+    pane = {"pane_id": "w1:p1", "agent": "claude", "cwd": str(tmp_path)}
+    pane["foreground_cwd"] = str(tmp_path)
+    layout = {"pane_id": "w1:p1", "rect": {"width": 90, "height": 30}}
+    _write(
+        tmp_path / "herdr",
+        f"[ \"$2\" = list ] && echo '{json.dumps({'result': {'panes': [pane]}})}'\n"
+        f"[ \"$2\" = layout ] && echo '{json.dumps({'result': {'panes': [layout]}})}'\n"
+        "exit 0",
+    )
     # the Machine page's probes: each launch is counted, then hangs while the switch is on
     _write(
         tmp_path / "probe",
@@ -101,6 +111,7 @@ def client(home: Path) -> Iterator[TestClient]:
         powershell=home / "probe",
         tailscale=home / "probe",
         systemctl=home / "probe",
+        herdr=home / "herdr",
     )
     app = create_app(settings, tokens=CSRF)
     before = _descendants()
@@ -197,6 +208,7 @@ CASES: dict[str, Callable[[str], dict]] = {
         "do": "restart-clipdesk",
         "step": CSRF.step_up("run", f"restart-clipdesk:-:{rid}"),
     },
+    "terminal": lambda rid: {"rid": rid, "step": CSRF.step_up("terminal", f"open:{rid}")},
     "review-close": lambda rid: {
         "rid": rid,
         "key": "page-a",
@@ -222,9 +234,9 @@ def test_act_answers_within_a_second_when_firstmate_is_slow(client: TestClient, 
     assert took < BUDGET_S, f"/act/{name} took {took:.2f}s"
     assert res.status_code in (200, 202), res.text
     body = res.json()
-    assert body["ok"] is True and "message" in body
+    assert body["ok"] is True and ("pass" if name == "terminal" else "message") in body
     assert not body.get("confirm"), body  # the executing step, not a confirm
-    print(f"TIMING {name} {took:.2f}s {res.status_code} {body['message']}")
+    print(f"TIMING {name} {took:.2f}s {res.status_code} {body.get('message', 'pass')}")
 
 
 @pytest.mark.parametrize("name", ["merge", "control"])

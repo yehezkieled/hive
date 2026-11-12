@@ -25,6 +25,8 @@ def main() -> None:
         host="127.0.0.1",
         port=port,
         proxy_headers=False,
+        # The Terminal page's websocket is the only one; its messages are small.
+        ws_max_size=64 * 1024,
         timeout_graceful_shutdown=3,
     )
 
