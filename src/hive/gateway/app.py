@@ -23,7 +23,7 @@ from starlette.responses import (
     StreamingResponse,
 )
 
-from hive.gateway import actions, fmconfig, machine, pages, runqueue
+from hive.gateway import actions, fmconfig, machine, pages, runqueue, signins
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.auth import forbidden, is_authorised, is_same_origin_write, method_not_allowed
 from hive.gateway.chat import load_chat
@@ -66,6 +66,9 @@ ACT_NAMES = (
     "run",
     *REVIEW_ACTIONS,
 )
+# The Sign-ins page's actions: start (behind the step-up), ask how it is going, hand over a
+# pasted code, stop. Timed against a slow login command in tests/gateway/test_signins.py.
+SIGNIN_ACTIONS = ("signin", "signin-flow", "signin-code", "signin-cancel")
 MAX_REVIEW_KEYS = 100
 PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
 ICONS_DIR = Path(__file__).resolve().parents[1] / "web" / "static" / "icons"
@@ -123,7 +126,7 @@ self.addEventListener('notificationclick', function(e){
 });
 """
 NEXT_RE = re.compile(
-    r"^/(chat|config|machine|run|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$"
+    r"^/(chat|config|machine|run|signins|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$"
 )
 
 
@@ -144,6 +147,7 @@ def create_app(
     watchdog: Watchdog | None = None,
     monitor: machine.MachineMonitor | None = None,
     runq: RunQueue | None = None,
+    signin: signins.SignInService | None = None,
 ) -> FastAPI:
     settings = settings or GatewaySettings.from_env()
     provider = provider or SnapshotProvider(settings)
@@ -177,6 +181,8 @@ def create_app(
     )
     # The Run page's fixed fix buttons; each start and end refreshes open Run pages.
     runq = runq or RunQueue(settings, on_change=lambda: hub.publish("run"))
+    # The Sign-ins page. Nothing about a flow is ever published to the event stream.
+    signin = signin or signins.SignInService(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -187,6 +193,7 @@ def create_app(
         try:
             yield
         finally:
+            await signin.stop()  # a login command must not outlive the desk
             await monitor.stop()
             await watchdog.stop()
             await hub.stop()
@@ -297,6 +304,14 @@ def create_app(
         snap = await provider.get()
         view = await runq.view()
         return HTMLResponse(pages.render_run(view, await ctx_for(snap, "/run")))
+
+    @app.get("/signins", response_class=HTMLResponse)
+    async def signins_page() -> HTMLResponse:
+        """Each sign-in's state, and Renew. What it renders is safe for any owner page: a
+        running flow's link and code only ever answer the page that started it (``/act``)."""
+        snap = await provider.get()
+        panel = await signin.panel()
+        return HTMLResponse(pages.render_signins(panel, await ctx_for(snap, "/signins")))
 
     @app.get("/chat", response_class=HTMLResponse)
     async def chat() -> HTMLResponse:
@@ -425,6 +440,8 @@ def create_app(
             return forbidden()
         if name == "chat":  # needs no snapshot, so a send never waits on one
             return await _chat(form, settings, nxt, wants_json)
+        if name in SIGNIN_ACTIONS:  # the PC's own sign-ins; nothing of firstmate's
+            return await _signin(name, form, signin, settings, tokens, wants_json)
         if name in REVIEW_ACTIONS:  # Lavish state, not the snapshot
             return await _review_action(
                 name, form, settings, tokens, runs, nxt, wants_json, hub.publish
@@ -851,6 +868,71 @@ async def _run(
             body["reload"] = reload_s
         return JSONResponse(body, status_code=202 if result.pending else 200)
     return HTMLResponse(pages.render_outcome(result, nxt))
+
+
+async def _signin(
+    name: str,
+    form: dict[str, str],
+    service: signins.SignInService,
+    settings: GatewaySettings,
+    tokens: Tokens,
+    wants_json: bool,
+) -> Response:
+    """One Sign-ins action. The owner gate and the CSRF check already ran.
+
+    Starting needs the step-up; the other three act on the running flow and need the token
+    only the starting page was given (stopping it is open to any owner page). The answer
+    carries the flow as this caller may see it: JSON for the page script, else a page.
+    """
+    nxt, token = "/signins", form.get("flow", "")
+    ctx = pages.Ctx(tokens.csrf(), True, nxt, "", settings.default_tz)
+    try:
+        if name == "signin":
+            provider = service.providers.get(form.get("provider", ""))
+            if provider is None:
+                raise ActionError("Unknown sign-in.", 404)
+            rid = form.get("rid", "")
+            if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
+                form.get("step", ""), "signin", f"{provider.key}:{rid}"
+            ):
+                rid = actions.new_request_id()
+                step = tokens.step_up("signin", f"{provider.key}:{rid}")
+                confirm = Confirm(
+                    f"Renew the {provider.label} sign-in",
+                    service.confirm_text(provider),
+                    "signin",
+                    {"provider": provider.key, "rid": rid, "step": step},
+                    "Tap again to renew",
+                    warn=True,
+                )
+                return confirm_response(confirm, nxt, tokens, wants_json)
+            view = await service.start(provider.key, rid, settings.owner_login)
+            message = f"The {provider.label} sign-in has started."
+        elif name == "signin-code":
+            view = await service.send_code(token, form.get("code", ""))
+            message = "The code was handed to the login command."
+        elif name == "signin-cancel":
+            view = await service.cancel(token, settings.owner_login)
+            message = "The sign-in was stopped." if not view.active else "Stopping the sign-in."
+        else:
+            view = service.view(token)
+            message = "A sign-in is running." if view.active else "No sign-in is running."
+    except ActionError as exc:
+        actions.audit(name, "-", "refused", status=exc.status)
+        if wants_json:
+            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
+        return pages_error("Sign-ins", str(exc), nxt, exc.status)
+    if not wants_json:
+        return HTMLResponse(pages.render_signin_flow(view, ctx))
+    body: dict[str, object] = {
+        "ok": True,
+        "message": message,
+        "active": view.active,
+        "html": pages.signin_flow(view, ctx),
+    }
+    if name == "signin":
+        body["flow"] = view.token
+    return JSONResponse(body)
 
 
 async def _watchdog(

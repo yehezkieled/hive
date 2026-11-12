@@ -96,6 +96,9 @@ class GatewaySettings:
     # log) and schtasks.exe, which starts its task. Either None: no Windows buttons.
     admin_helper_root: Path | None = None
     schtasks: Path | None = None
+    # The Sign-ins page's login commands. One left as None offers no Renew for that sign-in.
+    claude: Path | None = None
+    gh: Path | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -138,6 +141,12 @@ class GatewaySettings:
             schtasks=_binary(
                 env.get("HIVE_GATEWAY_SCHTASKS", "").strip(), "schtasks.exe", WINDOWS_SCHTASKS
             ),
+            claude=_binary(
+                env.get("HIVE_GATEWAY_CLAUDE", "").strip(),
+                "claude",
+                Path("~/.local/bin/claude").expanduser(),
+            ),
+            gh=_binary(env.get("HIVE_GATEWAY_GH", "").strip(), "gh"),
         )
 
 
