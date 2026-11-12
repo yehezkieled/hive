@@ -761,6 +761,41 @@ async def test_one_windows_action_at_a_time_and_linux_is_not_held_up(tmp_path: P
     assert host.bad == []
 
 
+async def test_two_lanes_at_once_with_nine_runs_in_the_window_start_only_one(
+    tmp_path: Path,
+) -> None:
+    host = Host(tmp_path)
+    now = [1_000_000.0]
+    rq = RunQueue(_settings(tmp_path, host), run=host, clock=lambda: now[0])
+    for i in range(9):
+        done = runqueue.Run(_rid(i), "restart-telegram", OWNER, now[0] - 300, result="ok")
+        assert rq.log.append(runqueue._record(done))
+    both = await asyncio.gather(
+        rq.run(ACTIONS["helper-check"], None, _rid(20), OWNER),
+        rq.run(ACTIONS["restart-clipdesk"], None, _rid(21), OWNER),
+        return_exceptions=True,
+    )
+    started = [r for r in both if not isinstance(r, ActionError)]
+    refused = [r for r in both if isinstance(r, ActionError)]
+    assert len(started) == 1 and started[0].result == "ok"
+    assert len(refused) == 1 and refused[0].status == 429
+    assert len(rq.log.runs()) == 10
+    assert host.bad == []
+
+
+async def test_an_unwritable_run_log_refuses_the_run_and_nothing_runs(tmp_path: Path) -> None:
+    host = Host(tmp_path)
+    rq = RunQueue(_settings(tmp_path, host), run=host)
+    rq.log.path.mkdir(parents=True)  # a directory where the log file should be
+    for key in ("restart-clipdesk", "helper-check"):
+        with pytest.raises(ActionError) as refused:
+            await rq.run(ACTIONS[key], None, _rid(1), OWNER)
+        assert refused.value.status == 503
+        assert str(refused.value) == "The run log cannot be written, so nothing ran."
+    assert host.calls == [] and host.requests == []
+    assert not (host.root / "request" / "request.txt").exists()
+
+
 # ---- the audit ------------------------------------------------------------------------------
 
 

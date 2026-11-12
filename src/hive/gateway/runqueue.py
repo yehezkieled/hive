@@ -395,17 +395,21 @@ class RunLog:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def append(self, record: dict) -> None:
+    def append(self, record: dict) -> bool:
+        """Write one record; False when it could not be written. A failed trim after a
+        written record is not a failed write."""
         line = json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
             with os.fdopen(fd, "a") as fh:
                 fh.write(line)
+        except OSError:
+            return False
+        with contextlib.suppress(OSError):
             if self.path.stat().st_size > MAX_LOG_BYTES:
                 self._trim()
-        except OSError:
-            pass  # an unwritable log must not turn a run into a crash; the journal has it too
+        return True
 
     def _trim(self) -> None:
         lines = self.path.read_text().splitlines(keepends=True)[-KEEP_LINES:]
@@ -727,6 +731,7 @@ class RunQueue:
         self._locks: dict[str, asyncio.Lock] = {}
         self._active: set[str] = set()
         self._settle = asyncio.Lock()
+        self._admit = asyncio.Lock()  # across lanes: the limit check and the start record
 
     # ---- what is offered --------------------------------------------------------------
 
@@ -889,17 +894,20 @@ class RunQueue:
             busy = "A Windows action" if action.side == "windows" else action.label
             raise ActionError(f"{busy} is already running. Wait for it to finish.", 409)
         async with lock:
-            runs = await self.settled()
-            why, status = await self.refusal(action, runs)
-            if why:
-                raise ActionError(why, status)
-            self._limit(action, runs, self._clock())
-            if action.key == "restart-desk":
-                await self._guard_desk()
-            run = Run(run_id, action.key, who, self._clock(), n)
-            if action.side == "windows":
-                run.nonce = new_nonce()
-            self._active.add(run_id)
+            async with self._admit:
+                runs = await self.settled()
+                why, status = await self.refusal(action, runs)
+                if why:
+                    raise ActionError(why, status)
+                self._limit(action, runs, self._clock())
+                if action.key == "restart-desk":
+                    await self._guard_desk()
+                run = Run(run_id, action.key, who, self._clock(), n)
+                if action.side == "windows":
+                    run.nonce = new_nonce()
+                if not await asyncio.to_thread(self.log.append, _record(run)):
+                    raise ActionError("The run log cannot be written, so nothing ran.", 503)
+                self._active.add(run_id)
             try:
                 return await self._record_run(action, n, run)
             finally:
@@ -907,7 +915,6 @@ class RunQueue:
 
     async def _record_run(self, action: Action, n: int | None, run: Run) -> Finished:
         started = time.monotonic()
-        await asyncio.to_thread(self.log.append, _record(run))
         self._changed()
         try:
             result = await self._execute(action, n, run)

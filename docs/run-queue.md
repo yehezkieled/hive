@@ -34,7 +34,8 @@ request id.
   stops the command and says so. A Windows request the helper never took is
   withdrawn, so it cannot run later.
 - **Logged.** Every run writes two lines to `run-audit.log` in the desk's data
-  folder (`HIVE_GATEWAY_DATA_DIR`, mode 0600). The first is written when it starts.
+  folder (`HIVE_GATEWAY_DATA_DIR`, mode 0600). The first is written when it starts;
+  if it cannot be written, the tap is refused and nothing runs.
   The second says who ran it (the owner's Tailscale login; the file is mode 0600
   and Hive's own), which action, when it started, the result, how long it took and
   the result in plain words. Links, tokens and e-mail addresses inside the result
