@@ -472,18 +472,44 @@ font-size:13px;font-weight:600;color:var(--muted);text-align:left;white-space:no
 .sec-label{font:700 9.5px var(--font-mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);margin:2px 2px -4px}
 form.is-sent button{opacity:.75}
 /* the Machine page: the chain that has to hold and the upcoming risks; read-only */
-.mach{display:flex;flex-direction:column;gap:10px}
-.mach__head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin-top:.5rem}
-.mach h1{margin:0}
-.mach__lead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0}
-.mach__lead p{margin:0}
-.mach__term a{font:700 12px var(--font-mono);letter-spacing:.02em}
+/* the Machine page: the chain that has to hold beside the upcoming risks; read-only */
+.mach{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+@media (min-width:641px) and (max-width:1023px){.mach{grid-template-columns:minmax(0,1fr);grid-template-rows:fit-content(60%) minmax(0,1fr)}}
 .mach__sum{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
-.mach__sum .mstate{min-width:0}
-.mach__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
-.mach__col{display:flex;flex-direction:column;gap:8px;min-width:0}
-.mach__col h2{margin:2px 2px -2px}
-@media (min-width:1000px){.mach__cols{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
+.mach__term{font-size:15px}
+@media (max-width:640px){.mach__term{display:none}}
+.chain{position:relative;list-style:none;margin:0;padding:0}
+.chain::before{content:"";position:absolute;left:13px;top:26px;bottom:26px;width:2px;background:var(--line2)}
+.chain--one::before{display:none}
+.ch{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) auto;column-gap:14px;align-items:center;min-height:48px;padding:3px 0}
+.ch__n{display:grid;place-items:center;width:28px;height:32px;clip-path:var(--hex);background:var(--unk)}
+.ch--ok .ch__n{background:var(--ok)}.ch--warn .ch__n{background:var(--warn)}.ch--down .ch__n,.ch--urgent .ch__n{background:var(--down)}
+.ch__n svg{width:14px;height:14px;fill:none;stroke:var(--card);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.ch__b{min-width:0}
+.ch__l{font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.ch__l b{font-weight:600}
+.ch__d{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.ch__d time,.risk .d time{white-space:nowrap}
+.ch--urgent .ch__l b{color:var(--down)}
+.mach .sl{margin:14px 0 4px}
+.tl{position:relative;height:96px;margin:2px 14px 8px}
+.tl__ax{position:absolute;left:0;right:0;top:42px;height:10px;border-radius:5px;background:var(--surface);overflow:hidden}
+.tl__w{position:absolute;top:0;bottom:0;left:0;background:var(--down-t)}
+.tl__m{position:absolute;top:36px;width:20px;height:22px;margin-left:-10px;clip-path:var(--hex);background:var(--unk)}
+.tl__m--ok{background:var(--ok)}.tl__m--warn{background:var(--warn)}.tl__m--down{background:var(--down)}
+.tl__lab{position:absolute;transform:translateX(-50%);font-size:13px;font-weight:600;white-space:nowrap}
+.tl__lab--up{top:10px}.tl__lab--dn{top:64px}
+.tl__lab--first{transform:translateX(-12px)}
+.risks{list-style:none;margin:0;padding:0}
+.risk{display:grid;grid-template-columns:92px minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.risks .risk:first-child{border-top:0}
+.tl+.risks .risk:first-child{border-top:1px solid var(--line)}
+.risk b{font-weight:600;overflow-wrap:anywhere}
+.risk .sc{justify-self:start}
+.risk .d{grid-column:2/4;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.risk .when{font-size:15px;font-weight:600;text-align:right;white-space:nowrap}
+.risk--urgent b,.risk--urgent .when{color:var(--down)}
+@container pn (max-width:300px){.risk{grid-template-columns:minmax(0,1fr) auto}.risk .sc{grid-column:1/3}.risk .d{grid-column:1/3}}
 .mlist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 .mrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:2px 10px;min-width:0;
 background:var(--paper);border:1.5px solid var(--rule-soft);border-left:4px solid var(--ink-4);border-radius:10px;padding:8px 10px}
@@ -544,7 +570,6 @@ border-left:3px solid var(--ink-4);border-radius:8px;padding:8px 10px}
 .rqrun .mrow__detail{white-space:normal}.rqrun .mstate{min-width:100px}
 /* an armed or answered button's words take the card's whole width, under its text */
 .rq form[data-step],.rq form.is-shown{grid-column:1/-1;max-width:none;justify-content:flex-start}
-.mach__lead a{white-space:nowrap}
 /* the Sign-ins page: each sign-in's state, and the one renewal that may be running */
 .sgrow__act{display:flex;flex-direction:column;align-items:flex-end;min-width:0}
 .sgrow__act form{margin:0;display:flex;flex-direction:column;align-items:flex-end}
@@ -660,8 +685,8 @@ if(q&&oq&&!oq.open&&q.outerHTML!==oq.outerHTML)oq.outerHTML=q.outerHTML;});
 var m=doc.querySelector('main');if(!m||m.textContent===last||busy())return;last=m.textContent;
 var y=window.scrollY,ps=panels();c.innerHTML=m.innerHTML;restore();panels(ps);stamps();showFlash();
 window.scrollTo(0,y);});}
-function panels(v){return ['.nyl__body','.pcs','.rv__list'].map(function(s,i){var e=c.querySelector(s);
-if(!e)return 0;if(v)e.scrollTop=v[i];return e.scrollTop;});}
+function panels(v){return [].map.call(c.querySelectorAll('.pn__b,.rv__list'),function(e,i){
+if(v&&v[i])e.scrollTop=v[i];return e.scrollTop;});}
 function refreshAny(){if(th)refreshThread();else refreshMain();}
 function connect(){es=new EventSource('/events');
 es.onopen=function(){live=true;seen=Date.now();};
@@ -1332,7 +1357,7 @@ def _sc(kind: str, word: str) -> str:
     return f"<span class='sc sc--{kind}'><i></i>{esc(word)}</span>"
 
 
-def _tabs(kind: str, items: list[tuple[str, str, int | None]], current: str) -> str:
+def _tabs(kind: str, items: list[tuple[str, str, int | str | None]], current: str) -> str:
     """Phone (``p``) or right-column (``r``) tabs over a page's panels; the page script swaps
     which panel shows. The server marks the first panel shown."""
     buttons = "".join(
@@ -2203,18 +2228,61 @@ def _moment(m: machine.Moment | None, ctx: Ctx, lead: bool = False) -> str:
     return f"{esc(label)} {ctx.date(m.at) if m.exact else ctx.time(_iso(m.at))}"
 
 
-def _mrow(state: str, urgent: bool, label: str, head: str, detail: list[str], side: str) -> str:
-    """One line of the Machine page: a state chip (a word, not colour alone), text, a side note."""
+# a state as a chip colour and as the glyph in the chain's hex (the chip carries the word)
+_MCHIP = {"ok": "ok", "warn": "warn", "down": "down", "unknown": "unk"}
+_MGLYPH = {
+    "ok": "M3 7.4 5.8 10 11 4",
+    "warn": "M7 3.5v4.2M7 10.4v.2",
+    "down": "M4.2 4.2l5.6 5.6M9.8 4.2l-5.6 5.6",
+    "unknown": "M5 5.3a2 2 0 1 1 2.7 1.9c-.5.2-.7.5-.7 1v.3M7 10.4v.2",
+}
+
+
+def _mchip(state: str, word: str = "") -> str:
     state = _mstate(state)
-    cls = f"mrow mrow--{state}" + (" mrow--urgent" if urgent else "")
+    return _sc(_MCHIP[state], word or _MSTATE[state])
+
+
+def _mrow(state: str, urgent: bool, label: str, head: str, detail: list[str]) -> str:
+    """One link of the chain: a hex mark, its label and reading, then a state chip (a word,
+    not colour alone)."""
+    state = _mstate(state)
+    cls = f"ch ch--{state}" + (" ch--urgent" if urgent else "")
     line = " · ".join(d for d in detail if d)
     return (
-        f"<li class='{cls}'><span class='mstate mstate--{state}'>{_MSTATE[state]}</span>"
-        f"<div class=mrow__body><div class=mrow__top><b>{esc(label)}</b>"
-        + (f"<span class=mrow__head>{esc(head)}</span>" if head else "")
-        + "</div>"
-        + (f"<p class=mrow__detail>{line}</p>" if line else "")
-        + f"</div>{side}</li>"
+        f"<li class='{cls}'><span class=ch__n><svg viewBox='0 0 14 14' aria-hidden=true>"
+        f"<path d='{_MGLYPH[state]}'/></svg></span><div class=ch__b><p class=ch__l><b>{esc(label)}</b>"
+        + (f" · {esc(head)}" if head else "")
+        + "</p>"
+        + (f"<p class=ch__d>{line}</p>" if line else "")
+        + f"</div>{_mchip(state)}</li>"
+    )
+
+
+def _timeline(view: machine.MachineView) -> str:
+    """The dated risks as marks on a line from now, the red band's days shaded."""
+    now = view.checked_at
+    if now is None:
+        return ""
+    dated = [(k, max(0.0, (k.order - now) / 86400)) for k in view.risks if k.order != float("inf")]
+    if not dated:
+        return ""
+    span = max(30.0, max(d for _, d in dated) * 1.08)
+
+    def x(days: float) -> str:
+        return f"{min(days, span) / span * 100:.2f}%"
+
+    marks = "".join(
+        f"<span class='tl__m tl__m--{_MCHIP[_mstate(k.state)]}' style='left:{x(d)}'></span>"
+        f"<span class='tl__lab tl__lab--{'dn' if i % 2 else 'up'}"
+        f"{' tl__lab--first' if d < span * 0.04 else ''}' style='left:{x(d)}'>"
+        f"{'Now' if d < 1 else f'{int(d)} d'}</span>"
+        for i, (k, d) in enumerate(dated)
+    )
+    return (
+        "<div class=tl role=img aria-label='Upcoming risks by days from now'>"
+        f"<div class=tl__ax><span class=tl__w style='width:{x(machine.URGENT_DAYS)}'></span></div>"
+        f"{marks}</div>"
     )
 
 
@@ -2230,60 +2298,78 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
             r.urgent,
             r.label,
             r.headline,
-            [esc(r.detail), _moment(r.moment, ctx)],
-            f"<span class=mrow__side>checked {ctx.time(_iso(r.checked_at))}</span>"
-            if r.checked_at
-            else "",
+            [
+                esc(r.detail),
+                _moment(r.moment, ctx),
+                f"<span class=ch__at>checked {ctx.time(_iso(r.checked_at))}</span>"
+                if r.checked_at and (view.checked_at is None or r.checked_at < view.checked_at - 60)
+                else "",  # a reading older than the round says when it was taken
+            ],
         )
         for r in view.rows
     )
     risks = "".join(
-        _mrow(
-            k.state,
-            k.urgent,
-            k.label,
-            "",
-            [_moment(k.moment, ctx, lead=True), esc(k.detail)],
-            f"<span class='mrow__side mrow__due'>{esc(k.due)}</span>",
+        f"<li class='risk risk--{_mstate(k.state)}{' risk--urgent' if k.urgent else ''}'>"
+        f"{_mchip(k.state)}<b>{esc(k.label)}</b><span class=when>{esc(k.due)}</span>"
+        + (
+            f"<span class=d>{line}</span>"
+            if (
+                line := " · ".join(
+                    d for d in (_moment(k.moment, ctx, lead=True), esc(k.detail)) if d
+                )
+            )
+            else ""
         )
+        + "</li>"
         for k in view.risks
     )
     counts = {
         s: sum(_mstate(r.state) == s for r in view.rows) for s in ("down", "warn", "unknown", "ok")
     }
-    summary = "".join(
-        f"<li class='mstate mstate--{s}'>{n} {_MSTATE[s]}</li>" for s, n in counts.items() if n
-    )
+    summary = "".join(f"<li>{_mchip(s, f'{n} {_MSTATE[s]}')}</li>" for s, n in counts.items() if n)
+    worst = next((f"{n} {_MSTATE[s]}" for s, n in counts.items() if n), "")
     stamp = (
-        f"<p class=stamp>Checked {ctx.time(_iso(view.checked_at))}</p>" if view.checked_at else ""
+        f"<span class=stamp>Checked {ctx.time(_iso(view.checked_at))}</span>"
+        if view.checked_at
+        else ""
     )
     note = esc(view.note) or "Nothing to report."
     a = view.alarm
     alarm = (
-        "<h2 class=sec-label>Gone-dark alarm</h2><ul class=mlist>"
-        + _mrow(a.state, False, a.label, a.headline, [esc(a.detail), _moment(a.moment, ctx)], "")
-        + "</ul>"
+        "<p class=sl>Gone-dark alarm</p><ol class='chain chain--one'>"
+        + _mrow(a.state, False, a.label, a.headline, [esc(a.detail), _moment(a.moment, ctx)])
+        + "</ol>"
         if a is not None
         else ""
     )
     return _page(
         "Machine · Hive desk",
-        "<div class=mach><div class=mach__head><h1>Machine</h1>"
-        f"<ul class=mach__sum aria-label='Chain summary'>{summary}</ul></div>"
-        "<div class=mach__lead><p class=mute>Read-only. Every link has to hold to reach firstmate. "
-        "Renew a sign-in on the <a href='/signins'>Sign-ins page</a>.</p>"
-        f"{stamp}"
+        f"<div class=ph><h1>Machine</h1><ul class=mach__sum aria-label='Chain summary'>{summary}</ul>"
+        "<span class=sub>Every link has to hold to reach firstmate. Renew a sign-in on the "
+        f"<a href='/signins'>Sign-ins page</a>.</span>{stamp}"
         + (
-            "<p class=mach__term><a href='/terminal'>Open firstmate’s terminal</a></p>"
+            "<a class='lnk mach__term' href='/terminal'>Open firstmate’s terminal</a>"
             if ctx.terminal
             else ""
         )
-        + "</div>"
-        "<div class=mach__cols><section class=mach__col><h2 class=sec-label>The chain</h2>"
-        f"<ol class=mlist>{rows}</ol>{alarm}</section>"
-        "<section class=mach__col><h2 class=sec-label>Upcoming risks</h2>"
-        + (f"<ul class=mlist>{risks}</ul>" if risks else f"<p class=mute>{note}</p>")
-        + "</section></div></div>",
+        + "</div><div class='pgb mach' data-tabs>"
+        + _tabs(
+            "p",
+            [("chain", "The chain", worst or None), ("risks", "Upcoming risks", len(view.risks))],
+            "chain",
+        )
+        + "<section class='pn mach__col is-on' data-tp=chain><div class=pn__h><h2>The chain</h2>"
+        "<span class=meta>Read-only</span></div>"
+        f"<div class=pn__b><ol class=chain>{rows}</ol>{alarm}</div></section>"
+        "<section class='pn mach__col' data-tp=risks><div class=pn__h><h2>Upcoming risks</h2>"
+        + (f"<span class='hexn hexn--q'>{len(view.risks)}</span>" if view.risks else "")
+        + "</div><div class=pn__b>"
+        + (
+            f"{_timeline(view)}<ul class=risks>{risks}</ul>"
+            if risks
+            else f"<p class=empty>{note}</p>"
+        )
+        + "</div></section></div>",
         "machine",
         f" data-refresh={MACHINE_REFRESH_MS} data-machine",
         ctx,

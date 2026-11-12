@@ -312,8 +312,8 @@ def test_the_machine_page_answers_within_a_second_when_every_probe_is_slow(
         assert took < BUDGET_S, f"GET /machine ({attempt}) took {took:.2f}s"
         assert res.status_code == 200
         # nothing has answered, so nothing is shown as fine
-        assert res.text.count("<li class='mrow mrow--unknown'>") == 9
-        assert "<li class='mrow mrow--ok'>" not in res.text
+        assert res.text.count("<li class='ch ch--unknown'>") == 9
+        assert "<li class='ch ch--ok'>" not in res.text
         print(f"TIMING machine {attempt} {took:.2f}s {res.status_code}")
     deadline = time.monotonic() + 2
     while not (home / "probed").exists() and time.monotonic() < deadline:

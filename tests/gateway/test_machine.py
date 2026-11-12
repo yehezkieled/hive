@@ -1003,14 +1003,16 @@ def test_the_page_renders_with_every_probe_unknown(home: Path, tmp_path: Path) -
         first = c.get("/machine", headers=GOOD)
         assert first.status_code == 200
         main = _main(first.text)
-        assert main.count("mrow--unknown") == 9 and main.count("Not checked yet") == 10
+        assert main.count("ch ch--unknown") == 9 and main.count("Not checked yet") == 10
         assert (
-            "mrow--ok" not in main and "<li class='mstate mstate--unknown'>9 Unknown</li>" in main
+            "ch--ok" not in main
+            and "<li><span class='sc sc--unk'><i></i>9 Unknown</span></li>" in main
         )
 
         main = _main(_get_until(c, "Not checked yet"))
-    assert main.count("mrow--unknown") == 8 + 3  # all but the desk itself, plus three risks
-    assert main.count("mrow--ok") == 1 and "Service state unknown" in main
+    # all but the desk itself, plus three risks
+    assert main.count("ch ch--unknown") + main.count("risk risk--unknown") == 8 + 3
+    assert main.count("ch ch--ok") == 1 and "Service state unknown" in main
     for why in (
         "PowerShell was not found",
         "Tailscale&#x27;s command was not found",
@@ -1035,7 +1037,9 @@ def test_the_page_is_read_only_owner_only_and_live(home: Path, tmp_path: Path) -
         res = c.get("/machine", headers=GOOD)
     assert res.status_code == 200
     main = _main(res.text)
-    assert not re.search(r"<(form|button|input|select|textarea)\b", main)  # nothing to press
+    assert not re.search(r"<(form|input|select|textarea)\b", main)  # nothing to press
+    buttons = re.findall(r"<button\b[^>]*>", main)  # but the phone's tabs between the panels
+    assert len(buttons) == 2 and all("role=tab " in b for b in buttons), buttons
     assert "<a href='/machine' aria-current=page>Machine</a>" in res.text
     assert "data-refresh=30000 data-machine" in res.text
     assert pages.SCRIPT_CSP_HASH in res.headers["content-security-policy"]
@@ -1056,17 +1060,21 @@ async def test_the_page_shows_states_as_words_and_dates_in_full(tmp_path: Path) 
     with listening() as port:
         view = view_of(await monitor_for(rig(tmp_path, net=("127.0.0.1", port))).fresh())
     main = _main(pages.render_machine(view, _ctx()))
-    assert main.count("<li class='mrow mrow--") == 9 + 4
-    assert "<span class='mstate mstate--warn'>Warning</span>" in main  # a word, not colour alone
-    assert "<li class='mstate mstate--warn'>1 Warning</li>" in main
-    assert "<li class='mstate mstate--ok'>8 OK</li>" in main
+    assert main.count("<li class='ch ch--") + main.count("<li class='risk risk--") == 9 + 4
+    assert "<span class='sc sc--warn'><i></i>Warning</span>" in main  # a word, not colour alone
+    assert "<li><span class='sc sc--warn'><i></i>1 Warning</span></li>" in main
+    assert "<li><span class='sc sc--ok'><i></i>8 OK</span></li>" in main
     assert ">21 Nov 2026, 4:51 PM</time>" in main and "class=date" in main  # AEDT, with its year
-    assert "<span class=mrow__side>checked <time datetime=" in main
-    assert "<span class='mrow__side mrow__due'>in 10 days</span>" in main
+    assert "<span class=stamp>Checked <time datetime=" in main
+    assert "checked <time" not in main  # a reading from this round needs no time of its own
+    stale = replace(view, rows=(replace(view.rows[0], checked_at=view.checked_at - 600),))
+    assert "<span class=ch__at>checked <time datetime=" in pages.render_machine(stale, _ctx())
+    assert "<span class=when>in 10 days</span>" in main
     urgent = pages.render_machine(view_of(good(claude_expiry=NOW + 2 * DAY)), _ctx())
-    assert "<li class='mrow mrow--warn mrow--urgent'>" in urgent
+    assert "<li class='ch ch--warn ch--urgent'>" in urgent
+    assert "<li class='risk risk--warn risk--urgent'>" in urgent
     down = pages.render_machine(view_of(good(claude_expiry=NOW - DAY)), _ctx())
-    assert "<span class='mstate mstate--down'>Down</span>" in down
+    assert "<span class='sc sc--down'><i></i>Down</span>" in down
 
 
 # ---- the page in a real browser -----------------------------------------------------------
@@ -1079,13 +1087,16 @@ var w=f.contentWindow,d=w.document,e=d.documentElement,c=d.querySelectorAll('.ma
 function all(s){return [].slice.call(d.querySelectorAll(s));}
 var a=d.getElementById('alerts');a.hidden=false;a.textContent='Alerts off';
 R.iw=w.innerWidth;R.ih=w.innerHeight;R.sw=e.scrollWidth;R.sh=e.scrollHeight;
-R.rows=all('.mrow').length;
+R.rows=all('.chain:not(.chain--one) .ch,.risk').length;
+var m=d.querySelector('main');R.mainOver=m.scrollHeight>m.clientHeight+1;
 R.sideBySide=c[1].getBoundingClientRect().left>c[0].getBoundingClientRect().right-1;
 R.cut=all('.chrome *,.mach *').filter(function(x){
 return x.offsetParent&&x.getBoundingClientRect().right>w.innerWidth+0.5;}).length;
 R.navTops=all('.chrome__brand,.chrome nav a,#alerts').map(function(x){
 var b=x.getBoundingClientRect();return Math.round(b.top+b.height/2);});
-R.chips=all('.mrow .mstate').map(function(x){return Math.round(x.getBoundingClientRect().width);});
+R.lefts=[all('.ch__l'),all('.risk b')].map(function(a){return a.filter(function(x){
+return x.getClientRects().length;}).map(function(x){
+return Math.round(x.getBoundingClientRect().left);});});
 R.end=Math.round(d.querySelector('.mach').getBoundingClientRect().bottom);
 """
 
@@ -1172,10 +1183,10 @@ def test_the_page_fits_phone_and_ipad_without_sideways_scroll(
     assert r["rows"] == 9 + len(shown.risks)
     assert r["sw"] <= r["iw"] and r["cut"] == 0, r  # no sideways scroll, nothing cut off
     _assert_link_rows(r["navTops"], size[0])
-    assert len(set(r["chips"])) == 1, r  # equal chips, so the labels line up down the page
+    for lefts in r["lefts"]:  # the labels line up down each panel
+        assert len(set(lefts)) <= 1, r
     assert r["sideBySide"] is (name == "ipad-landscape")
-    if name.startswith("ipad") and view == "usual":
-        assert r["sh"] <= r["ih"], r  # the whole chain and its risks in one screen
+    assert r["sh"] <= r["ih"] and not r["mainOver"], r  # one screen; long lists scroll inside
 
 
 LIVE_DRIVER = """
@@ -1187,7 +1198,7 @@ R.before=q('main').textContent.indexOf('Nobody signed in')>=0;
 window.__es.l.machine();
 await new Promise(function(r){setTimeout(r,150);});
 R.swapped=q('main').textContent.indexOf('Nobody signed in')<0;
-R.stamped=q('.mrow__side time').textContent;
+R.stamped=q('.ph .stamp time').textContent;
 R.date=q('time.date').textContent;
 var was=n;await new Promise(function(r){setTimeout(r,700);});
 R.polls=n-was;
@@ -1278,8 +1289,8 @@ async def test_the_page_shows_the_alarm_line_and_never_the_address(tmp_path: Pat
     r = rig(tmp_path, gonedark_env=env, gonedark_state=state)
     view = view_of(await monitor_for(r).fresh())
     main = _main(pages.render_machine(view, _ctx()))
-    assert "<h2 class=sec-label>Gone-dark alarm</h2>" in main
-    assert "Gone-dark alarm</b><span class=mrow__head>On</span>" in main
+    assert "<p class=sl>Gone-dark alarm</p>" in main
+    assert "Gone-dark alarm</b> · On</p>" in main
     assert "Last ping sent" in main and "last ping" in main
     assert "PLANTED" not in main and "hc-ping" not in main
     # The alarm is not a link in the chain: the summary still counts the nine.
