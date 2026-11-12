@@ -1337,9 +1337,10 @@ a state chip and its project; a few per project, the rest behind "+N more ·
 project" link; without the script it links to the Project page). The first decision
 card is open (its answer form unchanged); every other item is a compact row. Picking a row (click or tap) animates it into the card slot and
 the old card drops into the row's place (a short FLIP move; none under
-`prefers-reduced-motion`); the pick survives the page's own refreshes. A second
-click within 450 ms in the same project, on the picked card or at the spot clicked
-first (where the old card now sits), opens the project; a quick click on another
+`prefers-reduced-motion`); the pick (kept by project and ticket id, so two projects'
+same id never swap) survives the page's own refreshes. A second
+click within 450 ms in the same part, on the picked card or at the spot clicked
+first (where the old card now sits), opens the picked item's project; a quick click on another
 row picks that row instead. An opened item has an explicit "Open project ↗" for
 touch, where there is no double click.
 Without the script every row is a plain link to the project. The card shows a
