@@ -97,6 +97,28 @@ def _signins(tmp_path: Path) -> str:
     return pages.render_signins(ts._panel(flow, tmp_path), pages.Ctx("t"))
 
 
+def _project() -> str:
+    from hive.gateway.desk import Crew, NeedsYou, Project, Row
+    from hive.gateway.snapshot import Snapshot
+
+    long = "Desk vault approve and deny buttons, then remove the typed vault commands. " * 2
+    needs = [NeedsYou("hive", "hold", f"t{i}", long, title=f"Ticket {i}") for i in range(6)]
+    rows = [
+        Row(f"t{i}", long, ("queued", "in_progress", "done")[i % 3], [], None, None)
+        for i in range(25)
+    ]
+    crews = [Crew(f"c{i}", "crew", "claude", "working", "busy", f"Crew {i}") for i in range(3)]
+    snap = Snapshot({}, "fm-fleet-snapshot.v1", None)
+    return pages.render_project("hive", snap, Project("hive", needs, rows, crews), pages.Ctx("t"))
+
+
+def _watch() -> str:
+    from hive.gateway.desk import Crew
+
+    crew = Crew("hive-ship", "crew", "claude", "working", "Building the desk", "Ship the desk")
+    return pages.render_watch(crew, pages.Ctx("t"))
+
+
 PAGES: dict[str, Callable[[Path], str]] = {
     "desk": lambda _: _busy_desk(),
     "chat": lambda _: _chat(),
@@ -105,6 +127,8 @@ PAGES: dict[str, Callable[[Path], str]] = {
     "run": lambda _: _run(),
     "signins": _signins,  # mid-flow: the sign-in steps above the three cards
     "terminal": lambda _: pages.render_terminal(pages.Ctx("t"), True),  # the gate: no list
+    "project": lambda _: _project(),
+    "watch": lambda _: _watch(),  # its output scrolls in its panel; empty here
 }
 
 DRIVER = """
@@ -132,5 +156,5 @@ def test_page_is_one_screen(tmp_path: Path, page: str, size: str) -> None:
     for v in r["views"]:
         assert not v["page"] and not v["main"] and not v["side"], v
         assert v["stuck"] == 0, v  # a panel too long for its space scrolls on its own
-    if size.endswith("phone") and page != "terminal":  # the data really was too long
+    if size.endswith("phone") and page not in ("terminal", "watch"):  # the data was too long
         assert any(v["over"] for v in r["views"])

@@ -546,6 +546,41 @@ form.is-sent button{opacity:.75}
 .fold ul{list-style:none;margin:0;padding:0}
 .fold li{padding:6px 0;font-size:14px}
 .fold li span{display:block;color:var(--muted);font-size:13px}
+/* a project: what needs you beside its crews and backlog (the board's Needs page) */
+.ph__back{margin-right:4px;font-size:15px}
+.npg{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+@media (min-width:641px) and (max-width:1023px){.npg{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,3fr) minmax(0,2fr)}}
+.npg .pn__b>.sl:first-child{margin-top:0}
+.crews,.bls{list-style:none;margin:0;padding:0}
+.crew,.bl{padding:10px 0;border-bottom:1px solid var(--line)}
+.crew:last-child,.bl:last-child{border-bottom:0}
+.crew__top{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px}
+.crew__top b{flex:1 1 auto;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.crew__top .lnk{min-height:44px}
+.crew__d{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.crew__d span{display:block}
+.crew__ctl{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+.crew__ctl .act-warn,.crew__ctl .act-err{flex-basis:100%;margin:0}
+.bl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:start}
+.bl .sc{margin-top:1px}
+.bl__t{display:block;font-weight:600;overflow-wrap:anywhere}
+.bl__d{margin-top:2px;font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.bl__d code,.crew__d code,.ph .sub code{font:13px var(--fm)}
+.tk>summary{display:inline-flex;align-items:center;min-height:44px;font-size:14px;font-weight:600;color:var(--ink);
+text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.fold.tk{margin:0 0 6px}
+.fold.tk>summary{display:flex;color:var(--ink);text-decoration:none}
+.tk[open]{padding-bottom:6px}
+.tk button{margin-top:10px}
+/* a crew's live output, and the confirm and result steps */
+.watch{flex:1 1 0;min-height:0}
+.tail{margin:0;padding:14px 16px;background:#16140f;color:#e9dfc9;border-radius:0 0 calc(var(--r3) - 1px) calc(var(--r3) - 1px);
+font:13px/1.5 var(--fm);white-space:pre-wrap;overflow-wrap:anywhere}
+.step{width:min(640px,100%);display:flex;flex-direction:column;align-items:flex-start;gap:12px}
+.step--ask{padding:22px;border:1px solid var(--line);border-radius:var(--r3);background:var(--card)}
+.step--ask form p{font-size:16px;overflow-wrap:anywhere}
+.step__act{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-top:16px}
+.step .banner{align-self:stretch}
 .runrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
 .runrow:first-child{padding-top:0}
 .runrow:last-child{border-bottom:0}
@@ -707,8 +742,8 @@ url='/w/'+encodeURIComponent(tail)+'/out';
 function tick(){if(document.hidden)return;fetch(url,{credentials:'same-origin',cache:'no-store'})
 .then(function(r){return r.json();}).then(function(j){
 if(!j.ok){st.textContent='Cannot read output: '+j.error;return;}
-var near=window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-120;
-if(pre.textContent!==j.text){pre.textContent=j.text;if(near)bottom();}
+var near=pre.scrollHeight-pre.clientHeight-pre.scrollTop<120;
+if(pre.textContent!==j.text){pre.textContent=j.text;if(near)pre.scrollTop=pre.scrollHeight;}
 st.textContent='Live · updated '+new Date().toLocaleTimeString();})
 .catch(function(){st.textContent='Connection lost, retrying…';});}
 tick();setInterval(tick,3000);document.addEventListener('visibilitychange',tick);}
@@ -1929,18 +1964,32 @@ def render_home(
     return _page("Hive desk", body, "desk", attrs, ctx)
 
 
+# a crew's state: its chip colour; the word is the state itself
+_CREW_CHIP = {"working": "run", "done": "ok", "idle": "q", "waiting": "you", "stuck": "down"}
+# a backlog ticket's state, when it is not queued: (chip colour, chip word)
+_ROW_CHIP = {"done": ("ok", "Done"), "in_progress": ("run", "In progress")}
+
+
+def _word(state: str) -> str:
+    return esc(state.replace("_", " ").capitalize())
+
+
 def _crew(c: Crew, ctx: Ctx) -> str:
     controls = ctx.form(
         "control",
-        "<button class='quiet inline' name=verb value=interrupt>Interrupt…</button>"
-        "<button class='quiet inline' name=verb value=relaunch>Relaunch…</button>",
+        "<button class='btn btn--s btn--sm' name=verb value=interrupt>Interrupt…</button>"
+        "<button class='btn btn--s btn--sm' name=verb value=relaunch>Relaunch…</button>",
+        "crew__ctl",
         task=c.id,
     )
     return (
-        f"<div class=row><span class=tag>{esc(c.state)}</span><strong>{esc(c.title or c.id)}"
-        f"</strong> <span class=mute>{esc(c.detail)}</span>"
-        f"<span class=sub>{esc(c.id)} · {esc(c.kind)} · {esc(c.harness)} · "
-        f"<a href='/w/{esc(quote(c.id, safe=''))}'>Watch live</a></span>{controls}</div>"
+        f"<li class=crew><div class=crew__top>{_sc(_CREW_CHIP.get(c.state, 'unk'), _word(c.state))}"
+        f"<b>{esc(c.title or c.id)}</b>"
+        f"<a class=lnk href='/w/{esc(quote(c.id, safe=''))}'>Watch live</a></div>"
+        f"<p class=crew__d>{esc(c.detail)}"
+        f"<span>{' · '.join([f'<code>{esc(c.id)}</code>'] + [esc(x) for x in (c.kind, c.harness) if x])}"
+        "</span></p>"
+        f"{controls}</li>"
     )
 
 
@@ -1950,7 +1999,7 @@ def _ticket_edit(r: Row, project: str, ctx: Ctx) -> str:
     options = "".join(f"<option>{esc(f)}</option>" for f in TICKET_FIELDS)
     return ctx.form(
         "ticket",
-        f"<details><summary>Request an edit</summary><label>Field</label>"
+        f"<details class=tk><summary>Request an edit</summary><label>Field</label>"
         f"<select name=field>{options}</select><label>New text</label>"
         "<textarea name=text required maxlength=4000></textarea>"
         "<button>Send edit request</button></details>",
@@ -1964,7 +2013,7 @@ def _ticket_edit(r: Row, project: str, ctx: Ctx) -> str:
 def _new_ticket(project: str, ctx: Ctx) -> str:
     return ctx.form(
         "ticket",
-        "<details><summary>New ticket</summary><label>Title</label>"
+        "<details class='fold tk'><summary>New ticket</summary><label>Title</label>"
         "<input type=text name=title required maxlength=200><label>Details</label>"
         "<textarea name=text maxlength=4000></textarea>"
         "<button>Send create request</button></details>",
@@ -1974,46 +2023,64 @@ def _new_ticket(project: str, ctx: Ctx) -> str:
     )
 
 
+def _backlog_row(r: Row, titles: dict[str, str], project: str, ctx: Ctx) -> str:
+    if r.state == "queued":
+        _, kind, word, _ = _queue_state(r, ctx)
+    else:
+        kind, word = _ROW_CHIP.get(r.state, ("unk", _word(r.state)))
+    extra = [f"<code>{esc(r.id)}</code>"]
+    if r.owner and r.owner != "main":
+        extra.append(f"owner: {esc(r.owner)}")
+    if r.hold:
+        extra.append(f"held: {esc(r.hold)}")
+    if r.blocked_by:
+        extra.append("blocked by " + esc(", ".join(titles.get(b) or b for b in r.blocked_by)))
+    pr = ctx.link(r.pr_url)
+    if pr:
+        extra.append(f'<a href="{esc(pr)}" rel="noopener noreferrer">PR</a>')
+    return (
+        f"<li class='bl bl--{esc(r.state)}'>{_sc(kind, word)}<div class=bl__b>"
+        f"<b class=bl__t>{esc(r.title or r.id)}</b><p class=bl__d>{' · '.join(extra)}</p>"
+        f"{_ticket_edit(r, project, ctx)}</div></li>"
+    )
+
+
 def render_project(
     name: str,
     snap: Snapshot,
     project: Project | None,
     ctx: Ctx,
 ) -> str:
+    """A project lens: what needs the owner beside its crews and backlog, as two panels (tabs
+    on a phone), the approved board's Needs page."""
     attrs = " data-refresh=30000"
+    back = "<a class='lnk ph__back' href='/'>← Desk</a>"
     if project is None:
         body = _banner(snap, ctx) if not snap.ok else "<p>Unknown project.</p>"
-        return _page(name, f"<p><a href='/'>← Desk</a></p>{body}", "", attrs, ctx)
+        return _page(name, f"<div class=ph>{back}</div>{body}", "", attrs, ctx)
     needs = (
         "".join(_need(n, False, ctx) for n in project.needs_you)
-        or "<p class=mute>Nothing needs you.</p>"
+        or "<p class=empty>Nothing needs you.</p>"
     )
     titles = {r.id: r.title for r in project.rows}
-    rows = []
-    for r in project.rows:
-        extra = [r.id]
-        if r.owner and r.owner != "main":
-            extra.append(f"owner: {esc(r.owner)}")
-        if r.hold:
-            extra.append(f"held: {esc(r.hold)}")
-        if r.blocked_by:
-            extra.append("blocked by " + esc(", ".join(titles.get(b) or b for b in r.blocked_by)))
-        pr = ctx.link(r.pr_url)
-        if pr:
-            extra.append(f'<a href="{esc(pr)}" rel="noopener noreferrer">PR</a>')
-        sub = f"<span class=sub>{' · '.join(extra)}</span>"
-        rows.append(
-            f"<div class=row><span class=tag>{esc(r.state.replace('_', ' '))}</span>"
-            f"<strong>{esc(r.title or r.id)}</strong>{sub}"
-            f"{_ticket_edit(r, project.name, ctx)}</div>"
-        )
-    crews = "".join(_crew(c, ctx) for c in project.crews) or "<p class=mute>No live crews.</p>"
+    rows = "".join(_backlog_row(r, titles, project.name, ctx) for r in project.rows)
+    crews = "".join(_crew(c, ctx) for c in project.crews)
+    n_need, n_rows, n_crews = len(project.needs_you), len(project.rows), len(project.crews)
     return _page(
         f"{ctx.show(name)} · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>{ctx.name_html(name)}</h1>"
-        f"<h2>Needs you ({len(project.needs_you)})</h2>"
-        f"{needs}<h2>Crews</h2>{crews}<h2>Backlog ({len(project.rows)})</h2>"
-        f"{_new_ticket(project.name, ctx)}{''.join(rows) or '<p class=mute>Empty.</p>'}",
+        f"<div class=ph>{back}<h1>{ctx.name_html(name)}</h1></div><div class='pgb npg' data-tabs>"
+        + _tabs("p", [("needs", "Needs you", n_need), ("work", "Work", n_rows)], "needs")
+        + "<section class='pn is-on' data-tp=needs><div class=pn__h><h2>Needs you</h2>"
+        + (f"<span class=hexn>{n_need}</span>" if n_need else "")
+        + f"</div><div class=pn__b>{needs}</div></section>"
+        "<section class=pn data-tp=work><div class=pn__h><h2>Work</h2>"
+        f"<span class=meta>{n_crews} {'crew' if n_crews == 1 else 'crews'} · {n_rows} "
+        f"{'ticket' if n_rows == 1 else 'tickets'}</span></div><div class=pn__b>"
+        f"<p class=sl>Crews · {n_crews}</p>"
+        + (f"<ul class=crews>{crews}</ul>" if crews else "<p class=meta>No live crews.</p>")
+        + f"<p class=sl>Backlog · {n_rows}</p>{_new_ticket(project.name, ctx)}"
+        + (f"<ul class=bls>{rows}</ul>" if rows else "<p class=meta>Empty.</p>")
+        + "</div></section></div>",
         "",
         attrs,
         ctx,
@@ -2062,13 +2129,17 @@ def _thread(view: ChatView, ctx: Ctx) -> str:
 
 
 def render_watch(crew: Crew, ctx: Ctx) -> str:
+    """One crew's recent output, live: the output scrolls inside its panel."""
     return _page(
         f"{crew.id} · Hive desk",
-        f"<p><a href='/'>← Desk</a></p><h1>{esc(crew.title or crew.id)}</h1>"
-        f"<p class=mute><span class=tag>{esc(crew.state)}</span>{esc(crew.detail)} · "
-        f"{esc(crew.id)} · {esc(crew.harness)}</p>"
-        "<p class=mute id=tail-status role=status>Loading…</p>"
-        "<pre class=tail id=tail aria-label='Recent output' aria-live=off></pre>",
+        "<div class=ph><a class='lnk ph__back' href='/'>← Desk</a>"
+        f"<h1>{esc(crew.title or crew.id)}</h1>"
+        f"{_sc(_CREW_CHIP.get(crew.state, 'unk'), _word(crew.state))}"
+        f"<span class=sub>{esc(crew.detail)} · <code>{esc(crew.id)}</code> · "
+        f"{esc(crew.harness)}</span></div>"
+        "<section class='pn watch'><div class=pn__h><h2>Recent output</h2>"
+        "<span class=meta id=tail-status role=status>Loading…</span></div>"
+        "<pre class='pn__b tail' id=tail aria-label='Recent output' aria-live=off></pre></section>",
         "",
         f" data-tail='{esc(crew.id)}'",
         ctx,
@@ -2704,20 +2775,24 @@ def render_signin_flow(view: signins.FlowView, ctx: Ctx) -> str:
 def render_confirm(title: str, detail: str, action: str, ctx: Ctx, hidden: dict[str, str]) -> str:
     """Step-up page: nothing runs until this form is posted back with ``step``."""
     inner = (
-        f"<p>{esc(detail)}</p>"
-        "<button class=danger name=confirm value=1>Confirm</button> "
-        f"<a href='{esc(ctx.nxt)}'>Cancel</a>"
+        f"<p>{esc(detail)}</p><div class=step__act>"
+        "<button class=danger name=confirm value=1>Confirm</button>"
+        f"<a class=lnk href='{esc(ctx.nxt)}'>Cancel</a></div>"
     )
     form = ctx.form(action, inner, **hidden)
-    return _page(f"{title} · Hive desk", f"<h1>{esc(title)}</h1><div class=banner>{form}</div>")
+    return _page(
+        f"{title} · Hive desk",
+        f"<div class=ph><h1>{esc(title)}</h1></div><section class='step step--ask'>{form}</section>",
+    )
 
 
 def render_result(title: str, message: str, nxt: str, ok: bool) -> str:
     cls = "banner ok" if ok else "banner"
     return _page(
         f"{title} · Hive desk",
-        f"<h1>{esc(title)}</h1><div class='{cls}' role=status>{esc(message)}</div>"
-        f"<p><a href='{esc(nxt)}'>Back</a></p>",
+        f"<div class=ph><h1>{esc(title)}</h1></div><section class=step>"
+        f"<div class='{cls}' role=status>{esc(message)}</div>"
+        f"<a class=lnk href='{esc(nxt)}'>Back</a></section>",
     )
 
 
