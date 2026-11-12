@@ -54,7 +54,7 @@ The banner under the page title always shows the state and who is attached.
 |---|---|---|
 | Firstmate's session was not found: no herdr pane runs Claude in the firstmate home. | Firstmate is down. | **Wake firstmate** (firstmate chip). |
 | More than one herdr pane looks like firstmate's session, so the terminal will not pick one. | Two panes match; the desk never guesses. | Ask firstmate (Chat) to close the extra pane, or check at the PC. |
-| herdr is not answering … / herdr was not found on this PC … | herdr is down or missing. | Check the Firstmate row on the Machine page. |
+| herdr is not answering … / herdr was not found on this PC … | herdr is down, missing, or took longer than 0.8 s to answer an open. | Check the Firstmate row on the Machine page. |
 | Too many attempts to open the terminal. Try again in N min. | The open limit above. | Wait for the time it shows. |
 | The desk could not record the attempt, so the terminal was not opened. | The desk could not write `terminal-opens` in its data dir, so it will not open uncounted. | Check that `HIVE_GATEWAY_DATA_DIR` exists and is writable. |
 | The terminal was open for its time limit. Confirm it is you to open it again. | 30 minutes passed. | Confirm again. |
