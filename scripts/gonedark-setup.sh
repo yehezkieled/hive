@@ -116,7 +116,7 @@ cmd_set() {
   chmod 600 "$tmp"
   mv -f "$tmp" "$ENV_FILE" || { rm -f "$tmp"; die "cannot replace $ENV_FILE"; }
   url=""
-  say "Saved to $ENV_FILE (mode 600). One ping every $every s while the desk and firstmate are up."
+  say "Saved to $ENV_FILE (mode 600). One ping every $every s while the desk, firstmate and Tailscale are up."
   if restart_service >/dev/null 2>&1; then
     say "The sender was restarted. Check with: $0 status"
   else
