@@ -45,7 +45,7 @@ CSS = """
 :root{
 --bg:#f4efe5;--card:#fffcf6;--surface:#e7dfcf;--ink:#29251e;--muted:#675e51;
 --line:rgba(41,37,30,.13);--line2:rgba(41,37,30,.28);--field:rgba(41,37,30,.54);
---action:#8c6418;--action-ink:#fff;--honey:#e1ac10;--honey-ink:#2a1d04;--you-dot:#b8860b;
+--action:#8c6418;--action-ink:#fff;--honey:#e1ac10;--honey-ink:#2a1d04;--you-dot:#b8860b;--mark:#af7f0a;
 --ok:#2c7a3c;--warn:#b5530b;--down:#c0341d;--unk:#7d7262;--run:#3a6b8c;--armed-ink:#fff;
 --ok-t:rgba(44,122,60,.12);--warn-t:rgba(214,110,20,.15);--down-t:rgba(192,52,29,.11);--unk-t:rgba(41,37,30,.07);
 --run-t:rgba(58,107,140,.13);--you-t:rgba(225,172,16,.24);
@@ -59,7 +59,7 @@ CSS = """
 @media (prefers-color-scheme:dark){:root{
 --bg:#0c0a08;--card:#181512;--surface:#26211b;--ink:#f7f2e8;--muted:#a39b8f;
 --line:rgba(247,242,232,.12);--line2:rgba(247,242,232,.27);--field:rgba(247,242,232,.38);
---action:#c9a45a;--action-ink:#0c0a08;--honey:#f0b429;--honey-ink:#1a1206;--you-dot:#f0b429;
+--action:#c9a45a;--action-ink:#0c0a08;--honey:#f0b429;--honey-ink:#1a1206;--you-dot:#f0b429;--mark:#f0b429;
 --ok:#6cc784;--warn:#f0904a;--down:#ff7a66;--unk:#a39b8f;--run:#8db9d8;--armed-ink:#1a1206;
 --ok-t:rgba(108,199,132,.15);--warn-t:rgba(240,144,74,.17);--down-t:rgba(255,122,102,.15);--unk-t:rgba(247,242,232,.09);
 --run-t:rgba(141,185,216,.15);--you-t:rgba(240,180,41,.2);
@@ -98,7 +98,7 @@ letter-spacing:-.025em;color:var(--ink);text-decoration:none}
 font:500 15px var(--ft);color:var(--muted);text-decoration:none;white-space:nowrap;transition:color .15s var(--e)}
 .chrome nav a:hover,.chrome nav a[aria-current]{color:var(--ink)}
 .chrome nav a[aria-current]::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;
-border-radius:2px 2px 0 0;background:var(--honey)}
+border-radius:2px 2px 0 0;background:var(--mark)}
 .chrome__st{grid-area:st;justify-self:end;display:flex;align-items:center;gap:8px;min-width:0}
 /* below a laptop the chips share the brand's row and the links get a full-width row of their own */
 @media (max-width:1023px){
