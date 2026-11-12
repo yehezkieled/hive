@@ -2739,68 +2739,79 @@ XTERM_SRI = (
 XTERM_CSS = (VENDOR_DIR / "xterm-6.0.0.css").read_text()
 
 TERMINAL_CSS = """
-body.termpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
-display:flex;flex-direction:column}
-.termpage main{flex:1;min-height:0;width:100%;max-width:1200px;display:flex;flex-direction:column;
-padding:0 0 calc(8px + env(safe-area-inset-bottom))}
-.term{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
-.term__head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px}
-.term__head h1{margin:8px 0 0;font-size:1.15rem}.term__head p{margin:0}
-.tbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:58px;
-padding:6px 6px 6px 8px;background:var(--card);border:1.5px solid var(--line);border-radius:12px}
-.tbar[data-s=mine]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.tstate{flex:none;display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border-radius:999px;
-border:1.5px solid var(--rule-soft);font:700 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
-color:var(--ink-3);white-space:nowrap}
-.tstate--ro{border-color:var(--sage);color:var(--sage);background:var(--sage-soft)}
-.tstate--mine{border-color:var(--accent);background:var(--accent);color:#fff}
-.tstate--other{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
-.tstate--down{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
-.tstate--wait{border-color:var(--honey);color:var(--ochre);background:var(--honey-soft)}
-.tbar__who{flex:1 1 240px;min-width:0;font-size:.86rem;line-height:1.35;color:var(--ink-2);overflow-wrap:anywhere}
-.tbar__btns{flex:none;display:flex;gap:6px;margin-left:auto}.tbar__btns:empty{display:none}
-.tbar button{min-height:44px;padding:0 14px;font:700 12px var(--font-mono);letter-spacing:.02em}
-.tbar button[hidden]{display:none}.tbar button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
-.term button.is-armed{box-shadow:0 0 0 3px var(--accent-soft)}
-.term .act-warn{margin:0}.term .act-warn[hidden]{display:none}
-.tgate{flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;padding:4px 0 16px}
+body.termpage{position:fixed;top:0;left:0;width:100%}
+.termpage main{overflow:hidden}
+.term{display:flex;flex-direction:column;gap:10px}
+.tbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-height:60px;
+padding:8px 10px 8px 14px;border:1px solid var(--line2);border-radius:var(--r3);background:var(--card)}
+.tbar[data-s=mine]{border-color:var(--down);box-shadow:0 0 0 3px var(--down-t)}
+.tstate{flex:none;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;
+background:var(--unk-t);font:500 13px var(--ft);color:var(--ink);white-space:nowrap}
+.tstate::before{content:"";flex:none;width:8px;height:9px;clip-path:var(--hex);background:var(--unk)}
+.tstate--closed{background:none;box-shadow:inset 0 0 0 1px var(--line2)}.tstate--closed::before{background:var(--line2)}
+.tstate--ro{background:var(--ok-t)}.tstate--ro::before{background:var(--ok)}
+.tstate--mine,.tstate--down{background:var(--down-t)}.tstate--mine::before,.tstate--down::before{background:var(--down)}
+.tstate--other{background:var(--warn-t)}.tstate--other::before{background:var(--warn)}
+.tstate--wait{background:var(--run-t)}.tstate--wait::before{background:var(--run)}
+.tbar__who{flex:1 1 240px;min-width:0;font-size:15px;line-height:1.35;overflow-wrap:anywhere}
+.tbar__btns{flex:none;display:flex;gap:8px;margin-left:auto}.tbar__btns:empty{display:none}
+.tbar button[hidden]{display:none}.tbar button:disabled{opacity:.45;cursor:not-allowed}
+.term>.act-warn{flex:none;margin:0;padding:10px 14px;border-radius:var(--r2);background:var(--warn-t);color:var(--ink)}
+.term .act-warn[hidden]{display:none}
+.tgate{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:2px}
 .tgate[hidden],.tlive[hidden]{display:none}
-.tgate .card{width:100%;max-width:560px}
-.tgate h2{margin:0 0 6px}.tgate p{margin:0 0 8px}
-.tgate ul{margin:0 0 12px;padding-left:20px;color:var(--ink-2);font-size:.92rem}.tgate li{margin:3px 0}
-.tgate form{margin:0}.tgate button{min-height:48px;padding:0 20px;font-weight:700}
-.tlive{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.gate{width:min(680px,100%);margin:auto 0;padding:28px;border:1px solid var(--line);border-radius:var(--r3);
+background:var(--card);text-align:center}
+.gate h2{font-size:26px;letter-spacing:-.02em}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:20px 0 22px;padding:0;list-style:none;
+text-align:left}
+.facts li{display:flex;align-items:center;gap:12px;min-height:58px;padding:10px 14px;border-radius:var(--r2);
+background:var(--surface)}
+.facts svg{flex:none;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;
+stroke-linejoin:round}
+.facts span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.facts b{font-size:16px;font-weight:600}
+.facts small{font-size:13px;color:var(--muted)}
+.gate form{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0}
+.gate .act-warn{margin:0;color:var(--ink);font-weight:500}
+.tnote{flex:none;min-height:1.3em;margin:0;font:600 14px/1.4 var(--ft);color:var(--down)}
+.tnote:empty{min-height:0}
+.gate .tnote:not(:empty){margin-top:10px}
+.tlive{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
 .twrap{position:relative;flex:1;min-height:140px;display:flex}
 .tframe{flex:1;min-width:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-padding:8px;background:#16140f;border:1.5px solid var(--rule-soft);border-radius:12px}
+padding:8px;background:#16140f;border:1px solid var(--line2);border-radius:var(--r3)}
 .tframe .xterm{display:inline-block;vertical-align:top}
 /* The desk's textarea min-height would stretch xterm's hidden input below the screen. */
 .tframe .xterm-helper-textarea{min-height:0}
-.tframe__msg{position:absolute;inset:1.5px;display:flex;align-items:center;justify-content:center;margin:0;
-padding:24px;border-radius:11px;background:#16140f;color:#d6cfbf;font:600 14px/1.5 var(--font-sans);text-align:center}
+.tframe__msg{position:absolute;inset:1px;display:flex;align-items:center;justify-content:center;margin:0;
+padding:24px;border-radius:calc(var(--r3) - 1px);background:#16140f;color:#e9dfc9;font:600 15px/1.5 var(--ft);
+text-align:center}
 .tframe__msg[hidden]{display:none}
-.tjump{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);border-radius:999px;min-height:40px;
-padding:0 16px;font:700 12px var(--font-mono);background:var(--paper);color:var(--ink);border-color:var(--rule-soft);
-box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.tjump{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:inline-flex;align-items:center;
+min-height:44px;padding:0 16px;border:1px solid var(--line2);border-radius:999px;background:var(--card);color:var(--ink);
+font:600 14px var(--ft);box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer}
 .tjump[hidden]{display:none}
 .tkeys{flex:none;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:1px}
 .tkeys::-webkit-scrollbar{display:none}
-.tkeys button{flex:none;min-width:48px;min-height:44px;padding:0 10px;font:700 13px var(--font-mono);
-background:var(--card);color:var(--ink);border:1.5px solid var(--line);border-radius:8px}
-.tkeys button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
-.tkeys button:disabled{opacity:.4;cursor:not-allowed}
-.tkeys__gap{flex:1 0 6px}
-.tpaste{flex:none;display:flex;gap:6px;align-items:flex-end;margin:0}
-.tpaste textarea{flex:1;min-width:0;min-height:44px;max-height:22vh;margin:0;resize:none;font:16px/1.35 var(--font-mono)}
+.tkeys button{flex:none;min-width:54px;height:48px;padding:0 12px;border:1px solid var(--line2);border-radius:var(--r2);
+background:var(--card);color:var(--ink);font:500 15px var(--fm);cursor:pointer}
+.tkeys button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--card)}
+.tkeys button:disabled{opacity:.45;cursor:not-allowed}
+.tkeys__gap{flex:1 0 12px}
+.tpaste{flex:none;display:flex;gap:8px;align-items:flex-end;margin:0}
+.tpaste textarea{flex:1;min-width:0;height:48px;min-height:48px;max-height:22vh;margin:0;resize:none;
+font:16px/1.35 var(--fm)}
 .tpaste textarea:disabled{opacity:.6}
-.tpaste button{flex:none;min-height:44px;padding:0 12px;font:700 12px var(--font-mono)}
-.tpaste button:disabled{opacity:.4;cursor:not-allowed}
-.tnote{flex:none;min-height:1.3em;margin:0;font:600 12px/1.4 var(--font-mono);color:var(--accent)}
-.tnote:empty{min-height:0}
-@media (prefers-color-scheme:dark){.tframe,.tframe__msg{background:#0f0d09}.tframe{border-color:#3a352a}}
-@media (max-width:760px){.term__head p{display:none}}
-@media (max-width:480px){.tbar{padding:6px}.tbar__who{flex-basis:100%;order:3}.tbar__btns{margin-left:auto}
-.tkeys button{min-width:44px;padding:0 8px}.tpaste button{padding:0 9px}}
+.tpaste .btn{flex:none;min-height:48px}
+.tpaste .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+@media (prefers-color-scheme:dark){.tframe,.tframe__msg{background:#0f0d09}}
+/* A phone keeps every row it can for the screen: the live terminal drops the page title (the
+menu marks the page) and the paste box keeps one row, so 30 rows fit at the smallest font. */
+@media (max-width:640px){.termpage .ph .sub{display:none}.termpage:has(.tlive:not([hidden])) .ph{display:none}
+.termpage:has(.tlive:not([hidden])) .term{padding-top:12px}.tbar{padding:8px}.tbar__who{flex-basis:100%;order:3}
+.facts{grid-template-columns:minmax(0,1fr)}.facts li{min-height:48px}.gate{padding:18px}.gate h2{font-size:22px}
+.tkeys button{min-width:46px;padding:0 9px}.tpaste .btn{padding:0 12px}}
 """
 
 # Pinned by hash in the Terminal page's CSP, as ``SCRIPT`` is everywhere. It takes no server
@@ -3000,6 +3011,18 @@ _KEY_ROW = (
 )
 
 
+_TICON = {  # the gate's four facts, drawn as the board draws them
+    "eye": "<svg viewBox='0 0 24 24' aria-hidden=true><path d='M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 "
+    "12 2 12z'/><circle cx=12 cy=12 r=3 /></svg>",
+    "key": "<svg viewBox='0 0 24 24' aria-hidden=true><rect x=2 y=6 width=20 height=12 rx=2 />"
+    "<path d='M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10'/></svg>",
+    "clock": "<svg viewBox='0 0 24 24' aria-hidden=true><circle cx=12 cy=12 r=9 />"
+    "<path d='M12 7v5l3 2'/></svg>",
+    "lock": "<svg viewBox='0 0 24 24' aria-hidden=true><rect x=4 y=11 width=16 height=10 rx=2 />"
+    "<path d='M8 11V7a4 4 0 0 1 8 0v4'/></svg>",
+}
+
+
 def render_terminal(ctx: Ctx, enabled: bool) -> str:
     """The Terminal page: a "confirm it is you" screen, and the live terminal it opens into.
 
@@ -3007,13 +3030,13 @@ def render_terminal(ctx: Ctx, enabled: bool) -> str:
     websocket, after a finished step-up.
     """
     head = (
-        "<div class=term__head><h1>Terminal</h1>"
-        "<p class=mute>Firstmate’s own session, live, as it shows on the PC.</p></div>"
+        "<div class=ph><h1>Terminal</h1>"
+        "<span class=sub>Firstmate’s own session, live, as it shows on the PC.</span></div>"
     )
     if not enabled:
         return _page(
             "Terminal · Hive desk",
-            f"<div class=term id=term>{head}<div class=banner role=status>The Terminal page is "
+            f"{head}<div class='pgb term' id=term><div class=banner role=status>The Terminal page is "
             "switched off on this desk (<code>HIVE_GATEWAY_TERMINAL=off</code>).</div></div>",
             "terminal",
             "",
@@ -3029,26 +3052,28 @@ def render_terminal(ctx: Ctx, enabled: bool) -> str:
     )
     form = ctx.form(
         "terminal",
-        "<button class=danger type=submit>Open terminal</button>",
+        "<button class='btn btn--p' type=submit>Open terminal</button>",
         always=True,
     ).replace("<form ", "<form id=term-open ", 1)
     body = (
-        f"<div class=term id=term>{head}"
+        f"{head}<div class='pgb term' id=term>"
         "<div class=tbar id=term-bar data-s=closed role=status aria-live=polite>"
         "<span class='tstate tstate--closed' id=term-state>Not open</span>"
         "<span class=tbar__who id=term-who>Confirm it is you to open firstmate’s session."
         "</span><span class=tbar__btns>"
-        "<button type=button class=danger id=term-take hidden>Take keyboard</button>"
-        "<button type=button class=quiet id=term-release hidden>Release keyboard</button>"
+        "<button type=button class='btn btn--s' id=term-take hidden>Take keyboard</button>"
+        "<button type=button class='btn btn--s' id=term-release hidden>Release keyboard</button>"
         "</span></div><p class=act-warn id=term-warn role=alert hidden></p>"
-        "<section class=tgate id=term-gate aria-label='Confirm it is you'><div class=card>"
-        "<h2>Confirm it is you</h2>"
-        "<p>The terminal shows firstmate’s own session, exactly as it is on the PC.</p>"
-        "<ul><li>It opens read-only. Typing needs a second confirm: <b>Take keyboard</b>.</li>"
-        "<li>Only one tab can hold the keyboard. It goes back to read-only after 10 minutes "
-        "without typing.</li>"
-        "<li>It closes after 30 minutes. Then confirm again.</li>"
-        "<li>Nothing it shows or you type is saved or logged.</li></ul>"
+        "<section class=tgate id=term-gate aria-label='Confirm it is you'><div class=gate>"
+        "<h2>Confirm it is you</h2><ul class=facts>"
+        f"<li>{_TICON['eye']}<span><b>Opens read-only</b>"
+        "<small>Typing needs a second confirm: Take keyboard.</small></span></li>"
+        f"<li>{_TICON['key']}<span><b>One tab types at a time</b>"
+        "<small>Read-only again after 10 minutes without typing.</small></span></li>"
+        f"<li>{_TICON['clock']}<span><b>Closes after 30 min</b>"
+        "<small>Then confirm again.</small></span></li>"
+        f"<li>{_TICON['lock']}<span><b>Nothing saved or logged</b>"
+        "<small>Not what it shows, not what you type.</small></span></li></ul>"
         f"{form}<p class=tnote id=term-gate-note role=alert></p>"
         "<noscript><p class=tnote>The terminal needs the page script.</p></noscript>"
         "</div></section>"
@@ -3064,8 +3089,9 @@ def render_terminal(ctx: Ctx, enabled: bool) -> str:
         "<div class=tpaste><textarea id=term-paste rows=1 maxlength=4096 disabled "
         "aria-label='Text to send' autocomplete=off autocapitalize=off spellcheck=false "
         "placeholder='Read-only'></textarea>"
-        "<button type=button id=term-send disabled>Send</button>"
-        "<button type=button class=danger id=term-send-enter disabled>Send + Enter</button></div>"
+        "<button type=button class='btn btn--s' id=term-send disabled>Send</button>"
+        "<button type=button class='btn btn--s' id=term-send-enter disabled>Send + Enter</button>"
+        "</div>"
         "<p class=tnote id=term-note role=status aria-live=polite></p></section></div>"
     )
     tail = (

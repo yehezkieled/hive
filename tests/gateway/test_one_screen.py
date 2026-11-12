@@ -104,6 +104,7 @@ PAGES: dict[str, Callable[[Path], str]] = {
     "machine": lambda _: _machine(),
     "run": lambda _: _run(),
     "signins": _signins,  # mid-flow: the sign-in steps above the three cards
+    "terminal": lambda _: pages.render_terminal(pages.Ctx("t"), True),  # the gate: no list
 }
 
 DRIVER = """
@@ -131,5 +132,5 @@ def test_page_is_one_screen(tmp_path: Path, page: str, size: str) -> None:
     for v in r["views"]:
         assert not v["page"] and not v["main"] and not v["side"], v
         assert v["stuck"] == 0, v  # a panel too long for its space scrolls on its own
-    if size.endswith("phone"):  # the data really was too long for one screen
+    if size.endswith("phone") and page != "terminal":  # the data really was too long
         assert any(v["over"] for v in r["views"])
