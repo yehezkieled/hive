@@ -1231,7 +1231,7 @@ firstmate script with an argument list, never a shell string:
 | worker interrupt / relaunch | `fm-control.sh <task> interrupt` or `relaunch --note <text>`, after a confirm page. No exit or teardown. |
 | close review page(s) | `lavish-axi end <file>` (not a firstmate script), once per page, after a confirm step; see Review pages below |
 
-**Firstmate config (`/config`).** Hive keeps no merge rules or worker settings of its
+**Config (`/config`).** Hive keeps no merge rules or worker settings of its
 own. `gateway/fmconfig.py` reads, on every request and read-only, `data/projects.md`
 (delivery mode and `+yolo` per project), `config/crew-dispatch.json`,
 `config/crew-harness` and `config/claude-permission-mode` under
@@ -1265,7 +1265,7 @@ any owner page may `/act/signin-cancel`). They are held in memory while the flow
 runs and never reach the journal, the audit log, firstmate's files, the event
 stream, Web Push or Telegram. Output the desk cannot read offers no link and stops
 the command. Tailscale has no Renew: signing the PC in again from the desk would
-cut the link the desk is reached over, so its row points at Tailscale's admin page.
+cut the link the desk is reached over, so its card points at Tailscale's admin page.
 Each start, result and refusal is one line in `signin-audit.log` and one
 `gateway-audit action=signin` line; starts are limited to 5 in 15 minutes. What
 each sign-in shows, what Renew does and what to do when it fails:
@@ -1328,21 +1328,20 @@ sends (Shift+Enter is a newline), and a sent bubble shows at once and is
 replaced by its receipt (matched on `data-rid`, the request id) as it moves
 from Sent to Seen to Answered.
 
-Home is the **Stack home** (`docs/design/T002-stack-home.html`): the needs-you
-lane as the hero, one card per project and the delegate bar. The lane is the
-backlog across every project (the first mate's and each second mate's), grouped
-by project: captain holds first, marked "waiting on you", then queued tickets (a
-few per project, the rest behind "+N more", which opens a sheet listing the
-group's every item with an "open project" link; without the script it links to
-the Project page). Per project the
-first hold is the expanded card (its answer form unchanged); every other item is
-a compact row. Picking a row (click or tap) animates it into the card slot and
+Home is the desk: Needs you as the hero, Projects, Review pages and the delegate bar.
+Needs you is the backlog across every project (the first mate's and each second
+mate's) in two parts: **Waiting on you**, the captain holds as decision cards, then
+**Held or queued**, the tickets as rows (held, then blocked, then queued, each with
+a state chip and its project; a few per project, the rest behind "+N more ·
+<project>", which opens a sheet listing that project's every item with an "open
+project" link; without the script it links to the Project page). The first decision
+card is open (its answer form unchanged); every other item is a compact row. Picking a row (click or tap) animates it into the card slot and
 the old card drops into the row's place (a short FLIP move; none under
 `prefers-reduced-motion`); the pick survives the page's own refreshes. A second
 click within 450 ms in the same project, on the picked card or at the spot clicked
 first (where the old card now sits), opens the project; a quick click on another
-row picks that row instead. Every item has an explicit "open ↗" (and a card has
-"Open project ↗") for touch, where there is no double click.
+row picks that row instead. An opened item has an explicit "Open project ↗" for
+touch, where there is no double click.
 Without the script every row is a plain link to the project. The card shows a
 short clamp of a one-to-two sentence plain description (tap it, or Enter, for the
 full text in a sheet) of the item (what it is, why it is
@@ -1357,21 +1356,21 @@ cache is `descriptions.json` (mode 0600) under `HIVE_GATEWAY_DATA_DIR`, keyed pe
 item and refreshed when its title, notes, hold reason, state or blockers change;
 a failed turn is retried no sooner than 5 minutes later. The item text is passed
 as quoted data and the reply is only ever shown as escaped text.
-A hold's or decision's own text is shown structured, never as one paragraph: a
-one-line question, then its lettered options (`A)`, `B:` …, a consecutive run
-of at least two) as a short list of a few words each with the recommended one
-marked ("recommend B"), and the full wording behind a native **More**
-disclosure. Text without such a list shows its first sentence, the rest behind
-More. Worker questions, task decisions and merge approvals are not in
-the lane; they show on the Project page. An empty backlog shows a calm "all
-clear · N loops running". Cards come from the snapshot plus every project named
+A hold's or decision's own text is shown as a decision card, never as one
+paragraph: one line on what happened, one line on what it means, then its lettered
+options (`A)`, `B:` …, a consecutive run of at least two) as big buttons of a few
+words each, the recommended one marked **Recommended** (a tap fills the reply), and
+the full wording behind a native **Full text** disclosure. Text without such a list
+shows its first sentence, the rest behind Full text. Worker questions, task decisions and merge approvals are not in
+the lane; they show on the Project page. An empty backlog shows a calm **All
+clear**: "Nothing waits on you." and "Backlog is empty · N loops running". Cards come from the snapshot plus every project named
 in `data/projects.md` of the first mate's home and of each second mate home on
 this host, so a registered project with no backlog rows still shows as idle. A
 card is blocked exactly when it has a needs-you item, else running when a crew
 is `working`, else idle; it shows the activity line and done/total tasks.
 Below the cards, **Review pages** lists every open Lavish review session, read
 only from `HIVE_GATEWAY_LAVISH_STATE`: a short title (the page's `<title>`, else
-the file name), the project when a path component names one, a "reply" tag when
+the file name), the project when a path component names one, a **Reply** chip when
 the agent answered last (those sort first, then newest), and a link to
 `$HIVE_GATEWAY_BOARD_URL/session/<id>`, so it opens on the tailnet from an
 iPhone or iPad. The link is built from the session key only; the recorded local
@@ -1403,21 +1402,30 @@ a small secondary label when they differ; routes, links and requests stay keyed
 by the registry name. Sheets are modal dialogs: they close on the X, a tap
 outside or Escape, scroll on touch, return focus to what opened them and skip
 their animation under `prefers-reduced-motion`. With no card
-selected the bar messages the first mate; a sole project is selected on load. Above the bar sit
-its helper line ("Delegate to … · tapping a project card retargets this bar") and the
-"Updated N min ago" stamp.
+selected the bar messages the first mate; a sole project is selected on load. The bar
+starts with its target ("→ first mate", or the selected project's mate) and ends with
+the "Updated N min ago" stamp (on a phone both sit on a row above the goal); its helper
+line ("Delegate to … · tapping a project card retargets this bar") is screen-reader
+text.
 With the page script running, the bar sends in place (`Accept: application/json`
 on `POST /act/<name>` returns `{ok, message}` instead of an outcome page): the
 desk stays put, shows the result under the bar and takes a fresh request id
-for the next goal. At every size the desk is one screen that fits the viewport
-(sized to the visual viewport, so it holds with the on-screen keyboard open): only
-the content scrolls, and the delegate bar is its last row, flush with the viewport
-bottom (the safe-area inset is padding inside it). From 700×560 px up (PC, laptop,
-iPad) Needs you, Projects and Review pages each scroll on their own (stacked in
-two rows on a portrait tablet), a live refresh keeps each panel's scroll
-position, and anything that would grow opens in a sheet; below that the content
-scrolls as one column. Every other page pads its bottom by the fixed delegate
-bar's height so no row hides behind it.
+for the next goal.
+
+Every desk page is one screen at every size (sized to the visual viewport, so it
+holds with the on-screen keyboard open): the page itself never scrolls, a long list
+scrolls inside its own panel, and rarely used items fold behind a tap. The top bar
+is fixed and identical on every page. On a phone (640 px wide or less) a page with
+several panels shows them as tabs under its title. On the desk the delegate bar is
+the last row, flush with the viewport bottom (the safe-area inset is padding inside
+it); from 1280 px Needs you, Projects and Review pages sit side by side, from 1024 px
+Projects and Review pages share a tabbed column beside Needs you, and from 641 px
+that column sits under Needs you. A live refresh keeps each panel's scroll position,
+and anything that would grow opens in a sheet. The look is the approved **Comb**
+design (`docs/design/comb-redesign.html`; the earlier Stack home is
+`docs/design/T002-stack-home.html`): a cream ground with honey and amber accents and
+a faint honeycomb, light or dark with the device's setting, text and controls at
+WCAG AA contrast.
 The chrome on every page carries the quota chip: the percent **used** in the
 busier of the Claude plan's 5-hour and 7-day windows (calm below 60%, warn from
 60%, hot above 85%). Tapping it lists both plus the Fable week, each with its
@@ -1433,7 +1441,7 @@ refreshed in the background). A window past its reset time is not shown; "—"
 when no 5-hour or 7-day figure is left. The popover ends with a **Get alerts**
 section (the iPhone/iPad Home Screen steps and any Alerts status message); it
 opens only when the chip is tapped and closes on a tap outside or Escape. The desk's fonts
-(IBM Plex Mono, Nunito, Nunito Sans; OFL) are served from `/fonts/`, so the
+(IBM Plex Mono and Familjen Grotesk; OFL) are served from `/fonts/`, so the
 CSP allows `font-src 'self'` and no third-party origin. One fixed inline script,
 pinned by hash in the CSP, localises times and updates pages from the SSE
 stream (below); only while that stream is down does it poll `/chat` every 4 s

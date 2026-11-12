@@ -9,10 +9,11 @@ header is the same one every desk page carries. Its first line links to the
 [Sign-ins page](signins.md), where a sign-in is renewed.
 
 Each row has a state chip with a word (OK, Warning, Down or Unknown), a short
-headline, one line of detail and when it was last checked. A row is **Unknown**
+headline and one line of detail. When the page last checked is in its first line;
+a row whose reading is older says when it was checked. A row is **Unknown**
 when its check did not answer, timed out, is switched off or returned something
-not understood. Unknown never means fine. A red band marks a date inside 3
-days.
+not understood. Unknown never means fine. A date inside 3 days is marked in
+red.
 
 Every date and time is local: the zone of the device you are reading on, or
 `HIVE_GATEWAY_TZ` (Australia/Sydney by default) when the page script is off. A
