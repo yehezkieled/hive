@@ -254,8 +254,6 @@ box-shadow:0 16px 48px var(--shadow);overflow:hidden}
 .sheet__empty{margin:0;padding:14px 0;font-size:15px;color:var(--muted)}
 @keyframes sheet-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
-/* bridge for page sections not yet on Comb; removed once every page is */
-:root{--paper:var(--card);--paper-2:var(--bg);--paper-soft:var(--surface);--paper-shadow:var(--shadow);--ink-2:var(--ink);--ink-3:var(--muted);--ink-4:var(--muted);--rule:var(--line2);--rule-soft:var(--line2);--rule-faint:var(--line);--accent:var(--down);--accent-soft:var(--down-t);--amber:var(--warn);--amber-soft:var(--warn-t);--honey-soft:var(--you-t);--ochre:var(--action);--sage:var(--ok);--sage-soft:var(--ok-t);--bar:var(--ink);--bar-ink:var(--card);--font-mono:var(--fm);--font-sans:var(--ft);--font-display:var(--fd);--mute:var(--muted);--acc:var(--action)}
 /* chat: one screen; the thread scrolls inside its panel and the box stays at the panel's foot */
 .chatpage main{width:min(880px,100% - 2 * var(--gut))}
 .chatpage .banner{flex:none;margin-bottom:12px}
@@ -1357,7 +1355,9 @@ def _page(
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'>"
         "<meta name=color-scheme content='light dark'>"
-        "<meta name=theme-color content='#b4531a'>"
+        # the phone's status bar takes the top bar's colour, in each theme
+        "<meta name=theme-color media='(prefers-color-scheme: light)' content='#fffcf6'>"
+        "<meta name=theme-color media='(prefers-color-scheme: dark)' content='#181512'>"
         "<meta name=mobile-web-app-capable content=yes>"
         "<meta name=apple-mobile-web-app-capable content=yes>"
         "<meta name=apple-mobile-web-app-title content='Hive desk'>"
