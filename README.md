@@ -32,7 +32,10 @@ You (Telegram, optional)   ──►  Hive orchestrator (Python asyncio)
 ```
 
 The gateway is self-contained and does not need the orchestrator (it borrows only the
-headless Claude adapter, to write item descriptions). The
+headless Claude adapter, to write item descriptions). Besides firstmate's scripts, its
+Run page runs a short fixed list of fixes: `systemctl --user` on the desk's own units,
+fleet-up, and verbs of the Windows admin helper (restart WSL, Tailscale or the PC); see
+[docs/run-queue.md](docs/run-queue.md). The
 orchestrator (`python -m hive`) owns the Vault Entity's lifecycle, the
 approval rail, notification fan-out (Telegram, SSE, Web Push, email digest)
 and the legacy web app.

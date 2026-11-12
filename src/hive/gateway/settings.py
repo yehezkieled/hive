@@ -23,6 +23,9 @@ LOOPBACK_PEERS = frozenset({"127.0.0.1", "::1"})
 # Under WSL the PC's own tools are Windows programs; a service's PATH does not list them.
 WINDOWS_TAILSCALE = Path("/mnt/c/Program Files/Tailscale/tailscale.exe")
 WINDOWS_POWERSHELL = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+WINDOWS_SCHTASKS = Path("/mnt/c/Windows/System32/schtasks.exe")
+# The Windows admin helper's data folder (C:\ProgramData\HiveAdmin) as WSL sees it.
+DEFAULT_ADMIN_HELPER = "/mnt/c/ProgramData/HiveAdmin"
 DEFAULT_CLAUDE_CREDENTIALS = "~/.claude/.credentials.json"
 DEFAULT_NET_CHECK = "api.anthropic.com:443"
 _NET_CHECK_RE = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?):([0-9]{1,5})$")
@@ -89,6 +92,10 @@ class GatewaySettings:
     # How old the Machine page's readings may get before a page view starts a new round.
     machine_ttl_s: float = 15.0
 
+    # The Run page's Windows buttons: the admin helper's data folder (request file and audit
+    # log) and schtasks.exe, which starts its task. Either None: no Windows buttons.
+    admin_helper_root: Path | None = None
+    schtasks: Path | None = None
     # The Sign-ins page's login commands. One left as None offers no Renew for that sign-in.
     claude: Path | None = None
     gh: Path | None = None
@@ -130,6 +137,10 @@ class GatewaySettings:
                 env.get("HIVE_GATEWAY_CLAUDE_CREDENTIALS", "").strip()
             ),
             net_check=_net_check(env.get("HIVE_GATEWAY_NET_CHECK", "").strip()),
+            admin_helper_root=_admin_helper(env.get("HIVE_GATEWAY_ADMIN_HELPER", "").strip()),
+            schtasks=_binary(
+                env.get("HIVE_GATEWAY_SCHTASKS", "").strip(), "schtasks.exe", WINDOWS_SCHTASKS
+            ),
             claude=_binary(
                 env.get("HIVE_GATEWAY_CLAUDE", "").strip(),
                 "claude",
@@ -177,6 +188,13 @@ def _net_check(value: str) -> tuple[str, int] | None:
     if m is None or not 0 < int(m[2]) < 65536:
         return None
     return m[1].lower(), int(m[2])
+
+
+def _admin_helper(value: str) -> Path | None:
+    """The admin helper's data folder; ``off`` removes the Run page's Windows buttons."""
+    if value == "off":
+        return None
+    return Path(value or DEFAULT_ADMIN_HELPER).expanduser()
 
 
 def _fleet_up(value: str) -> Path | None:

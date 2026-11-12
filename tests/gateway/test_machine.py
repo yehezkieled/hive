@@ -1089,14 +1089,28 @@ R.end=Math.round(d.querySelector('.mach').getBoundingClientRect().bottom);
 """
 
 
+# The page shows each time against the browser's clock ("just now", or a weekday and date once
+# it is not today), so a layout measured against the real clock changes length day by day.
+# The framed page's clock is held at the readings' time, 30 s after NOW.
+FROZEN_CLOCK = (
+    f"(function(){{var D=Date,T={int((NOW + 30) * 1000)};"
+    "function F(){if(!arguments.length)return new D(T);"
+    "return new (Function.prototype.bind.apply(D,[null].concat([].slice.call(arguments))))();}"
+    "F.now=function(){return T;};F.parse=D.parse;F.UTC=D.UTC;F.prototype=D.prototype;"
+    "window.Date=F;})();"
+)
+
+
 def _framed(tmp_path: Path, page: str, size: tuple[int, int]) -> dict:
     """Lay the page out in a viewport of exactly ``size`` and measure it.
 
     Headless Chrome will not open a window narrower than 500 px, so the page goes in a frame of
     the wanted size: its media queries and its scrolling answer to the frame, as on a device.
+    Its clock is ``FROZEN_CLOCK``, so the times it shows are the same on any day.
     """
     import html as html_mod
 
+    page = page.replace("<script>", f"<script>{FROZEN_CLOCK}</script><script>", 1)
     host = (
         "<!doctype html><html><body style='margin:0'>"
         f"<iframe id=f width={size[0]} height={size[1]} style='border:0;display:block' "
