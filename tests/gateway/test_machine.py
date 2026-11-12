@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from hive import gonedark
 from hive.gateway import machine, pages
 from hive.gateway.app import _safe_next, create_app
 from hive.gateway.live import LiveHub
@@ -1220,3 +1221,67 @@ def test_other_pages_ignore_the_machine_event(tmp_path: Path) -> None:
     page = pages.render_machine(_busy_view(), _ctx()).replace(" data-machine", "")
     r = _in_chrome(tmp_path, page, driver, (820, 1180), prelude=FAKE_LIVE)
     assert r["fetched"] == 0
+
+
+# ---- the gone-dark alarm line ---------------------------------------------------------------
+
+
+def _alarm(on: bool, result: str | None = None, reason: str = "", age: float = 60.0):
+    last = gonedark.Outcome(NOW - age, result, reason) if result else None
+    return machine.Alarm(on, last, 300)
+
+
+@pytest.mark.parametrize(
+    ("alarm", "state", "headline"),
+    [
+        (_alarm(False), "warn", "Off"),
+        (_alarm(True), "warn", "On, no ping yet"),
+        (_alarm(True, "sent"), "ok", "On"),
+        (_alarm(True, "skipped", "the desk is not answering"), "warn", "Ping skipped"),
+        (_alarm(True, "failed", "the ping timed out"), "warn", "Last ping failed"),
+        (_alarm(True, "sent", age=661.0), "warn", "On, not running"),
+        (machine.Unknown(machine.FAILED), "unknown", "Unknown"),
+    ],
+)
+def test_alarm_line_states(alarm: object, state: str, headline: str) -> None:
+    row = view_of(good(gonedark=alarm)).alarm
+    assert row is not None and (row.state, row.headline) == (state, headline)
+
+
+def test_alarm_line_is_left_out_when_not_read() -> None:
+    assert view_of(good()).alarm is None
+
+
+def test_alarm_reads_only_whether_the_config_exists(tmp_path: Path) -> None:
+    env, state = tmp_path / "gonedark.env", tmp_path / "state"
+    assert machine.read_alarm(env, state) == machine.Alarm(False, None, 300)
+    env.write_text("HIVE_GONEDARK_URL=https://hc-ping.example/PLANTED-SECRET\n")
+    env.chmod(0)  # unreadable: the desk never needs to open it
+    state.mkdir()
+    (state / gonedark.STATE_FILE).write_text(
+        json.dumps(
+            {"at": NOW, "result": "skipped", "reason": gonedark.NO_FIRSTMATE, "interval_s": 120}
+        )
+    )
+    got = machine.read_alarm(env, state)
+    assert got == machine.Alarm(True, gonedark.Outcome(NOW, "skipped", gonedark.NO_FIRSTMATE), 120)
+
+
+async def test_the_page_shows_the_alarm_line_and_never_the_address(tmp_path: Path) -> None:
+    env, state = tmp_path / "gonedark.env", tmp_path / "gd-state"
+    env.write_text("HIVE_GONEDARK_URL=https://hc-ping.example/PLANTED-SECRET\n")
+    state.mkdir()
+    (state / gonedark.STATE_FILE).write_text(
+        json.dumps({"at": NOW - 120, "result": "sent", "reason": "", "interval_s": 300})
+    )
+    r = rig(tmp_path, gonedark_env=env, gonedark_state=state)
+    view = view_of(await monitor_for(r).fresh())
+    main = _main(pages.render_machine(view, _ctx()))
+    assert "<h2 class=sec-label>Gone-dark alarm</h2>" in main
+    assert "Gone-dark alarm</b><span class=mrow__head>On</span>" in main
+    assert "Last ping sent" in main and "last ping" in main
+    assert "PLANTED" not in main and "hc-ping" not in main
+    # The alarm is not a link in the chain: the summary still counts the nine.
+    summary = re.search(r"<ul class=mach__sum.*?</ul>", main, re.S)
+    assert summary is not None
+    assert sum(map(int, re.findall(r">(\d+) ", summary.group(0)))) == 9

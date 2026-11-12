@@ -27,6 +27,7 @@ from dataclasses import dataclass, fields
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from hive import gonedark
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.wake import StatusCache, last_activity
 from hive.gateway.watchdog import View
@@ -183,6 +184,15 @@ class Net:
 
 
 @dataclass(frozen=True)
+class Alarm:
+    """The gone-dark alarm: configured or not, and its last tick. Never the address."""
+
+    on: bool
+    last: gonedark.Outcome | None
+    interval_s: int
+
+
+@dataclass(frozen=True)
 class Readings:
     at: float  # when the latest round finished
     boot: Reading[float]  # Windows boot time (epoch)
@@ -194,6 +204,7 @@ class Readings:
     firstmate: Reading[Firstmate]
     claude_expiry: Reading[float]  # the Claude sign-in's expiry (epoch)
     net: Reading[Net]
+    gonedark: Reading[Alarm] | None = None  # None: not set up to be read here
 
 
 # ---- parsers: text in, a typed reading or Unknown out; never raise -------------------------
@@ -446,6 +457,15 @@ def read_uptime(path: Path) -> float | Unknown:
     return text if isinstance(text, Unknown) else parse_uptime(text)
 
 
+def read_alarm(env_file: Path, state_dir: Path) -> Alarm | Unknown:
+    """Whether the gone-dark alarm's config exists (never its contents) and its last tick."""
+    try:
+        on = env_file.is_file()
+    except OSError:
+        return Unknown(FAILED)
+    return Alarm(on, gonedark.read_last(state_dir), gonedark.read_interval(state_dir))
+
+
 def read_claude_expiry(path: Path | None) -> float | Unknown:
     """Only the expiry date is kept; the file's contents never leave this function."""
     if path is None:
@@ -579,6 +599,8 @@ class MachineMonitor:
             "claude_expiry": asyncio.to_thread(read_claude_expiry, s.claude_credentials),
             "net": probe_net(s.net_check),
         }
+        if s.gonedark_env is not None and s.gonedark_state is not None:
+            probes["gonedark"] = asyncio.to_thread(read_alarm, s.gonedark_env, s.gonedark_state)
         kept: dict[str, Reading] = {}
         for name, command, parse in (
             ("boot", PS_BOOT, parse_boot),
@@ -658,6 +680,7 @@ class MachineView:
     risks: tuple[Risk, ...]
     checked_at: float | None  # the latest round; None: none yet
     note: str = ""  # why there are no live readings ("Not checked yet", "Checking")
+    alarm: Row | None = None  # the gone-dark alarm's one line; None: not shown
 
 
 CHAIN = (
@@ -875,6 +898,35 @@ def _internet_row(r: Readings) -> Row:
     return Row(key, label, DOWN, "Not reachable", f"{net.why} from {net.host}", at)
 
 
+ALARM_LABEL = "Gone-dark alarm"
+ALARM_SLACK_S = 60.0  # a tick may land this late before the sender counts as not running
+_ALARM_RESULT = {
+    gonedark.SENT: (OK, "On", "Last ping sent"),
+    gonedark.SKIPPED: (WARN, "Ping skipped", ""),
+    gonedark.FAILED: (WARN, "Last ping failed", ""),
+}
+
+
+def alarm_row(reading: Reading[Alarm | Unknown] | None, now: float) -> Row | None:
+    """On or off, and the last ping's time and result. Nothing else about the alarm."""
+    if reading is None:
+        return None
+    a, key, at = reading.value, "alarm", reading.at
+    if isinstance(a, Unknown):
+        return Row(key, ALARM_LABEL, UNKNOWN, "Unknown", _sentence(a.why), at)
+    if not a.on:
+        detail = "Nothing tells your phone when the PC goes dark: see docs/gone-dark.md"
+        return Row(key, ALARM_LABEL, WARN, "Off", detail, at)
+    if a.last is None:
+        return Row(key, ALARM_LABEL, WARN, "On, no ping yet", "The sender has not run yet", at)
+    last = Moment("last ping", a.last.at)
+    if now - a.last.at > 2 * a.interval_s + ALARM_SLACK_S:
+        detail = "No ping tried lately: the sender is not running"
+        return Row(key, ALARM_LABEL, WARN, "On, not running", detail, at, last)
+    state, headline, detail = _ALARM_RESULT[a.last.result]
+    return Row(key, ALARM_LABEL, state, headline, detail or _sentence(a.last.reason), at, last)
+
+
 def patch_tuesday(year: int, month: int) -> datetime:
     """Microsoft's monthly update release: the second Tuesday, about 18:00 UTC."""
     first = date(year, month, 1)
@@ -964,4 +1016,4 @@ def build_view(
         claude_row(r.claude_expiry, now),
         _internet_row(r),
     )
-    return MachineView(rows, _risks(r, now), r.at)
+    return MachineView(rows, _risks(r, now), r.at, alarm=alarm_row(r.gonedark, now))

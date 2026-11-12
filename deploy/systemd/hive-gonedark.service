@@ -1,0 +1,26 @@
+[Unit]
+Description=Hive gone-dark alarm (python -m hive.gonedark; one outbound HTTPS GET per interval; only when configured)
+After=network-online.target
+Wants=network-online.target
+# Deliberately independent of hive-gateway.service: it checks the desk, it never
+# starts or stops it.
+
+[Service]
+WorkingDirectory=%h/apps/hive
+# Ping address and interval: ~/.config/hive/gonedark.env (0600, written by
+# scripts/gonedark-setup.sh), read by the wrapper, never committed. No port is opened.
+# Exit 1 here means "not configured" or "malformed": the unit is skipped, not failed,
+# and not restarted.
+ExecCondition=%h/apps/hive/scripts/hive-gonedark.sh --check
+ExecStart=%h/apps/hive/scripts/hive-gonedark.sh
+# The gateway's settings, so the health check reads the same desk port and firstmate
+# home (add HIVE_GATEWAY_* overrides here when the gateway has them).
+Environment=HIVE_GATEWAY_PORT=8480
+Restart=always
+RestartSec=30
+# 78 (EX_CONFIG): the config is wrong. Restarting cannot fix that;
+# `scripts/gonedark-setup.sh set` does, and restarts the unit.
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=default.target

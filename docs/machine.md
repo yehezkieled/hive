@@ -35,6 +35,13 @@ Telegram bot's `/health` then ([telegram.md](telegram.md)).
 | Claude sign-in | Days left on the PC's Claude sign-in, and the date it ends. | **Warning (inside 14 days) or Expired:** tap Renew on the [Sign-ins page](signins.md), open the link and paste the code back. If that fails, run `claude auth login` in a terminal at the PC. Once it expires every agent stops, firstmate included. |
 | Internet | One outbound connection from the PC (it sends nothing). | **Not reachable:** check the router or the provider. Agents cannot reach Claude until it is back. |
 
+Below the chain, one **Gone-dark alarm** line (not a link in the chain, not counted in
+the summary). It shows only whether the outbound ping is on and how its last tick went,
+never the address: **Off** (nothing alerts your phone when the PC goes dark), **On**,
+**Ping skipped** or **Last ping failed** with the reason, **On, no ping yet**, or **On,
+not running** (no tick for two intervals: check `hive-gonedark.service`). See
+[gone-dark.md](gone-dark.md).
+
 ## Upcoming risks
 
 Sorted nearest first.

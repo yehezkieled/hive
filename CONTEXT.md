@@ -195,6 +195,14 @@ that, when turned off, silences Telegram's alert-kinds while it stays a
 debug/log surface — Telegram is demoted, never deleted.
 _Avoid_: alerting, push (the role, not the transport).
 
+**Gone-dark alarm**:
+The optional outbound ping (`hive-gonedark.service`) that tells the owner's phone
+when the PC goes dark: while the desk answers, a firstmate session runs and Tailscale is connected, one bare
+HTTPS GET per interval to a hosted dead-man's-switch service; the service alerts when
+the pings stop. The address is a secret, held only in `~/.config/hive/gonedark.env`.
+_Avoid_: heartbeat (that is the Vault runtime's Telegram `/heartbeat` status message
+and the live stream's keep-alive), monitor, uptime check.
+
 ### Billing
 
 **Plan-billed**:

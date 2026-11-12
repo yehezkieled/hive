@@ -75,6 +75,7 @@ def env(tmp_path):
         "FLEET_UP_FAKE_PORTS": "",
         "FLEET_UP_FAKE_FM_PROCESS": "0",
         "RUNTIME_STATUS_CMD": "false",
+        "GONEDARK_STATUS_CMD": "false",
         "HIVE_RUNTIME_PATTERN": NO_RUNTIME,
         "HIVE_DIR": str(tmp_path),
         "TAILSCALE_BIN": str(tmp_path / "no-such-tailscale"),
@@ -249,7 +250,16 @@ def test_env_overrides_config_file(env):
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck not installed")
-@pytest.mark.parametrize("script", ["fleet-up.sh", "hive-telegram.sh", "telegram-setup.sh"])
+@pytest.mark.parametrize(
+    "script",
+    [
+        "fleet-up.sh",
+        "hive-telegram.sh",
+        "telegram-setup.sh",
+        "hive-gonedark.sh",
+        "gonedark-setup.sh",
+    ],
+)
 def test_script_is_shellcheck_clean(script):
     r = subprocess.run(
         ["shellcheck", str(ROOT / "scripts" / script)], capture_output=True, text=True
@@ -414,6 +424,56 @@ def test_runtime_unit_conflicts_with_hive_service_and_is_independent():
     plist = plistlib.loads((DEPLOY / "macos" / "com.hive.telegram.plist").read_bytes())
     assert plist["KeepAlive"] == {"SuccessfulExit": False}
     assert "TELEGRAM_BOT_TOKEN" not in plist.get("EnvironmentVariables", {})
+
+
+def _configure_gonedark(tmp_path):
+    f = tmp_path / ".config" / "hive" / "gonedark.env"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("HIVE_GONEDARK_URL=https://hc-ping.example/secret-check-id\n")
+    f.chmod(0o600)
+
+
+def test_gonedark_step_is_off_without_config(env):
+    e, _ = env
+    r = run(e, "--dry-run", "--only", "gonedark")
+    assert r.returncode == 0
+    assert "gonedark: not starting; hive-gonedark: skipping: off: no ping address" in r.stdout
+    assert "would run" not in r.stdout
+
+
+def test_gonedark_step_starts_the_sender_when_configured(env, tmp_path):
+    e, _ = env
+    _configure_gonedark(tmp_path)
+    r = run(e, "--dry-run", "--only", "gonedark")
+    assert "gonedark: not running; would run: systemctl --user start hive-gonedark.service" in (
+        r.stdout
+    )
+    assert "secret-check-id" not in r.stdout + r.stderr
+    e["GONEDARK_STATUS_CMD"] = "true"
+    assert "gonedark: already running" in run(e, "--dry-run", "--only", "gonedark").stdout
+
+
+def test_gonedark_failure_never_fails_fleet_up(env, tmp_path):
+    e, _ = env
+    _configure_gonedark(tmp_path)
+    e["GONEDARK_START_CMD"] = "false"
+    r = run(e, "--only", "gonedark")
+    assert r.returncode == 0
+    assert "gonedark: start failed (ignored)" in r.stdout
+
+
+def test_gonedark_unit_is_optional_outbound_and_independent():
+    unit = _unit("hive-gonedark.service")
+    assert unit["Service"]["Restart"] == "always"
+    assert unit["Service"]["ExecCondition"].endswith("hive-gonedark.sh --check")
+    assert unit["Service"]["RestartPreventExitStatus"] == "78"
+    assert "EnvironmentFile" not in unit["Service"]
+    assert unit["Install"]["WantedBy"] == "default.target"
+    assert not any(d.startswith("hive-") for d in _deps(unit))
+    plist = plistlib.loads((DEPLOY / "macos" / "com.hive.gonedark.plist").read_bytes())
+    assert plist["KeepAlive"] == {"SuccessfulExit": False}
+    assert plist["ProgramArguments"][-1].endswith("scripts/hive-gonedark.sh")
+    assert "HIVE_GONEDARK_URL" not in plist.get("EnvironmentVariables", {})
 
 
 def test_dry_run_clip_desk_step_and_serve_pair(env):

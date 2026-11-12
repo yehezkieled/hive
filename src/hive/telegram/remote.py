@@ -38,7 +38,7 @@ from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 from hive.gateway.settings import DEFAULT_PORT, GatewaySettings, tailscale_binary
-from hive.gateway.wake import WakeService, ago, last_activity
+from hive.gateway.wake import WakeService, ago, desk_probe, last_activity
 from hive.gateway.watchdog import WatchdogStore
 from hive.telegram.recovery import RecoveryControls
 
@@ -50,7 +50,6 @@ USER_ID_RE = re.compile(r"^[0-9]{1,20}$")
 COMMAND_RE = re.compile(r"^/([A-Za-z_]+)(?:@[A-Za-z0-9_]+)?(?:\s+(\S.*))?$", re.DOTALL)
 DEFAULT_STATE_DIR = "~/.local/state/hive-telegram"
 REJECTED_MARK = "rejected-token.sha256"  # the wrapper skips a token Telegram refused
-PROBE_TIMEOUT_S = 3.0
 TAILSCALE_TIMEOUT_S = 8.0
 UNLISTED_LOG_EVERY_S = 3600.0  # one log line per unlisted sender per hour
 RETRY_FIRST_S = 5.0
@@ -135,27 +134,6 @@ def setup_logging(token: str = "") -> None:
 Probe = Callable[[], Awaitable[str]]
 
 
-async def desk_probe(port: int, timeout_s: float = PROBE_TIMEOUT_S) -> bool:
-    """True when the desk answers HTTP on loopback (any status: it is up)."""
-    try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection("127.0.0.1", port), timeout_s
-        )
-    except (OSError, TimeoutError):
-        return False
-    try:
-        writer.write(b"HEAD / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
-        await writer.drain()
-        line = await asyncio.wait_for(reader.readline(), timeout_s)
-        return line.startswith(b"HTTP/")
-    except (OSError, TimeoutError):
-        return False
-    finally:
-        writer.close()
-        with contextlib.suppress(OSError):
-            await writer.wait_closed()
-
-
 async def tailscale_state(binary: Path | None, timeout_s: float = TAILSCALE_TIMEOUT_S) -> str:
     """One plain phrase for the PC's Tailscale: read only, never changes anything."""
     if binary is None:
@@ -177,6 +155,8 @@ async def tailscale_state(binary: Path | None, timeout_s: float = TAILSCALE_TIME
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         return "unknown (Tailscale did not answer)"
+    if proc.returncode != 0 and not out.strip():
+        return "not connected: Tailscale is not running"
     try:
         data = json.loads(out)
         backend = str(data.get("BackendState", ""))

@@ -47,6 +47,10 @@ commands below use a venv at `.venv/`.
   standalone fixed-command bot (`hive-telegram.service`, the way in when
   Tailscale is down) is set up separately; see [`telegram.md`](telegram.md).
   One token is polled by one process only: the two never run together.
+- **Gone-dark alarm** (optional) — `hive-gonedark.service` pings a hosted
+  dead-man's-switch service while the PC is healthy, so your phone hears when
+  the PC goes dark. Off until `scripts/gonedark-setup.sh set`; see
+  [`gone-dark.md`](gone-dark.md).
 - **GitHub** (optional, for pushing) — `gh auth login` + `git config --global
   user.name/user.email`.
 
@@ -1243,7 +1247,11 @@ firstmate, the Claude sign-in, internet) and the dated risks coming up. It has n
 write action. `gateway/machine.py` reads each link with an unelevated, read-only
 command or file read under a 3 s time-out, off the request path and cached (15 s;
 boot time and installed updates 10 min); a link whose read fails shows `unknown`.
-What each row means and what to do about it: [machine.md](machine.md).
+What each row means and what to do about it: [machine.md](machine.md). Below the
+chain, one **Gone-dark alarm** line shows whether the outbound ping to a
+dead-man's-switch service is on and how its last tick went (never the address); the
+sender is `hive-gonedark.service`, set up with `scripts/gonedark-setup.sh`
+([gone-dark.md](gone-dark.md)).
 
 **Sign-ins (`/signins`, ADR 0036).** In the menu, and linked from the Machine page. It shows the
 state of the Claude, GitHub and Tailscale sign-ins on the PC, and **Renew** for

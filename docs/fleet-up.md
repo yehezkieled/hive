@@ -20,6 +20,10 @@ Files (all shipped in this repo, none installed by it):
 | `scripts/hive-telegram.sh` | Wrapper: reads the private config, skips cleanly when it is missing, malformed, loose, rejected by Telegram, or another Hive runtime runs. |
 | `scripts/telegram-setup.sh` | Writes, rotates or removes the bot's token and allowlist (hidden prompt, mode 0600). |
 | `deploy/macos/com.hive.telegram.plist` | LaunchAgent for the Telegram bot, `KeepAlive` on crash only. |
+| `deploy/systemd/hive-gonedark.service` | The gone-dark alarm (`python -m hive.gonedark`, [gone-dark.md](gone-dark.md)): one outbound ping per interval while the PC is healthy, `Restart=always`, only if configured. |
+| `scripts/hive-gonedark.sh` | Wrapper: reads the private config, skips cleanly when it is missing, malformed or loose. |
+| `scripts/gonedark-setup.sh` | Writes, changes or removes the ping address (hidden prompt, https only, mode 0600). |
+| `deploy/macos/com.hive.gonedark.plist` | LaunchAgent for the gone-dark alarm, `KeepAlive` on crash only. |
 | `deploy/macos/com.hive.gateway.plist` | LaunchAgent, `RunAtLoad` + `KeepAlive`. |
 | `deploy/macos/com.hive.clip-desk.plist` | LaunchAgent for the clip desk, `RunAtLoad` + `KeepAlive`. |
 | `deploy/macos/com.hive.fleet-up.plist` | LaunchAgent, `RunAtLoad` + every 5 minutes, `AbandonProcessGroup` so started services outlive it. |
@@ -27,10 +31,11 @@ Files (all shipped in this repo, none installed by it):
 ## What fleet-up does
 
 In order: Hive gateway (:8480, via the service manager), the clip desk (:8492,
-via `clip-desk.service`), the Telegram bot (via its service), broke-no-more (:3001), the Lavish bridge
+via `clip-desk.service`), the Telegram bot (via its service), the gone-dark alarm (via its
+service, only when configured), broke-no-more (:3001), the Lavish bridge
 (`node lavish-proxy.js`, :4388), the preview server (:8765), then
 `tailscale serve --bg --https=8443..8446,8448` to the local ports (tailnet only,
-never `funnel`), then firstmate. Step names for `--only`: `gateway clipdesk runtime bnm
+never `funnel`), then firstmate. Step names for `--only`: `gateway clipdesk runtime gonedark bnm
 lavish preview serve firstmate`.
 
 Each service step probes its port and only starts what is closed. The
@@ -194,6 +199,14 @@ security note are in [telegram.md](telegram.md).
 | Skipped (not failed) without a sound config | No error loop; fleet-up logs one line per run. |
 | `Conflicts=hive.service`, and the wrapper skips while any `python -m hive` runs | The Vault runtime polls the same token when it has one; two pollers make Telegram answer `409 Conflict`. |
 
+## Gone-dark alarm
+
+`hive-gonedark` runs `python -m hive.gonedark`: one outbound HTTPS GET per interval to
+a dead-man's-switch service, sent only while the desk answers, a firstmate session
+runs and Tailscale is connected, so the phone hears when the PC goes dark. Same rules
+as the bot: its own unit, skipped (not failed) without a sound config, never blocks a
+fleet-up step. Setup, states and the end-to-end check are in [gone-dark.md](gone-dark.md).
+
 ## Windows (WSL) install
 
 Prerequisites, once, inside WSL:
@@ -214,9 +227,11 @@ cp ~/apps/hive/deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 # On WSL Tailscale is the Windows one:
 #   TAILSCALE_BIN='/mnt/c/Program Files/Tailscale/tailscale.exe'
 systemctl --user daemon-reload
-systemctl --user enable --now hive-gateway.service clip-desk.service hive-telegram.service hive-fleet-up.timer
+systemctl --user enable --now hive-gateway.service clip-desk.service hive-telegram.service hive-gonedark.service hive-fleet-up.timer
 # Then give the bot its token (docs/telegram.md):
 ~/apps/hive/scripts/telegram-setup.sh set
+# Optional: the gone-dark alarm's ping address (docs/gone-dark.md):
+~/apps/hive/scripts/gonedark-setup.sh set
 ```
 
 Then, in an elevated PowerShell on Windows:
@@ -246,8 +261,8 @@ rest of the one-sitting setup in [`anywhere-sitting.md`](anywhere-sitting.md).
 ```
 
 ```sh
-systemctl --user disable --now hive-fleet-up.timer hive-gateway.service clip-desk.service hive-telegram.service
-rm ~/.config/systemd/user/{hive-gateway.service,clip-desk.service,hive-telegram.service,hive-fleet-up.service,hive-fleet-up.timer}
+systemctl --user disable --now hive-fleet-up.timer hive-gateway.service clip-desk.service hive-telegram.service hive-gonedark.service
+rm ~/.config/systemd/user/{hive-gateway.service,clip-desk.service,hive-telegram.service,hive-gonedark.service,hive-fleet-up.service,hive-fleet-up.timer}
 systemctl --user daemon-reload
 ```
 
@@ -265,9 +280,11 @@ cp deploy/fleet-up/fleet-up.conf ~/.config/hive/fleet-up.conf
 #   CLIP_DESK_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.clip-desk'
 #   RUNTIME_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.telegram'
 #   RUNTIME_STATUS_CMD='launchctl print gui/$(id -u)/com.hive.telegram | grep -q "pid = "'
+#   GONEDARK_START_CMD='launchctl kickstart gui/$(id -u)/com.hive.gonedark'
+#   GONEDARK_STATUS_CMD='launchctl print gui/$(id -u)/com.hive.gonedark | grep -q "pid = "'
 # Stop any other Hive runtime (python -m hive) first; the job skips while one runs.
 # Give the bot its token with scripts/telegram-setup.sh set (docs/telegram.md).
-for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.fleet-up; do
+for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.gonedark com.hive.fleet-up; do
   sed -e "s#__HIVE_DIR__#$HOME/apps/hive#g" -e "s#__HOME__#$HOME#g" \
     deploy/macos/$f.plist > ~/Library/LaunchAgents/$f.plist
   plutil -lint ~/Library/LaunchAgents/$f.plist
@@ -281,7 +298,7 @@ LaunchAgents start at user login, so enable automatic login (System Settings
 ### macOS uninstall
 
 ```sh
-for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.fleet-up; do
+for f in com.hive.gateway com.hive.clip-desk com.hive.telegram com.hive.gonedark com.hive.fleet-up; do
   launchctl bootout gui/$(id -u)/$f
   rm ~/Library/LaunchAgents/$f.plist
 done

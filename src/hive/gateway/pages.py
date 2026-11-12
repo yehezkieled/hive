@@ -2084,6 +2084,14 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
         f"<p class=stamp>Checked {ctx.time(_iso(view.checked_at))}</p>" if view.checked_at else ""
     )
     note = esc(view.note) or "Nothing to report."
+    a = view.alarm
+    alarm = (
+        "<h2 class=sec-label>Gone-dark alarm</h2><ul class=mlist>"
+        + _mrow(a.state, False, a.label, a.headline, [esc(a.detail), _moment(a.moment, ctx)], "")
+        + "</ul>"
+        if a is not None
+        else ""
+    )
     return _page(
         "Machine · Hive desk",
         "<div class=mach><div class=mach__head><h1>Machine</h1>"
@@ -2098,7 +2106,7 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
         )
         + "</div>"
         "<div class=mach__cols><section class=mach__col><h2 class=sec-label>The chain</h2>"
-        f"<ol class=mlist>{rows}</ol></section>"
+        f"<ol class=mlist>{rows}</ol>{alarm}</section>"
         "<section class=mach__col><h2 class=sec-label>Upcoming risks</h2>"
         + (f"<ul class=mlist>{risks}</ul>" if risks else f"<p class=mute>{note}</p>")
         + "</section></div></div>",
