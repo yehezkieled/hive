@@ -441,19 +441,34 @@ font:600 15px/1.35 var(--ft);box-shadow:0 8px 24px var(--shadow)}
 .dbar__row>.stamp{order:2;margin-left:auto}
 input.dbar__in{order:3;flex:1 1 calc(100% - 150px)}
 .dbar__go{order:4}}
-.cfg h2{margin:1.2rem 0 .4rem}
-.cfg .tblw{overflow-x:auto;border:1.5px solid var(--rule-soft);border-radius:10px;background:var(--paper)}
-.cfg table{border-collapse:collapse;width:100%;font-size:.88rem}
-.cfg th,.cfg td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule-faint);vertical-align:top;overflow-wrap:anywhere}
-.cfg th{font:700 9.5px var(--font-mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-3)}
-.cfg th{white-space:nowrap}.cfg td:first-child{white-space:nowrap}
-.cfg tr:last-child td{border-bottom:0}
-.cfg .unk{color:var(--accent);font-weight:700}
-.cfg ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.cfg li{background:var(--paper);border:1.5px solid var(--rule-soft);border-radius:10px;padding:9px 11px;min-width:0}
-.cfg .when{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:.88rem}
-.cfg .prof{font:11px var(--font-mono);color:var(--ink-2);margin-top:4px;overflow-wrap:anywhere}
-.cfg .kv{font:12px var(--font-mono);display:flex;flex-wrap:wrap;gap:4px 14px;margin:0}
+/* config: merge posture beside the worker panels; phone tabs between the two */
+.cfg{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.cfg__col{display:flex;flex-direction:column;gap:16px;min-height:0;min-width:0}
+.cfg__col>.cfg__prof{flex:1 1 0}
+.cfg__col>.pn:last-child{flex:none}
+.cfg .unk{color:var(--down);font-weight:600;overflow-wrap:anywhere}
+.tbl{width:100%;border-collapse:collapse;font-size:15px}
+.tbl th{position:sticky;top:0;z-index:1;height:40px;padding:0 12px 0 0;background:var(--card);border-bottom:1px solid var(--line2);
+font-size:13px;font-weight:600;color:var(--muted);text-align:left;white-space:nowrap}
+.tbl td{height:40px;padding:0 12px 0 0;border-bottom:1px solid var(--line)}
+.tbl th:last-child,.tbl td:last-child{padding-right:0}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td:first-child{font-weight:600;overflow-wrap:anywhere}
+.prof{list-style:none;margin:0;padding:0}
+.prof li{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.prof li:first-child{padding-top:0}
+.prof li:last-child{border-bottom:0}
+.prof__w{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:15px}
+.ms{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:10px 18px;align-items:center;margin:0;font-size:16px}
+.kv dt{color:var(--muted);font-size:15px}
+.kv dd{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0;min-width:0}
+@container pn (max-width:400px){
+.tbl thead{display:none}
+.tbl tr{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.tbl tr:last-child{border-bottom:0}
+.tbl td{height:auto;padding:0;border:0}
+.tbl td:first-child{flex-basis:100%}}
 .sec-label{font:700 9.5px var(--font-mono);letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-3);margin:2px 2px -4px}
 form.is-sent button{opacity:.75}
 /* the Machine page: the chain that has to hold and the upcoming risks; read-only */
@@ -2068,64 +2083,104 @@ def _cfg_note(error: str) -> str:
     return f"<p class=unk>unknown: {esc(error)}</p>"
 
 
-def _profile_line(p: fmconfig.Profile) -> str:
-    parts = (p.harness, p.model or "harness default model", p.effort or "default effort")
-    return " · ".join(esc(x) for x in parts)
+def _profile_tags(p: fmconfig.Profile) -> str:
+    """One worker profile as tags: harness, model and effort; a default reads as plain text."""
+    tags = [f"<span class=tag>{esc(p.harness)}</span>"]
+    tags.append(
+        f"<span class=tag>{esc(p.model)}</span>"
+        if p.model
+        else "<span class=meta>harness default model</span>"
+    )
+    tags.append(
+        f"<span class=tag>{esc(p.effort)}</span>"
+        if p.effort
+        else "<span class=meta>default effort</span>"
+    )
+    return f"<span class=ms>{''.join(tags)}</span>"
 
 
 def render_config(cfg: fmconfig.FmConfig, ctx: Ctx) -> str:
     """Firstmate's merge posture and worker profiles, read-only. A source that cannot be
     read shows ``unknown`` with the reason; the page itself never fails."""
     pr = cfg.projects
+    count = ""
     if pr.error:
-        merge = _cfg_note(pr.error)
+        merge = f"<div class='pn__b'>{_cfg_note(pr.error)}</div>"
     else:
         rows = [
-            f"<tr><td>{esc(n)}</td><td>{esc(p.mode)}</td><td>{'on' if p.yolo else 'off'}</td></tr>"
+            f"<tr><td>{esc(n)}</td><td><span class=tag>{esc(p.mode)}</span></td>"
+            f"<td>{_sc('run', 'On') if p.yolo else _sc('q', 'Off')}</td></tr>"
             for n, p in sorted(pr.postures.items())
         ] + [
             f"<tr><td>{esc(n)}</td><td colspan=2 class=unk>unknown: {esc(why)}</td></tr>"
             for n, why in sorted(pr.ambiguous.items())
         ]
+        count = str(len(rows))
         merge = (
-            "<div class=tblw><table><thead><tr><th>Project</th><th>Delivery</th><th>Yolo</th>"
-            f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+            "<div class='pn__b pn__b--flush'><table class=tbl><thead><tr><th>Project</th>"
+            f"<th>Delivery</th><th>Yolo</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
         )
     d = cfg.dispatch
+    rules = ""
     if d.error:
         profiles = _cfg_note(d.error)
     else:
         items = [
-            f"<li><div class=when title='{esc(r.when)}'>{esc(r.when)}</div>"
-            f"<div class=prof>{'<br>'.join(_profile_line(p) for p in r.profiles)}</div></li>"
+            f"<li><span class=prof__w title='{esc(r.when)}'>{esc(r.when)}</span>"
+            f"{''.join(_profile_tags(p) for p in r.profiles)}</li>"
             for r in d.rules
         ]
         if d.default:
             items.append(
-                "<li><div class=when>Anything else (default)</div>"
-                f"<div class=prof>{'<br>'.join(_profile_line(p) for p in d.default)}</div></li>"
+                "<li><span class=prof__w>Anything else (default)</span>"
+                f"{''.join(_profile_tags(p) for p in d.default)}</li>"
             )
-        profiles = f"<ul>{''.join(items)}</ul>"
-    harness = _cfg_note(cfg.harness.error) if cfg.harness.error else esc(cfg.harness.text)
+        rules = str(len(items))
+        profiles = f"<ul class=prof>{''.join(items)}</ul>"
     if cfg.harness.absent:
-        harness = "not set"
-    perm = _cfg_note(cfg.permission.error) if cfg.permission.error else esc(cfg.permission.text)
-    if cfg.permission.absent:
-        perm += " (default)"
+        harness = "<span class=meta>not set</span>"
+    elif cfg.harness.error:
+        harness = _cfg_note(cfg.harness.error)
+    else:
+        harness = f"<span class=tag>{esc(cfg.harness.text)}</span>"
+    if cfg.permission.error:
+        perm = _cfg_note(cfg.permission.error)
+    else:
+        perm = f"<span class=tag>{esc(cfg.permission.text)}</span>"
+        if cfg.permission.absent:
+            perm += " <span class=meta>default</span>"
     gate = cfg.workers_ready
     ready = (
-        f"<p class=unk>Workers will not start: {esc(gate)}</p>"
+        f"{_sc('down', 'Will not start')} <span class=meta>{esc(gate)}</span>"
         if gate
-        else "<p class=mute>Workers can start from these settings.</p>"
+        else _sc("ok", "Can start")
     )
+
+    def hexn(n: str) -> str:
+        return f"<span class='hexn hexn--q'>{n}</span>" if n else ""
+
     return _page(
         "Config · Hive desk",
-        "<div class=cfg><h1>Firstmate config</h1>"
-        "<p class=mute>Read from firstmate on each load. Hive keeps no copy and cannot edit it.</p>"
-        f"<h2>Merge posture</h2>{merge}"
-        f"<h2>Worker profiles</h2>{profiles}"
-        f"<h2>Worker launch</h2><p class=kv><span>Crew harness: {harness}</span>"
-        f"<span>Claude permission mode: {perm}</span></p>{ready}</div>",
+        f"<div class=ph><h1>Config</h1>{_sc('q', 'Read-only')}"
+        "<span class=sub>From firstmate on each load. Hive cannot edit it.</span></div>"
+        "<div class='pgb cfg' data-tabs>"
+        + _tabs(
+            "p",
+            [
+                ("posture", "Merge posture", int(count) if count else None),
+                ("workers", "Workers", None),
+            ],
+            "posture",
+        )
+        + "<section class='pn is-on' data-tp=posture><div class=pn__h><h2>Merge posture</h2>"
+        f"{hexn(count)}</div>{merge}</section>"
+        "<div class=cfg__col data-tp=workers>"
+        f"<section class='pn cfg__prof'><div class=pn__h><h2>Worker profiles</h2>{hexn(rules)}</div>"
+        f"<div class=pn__b>{profiles}</div></section>"
+        "<section class=pn><div class=pn__h><h2>Worker launch</h2></div><div class=pn__b>"
+        f"<dl class=kv><dt>Crew harness</dt><dd>{harness}</dd>"
+        f"<dt>Claude permission mode</dt><dd>{perm}</dd>"
+        f"<dt>Workers</dt><dd>{ready}</dd></dl></div></section></div></div>",
         "config",
         "",
         ctx,
