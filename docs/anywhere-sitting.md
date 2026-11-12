@@ -86,7 +86,7 @@ sleep 70; grep -cE 'https?://' /mnt/c/ProgramData/HiveAdmin/audit.log
 | `result=rejected` for the malformed request | Request text was rejected; nothing ran. |
 | `result=ok` then `result=ignored`, and `request removed` after each run | The nonce was consumed once and the request file was removed each time. |
 | `0` from the URL check | No authentication links remain in the audit log; links and tokens are redacted. |
-| `ERROR: Access is denied.` | The PC does not let a normal window start the helper. Note it for firstmate and go on. Nothing else depends on it yet. |
+| `ERROR: Access is denied.` | The PC does not let a normal window start the helper. Note it for firstmate and go on. Until this works, the desk's Run page offers no Windows button. |
 | No `pong` line after 30 seconds | Run the last line again. Still nothing: note it for firstmate and go on. |
 
 ### 3. Renew the Claude sign-in (5 minutes)

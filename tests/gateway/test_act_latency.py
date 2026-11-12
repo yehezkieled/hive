@@ -11,7 +11,10 @@ hang on the same switch, and the page answers from what it has instead of waitin
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import signal
 import stat
 import time
 from collections.abc import Callable, Iterator
@@ -100,12 +103,52 @@ def client(home: Path) -> Iterator[TestClient]:
         systemctl=home / "probe",
     )
     app = create_app(settings, tokens=CSRF)
+    before = _descendants()
     # One event loop for the whole test (as in production), so a run left going survives.
     with TestClient(app, client=("127.0.0.1", 5000), follow_redirects=False) as c:
         page = c.get("/", headers={k: v for k, v in GOOD.items() if k != "accept"})
         assert page.status_code == 200
         (home / "slow").write_text("")  # from here on everything firstmate runs is slow
         yield c
+        # A run left going is still a child process (with its own children). The test is over,
+        # so end the ones this test started (not any that were already there) and let the loop
+        # reap them while it is open; a transport collected after the loop is gone warns
+        # "Event loop is closed".
+        _end_leftover_runs(before)
+
+
+def _parents() -> dict[str, str]:
+    """Every process's parent, by pid (zombies included: they are not reaped yet)."""
+    parent = {}
+    for d in Path("/proc").iterdir():
+        if d.name.isdigit():
+            try:
+                parent[d.name] = (d / "stat").read_text().rsplit(")", 1)[1].split()[1]
+            except (OSError, IndexError):
+                continue  # gone already
+    return parent
+
+
+def _descendants() -> set[str]:
+    """This process's children, their children and so on, by pid."""
+    parent = _parents()
+    found, todo = set(), [str(os.getpid())]
+    while todo:
+        p = todo.pop()
+        kids = [k for k, v in parent.items() if v == p]
+        found.update(kids)
+        todo += kids
+    return found
+
+
+def _end_leftover_runs(before: set[str], timeout_s: float = 5) -> None:
+    new = _descendants() - before
+    for pid in new:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(int(pid), signal.SIGKILL)
+    deadline = time.monotonic() + timeout_s
+    while new & _parents().keys() and time.monotonic() < deadline:
+        time.sleep(0.02)
 
 
 def act(client: TestClient, name: str, **fields: str):
@@ -147,6 +190,12 @@ CASES: dict[str, Callable[[str], dict]] = {
         "verb": "relaunch",
         "note": "pick up",
         "step": CSRF.step_up("control", f"alpha-build:relaunch:{rid}"),
+    },
+    # the fake systemctl ("probe") hangs while the switch is on, so the run is still going
+    "run": lambda rid: {
+        "rid": rid,
+        "do": "restart-clipdesk",
+        "step": CSRF.step_up("run", f"restart-clipdesk:-:{rid}"),
     },
     "review-close": lambda rid: {
         "rid": rid,

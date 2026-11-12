@@ -60,7 +60,8 @@ loop is what actually holds WSL up.
 ## The admin helper
 
 One elevated task, started on demand, that runs one verb from a fixed list.
-Nothing calls it yet; the desk's Run queue (a later piece) will.
+The desk's Run page is its one caller ([docs/run-queue.md](../../docs/run-queue.md)): each Windows
+button writes one request, starts the task and reads this audit log for the reply.
 
 ### Verbs
 

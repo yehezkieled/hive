@@ -1089,22 +1089,28 @@ R.end=Math.round(d.querySelector('.mach').getBoundingClientRect().bottom);
 """
 
 
+# The page shows each time against the browser's clock ("just now", or a weekday and date once
+# it is not today), so a layout measured against the real clock changes length day by day.
+# The framed page's clock is held at the readings' time, 30 s after NOW.
+FROZEN_CLOCK = (
+    f"(function(){{var D=Date,T={int((NOW + 30) * 1000)};"
+    "function F(){if(!arguments.length)return new D(T);"
+    "return new (Function.prototype.bind.apply(D,[null].concat([].slice.call(arguments))))();}"
+    "F.now=function(){return T;};F.parse=D.parse;F.UTC=D.UTC;F.prototype=D.prototype;"
+    "window.Date=F;})();"
+)
+
+
 def _framed(tmp_path: Path, page: str, size: tuple[int, int]) -> dict:
     """Lay the page out in a viewport of exactly ``size`` and measure it.
 
     Headless Chrome will not open a window narrower than 500 px, so the page goes in a frame of
     the wanted size: its media queries and its scrolling answer to the frame, as on a device.
-    The frame's clock is pinned to ``NOW``: the page words each time against the browser's
-    clock ("just now", "Wed, 11 Nov, 4:00 pm"), so a real clock would change the layout by date.
+    Its clock is ``FROZEN_CLOCK``, so the times it shows are the same on any day.
     """
     import html as html_mod
 
-    pin = (
-        f"<script>(function(){{var T={int(NOW * 1000)},D=Date;class F extends D{{"
-        "constructor(...a){if(a.length)super(...a);else super(T);}static now(){return T;}}"
-        "window.Date=F;})();</script>"
-    )
-    page = page.replace("<head>", "<head>" + pin, 1)
+    page = page.replace("<script>", f"<script>{FROZEN_CLOCK}</script><script>", 1)
     host = (
         "<!doctype html><html><body style='margin:0'>"
         f"<iframe id=f width={size[0]} height={size[1]} style='border:0;display:block' "

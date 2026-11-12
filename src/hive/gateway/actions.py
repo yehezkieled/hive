@@ -125,6 +125,7 @@ class RunOnce:
         wait_s: float | None = None,
         pending: tuple[str, str] = ("", ""),
         on_success: Callable[[], None] | None = None,
+        summary: str = "",
     ) -> Outcome:
         now = time.time()
         self._runs = {k: v for k, v in self._runs.items() if v[0] > now}
@@ -154,7 +155,7 @@ class RunOnce:
         self._answered_pending.add(request_id)
         action, subject = pending
         audit(action or "act", subject or "-", "pending", request_id=request_id)
-        return Outcome(action, subject, PENDING_SUMMARY, pending=True)
+        return Outcome(action, subject, summary or PENDING_SUMMARY, pending=True)
 
 
 # ---- running scripts --------------------------------------------------------------
