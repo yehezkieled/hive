@@ -534,42 +534,51 @@ background:var(--paper);border:1.5px solid var(--ink-4);border-radius:999px;padd
 .mrow__side{font:10px var(--font-mono);color:var(--ink-3);text-align:right;white-space:nowrap}
 .mrow__due{font-weight:700;font-size:11px;color:var(--ink)}
 @media (max-width:480px){.mrow{grid-template-columns:auto minmax(0,1fr)}.mrow__side{grid-column:2;text-align:left}}
-/* the Run page: fixed fix buttons and the last runs */
-.runq{display:flex;flex-direction:column;gap:10px}
-.runq__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
-.runq__col{display:flex;flex-direction:column;gap:8px;min-width:0}
-.runq__col h2{margin:8px 2px -2px}.runq__col h2:first-child{margin-top:2px}
-@media (min-width:1000px){.runq__cols{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}
-/* the runs column is narrow: each run's time goes under its words, its chip at the top */
-.rqrun{grid-template-columns:auto minmax(0,1fr);align-items:start}.rqrun .mrow__side{grid-column:2;text-align:left}}
-.runq .banner{margin:0}.runq .banner p{margin:0}.runq .banner p+p{margin-top:4px}
-.rqlist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.rq{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:4px 14px;min-width:0;
-background:var(--paper);border:1.5px solid var(--rule-soft);border-left:4px solid var(--ink-4);border-radius:10px;padding:10px 12px}
-.rq--down{border-left-color:var(--accent)}.rq--off{background:var(--paper-soft);border-left-color:var(--rule-soft)}
-.rq__top{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
-.rq__top b{font:800 14px var(--font-display)}
-.rq__took{font:10px var(--font-mono);color:var(--ink-3);white-space:nowrap}
-.rq__what{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
-.rq__cmd{display:inline-block;max-width:100%;margin-top:6px;font:11px/1.4 var(--font-mono);color:var(--ink);
-background:var(--paper-soft);border:1px solid var(--rule-faint);border-radius:6px;padding:3px 7px;overflow-wrap:anywhere}
-.rq__off{margin:6px 0 0;font:700 11px var(--font-mono);color:var(--ink-3)}
-.rq form{margin:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center;max-width:300px}
-.rq form label{margin:0;font-size:12px}
-.rq select{width:auto;min-height:44px;padding:0 8px}
-.rq button{white-space:nowrap}
-.rq form .act-warn,.rq form .act-err,.rq form .act-ok{flex-basis:100%;text-align:left}
-/* the confirm step's words: read first, then tap; calm, with a red edge on the ones that take things down */
-.rq form .act-warn{order:-1;margin:2px 0 4px;font-family:inherit;font-size:13px;line-height:1.45;font-weight:600;
-letter-spacing:0;color:var(--ink);background:var(--paper-soft);border:1px solid var(--rule-soft);
-border-left:3px solid var(--ink-4);border-radius:8px;padding:8px 10px}
-.rq--down form .act-warn{border-left-color:var(--accent)}
-.act-ok{font:700 11px/1.4 var(--font-mono);color:var(--sage);margin:6px 0 0;white-space:normal}
-@media (max-width:640px){.rq{grid-template-columns:minmax(0,1fr)}.rq form{justify-content:flex-start;max-width:none}}
-.rqnote{margin:0;font-size:12px;color:var(--ink-3)}
-.rqrun .mrow__detail{white-space:normal}.rqrun .mstate{min-width:100px}
-/* an armed or answered button's words take the card's whole width, under its text */
-.rq form[data-step],.rq form.is-shown{grid-column:1/-1;max-width:none;justify-content:flex-start}
+/* the Run page: the Linux fixes, the Windows fixes and the last runs, side by side */
+.run{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (min-width:641px) and (max-width:1179px){
+.run{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-rows:fit-content(55%) minmax(0,1fr)}
+.run>[data-tp=runs]{grid-column:2;grid-row:1/3}.run>[data-tp=linux]{grid-column:1;grid-row:1}.run>[data-tp=win]{grid-column:1;grid-row:2}}
+.ars,.runs{list-style:none;margin:0;padding:0}
+.ar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.ar:first-child{padding-top:0}
+.ar:last-child{border-bottom:0}
+.ar__t{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap}
+.ar__t b{font-weight:600;font-size:15px}
+.ar__d{grid-column:1;min-width:0;font-size:13px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ar__cmd{grid-column:1;min-width:0;font:12px/1.4 var(--fm);color:var(--muted);overflow-wrap:anywhere}
+.ar__off{grid-column:1/-1;font-size:13px;font-weight:600;color:var(--muted)}
+.ar>form,.ar>button{grid-row:1/4;grid-column:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin:0;max-width:260px}
+.ar form label{font-size:13px;color:var(--muted)}
+.ar select{width:auto;min-height:44px;padding:0 10px}
+.ar button{white-space:nowrap}
+.ar--off .ar__t,.ar--off .ar__d,.ar--off .ar__cmd{opacity:.72}
+/* the first tap: the card turns amber, its words take the whole width, read first, then tap */
+.ar:has(form[data-step]){margin:0 -10px;padding:10px;border-radius:var(--r2);background:var(--warn-t);border-bottom-color:transparent}
+.ar>form[data-step],.ar>form.is-shown{grid-column:1/-1;grid-row:auto;max-width:none;justify-content:flex-start;margin-top:8px}
+.ar:has(form[data-step]) .ar__d,.ar:has(form[data-step]) .ar__cmd{display:none}
+.ar form .act-warn,.ar form .act-err,.ar form .act-ok{flex-basis:100%;margin:0;text-align:left}
+.ar form .act-warn{order:-1;padding:8px 10px;border-radius:var(--r1);background:var(--card);font:600 14px/1.45 var(--ft);color:var(--ink);overflow-wrap:anywhere}
+.ar--down form .act-warn{box-shadow:inset 3px 0 0 var(--down)}
+.note{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:6px;border-radius:var(--r2);background:var(--warn-t);font-size:14px}
+.note>span:last-child{flex:1 1 220px}
+.run__lead{margin-bottom:6px}
+.fold{margin-top:6px;border-top:1px solid var(--line)}
+.fold summary{display:flex;align-items:center;min-height:44px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;list-style:none}
+.fold summary::-webkit-details-marker{display:none}
+.fold summary::after{content:"Show";margin-left:auto;color:var(--ink);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
+.fold[open] summary::after{content:"Hide"}
+.fold ul{list-style:none;margin:0;padding:0}
+.fold li{padding:6px 0;font-size:14px}
+.fold li span{display:block;color:var(--muted);font-size:13px}
+.runrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.runrow:first-child{padding-top:0}
+.runrow:last-child{border-bottom:0}
+.runrow b{font-weight:600;overflow-wrap:anywhere}
+.runrow .d{grid-column:2;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.runrow .d time{white-space:nowrap}
+@container pn (max-width:340px){.ar{grid-template-columns:minmax(0,1fr)}.ar>form{grid-row:auto;grid-column:1;justify-content:flex-start;max-width:none;margin-top:6px}
+.ar>button{grid-row:auto;grid-column:1;justify-self:start;margin-top:6px}}
 /* the Sign-ins page: each sign-in's state, and the one renewal that may be running */
 .sgrow__act{display:flex;flex-direction:column;align-items:flex-end;min-width:0}
 .sgrow__act form{margin:0;display:flex;flex-direction:column;align-items:flex-end}
@@ -2399,17 +2408,12 @@ def _secs(seconds: float | None) -> str:
 
 
 def _run_card(card: runqueue.Card, ctx: Ctx) -> str:
-    """One fix button: what it does, the exact command or helper verb, how long it takes."""
+    """One fix button: what it does, how long it takes, the exact command or helper verb."""
     a = card.action
-    cls = "rq" + (" rq--down" if a.down else "") + (" rq--off" if card.why_not else "")
-    body = (
-        f"<div class=rq__body><div class=rq__top><b>{esc(a.label)}</b>"
-        f"<span class=rq__took>{esc(a.took)}</span></div>"
-        f"<p class=rq__what>{esc(a.plain)}</p><code class=rq__cmd>{esc(a.command())}</code>"
-        + (f"<p class=rq__off>{esc(card.why_not)}</p>" if card.why_not else "")
-        + "</div>"
-    )
-    form = ""
+    cls = "ar" + (" ar--down" if a.down else "") + (" ar--off" if card.why_not else "")
+    # off: a disabled button; its reason is said once by the Windows note when it is the same
+    form = "<button class='btn btn--s' type=button disabled>Run</button>"
+    off = card.why_not if card.why_not and card.why_not != runqueue.NOT_SET_UP else ""
     if not card.why_not:
         pick = ""
         if a.choice:
@@ -2419,71 +2423,97 @@ def _run_card(card: runqueue.Card, ctx: Ctx) -> str:
                 for v in a.choices
             )
             pick = f"<label for={fid}>For</label><select id={fid} name=n>{opts}</select>"
-        cls_b = " class=danger" if a.down else ""
+        btn = "btn btn--s btn--danger" if a.down else "btn btn--s"
         form = ctx.form(
-            "run", f"{pick}<button{cls_b} type=submit>Run</button>", always=True, do=a.key
+            "run", f"{pick}<button class='{btn}' type=submit>Run</button>", always=True, do=a.key
         )
-    return f"<li class='{cls}'>{body}{form}</li>"
+    return (
+        f"<li class='{cls}'><div class=ar__t><b>{esc(a.label)}</b>"
+        f"<span class=meta>{esc(a.took)}</span></div>{form}"
+        f"<p class=ar__d title='{esc(a.plain)}'>{esc(a.plain)}</p>"
+        f"<code class=ar__cmd>{esc(a.command())}</code>"
+        + (f"<p class=ar__off>{esc(off)}</p>" if off else "")
+        + "</li>"
+    )
 
 
 def _run_row(r: runqueue.Run, owner: str, ctx: Ctx) -> str:
     row, chip, word = _RUN_RESULT.get(r.result, _RUN_RESULT[runqueue.UNKNOWN])
     who = "you" if r.who == owner else machine.redact(r.who or "-", 40)
     took = _secs(r.duration_s)
-    detail = " · ".join(x for x in (esc(r.detail), f"took {took}" if took else "") if x)
+    line = " · ".join(
+        x
+        for x in (f"by {esc(who)}", ctx.time(_iso(r.start)), esc(r.detail), took and f"took {took}")
+        if x
+    )
     return (
-        f"<li class='mrow mrow--{row} rqrun'><span class='mstate mstate--{chip}'>{word}</span>"
-        f"<div class=mrow__body><div class=mrow__top><b>{esc(r.label)}</b>"
-        f"<span class=mrow__head>by {esc(who)}</span></div>"
-        + (f"<p class=mrow__detail>{detail}</p>" if detail else "")
-        + f"</div><span class=mrow__side>{ctx.time(_iso(r.start))}</span></li>"
+        f"<li class='runrow runrow--{row}'>{_sc(_MCHIP.get(chip, chip), word)}"
+        f"<b>{esc(r.label)}</b><span class=d>{line}</span></li>"
     )
 
 
 def _helper_note(state: str) -> str:
     if state == runqueue.READY:
         return (
-            "<p class=rqnote>Through the admin helper only: each button writes one request "
-            "line for it and starts its task, and its answer is shown below.</p>"
+            "<p class='meta run__lead'>Through the admin helper only: each button writes one "
+            "request line for it and starts its task, and its answer is shown below.</p>"
         )
-    more = (
-        "It has not answered the desk yet. If the sitting is done, tap Check the admin "
-        "helper; the other Windows buttons are offered once it answers."
+    chip, more = (
+        (
+            "Not answered",
+            "It has not answered the desk yet. If the sitting is done, tap Check the admin "
+            "helper; the other Windows buttons are offered once it answers.",
+        )
         if state == runqueue.UNPROVEN
-        else "The one sitting at the PC sets it up. Until then no Windows button is offered."
+        else (
+            "Not set up",
+            "The one sitting at the PC sets it up. Until then no Windows button is offered.",
+        )
     )
     return (
-        f"<div class=banner role=status><p><b>{esc(runqueue.NOT_SET_UP)}</b></p>"
-        f"<p class=mute>{esc(more)} ({esc(runqueue.SITTING)})</p></div>"
+        f"<div class=note role=status>{_sc('warn', chip)}<span><b>{esc(runqueue.NOT_SET_UP)}</b> "
+        f"{esc(more)} ({esc(runqueue.SITTING)})</span></div>"
     )
 
 
 def render_run(view: runqueue.RunView, ctx: Ctx) -> str:
     """The Run page: fixed fix buttons, then the last runs. Nothing runs from a page load;
     each button needs a confirm step (two for the ones that take things down)."""
-    linux = "".join(_run_card(c, ctx) for c in view.cards if c.action.side == "linux")
-    windows = "".join(_run_card(c, ctx) for c in view.cards if c.action.side == "windows")
-    windows += "".join(
-        "<li class='rq rq--off'><div class=rq__body><div class=rq__top>"
-        f"<b>{esc(label)}</b></div><p class=rq__what>{esc(why)}</p>"
-        "<p class=rq__off>Not offered.</p></div></li>"
-        for label, why in view.not_offered
+    linux = [c for c in view.cards if c.action.side == "linux"]
+    windows = [c for c in view.cards if c.action.side == "windows"]
+    fold = (
+        f"<details class=fold><summary>Not offered · {len(view.not_offered)}</summary><ul>"
+        + "".join(
+            f"<li>{esc(label)}<span>{esc(why)}</span></li>" for label, why in view.not_offered
+        )
+        + "</ul></details>"
+        if view.not_offered
+        else ""
     )
     rows = "".join(_run_row(r, view.owner, ctx) for r in view.runs)
-    runs = f"<ol class=mlist>{rows}</ol>" if rows else "<p class=mute>No runs yet.</p>"
+    runs = f"<ol class=runs>{rows}</ol>" if rows else "<p class=empty>No runs yet.</p>"
     return _page(
         "Run · Hive desk",
-        "<div class=runq><div class=mach__head><h1>Run</h1></div>"
-        "<div class=mach__lead><p class=mute>Fixed fixes only. A tap shows exactly what will "
-        "run; it runs only after you tap again, and every run is logged.</p></div>"
-        "<div class=runq__cols><section class=runq__col>"
-        "<h2 class=sec-label>This desk · Linux</h2>"
-        "<p class=rqnote>Runs as you inside WSL, never as root.</p>"
-        f"<ol class=rqlist>{linux}</ol>"
-        "<h2 class=sec-label>The PC · Windows</h2>"
-        f"{_helper_note(view.helper)}<ol class=rqlist>{windows}</ol></section>"
-        f"<section class=runq__col><h2 class=sec-label>Last {runqueue.SHOWN_RUNS} runs</h2>"
-        f"{runs}</section></div></div>",
+        "<div class=ph><h1>Run</h1><span class=sub>Fixed fixes only. Tap, check what runs, tap "
+        "again. Every run is logged.</span></div><div class='pgb run' data-tabs>"
+        + _tabs(
+            "p",
+            [
+                ("linux", "Linux", len(linux)),
+                ("win", "Windows", len(windows)),
+                ("runs", "Runs", None),
+            ],
+            "linux",
+        )
+        + "<section class='pn is-on' data-tp=linux><div class=pn__h><h2>This desk · Linux</h2>"
+        "<span class=meta>runs as you, never as root</span></div>"
+        f"<div class=pn__b><ul class=ars>{''.join(_run_card(c, ctx) for c in linux)}</ul></div></section>"
+        "<section class=pn data-tp=win><div class=pn__h><h2>The PC · Windows</h2></div>"
+        f"<div class=pn__b>{_helper_note(view.helper)}"
+        f"<ul class=ars>{''.join(_run_card(c, ctx) for c in windows)}</ul>{fold}</div></section>"
+        f"<section class=pn data-tp=runs><div class=pn__h><h2>Last {runqueue.SHOWN_RUNS} runs</h2>"
+        + (f"<span class='hexn hexn--q'>{len(view.runs)}</span>" if view.runs else "")
+        + f"</div><div class=pn__b>{runs}</div></section></div>",
         "run",
         f" data-refresh={RUN_REFRESH_MS} data-run",
         ctx,

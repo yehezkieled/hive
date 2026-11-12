@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from hive.gateway import fmconfig, pages
+from hive.gateway import fmconfig, pages, runqueue
 from hive.gateway.chat import ChatView, Receipt
 from tests.gateway.test_stack_home import _busy_desk, _in_chrome, needs_chrome
 
@@ -71,11 +71,31 @@ def _machine() -> str:
     return pages.render_machine(tm._busy_view(), pages.Ctx("t", terminal=True))
 
 
+def _run() -> str:
+    keys = list(runqueue.ACTIONS)
+    runs = tuple(
+        runqueue.Run(
+            f"r{i}",
+            keys[i % len(keys)],
+            "owner@example.test",
+            1_900_000_000 - i * 3600,
+            result=(runqueue.OK, runqueue.FAILED, runqueue.REFUSED)[i % 3],
+            duration_s=12.5,
+            detail="fleet-up exited 1 after starting the desk, the clip desk and the bot",
+        )
+        for i in range(runqueue.SHOWN_RUNS)
+    )
+    cards = tuple(runqueue.Card(a, "") for a in runqueue.ACTIONS.values())
+    view = runqueue.RunView(cards, runqueue.READY, runs, "owner@example.test")
+    return pages.render_run(view, pages.Ctx("t"))
+
+
 PAGES: dict[str, Callable[[], str]] = {
     "desk": _busy_desk,
     "chat": _chat,
     "config": _config,
     "machine": _machine,
+    "run": _run,
 }
 
 DRIVER = """

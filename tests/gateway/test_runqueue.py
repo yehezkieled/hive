@@ -848,7 +848,7 @@ def test_the_page_lists_the_last_twenty_runs_newest_first(desk: SimpleNamespace)
     text = page(desk.c)
     shown = re.findall(r"run number (\d\d)", text)
     assert shown == [f"{i:02d}" for i in range(24, 4, -1)]
-    assert text.count("class='mrow mrow--") == 20
+    assert text.count("<li class='runrow runrow--") == 20
     assert "by you" in text and OWNER not in text
     assert "took 12\u00a0s" in text  # the unit never wraps alone
 
@@ -981,9 +981,9 @@ def test_a_run_in_progress_shows_as_running(desk: SimpleNamespace) -> None:
     first = post(desk.c, do="fleet-up").json()
     r = post(desk.c, do="fleet-up", rid=first["rid"], step=first["step"])
     assert r.status_code == 202
-    assert "<span class='mstate mstate--run'>Running</span>" in page(desk.c)
+    assert "<span class='sc sc--run'><i></i>Running</span>" in page(desk.c)
     time.sleep(1.4)
-    assert "<span class='mstate mstate--ok'>OK</span>" in page(desk.c)
+    assert "<span class='sc sc--ok'><i></i>OK</span>" in page(desk.c)
 
 
 # The page's own timers run fast here: the 9 s a result stays on its card, and the 2 s check
