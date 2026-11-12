@@ -75,6 +75,7 @@ ACT_NAMES = (
     "merge",
     "control",
     "run",
+    "terminal",
     *REVIEW_ACTIONS,
 )
 # The Sign-ins page's actions: start (behind the step-up), ask how it is going, hand over a
@@ -630,7 +631,7 @@ async def _terminal_open(
         except ActionError as exc:
             return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
         return JSONResponse({"ok": True, "pass": grant.token, "ends": int(grant.ends)})
-    found = await term.look(terminal.OPEN_LOOK_S)
+    found = await term.open_look()
     if found.pane is None:
         return refuse(terminal.WORDS[found.why], 503 if found.why.startswith("herdr") else 409)
     rid = actions.new_request_id()

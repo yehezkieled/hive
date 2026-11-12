@@ -50,7 +50,7 @@ XTERM_SHA256 = "14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972
 PANE = "w1:p1"
 
 FAKE_HERDR = """#!{python} -I
-import json, sys
+import json, sys, time
 from pathlib import Path
 S = Path({state!r})
 args = sys.argv[1:]
@@ -58,6 +58,8 @@ with open(S / "calls.log", "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 if (S / "down").exists():
     sys.exit(1)
+if (S / "slow").exists():
+    time.sleep(3)
 if args[:2] == ["pane", "list"]:
     sys.stdout.write((S / "panes.json").read_text())
 elif args[:2] == ["pane", "layout"]:
@@ -418,6 +420,20 @@ def test_a_missing_session_is_said_in_plain_words(client: TestClient, world: Wor
     world.flag("down")
     res = act(client)
     assert res.status_code == 503 and "not answering" in res.json()["message"]
+
+
+def test_a_slow_herdr_is_not_answering_within_a_second(client: TestClient, world: World) -> None:
+    world.flag("slow")
+    rid = "web-00000000000000aa"
+    taps = [{}, {"step": CSRF.step_up("terminal", f"open:{rid}"), "rid": rid}]
+    for fields in taps:
+        start = time.monotonic()
+        res = act(client, **fields)
+        took = time.monotonic() - start
+        assert took < 1.0, f"took {took:.2f}s"
+        assert res.status_code == 503 and "not answering" in res.json()["message"]
+        assert "pass" not in res.json() and "step" not in res.json()
+    assert "event=open" not in world.audit()
 
 
 def test_no_herdr_at_all_offers_nothing(make: Callable[..., object], world: World) -> None:

@@ -52,7 +52,7 @@ SLOW_AFTER_S = 10.0
 IDENTITY_EVERY_S = 2.0  # how often the pane is looked up again
 READ_FAILS_LOST = 3  # this many failed reads in a row and the pane is looked up again
 HERDR_TIMEOUT_S = 5.0
-OPEN_LOOK_S = 2.0  # how long opening waits on herdr before it says herdr is not answering
+OPEN_LOOK_S = 0.8  # opening's whole herdr look, inside the desk's 1 s /act budget
 HISTORY_LINES = 1000  # herdr ignores a smaller --lines than the pane's height, so keep it big
 HISTORY_EVERY_S = 2.0  # a page may ask for the scrollback at most this often
 MAX_VIEWERS = 4  # tabs attached at once
@@ -654,6 +654,13 @@ class TerminalService:
         cols, rows = await self.herdr.size(found.pane.pane_id, timeout)
         return Found(Pane(found.pane.pane_id, cols, rows))
 
+    async def open_look(self) -> Found:
+        """The look an open makes: both herdr calls within ``OPEN_LOOK_S`` in all."""
+        try:
+            return await asyncio.wait_for(self.look(OPEN_LOOK_S), OPEN_LOOK_S)
+        except TimeoutError:
+            return Found(None, "herdr-down")
+
     def _set_found(self, found: Found) -> None:
         old = self._found
         self._found = found
@@ -674,7 +681,7 @@ class TerminalService:
     async def open(self, who: str) -> Pass:
         """A finished step-up: check the session is there and the limit allows it, then hand
         out a pass. Raises ``ActionError`` with plain words otherwise; nothing is started."""
-        found = await self.look(OPEN_LOOK_S)
+        found = await self.open_look()
         if found.pane is None:
             self._audit(who, "", "refused", found.why)
             raise ActionError(WORDS[found.why], 503 if found.why.startswith("herdr") else 409)
