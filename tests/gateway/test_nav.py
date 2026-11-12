@@ -186,7 +186,7 @@ def test_the_bar_does_not_move_between_pages_in_a_real_browser(
 
 # The pages already on the approved Comb layout: each is one screen at every size, so neither
 # the page nor its main area scrolls; long lists scroll inside their own panel.
-ONE_SCREEN = ("/", "/chat", "/config", "/machine", "/run")
+ONE_SCREEN = ("/", "/chat", "/config", "/machine", "/run", "/signins")
 
 
 @needs_chrome

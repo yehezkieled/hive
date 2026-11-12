@@ -90,17 +90,25 @@ def _run() -> str:
     return pages.render_run(view, pages.Ctx("t"))
 
 
-PAGES: dict[str, Callable[[], str]] = {
-    "desk": _busy_desk,
-    "chat": _chat,
-    "config": _config,
-    "machine": _machine,
-    "run": _run,
+def _signins(tmp_path: Path) -> str:
+    from tests.gateway import test_signins as ts
+
+    flow = ts._view(note="That code was not accepted. Paste the whole code again.")
+    return pages.render_signins(ts._panel(flow, tmp_path), pages.Ctx("t"))
+
+
+PAGES: dict[str, Callable[[Path], str]] = {
+    "desk": lambda _: _busy_desk(),
+    "chat": lambda _: _chat(),
+    "config": lambda _: _config(),
+    "machine": lambda _: _machine(),
+    "run": lambda _: _run(),
+    "signins": _signins,  # mid-flow: the sign-in steps above the three cards
 }
 
 DRIVER = """
 function st(){var m=q('main'),de=document.documentElement;
-var bodies=[].filter.call(document.querySelectorAll('.pn__b'),
+var bodies=[].filter.call(document.querySelectorAll('.pn__b,.sgb'),
 function(b){return b.getClientRects().length;});
 return {page:de.scrollHeight>innerHeight+1,side:de.scrollWidth>innerWidth+1,
 main:m.scrollHeight>m.clientHeight+1,
@@ -118,7 +126,7 @@ tabs.forEach(function(t){click(t);R.views.push(st());});
 @pytest.mark.parametrize("size", list(SIZES), ids=list(SIZES))
 @pytest.mark.parametrize("page", list(PAGES))
 def test_page_is_one_screen(tmp_path: Path, page: str, size: str) -> None:
-    r = _in_chrome(tmp_path, PAGES[page](), DRIVER, SIZES[size])
+    r = _in_chrome(tmp_path, PAGES[page](tmp_path), DRIVER, SIZES[size])
     assert "error" not in r, r
     for v in r["views"]:
         assert not v["page"] and not v["main"] and not v["side"], v
