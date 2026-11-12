@@ -182,7 +182,7 @@ def test_lane_is_the_backlog_grouped_by_project_without_worker_questions(tmp_pat
     data["tasks"][0]["hints"] = {"open_decisions": [{"key": "ask", "summary": "Worker asks?"}]}
     html = _client(tmp_path, data).get("/", headers=GOOD).text
     lane = html.split("<section class='pn nyl", 1)[1].split("</section>", 1)[0]
-    where = re.findall(r"<span class=(?:nyc__where|r__p)>([^<]*)", lane)
+    where = re.findall(r"<span class=(?:nyc__proj|r__p) title='[^']*'>([^<]*)", lane)
     assert where[0] == "beta" and set(where) == {"beta", "alpha"}  # the waiting card leads
     assert "Worker asks?" not in html.split("<section class='pn pcsec")[0]
     assert "<p class=sl>Waiting on you · 1</p>" in lane
@@ -1163,17 +1163,19 @@ def test_desk_shows_the_repo_name_and_keeps_routing_on_the_registry_name(tmp_pat
     client = _client_with_reviews(tmp_path, LAVISH)
     html = client.get("/", headers=GOOD).text
     card = html.split("data-name='alpha'", 1)[1].split("</a>", 1)[0]
-    assert "<span class=pc__name>renamed_<wbr>alpha<small class=aka" in card
+    assert "<span class=pc__name title='renamed_alpha'>renamed_alpha<small class=aka" in card
     assert ">alpha</small>" in card  # the local name, as a small secondary label
     assert "data-label='first mate · renamed_alpha'" in html or "· renamed_alpha'" in html
     assert "data-open='/p/alpha'" in html and "/p/renamed_alpha" not in html
-    assert "<span class=r__p>renamed_alpha</span>" in html  # the lane row names the repo
-    assert "<span class=pc__name>beta</span>" in html and "data-name='beta'" in html
+    assert (
+        "<span class=r__p title='renamed_alpha'>renamed_alpha</span>" in html
+    )  # the lane row names the repo
+    assert "<span class=pc__name title='beta'>beta</span>" in html and "data-name='beta'" in html
     section = html.split("<section class='pn rvp'", 1)[1].split("</section>", 1)[0]
     assert "<span class=rv__proj>renamed_alpha</span>" in section
     page = client.get("/p/alpha", headers=GOOD).text
     assert "<h1>renamed_<wbr>alpha<small" in page and "<title>renamed_alpha · Hive desk" in page
-    assert "<span class=pc__name>alpha</span>" not in html
+    assert "<span class=pc__name title='alpha'>alpha</span>" not in html
 
 
 WRAP_DRIVER = """
@@ -1186,8 +1188,14 @@ if(prev!==null&&t>prev.t+2)out.push(prev.c);prev={t:t,c:n.data[i]};}}return out;
 function lines(el){var r=document.createRange();r.selectNodeContents(el);
 var tops={};[].forEach.call(r.getClientRects(),function(b){tops[Math.round(b.top)]=1;});
 return Object.keys(tops).length;}
+var tab=q('[data-tab="projects"]');if(tab&&tab.offsetParent)tab.click();  // phone: a tab
 var c=q("[data-name='aer-tariff-recon']");
-R.cardBreaks=breaks(c.querySelector('.pc__name'));
+var nm=c.querySelector('.pc__name');R.cardH=nm.getBoundingClientRect().height;
+R.cut=nm.scrollWidth>nm.clientWidth;
+R.ell=getComputedStyle(nm).textOverflow;R.title=nm.getAttribute('title');
+R.heights=[].map.call(document.querySelectorAll('[data-card]'),
+function(e){return Math.round(e.getBoundingClientRect().height);});
+R.overflowX=document.documentElement.scrollWidth>document.documentElement.clientWidth;
 R.cardAka=lines(c.querySelector('.aka'));R.role=lines(c.querySelector('.pc__mae'));
 click(c);click(c);var h=document.getElementById(c.getAttribute('data-detail'))
 .querySelector('[data-sheet-title]');
@@ -1197,10 +1205,13 @@ R.sheetBreaks=breaks(h);R.sheetAka=lines(h.querySelector('.aka'));
 
 @needs_chrome
 @pytest.mark.parametrize(
-    "size", [(1440, 900), (1180, 820), (820, 1180)], ids=["pc", "ipad-landscape", "ipad-portrait"]
+    "size",
+    [(1440, 900), (1180, 820), (820, 1180), (390, 844)],
+    ids=["pc", "ipad-landscape", "ipad-portrait", "phone"],
 )
-def test_a_long_repo_name_wraps_only_between_its_words(
-    tmp_path: Path, size: tuple[int, int]
+@pytest.mark.parametrize("long_name", ["standardise_network_tariff_tables", "x" * 48])
+def test_a_long_repo_name_stays_on_one_line_with_an_ellipsis(
+    tmp_path: Path, size: tuple[int, int], long_name: str
 ) -> None:
     from hive.gateway.pages import render_home
     from hive.gateway.snapshot import Snapshot
@@ -1208,13 +1219,17 @@ def test_a_long_repo_name_wraps_only_between_its_words(
     names = ["aer-tariff-recon", *(f"proj{p}" for p in range(5))]
     records = [_rec(f"{n}-t{i}", n, "queued") for n in names for i in range(3)]
     data = _snapshot(backlog={"records": records})
-    ctx = Ctx("t", repos={"aer-tariff-recon": "standardise_network_tariff_tables"})
+    ctx = Ctx("t", repos={"aer-tariff-recon": long_name})
     page = render_home(Snapshot(data, data["schema"], None), build_desk(data), ctx, None, [])
     r = _in_chrome(tmp_path, page, WRAP_DRIVER, size)
-    # the repo name may wrap, but only after a '_' or '-', never mid-word
-    assert set(r["cardBreaks"]) <= {"_", "-"} and set(r["sheetBreaks"]) <= {"_", "-"}, r
-    # the local-name label and the role label each stay on one line
-    assert r["cardAka"] == 1 and r["sheetAka"] == 1 and r["role"] == 1, r
+    # the card name is one line cut with an ellipsis; the full name is its title (hover)
+    assert r["cardH"] < 24 and r["ell"] == "ellipsis" and r["title"] == long_name, r
+    assert len(set(r["heights"])) == 1 and not r["overflowX"], r  # equal rows, no x-scroll
+    # the sheet heading (the tap target) still shows the whole name, wrapping only between words
+    if size[0] >= 820 and "_" in long_name:  # (a phone heading may break mid-word)
+        assert set(r["sheetBreaks"]) <= {"_", "-"}, r
+    # the sheet's local-name label and the card's role label each stay on one line
+    assert r["sheetAka"] == 1 and r["role"] == 1, r
 
 
 async def test_repo_names_serve_a_stale_entry_and_refresh_it_in_the_background(

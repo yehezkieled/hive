@@ -316,6 +316,7 @@ grid-template-columns:minmax(0,5fr) minmax(0,4fr) minmax(0,3fr)}
 .nyx.is-primary .nyc__head{padding-bottom:0;cursor:default}
 .nyx.is-primary .nyc__head:hover,.nyc--calm .nyc__head:hover{background:none}
 .nyc__where{flex:0 1 auto;display:flex;align-items:baseline;gap:8px;min-width:0;font-size:15px;font-weight:600;overflow:hidden;white-space:nowrap}
+.nyc__proj{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nyc__where code{font-weight:400;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
 .nyc__chev{margin-left:auto;font-size:13px;font-weight:600;color:var(--muted)}
 .nyx.is-primary .nyc__chev{display:none}
@@ -359,7 +360,7 @@ overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-l
 .nyr .nyx__head{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 0}
 .nyr .nyx__head:hover .r__t{text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:4px}
 .r__t{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15px}
-.r__p{font:13px var(--fm);color:var(--muted);white-space:nowrap}
+.r__p{flex:0 1 auto;min-width:0;max-width:40%;font:13px var(--fm);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nyr.is-primary .r__t{white-space:normal;overflow-wrap:anywhere;font-weight:600}
 .nyr .nyx__more{padding:0 0 12px}
 .nyr__why{font-size:15px;color:var(--muted);overflow-wrap:anywhere}
@@ -384,7 +385,7 @@ min-height:44px;padding:8px;margin:0 -8px;border-radius:var(--r2);color:inherit;
 .pc:hover{background:var(--surface)}
 .pc.is-selected{background:var(--you-t)}
 .pc__n{display:flex;flex-direction:column;min-width:0}
-.pc__name{font-size:15px;font-weight:600;line-height:1.35;overflow-wrap:break-word}
+.pc__name{font-size:15px;font-weight:600;line-height:1.35;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .pc__n small{font-size:13px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .pc__mae{white-space:nowrap}
 .aka{margin-left:6px;font:400 13px var(--fm);color:var(--muted);white-space:nowrap}
@@ -1074,7 +1075,7 @@ class Ctx:
         """The project's display name: its GitHub repo name, else the registry name."""
         return self.repos.get(name) or name
 
-    def name_html(self, name: str) -> str:
+    def name_html(self, name: str, breaks: bool = True) -> str:
         """Display name, plus the local registry name as a small secondary label if it differs."""
         shown = self.show(name)
         aka = (
@@ -1082,8 +1083,10 @@ class Ctx:
             if shown != name
             else ""
         )
-        # a long repo name wraps only between its words, never mid-word
-        return re.sub(r"([_-])", r"\1<wbr>", esc(shown)) + aka
+        # a long repo name wraps only between its words, never mid-word; a one-line row
+        # (breaks=False) takes no break points, which would wrap it even under nowrap
+        text = re.sub(r"([_-])", r"\1<wbr>", esc(shown)) if breaks else esc(shown)
+        return text + aka
 
     def form(
         self, action: str, inner: str, cls: str = "", always: bool = False, **hidden: str
@@ -1606,7 +1609,7 @@ def _wait_card(n: NeedsYou, ctx: Ctx, primary: bool) -> str:
         rid=new_request_id(),
     )
     head = (
-        f"{_sc(kind, word)}<span class=nyc__where>{esc(ctx.show(n.project))}"
+        f"{_sc(kind, word)}<span class=nyc__where><span class=nyc__proj title='{esc(ctx.show(n.project))}'>{esc(ctx.show(n.project))}</span>"
         f"<code class=nyx__id>{esc(ref)}</code></span><span class=nyc__chev>Open</span>"
         f"<span class=nyc__what>{what}</span>"
     )
@@ -1629,7 +1632,7 @@ def _queue_row(r: Row, project: str, ctx: Ctx) -> str:
     href = "/p/" + quote(project, safe="")
     head = (
         f"{_sc(kind, word)}<span class=r__t>{esc(r.title or r.id)}</span>"
-        f"<span class=r__p>{esc(ctx.show(project))}</span>"
+        f"<span class=r__p title='{esc(ctx.show(project))}'>{esc(ctx.show(project))}</span>"
     )
     return _nyx(
         project=project,
@@ -1782,7 +1785,7 @@ def _card(p: Project, selected: bool, ctx: Ctx, sid: str) -> str:
         f"data-card data-name='{esc(p.name)}' data-label='{esc(label)}' "
         f"data-project='{esc(field)}' data-next='{esc(nxt)}' data-open='{esc(open_href)}' "
         f"data-detail={sid}{' aria-current=true' if selected else ''}>"
-        f"<span class=pc__n><span class=pc__name>{ctx.name_html(p.name)}</span>"
+        f"<span class=pc__n><span class=pc__name title='{esc(ctx.show(p.name))}'>{ctx.name_html(p.name, breaks=False)}</span>"
         f"<small><span class=pc__mae>{'second mate' if p.mate else 'first mate'}</span> · "
         f"{esc(_row_now(g))}</small></span>{_sc(*_CHIP[g.status])}"
         f"<span class=pc__prog><span class=bar><i style='width:{pct}%'></i></span>"

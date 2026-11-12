@@ -94,7 +94,7 @@ def test_home_page_from_fixture(client: TestClient) -> None:
     assert html.count("<script") == 1  # the one pinned inline script
     assert "<a href='/chat'" in html and "/act/delegate" in html
     lane = html.split("<section class='pn nyl", 1)[1].split("</section>", 1)[0]
-    where = re.findall(r"<span class=(?:nyc__where|r__p)>([^<]*)", lane)
+    where = re.findall(r"<span class=(?:nyc__proj|r__p) title='[^']*'>([^<]*)", lane)
     assert where == ["beta", "alpha", "General"]  # what waits on the owner comes first
     assert re.findall(r"<span class='sc sc--\w+'><i></i>([^<]*)</span>", lane) == [
         "Waiting on you",
