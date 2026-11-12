@@ -1094,9 +1094,17 @@ def _framed(tmp_path: Path, page: str, size: tuple[int, int]) -> dict:
 
     Headless Chrome will not open a window narrower than 500 px, so the page goes in a frame of
     the wanted size: its media queries and its scrolling answer to the frame, as on a device.
+    The frame's clock is pinned to ``NOW``: the page words each time against the browser's
+    clock ("just now", "Wed, 11 Nov, 4:00 pm"), so a real clock would change the layout by date.
     """
     import html as html_mod
 
+    pin = (
+        f"<script>(function(){{var T={int(NOW * 1000)},D=Date;class F extends D{{"
+        "constructor(...a){if(a.length)super(...a);else super(T);}static now(){return T;}}"
+        "window.Date=F;})();</script>"
+    )
+    page = page.replace("<head>", "<head>" + pin, 1)
     host = (
         "<!doctype html><html><body style='margin:0'>"
         f"<iframe id=f width={size[0]} height={size[1]} style='border:0;display:block' "

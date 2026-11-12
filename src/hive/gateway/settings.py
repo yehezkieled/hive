@@ -88,6 +88,8 @@ class GatewaySettings:
     net_check: tuple[str, int] | None = None
     # How old the Machine page's readings may get before a page view starts a new round.
     machine_ttl_s: float = 15.0
+    # The Terminal page: firstmate's own herdr pane in the browser, behind the step-up.
+    terminal: bool = True
 
     @property
     def state_dir(self) -> Path:
@@ -126,6 +128,7 @@ class GatewaySettings:
                 env.get("HIVE_GATEWAY_CLAUDE_CREDENTIALS", "").strip()
             ),
             net_check=_net_check(env.get("HIVE_GATEWAY_NET_CHECK", "").strip()),
+            terminal=env.get("HIVE_GATEWAY_TERMINAL", "").strip().lower() != "off",
         )
 
 

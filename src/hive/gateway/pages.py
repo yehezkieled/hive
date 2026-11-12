@@ -9,6 +9,7 @@ import hashlib
 import re
 from datetime import UTC, datetime, timedelta
 from html import escape as esc
+from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -424,6 +425,7 @@ form.is-sent button{opacity:.75}form.is-sent button.is-sent{color:var(--ochre)}
 .mach h1{margin:0}
 .mach__lead{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0}
 .mach__lead p{margin:0}
+.mach__term a,.fmpop__term a{font:700 12px var(--font-mono);letter-spacing:.02em}.fmpop__term a{font-size:11px}
 .mach__sum{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0}
 .mach__sum .mstate{min-width:0}
 .mach__cols{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
@@ -820,7 +822,9 @@ class Ctx:
         wake_enabled: bool = False,
         watchdog: View | None = None,
         postures: fmconfig.Projects | None = None,
+        terminal: bool = False,
     ) -> None:
+        self.terminal = terminal  # the Terminal page is on: the firstmate chip links to it
         self.postures = postures  # firstmate's project registry; None: not read
         self.can_close_reviews = can_close_reviews  # lavish-axi is available to end a session
         self.csrf = csrf
@@ -1056,6 +1060,8 @@ def _fm_chip(ctx: Ctx) -> str:
             "<button class=danger type=submit>Restart session</button>",
             always=True,
         )
+    if ctx.terminal:
+        wake += "<p class=fmpop__term><a href='/terminal'>Open firstmate’s terminal</a></p>"
     wake += _watchdog_panel(ctx)
     return (
         "<details class=qwrap id=fmchip>"
@@ -1066,7 +1072,15 @@ def _fm_chip(ctx: Ctx) -> str:
     )
 
 
-def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | None = None) -> str:
+def _page(
+    title: str,
+    body: str,
+    active: str = "",
+    attrs: str = "",
+    ctx: Ctx | None = None,
+    css: str = "",
+    tail: str = "",
+) -> str:
     def cur(name: str) -> str:
         return " aria-current=page" if active == name else ""
 
@@ -1082,15 +1096,18 @@ def _page(title: str, body: str, active: str = "", attrs: str = "", ctx: Ctx | N
         "<link rel=manifest href='/manifest.webmanifest'>"
         "<link rel=icon href='/icons/icon-192.png'>"
         "<link rel=apple-touch-icon href='/icons/apple-touch-icon-180.png'>"
-        f"<title>{esc(title)}</title><style>{CSS}</style></head>"
-        f"<body{attrs}{' class=wide' if active == 'desk' else ' class=chatpage' if active == 'chat' else ''}><header class=chrome>"
+        f"<title>{esc(title)}</title><style>{CSS}{css}</style></head>"
+        f"<body{attrs}{_BODY_CLASS.get(active, '')}><header class=chrome>"
         "<a class=chrome__brand href='/' aria-label='Hive desk'>hive<span>.</span></a>"
         f"<nav><a href='/'{cur('desk')}>Desk</a><a href='/chat'{cur('chat')}>Chat</a>"
         f"<a href='/config'{cur('config')}>Config</a>"
         f"<a href='/machine'{cur('machine')}>Machine</a>"
         f"<button id=alerts hidden type=button>Alerts</button></nav>{chip}"
-        f"</header><main>{body}</main><script>{SCRIPT}</script></body></html>"
+        f"</header><main>{body}</main><script>{SCRIPT}</script>{tail}</body></html>"
     )
+
+
+_BODY_CLASS = {"desk": " class=wide", "chat": " class=chatpage", "terminal": " class=termpage"}
 
 
 def _banner(snap: Snapshot, ctx: Ctx) -> str:
@@ -1945,7 +1962,13 @@ def render_machine(view: machine.MachineView, ctx: Ctx) -> str:
         "<div class=mach><div class=mach__head><h1>Machine</h1>"
         f"<ul class=mach__sum aria-label='Chain summary'>{summary}</ul></div>"
         "<div class=mach__lead><p class=mute>Read-only. Every link has to hold to reach firstmate.</p>"
-        f"{stamp}</div>"
+        f"{stamp}"
+        + (
+            "<p class=mach__term><a href='/terminal'>Open firstmate’s terminal</a></p>"
+            if ctx.terminal
+            else ""
+        )
+        + "</div>"
         "<div class=mach__cols><section class=mach__col><h2 class=sec-label>The chain</h2>"
         f"<ol class=mlist>{rows}</ol></section>"
         "<section class=mach__col><h2 class=sec-label>Upcoming risks</h2>"
@@ -1979,3 +2002,350 @@ def render_result(title: str, message: str, nxt: str, ok: bool) -> str:
 
 def render_outcome(out: Outcome, nxt: str) -> str:
     return render_result(out.action.replace("-", " ").capitalize(), out.summary, nxt, True)
+
+
+# ---- Terminal page ---------------------------------------------------------------------------
+# Firstmate's own herdr pane, behind the step-up (see ``terminal.py``). The page carries no
+# terminal data: it shows a "confirm it is you" screen, and only a finished step-up's pass
+# opens the websocket that streams the screen.
+
+VENDOR_DIR = Path(__file__).resolve().parent / "static" / "vendor"
+XTERM_JS = "xterm-6.0.0.js"
+XTERM_SRI = (
+    "sha384-"
+    + base64.b64encode(hashlib.sha384((VENDOR_DIR / XTERM_JS).read_bytes()).digest()).decode()
+)
+XTERM_CSS = (VENDOR_DIR / "xterm-6.0.0.css").read_text()
+
+TERMINAL_CSS = """
+body.termpage{position:fixed;top:0;left:0;width:100%;height:100vh;height:var(--app-h,100dvh);overflow:hidden;
+display:flex;flex-direction:column}
+.termpage .chrome{flex:none;width:100%}
+.termpage main{flex:1;min-height:0;width:100%;max-width:1200px;display:flex;flex-direction:column;
+padding:0 0 calc(8px + env(safe-area-inset-bottom))}
+.termpage .chrome{max-width:1200px}
+.term{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.term__head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px}
+.term__head h1{margin:8px 0 0;font-size:1.15rem}.term__head p{margin:0}
+.tbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:58px;
+padding:6px 6px 6px 8px;background:var(--card);border:1.5px solid var(--line);border-radius:12px}
+.tbar[data-s=mine]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tstate{flex:none;display:inline-flex;align-items:center;min-height:30px;padding:0 12px;border-radius:999px;
+border:1.5px solid var(--rule-soft);font:700 11px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;
+color:var(--ink-3);white-space:nowrap}
+.tstate--ro{border-color:var(--sage);color:var(--sage);background:var(--sage-soft)}
+.tstate--mine{border-color:var(--accent);background:var(--accent);color:#fff}
+.tstate--other{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
+.tstate--down{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tstate--wait{border-color:var(--honey);color:var(--ochre);background:var(--honey-soft)}
+.tbar__who{flex:1 1 240px;min-width:0;font-size:.86rem;line-height:1.35;color:var(--ink-2);overflow-wrap:anywhere}
+.tbar__btns{flex:none;display:flex;gap:6px;margin-left:auto}.tbar__btns:empty{display:none}
+.tbar button{min-height:44px;padding:0 14px;font:700 12px var(--font-mono);letter-spacing:.02em}
+.tbar button[hidden]{display:none}.tbar button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.term button.is-armed{box-shadow:0 0 0 3px var(--accent-soft)}
+.term .act-warn{margin:0}.term .act-warn[hidden]{display:none}
+.tgate{flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;padding:4px 0 16px}
+.tgate[hidden],.tlive[hidden]{display:none}
+.tgate .card{width:100%;max-width:560px}
+.tgate h2{margin:0 0 6px}.tgate p{margin:0 0 8px}
+.tgate ul{margin:0 0 12px;padding-left:20px;color:var(--ink-2);font-size:.92rem}.tgate li{margin:3px 0}
+.tgate form{margin:0}.tgate button{min-height:48px;padding:0 20px;font-weight:700}
+.tlive{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.twrap{position:relative;flex:1;min-height:140px;display:flex}
+.tframe{flex:1;min-width:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+padding:8px;background:#16140f;border:1.5px solid var(--rule-soft);border-radius:12px}
+.tframe .xterm{display:inline-block;vertical-align:top}
+.tframe__msg{position:absolute;inset:1.5px;display:flex;align-items:center;justify-content:center;margin:0;
+padding:24px;border-radius:11px;background:#16140f;color:#d6cfbf;font:600 14px/1.5 var(--font-sans);text-align:center}
+.tframe__msg[hidden]{display:none}
+.tjump{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);border-radius:999px;min-height:40px;
+padding:0 16px;font:700 12px var(--font-mono);background:var(--paper);color:var(--ink);border-color:var(--rule-soft);
+box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.tjump[hidden]{display:none}
+.tkeys{flex:none;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:1px}
+.tkeys::-webkit-scrollbar{display:none}
+.tkeys button{flex:none;min-width:48px;min-height:44px;padding:0 10px;font:700 13px var(--font-mono);
+background:var(--card);color:var(--ink);border:1.5px solid var(--line);border-radius:8px}
+.tkeys button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.tkeys button:disabled{opacity:.4;cursor:not-allowed}
+.tkeys__gap{flex:1 0 6px}
+.tpaste{flex:none;display:flex;gap:6px;align-items:flex-end;margin:0}
+.tpaste textarea{flex:1;min-width:0;min-height:44px;max-height:22vh;margin:0;resize:none;font:16px/1.35 var(--font-mono)}
+.tpaste textarea:disabled{opacity:.6}
+.tpaste button{flex:none;min-height:44px;padding:0 12px;font:700 12px var(--font-mono)}
+.tpaste button:disabled{opacity:.4;cursor:not-allowed}
+.tnote{flex:none;min-height:1.3em;margin:0;font:600 12px/1.4 var(--font-mono);color:var(--accent)}
+.tnote:empty{min-height:0}
+@media (prefers-color-scheme:dark){.tframe,.tframe__msg{background:#0f0d09}.tframe{border-color:#3a352a}}
+@media (max-width:760px){.term__head p{display:none}}
+@media (max-width:480px){.tbar{padding:6px}.tbar__who{flex-basis:100%;order:3}.tbar__btns{margin-left:auto}
+.tkeys button{min-width:44px;padding:0 8px}.tpaste button{padding:0 9px}}
+"""
+
+# Pinned by hash in the Terminal page's CSP, as ``SCRIPT`` is everywhere. It takes no server
+# data: every word it shows comes from the websocket's messages, set as text.
+TERMINAL_SCRIPT = r"""
+(function(){
+var $=function(i){return document.getElementById(i);};
+var form=$('term-open');if(!form)return;
+var gate=$('term-gate'),live=$('term-live'),gnote=$('term-gate-note'),bar=$('term-bar'),stEl=$('term-state'),
+whoEl=$('term-who'),takeB=$('term-take'),relB=$('term-release'),warnEl=$('term-warn'),frame=$('term-frame'),
+scrEl=$('term-screen'),msgEl=$('term-msg'),jumpB=$('term-jump'),keysEl=$('term-keys'),ctrlB=$('term-ctrl'),
+pasteT=$('term-paste'),sendB=$('term-send'),sendE=$('term-send-enter'),noteEl=$('term-note'),
+smallB=$('term-smaller'),bigB=$('term-bigger'),fitB=$('term-fit'),openB=form.querySelector('button');
+var openLabel=openB.textContent,takeLabel=takeB.textContent;
+var KEYS={esc:'\x1b',tab:'\t',enter:'\r',left:'\x1b[D',up:'\x1b[A',down:'\x1b[B',right:'\x1b[C',
+pgup:'\x1b[5~',pgdn:'\x1b[6~'};
+var THEME={background:'#16140f',foreground:'#efe9da',cursor:'#e0a050',cursorAccent:'#16140f',
+selectionBackground:'rgba(224,160,80,0.35)',black:'#2a261d',red:'#f0715f',green:'#7fc48c',yellow:'#e8b640',
+blue:'#7aa7d9',magenta:'#d29be0',cyan:'#6cc4c0',white:'#d6cfbf',brightBlack:'#7c7566',brightRed:'#ff8f7f',
+brightGreen:'#9adba5',brightYellow:'#f5cd6a',brightBlue:'#9cc2ee',brightMagenta:'#e4b6ef',brightCyan:'#8fdcd8',
+brightWhite:'#faf7ed',scrollbarSliderBackground:'rgba(239,233,218,0.18)',
+scrollbarSliderHoverBackground:'rgba(239,233,218,0.32)',scrollbarSliderActiveBackground:'rgba(239,233,218,0.45)'};
+// The system monospace, not the desk's IBM Plex Mono: Plex has no box-drawing glyphs, and a
+// fallback glyph of another width would break Claude Code's boxes. SLACK spare columns keep
+// the scrollbar off the last column.
+var FONT='Menlo, "SF Mono", ui-monospace, "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace',SLACK=3;
+if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches){THEME.background='#0f0d09';THEME.cursorAccent='#0f0d09';}
+var pass=null,ends=0,ws=null,tries=0,lastEnd='',st=null,mine=false,ctrl=false,takeStep=null,takeT=0,armed=null,
+armT=0,armRid='',joined=false,term=null,cols=0,rows=0,screen=[],histAt=0,wasUp=false,needHist=true,fs=13,fit=true,idleEnds=0,noteT=0,
+lastW=0,lastH=0,rt=0;
+try{var pr=JSON.parse(localStorage.getItem('hive-terminal')||'{}');
+if(pr.fs>=6&&pr.fs<=28)fs=pr.fs;if(pr.fit===false)fit=false;}catch(e){}
+function save(){try{localStorage.setItem('hive-terminal',JSON.stringify({fs:fs,fit:fit}));}catch(e){}}
+function hm(ms){try{return new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch(e){return '';}}
+function note(t){noteEl.textContent=t||'';clearTimeout(noteT);if(t)noteT=setTimeout(function(){noteEl.textContent='';},8000);}
+function warnIn(el,t){el.textContent=t||'';el.hidden=!t;}
+function fwarn(t){var w=form.querySelector('.act-warn');if(!w){w=document.createElement('p');w.className='act-warn';
+w.setAttribute('role','alert');form.appendChild(w);}warnIn(w,t);}
+function disarm(){clearTimeout(armT);armed=null;openB.classList.remove('is-armed');openB.textContent=openLabel;fwarn('');}
+function disarmTake(){clearTimeout(takeT);takeStep=null;takeB.classList.remove('is-armed');takeB.textContent=takeLabel;
+warnIn(warnEl,'');}
+function send(o){if(ws&&ws.readyState===1){ws.send(JSON.stringify(o));return true;}return false;}
+function setCtrl(on){ctrl=!!on;ctrlB.setAttribute('aria-pressed',ctrl?'true':'false');}
+function overlay(t){msgEl.textContent=t||'';msgEl.hidden=!t;}
+function readOnly(on){var b=keysEl.querySelectorAll('button[data-k]');for(var i=0;i<b.length;i++)b[i].disabled=on;
+ctrlB.disabled=on;pasteT.disabled=on;sendB.disabled=on;sendE.disabled=on;
+pasteT.placeholder=on?'Read-only':'Text to send';if(on)setCtrl(false);
+if(!term)return;term.options.disableStdin=on;var ta=term.textarea;if(!ta)return;
+if(on){ta.setAttribute('inputmode','none');ta.readOnly=true;if(document.activeElement===ta)ta.blur();}
+else{ta.removeAttribute('inputmode');ta.readOnly=false;}}
+function show(phase){var s='closed',label='Not open',who='Confirm it is you to open firstmate’s session.';
+if(phase==='connecting'||phase==='reconnecting'){s='wait';label=phase==='connecting'?'Connecting':'Reconnecting';
+who='Read-only while it connects. Nothing can be typed.';}
+else if(st&&ws){var tabs=st.viewers===1?'1 tab':st.viewers+' tabs',
+base='Attached: '+st.who+' · '+tabs+' · open until '+hm(st.ends*1000);
+if(st.session==='missing'){s='down';label='Session not found';who=base;}
+else if(st.session==='looking'){s='wait';label='Looking';who=base;}
+else if(st.keyboard==='you'){s='mine';label='Keyboard taken';
+who=base+' · read-only again at '+hm(idleEnds)+' if idle';}
+else if(st.keyboard==='other'){s='other';label='Read-only';who='Another tab has the keyboard. '+base;}
+else{s='ro';label='Read-only';who=base;}}
+bar.setAttribute('data-s',s);stEl.className='tstate tstate--'+s;stEl.textContent=label;whoEl.textContent=who;
+var on=!!(st&&ws&&st.session==='ok');takeB.hidden=!on||st.keyboard==='you';takeB.disabled=!on||st.keyboard==='other';
+relB.hidden=!(on&&st.keyboard==='you');}
+function size(c,r){c=Math.max(20,Math.min(1000,c|0));r=Math.max(1,Math.min(400,r|0));if(c===cols&&r===rows)return;
+if(r!==rows)needHist=true;cols=c;rows=r;term.resize(c+SLACK,r);refit(true);toBottom();}
+function rowsOut(lines){var s='';for(var i=0;i<rows;i++)s+='\x1b['+(i+1)+';1H\x1b[0m'+(lines[i]||'')+'\x1b[0m\x1b[K';return s;}
+function paint(m){if(!term||!Array.isArray(m.lines))return;size(m.cols,m.rows);screen=m.lines;term.write(rowsOut(screen));
+if(needHist&&st&&st.session==='ok')askHist();}
+function askHist(){if(send({t:'history'})){histAt=Date.now();needHist=false;}}
+function rebuild(m){if(!term||!Array.isArray(m.lines)||!Array.isArray(m.screen))return;
+var b=term.buffer.active,back=b.baseY-b.viewportY;size(m.cols,m.rows);needHist=false;screen=m.screen;term.reset();
+var s='\x1b[?7l\x1b[?25l';if(m.lines.length)s+=m.lines.join('\x1b[0m\r\n')+'\x1b[0m\r\n';
+s+=new Array(rows).join('\r\n')+rowsOut(screen);
+term.write(s,function(){if(back>0){term.scrollToLine(Math.max(0,term.buffer.active.baseY-back));}scrolled(true);});}
+function scrolled(quiet){if(!term)return;var b=term.buffer.active,up=b.viewportY<b.baseY;
+if(up&&!wasUp&&!quiet&&Date.now()-histAt>3000)askHist();wasUp=up;jumpB.hidden=!up;}
+function typed(){idleEnds=Date.now()+((st&&st.idle_s)||600)*1000;show();}
+function onData(d){if(!mine)return;if(ctrl&&d.length===1){var c=d.toLowerCase().charCodeAt(0);
+if(c>=97&&c<=122)d=String.fromCharCode(c-96);setCtrl(false);}if(send({t:'in',d:d}))typed();}
+function measure(){var el=term&&term.element&&term.element.querySelector('.xterm-screen');
+if(!el)return null;var r=el.getBoundingClientRect(),f=term.options.fontSize;
+return r.width&&r.height?{w:r.width/term.cols/f,h:r.height/term.rows/f}:null;}
+function label(){var f=term?term.options.fontSize:fs;fitB.setAttribute('aria-pressed',fit?'true':'false');
+fitB.title='Fit the screen ('+f+' px now)';}
+function refit(force){if(!term)return;if(!fit){if(term.options.fontSize!==fs)term.options.fontSize=fs;label();return;}
+var w=frame.clientWidth-16,h=frame.clientHeight-16;if(w<=0||h<=0)return;
+if(!force&&w===lastW&&h<=lastH)return;lastW=w;lastH=h;var k=measure();if(!k)return;
+var n=Math.floor(Math.min(w/(term.cols*k.w),h/(term.rows*k.h)));n=Math.max(7,Math.min(18,n));
+if(n!==term.options.fontSize)term.options.fontSize=n;label();toBottom();}
+function toBottom(){requestAnimationFrame(function(){frame.scrollTop=frame.scrollHeight;frame.scrollLeft=0;});}
+function setFs(n){fit=false;fs=Math.max(6,Math.min(28,n));if(term)term.options.fontSize=fs;save();label();toBottom();}
+function vh(){var v=window.visualViewport;
+document.documentElement.style.setProperty('--app-h',(v?v.height:window.innerHeight)+'px');window.scrollTo(0,0);}
+function resized(){clearTimeout(rt);rt=setTimeout(function(){vh();refit(false);toBottom();},120);}
+function ensureTerm(){if(term)return true;if(!window.Terminal)return false;
+term=new window.Terminal({cols:80,rows:24,fontSize:fs,fontFamily:FONT,
+theme:THEME,scrollback:3000,disableStdin:true,cursorBlink:false,cursorStyle:'bar',cursorInactiveStyle:'none',
+convertEol:false,smoothScrollDuration:0,drawBoldTextInBrightColors:false,minimumContrastRatio:1});
+cols=80;rows=24;term.open(scrEl);if(term.textarea)term.textarea.name='term-keys';term.write('\x1b[?7l\x1b[?25l');term.onData(onData);
+term.onScroll(function(){scrolled(false);});
+term.element.addEventListener('wheel',function(){setTimeout(function(){scrolled(false);},50);},{passive:true});
+term.element.addEventListener('touchend',function(){setTimeout(function(){scrolled(false);},200);},{passive:true});
+term.element.addEventListener('paste',function(e){e.preventDefault();e.stopPropagation();
+var t=(e.clipboardData&&e.clipboardData.getData('text'))||'';if(mine&&t){pasteT.value=t;pasteT.focus();
+note('Your paste is in the box below. Check it, then tap Send.');}},true);
+readOnly(true);label();return true;}
+function toGate(t){if(ws){var w=ws;ws=null;try{w.close();}catch(e){}}pass=null;st=null;mine=false;disarmTake();
+if(term){readOnly(true);term.reset();term.write('\x1b[?7l\x1b[?25l');}screen=[];needHist=true;overlay('');
+live.hidden=true;gate.hidden=false;gnote.textContent=t||'';show();}
+function on(m){if(m.t==='state'){var was=mine;st=m;tries=0;joined=true;mine=m.keyboard==='you';
+if(mine&&m.idle_ends)idleEnds=m.idle_ends*1000;if(mine!==was||!mine)readOnly(!mine);
+if(m.keyboard!=='none')disarmTake();
+if(m.session==='missing'){overlay((m.why||'Firstmate’s session was not found.')+' It shows here again once it is back.');screen=[];needHist=true;
+term.reset();term.write('\x1b[?7l\x1b[?25l');}
+else if(m.session==='looking')overlay('Looking for firstmate’s session…');
+else{overlay('');if(needHist)askHist();}show();return;}
+if(m.t==='screen'){paint(m);return;}
+if(m.t==='history'){rebuild(m);return;}
+if(m.t==='confirm'&&typeof m.step==='string'){takeStep=m.step;takeB.classList.add('is-armed');
+takeB.textContent=m.label||'Tap again';warnIn(warnEl,m.detail||'');clearTimeout(takeT);takeT=setTimeout(disarmTake,50000);return;}
+if(m.t==='notice'){note(m.text||'');return;}
+if(m.t==='end'){lastEnd=m.text||'';}}
+function connect(){if(!pass||Date.now()>=ends){toGate(lastEnd||'The terminal was open for its time limit. Confirm it is you to open it again.');return;}
+var me;try{me=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/terminal/ws');}
+catch(e){toGate('The terminal could not connect to the desk.');return;}
+ws=me;show(tries?'reconnecting':'connecting');
+me.onopen=function(){if(ws===me)me.send(JSON.stringify({t:'attach',pass:pass}));};
+me.onmessage=function(ev){if(ws!==me)return;var m;try{m=JSON.parse(ev.data);}catch(e){return;}
+if(m&&typeof m.t==='string')on(m);};
+me.onclose=function(ev){if(ws!==me)return;ws=null;st=null;mine=false;readOnly(true);disarmTake();var c=ev.code;
+if(c===4401||c===4409||c===4429||c===4503||c===1001||c===1008){toGate(lastEnd||'The terminal closed. Confirm it is you to open it again.');return;}
+if(!joined){toGate(lastEnd||'The terminal could not connect to the desk. Nothing was opened.');return;}
+if(!pass||Date.now()>=ends||tries>=8){toGate(lastEnd||'The connection to the desk was lost. Confirm it is you to open it again.');return;}
+tries++;show('reconnecting');setTimeout(connect,Math.min(15000,400*Math.pow(2,tries)));};}
+function start(){gnote.textContent='';if(!ensureTerm()){gnote.textContent='The terminal could not load. Reload the page.';return;}
+gate.hidden=true;live.hidden=false;overlay('Connecting…');lastW=0;vh();connect();}
+form.addEventListener('submit',function(e){e.preventDefault();if(form.classList.contains('is-sending'))return;
+if(!window.WebSocket||!window.fetch){gnote.textContent='This browser cannot open the terminal.';return;}
+var p=new URLSearchParams(new FormData(form));if(armed){p.set('step',armed);p.set('rid',armRid);}
+form.classList.add('is-sending');gnote.textContent='';
+fetch(form.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},body:p})
+.then(function(r){if((r.headers.get('content-type')||'').indexOf('application/json')<0)throw r.status;return r.json();})
+.then(function(j){form.classList.remove('is-sending');
+if(j.ok&&j.confirm&&typeof j.step==='string'){armed=j.step;armRid=String(j.rid||'');openB.classList.add('is-armed');openB.textContent=j.label||'Tap again';
+fwarn(j.detail||'');clearTimeout(armT);armT=setTimeout(disarm,20000);return;}
+disarm();if(j.ok&&typeof j.pass==='string'){pass=j.pass;ends=j.ends*1000;tries=0;joined=false;lastEnd='';start();return;}
+gnote.textContent=j.message||'The terminal did not open.';})
+.catch(function(s){form.classList.remove('is-sending');disarm();
+gnote.textContent=s===403?'This page has expired. Reload it, then try again.':
+typeof s==='number'?'The desk answered '+s+'. The terminal did not open.':'No connection to the desk.';});});
+takeB.addEventListener('click',function(){if(takeStep){var s=takeStep;disarmTake();send({t:'take',step:s});}
+else send({t:'take'});});
+relB.addEventListener('click',function(){send({t:'release'});});
+keysEl.addEventListener('mousedown',function(e){if(e.target.closest('button'))e.preventDefault();});
+keysEl.addEventListener('click',function(e){var b=e.target.closest('button[data-k]');if(!b||b.disabled||!mine)return;
+var k=KEYS[b.getAttribute('data-k')];setCtrl(false);if(k&&send({t:'in',d:k}))typed();});
+ctrlB.addEventListener('click',function(){if(mine)setCtrl(!ctrl);});
+function sendPaste(enter){if(!mine)return;var t=pasteT.value;if(!t&&!enter)return;
+if(t.length>4096){note('That is more than 4096 characters. Send it in parts.');return;}
+if(send({t:'paste',d:t,enter:!!enter})){pasteT.value='';typed();}}
+sendB.addEventListener('click',function(){sendPaste(false);});
+sendE.addEventListener('click',function(){sendPaste(true);});
+pasteT.addEventListener('keydown',function(e){if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();sendPaste(true);}});
+smallB.addEventListener('click',function(){setFs((term?term.options.fontSize:fs)-1);});
+bigB.addEventListener('click',function(){setFs((term?term.options.fontSize:fs)+1);});
+fitB.addEventListener('click',function(){fit=true;save();refit(true);});
+jumpB.addEventListener('click',function(){if(term){term.scrollToBottom();scrolled(true);}});
+window.addEventListener('resize',resized);
+window.addEventListener('orientationchange',function(){lastW=0;resized();});
+if(window.visualViewport)window.visualViewport.addEventListener('resize',resized);
+setInterval(function(){if(ws&&st)show();},15000);
+window.addEventListener('pagehide',function(){if(ws){var w=ws;ws=null;try{w.close();}catch(e){}}});
+vh();show();label();
+})();
+"""
+TERMINAL_SCRIPT_CSP_HASH = (
+    "sha256-" + base64.b64encode(hashlib.sha256(TERMINAL_SCRIPT.encode()).digest()).decode()
+)
+
+_KEY_ROW = (
+    ("esc", "Esc", ""),
+    ("ctrl", "Ctrl", ""),
+    ("tab", "Tab", ""),
+    ("left", "←", "Left"),
+    ("up", "↑", "Up"),
+    ("down", "↓", "Down"),
+    ("right", "→", "Right"),
+    ("pgup", "PgUp", "Page up"),
+    ("pgdn", "PgDn", "Page down"),
+    ("enter", "Enter", ""),
+)
+
+
+def render_terminal(ctx: Ctx, enabled: bool) -> str:
+    """The Terminal page: a "confirm it is you" screen, and the live terminal it opens into.
+
+    Nothing from firstmate's session is in this page: the screen only ever arrives over the
+    websocket, after a finished step-up.
+    """
+    head = (
+        "<div class=term__head><h1>Terminal</h1>"
+        "<p class=mute>Firstmate’s own session, live, as it shows on the PC.</p></div>"
+    )
+    if not enabled:
+        return _page(
+            "Terminal · Hive desk",
+            f"<div class=term id=term>{head}<div class=banner role=status>The Terminal page is "
+            "switched off on this desk (<code>HIVE_GATEWAY_TERMINAL=off</code>).</div></div>",
+            "terminal",
+            "",
+            ctx,
+        )
+    keys = "".join(
+        f"<button type=button id=term-ctrl aria-pressed=false disabled>{label}</button>"
+        if key == "ctrl"
+        else f"<button type=button data-k={key} disabled"
+        + (f" aria-label='{aria}'" if aria else "")
+        + f">{label}</button>"
+        for key, label, aria in _KEY_ROW
+    )
+    form = ctx.form(
+        "terminal",
+        "<button class=danger type=submit>Open terminal</button>",
+        always=True,
+    ).replace("<form ", "<form id=term-open ", 1)
+    body = (
+        f"<div class=term id=term>{head}"
+        "<div class=tbar id=term-bar data-s=closed role=status aria-live=polite>"
+        "<span class='tstate tstate--closed' id=term-state>Not open</span>"
+        "<span class=tbar__who id=term-who>Confirm it is you to open firstmate’s session."
+        "</span><span class=tbar__btns>"
+        "<button type=button class=danger id=term-take hidden>Take keyboard</button>"
+        "<button type=button class=quiet id=term-release hidden>Release keyboard</button>"
+        "</span></div><p class=act-warn id=term-warn role=alert hidden></p>"
+        "<section class=tgate id=term-gate aria-label='Confirm it is you'><div class=card>"
+        "<h2>Confirm it is you</h2>"
+        "<p>The terminal shows firstmate’s own session, exactly as it is on the PC.</p>"
+        "<ul><li>It opens read-only. Typing needs a second confirm: <b>Take keyboard</b>.</li>"
+        "<li>Only one tab can hold the keyboard. It goes back to read-only after 10 minutes "
+        "without typing.</li>"
+        "<li>It closes after 30 minutes. Then confirm again.</li>"
+        "<li>Nothing it shows or you type is saved or logged.</li></ul>"
+        f"{form}<p class=tnote id=term-gate-note role=alert></p>"
+        "<noscript><p class=tnote>The terminal needs the page script.</p></noscript>"
+        "</div></section>"
+        "<section class=tlive id=term-live hidden aria-label='Firstmate session'>"
+        "<div class=twrap><div class=tframe id=term-frame><div id=term-screen></div></div>"
+        "<p class=tframe__msg id=term-msg hidden></p>"
+        "<button type=button class=tjump id=term-jump hidden>Jump to latest ↓</button></div>"
+        f"<div class=tkeys id=term-keys role=toolbar aria-label='Terminal keys'>{keys}"
+        "<span class=tkeys__gap></span>"
+        "<button type=button id=term-smaller aria-label='Smaller text'>A−</button>"
+        "<button type=button id=term-bigger aria-label='Bigger text'>A+</button>"
+        "<button type=button id=term-fit aria-pressed=true>Fit</button></div>"
+        "<div class=tpaste><textarea id=term-paste rows=1 maxlength=4096 disabled "
+        "aria-label='Text to send' autocomplete=off autocapitalize=off spellcheck=false "
+        "placeholder='Read-only'></textarea>"
+        "<button type=button id=term-send disabled>Send</button>"
+        "<button type=button class=danger id=term-send-enter disabled>Send + Enter</button></div>"
+        "<p class=tnote id=term-note role=status aria-live=polite></p></section></div>"
+    )
+    tail = (
+        f"<script src='/vendor/{XTERM_JS}' integrity='{XTERM_SRI}'></script>"
+        f"<script>{TERMINAL_SCRIPT}</script>"
+    )
+    return _page(
+        "Terminal · Hive desk", body, "terminal", "", ctx, css=XTERM_CSS + TERMINAL_CSS, tail=tail
+    )
