@@ -34,6 +34,7 @@ from tests.gateway.test_machine import (
     NOW,
     SECRET,
     SIZES,
+    _assert_link_rows,
     _client,
     _exe,
     _main,
@@ -810,7 +811,7 @@ def test_the_page_lists_each_sign_in_with_renew_where_the_desk_can_do_it(
     assert "<section id=signin-flow class=sgflow></section>" in main  # no flow: an empty panel
     assert "<form id=signin-poll method=post action='/act/signin-flow' hidden>" in main
     assert res.text.count("<script") == 1 and " data-signins" in res.text
-    assert "<a href='/machine' aria-current=page>Machine</a>" in res.text  # filed under Machine
+    assert "<a href='/signins' aria-current=page>Sign-ins</a>" in res.text  # its own menu link
     assert _safe_next("/signins") == "/signins"
 
 
@@ -1214,9 +1215,7 @@ def test_the_page_fits_phone_and_ipad_without_sideways_scroll(
     assert (r["iw"], r["ih"]) == size, r
     assert r["rows"] == 3
     assert r["sw"] <= r["iw"] and r["cut"] == 0, r  # no sideways scroll, nothing cut off
-    assert len(set(r["navTops"][1:])) == 1, r  # the header links stay on one row
-    if size[0] >= 360:
-        assert len(set(r["navTops"])) == 1, r
+    _assert_link_rows(r["navTops"], size[0])
     assert len(set(r["chips"])) == 1, r  # equal chips, so the labels line up down the page
     assert r["taps"] and min(r["taps"]) >= 44, r  # every control is a full touch target
     if flow in ("claude", "github"):

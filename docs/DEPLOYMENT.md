@@ -1203,7 +1203,8 @@ become no-ops — Hive still boots.
 
 ## Gateway (desk, ADR 0030)
 
-`python -m hive.gateway` serves the desk (Home, Project, Chat, Config, Machine, Sign-ins, Run and Terminal pages)
+`python -m hive.gateway` serves the desk (Home, Project, Chat, Config, Machine, Sign-ins, Run and Terminal pages,
+every one under the same top bar, whose menu links each of them except Project and never moves between pages)
 on `127.0.0.1:8480` only; the bind is not configurable. It needs no database
 and no running Hive process; the one piece of Hive code it uses is the headless
 Claude adapter, imported lazily to write item descriptions (below). Pages read firstmate's
@@ -1244,7 +1245,7 @@ command or file read under a 3 s time-out, off the request path and cached (15 s
 boot time and installed updates 10 min); a link whose read fails shows `unknown`.
 What each row means and what to do about it: [machine.md](machine.md).
 
-**Sign-ins (`/signins`, ADR 0036).** Linked from the Machine page. It shows the
+**Sign-ins (`/signins`, ADR 0036).** In the menu, and linked from the Machine page. It shows the
 state of the Claude, GitHub and Tailscale sign-ins on the PC, and **Renew** for
 Claude and GitHub. Renew is `POST /act/signin` behind the step-up; it runs the
 vendor's own login command (`claude auth login`, or
