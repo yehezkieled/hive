@@ -575,6 +575,19 @@ def test_merge_word_is_a_note_after_step_up(client: TestClient, home: Path) -> N
     assert "pr: https://example.invalid/alpha/pull/2" in call["stdin"]
 
 
+def test_merge_confirm_works_for_one_request_only(client: TestClient, home: Path) -> None:
+    res = post(client, "merge", task="alpha-build")
+    step = _hidden(res.text, "step")
+    first = post(client, "merge", task="alpha-build", step=step)
+    assert first.status_code == 200 and "Sent to the first mate." in first.text
+    assert len(_calls(home)) == 1
+    # the same step with a new request id is not a second confirmed request: back to the confirm
+    again = post(client, "merge", task="alpha-build", step=step, rid="web-fedcba9876543210")
+    assert again.status_code == 200 and "never merges" in again.text
+    assert "Sent to the first mate." not in again.text
+    assert len(_calls(home)) == 1
+
+
 def test_merge_requires_a_listed_merge_approval(client: TestClient, home: Path) -> None:
     step = CSRF.step_up("merge", "beta-hold")
     res = post(client, "merge", task="beta-hold", step=step)

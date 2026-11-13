@@ -193,7 +193,7 @@ CASES: dict[str, Callable[[str], dict]] = {
     "merge": lambda rid: {
         "rid": rid,
         "task": "alpha-build",
-        "step": CSRF.step_up("merge", "alpha-build"),
+        "step": CSRF.step_up("merge", f"alpha-build:{rid}"),
     },
     "control": lambda rid: {
         "rid": rid,
