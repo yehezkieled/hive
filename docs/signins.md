@@ -28,10 +28,10 @@ one-line reminder of what it checks.
 | Light | The card says | What it means | What to do |
 |---|---|---|---|
 | Green, **Answers** | Claude's service answers | Claude's servers answered this PC. | Nothing. |
-| Red, **Not answering** | Claude's service refused the request (Cloudflare 403) | Cloudflare, in front of Claude, blocked the request from this PC. | Nothing on the PC fixes it; wait and look again. Do not renew the sign-in for it. |
+| Red, **Not answering** | Claude's service refused the request (Cloudflare 403), or (403) | Cloudflare, in front of Claude, blocked the request from this PC (a plain 403: something refused it without Cloudflare's block page). | Nothing on the PC fixes it; wait and look again. Do not renew the sign-in for it. |
 | Red, **Not answering** | Claude's service is down (503), or (500), (502) … | Claude's servers are failing. | Wait; Claude's status page says more. |
 | Red, **Not answering** | Claude's service is overloaded (529), or is turning requests away (429) | Claude is answering but turning work away. | Wait. |
-| Grey, **Unknown** | Could not check (timed out), (no network or DNS) or (the request failed) | The desk got no answer it can read. Never shown as green. | Check the PC's network on the Machine page. |
+| Grey, **Unknown** | Could not check (timed out), (no network or DNS), (the request failed) or: an answer not known here (code) | The desk got no answer it can read. Never shown as green. | Check the PC's network on the Machine page. |
 | Grey, **Unknown** | Checking Claude's service… | No answer from the last two minutes yet. | Wait a moment: the page refreshes itself. |
 | Grey, **Off** | Not checked: the live check is turned off | `HIVE_GATEWAY_CLAUDE_REACH=off`. | Nothing, or unset it. |
 
