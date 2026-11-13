@@ -22,11 +22,14 @@ def refused(title: str, message: str, nxt: str, status: int, wants_json: bool) -
     return pages_error(title, message, nxt, status)
 
 
-def outcome_response(result: Outcome, nxt: str, wants_json: bool) -> Response:
-    """An action that ran, or is still being recorded (``pending``, answered 202)."""
+def outcome_response(
+    result: Outcome, nxt: str, wants_json: bool, extra: dict[str, object] | None = None
+) -> Response:
+    """An action that ran, or is still being recorded (``pending``, answered 202). ``extra``
+    is added to the JSON answer only."""
     if wants_json:
         return JSONResponse(
-            {"ok": True, "message": result.summary, "pending": result.pending},
+            {"ok": True, "message": result.summary, "pending": result.pending, **(extra or {})},
             status_code=202 if result.pending else 200,
         )
     return HTMLResponse(pages.render_outcome(result, nxt))
