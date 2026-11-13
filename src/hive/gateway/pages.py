@@ -605,6 +605,11 @@ font:13px/1.5 var(--fm);white-space:pre-wrap;overflow-wrap:anywhere}
 .sgrow__act button{white-space:nowrap}
 .sgrow__act .act-warn,.sgrow__act .act-err{margin:0;font-size:14px}
 .sgrow__why{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.sgreach{margin-top:4px;min-width:0}
+.sgreach>summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;min-height:44px;padding-block:9px;list-style:none;font-size:14px;color:var(--ink)}
+.sgreach>summary::-webkit-details-marker{display:none}
+.sgreach__w{flex:1 1 13em;min-width:0;overflow-wrap:anywhere;text-decoration:underline dotted var(--line2);text-underline-offset:4px}
+.sgreach__why{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
 .sgflow{flex:none}
 .sgflow:empty{display:none}
 .sgf{padding:18px 22px;border:2px solid var(--honey);border-radius:var(--r3);background:var(--card)}
@@ -2722,9 +2727,24 @@ def _sgrow(r: signins.SignIn, ctx: Ctx, busy: bool) -> str:
         f"<li class='{cls}'><div class=sgrow__top><b>{esc(r.label)}</b>{_mchip(state)}</div>"
         f"<p class=sgrow__big>{esc(r.headline)}</p>"
         + (f"<p class=sgrow__d>{line}</p>" if line else "")
+        + _sgreach(r.reach)
         + f"<div class=sgrow__act>{act}"
         + (f"<p class=sgrow__why>{why}</p>" if why else "")
         + "</div></li>"
+    )
+
+
+def _sgreach(light: signins.Light | None) -> str:
+    """The Claude card's live service light: a chip and a few words; a tap (or a hover)
+    says what the check is and what it cannot prove."""
+    if light is None:
+        return ""
+    hint = esc(signins.REACH_HINT)
+    return (
+        f"<details class='sgreach sgreach--{_mstate(light.light)}'>"
+        f"<summary title='{hint}'>{_mchip(light.light, light.chip)}"
+        f"<span class=sgreach__w>{esc(light.words)}</span></summary>"
+        f"<p class=sgreach__why>{hint}</p></details>"
     )
 
 

@@ -1269,7 +1269,10 @@ cut the link the desk is reached over, so its card points at Tailscale's admin p
 Each start, result and refusal is one line in `signin-audit.log` and one
 `gateway-audit action=signin` line; starts are limited to 5 in 15 minutes. What
 each sign-in shows, what Renew does and what to do when it fails:
-[signins.md](signins.md).
+[signins.md](signins.md). The Claude card also has a live "can Claude answer right now?"
+light: one unsigned `GET` of `HIVE_GATEWAY_CLAUDE_REACH` (status code and Cloudflare marker
+only, no credential), at most once a minute and only while a Sign-ins page asks, cached
+and off the request path (`gateway/reach.py`).
 
 **Run (`/run`).** A short, fixed list of fix buttons (`gateway/runqueue.py`), each one exact
 named action with no free text. The Linux buttons run, as the desk's own user and with an
@@ -1483,6 +1486,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_NET_CHECK` | `api.anthropic.com:443` (`host:port` for the Machine page's one outbound TCP connect, which sends nothing; `off` disables it) |
 | `HIVE_GATEWAY_CLAUDE` | `claude` on `PATH`, else `~/.local/bin/claude` (the Sign-ins page's Claude Renew runs its `auth login`; `off`, or a host without it, offers no Renew) |
 | `HIVE_GATEWAY_GH` | `gh` on `PATH` (the Sign-ins page's GitHub row, `auth status`, and its Renew, `auth login --web`; `off`, or a host without it, leaves the row `unknown` with no Renew) |
+| `HIVE_GATEWAY_CLAUDE_REACH` | `https://api.anthropic.com/v1/models` (the Sign-ins page's live Claude light: one unsigned HTTPS `GET`, at most once a minute while the page is open, reading the status code and Cloudflare's block marker only; `off`, or anything but a plain `https://` address, turns it off) |
 
 ### Live updates, alerts and live tail
 

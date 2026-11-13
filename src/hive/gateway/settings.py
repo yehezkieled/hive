@@ -27,6 +27,8 @@ WINDOWS_SCHTASKS = Path("/mnt/c/Windows/System32/schtasks.exe")
 # The Windows admin helper's data folder (C:\ProgramData\HiveAdmin) as WSL sees it.
 DEFAULT_ADMIN_HELPER = "/mnt/c/ProgramData/HiveAdmin"
 DEFAULT_CLAUDE_CREDENTIALS = "~/.claude/.credentials.json"
+DEFAULT_CLAUDE_REACH = "https://api.anthropic.com/v1/models"
+_CLAUDE_REACH_RE = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~/-]*)?")
 DEFAULT_NET_CHECK = "api.anthropic.com:443"
 DEFAULT_GONEDARK_ENV = "~/.config/hive/gonedark.env"
 DEFAULT_GONEDARK_STATE = "~/.local/state/hive-gonedark"
@@ -108,6 +110,9 @@ class GatewaySettings:
     # The Sign-ins page's login commands. One left as None offers no Renew for that sign-in.
     claude: Path | None = None
     gh: Path | None = None
+    # The Sign-ins page's live "can Claude answer?" light: the one address it asks, unsigned.
+    # None: the light reads "not checked".
+    claude_reach: str | None = None
 
     @property
     def state_dir(self) -> Path:
@@ -162,6 +167,7 @@ class GatewaySettings:
                 Path("~/.local/bin/claude").expanduser(),
             ),
             gh=_binary(env.get("HIVE_GATEWAY_GH", "").strip(), "gh"),
+            claude_reach=_claude_reach(env.get("HIVE_GATEWAY_CLAUDE_REACH", "").strip()),
             terminal=env.get("HIVE_GATEWAY_TERMINAL", "").strip().lower() != "off",
         )
 
@@ -204,6 +210,15 @@ def _net_check(value: str) -> tuple[str, int] | None:
     if m is None or not 0 < int(m[2]) < 65536:
         return None
     return m[1].lower(), int(m[2])
+
+
+def _claude_reach(value: str) -> str | None:
+    """The address the Claude light asks; ``off`` or anything but a plain https address
+    disables it."""
+    if value == "off":
+        return None
+    url = value or DEFAULT_CLAUDE_REACH
+    return url if _CLAUDE_REACH_RE.fullmatch(url) else None
 
 
 def _admin_helper(value: str) -> Path | None:
