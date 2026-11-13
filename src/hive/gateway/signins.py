@@ -47,6 +47,7 @@ from urllib.parse import urlsplit
 
 from hive.gateway import actions, machine, reach
 from hive.gateway.actions import ActionError
+from hive.gateway.files import append_private, claim_slot
 from hive.gateway.machine import DOWN, OK, UNKNOWN, WARN, Reading, Unknown
 from hive.gateway.settings import GatewaySettings
 
@@ -679,31 +680,13 @@ class SignInService:
         line = f"{stamp} who={name} via=desk provider={provider} event={event}"
         line += f" reason={reason}\n" if reason else "\n"
         try:
-            self.settings.data_dir.mkdir(parents=True, exist_ok=True)
-            fd = os.open(self.audit_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "a") as fh:
-                fh.write(line)
+            append_private(self.audit_path, line)
         except OSError:
             pass  # an unwritable log must not fail a sign-in; the journal line still went out
 
     def _claim(self, now: float) -> float:
         """Count one start attempt, across restarts. 0 when allowed, else seconds to wait."""
-        self.settings.data_dir.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self._starts_path, os.O_RDWR | os.O_CREAT, 0o600)
-        with os.fdopen(fd, "r+") as fh:
-            fcntl.flock(fh, fcntl.LOCK_EX)
-            try:
-                seen = [float(t) for t in json.loads(fh.read() or "[]")]
-            except (ValueError, TypeError):
-                seen = []
-            recent = sorted(t for t in seen if now - self._start_window_s < t <= now)
-            if len(recent) >= self._start_limit:
-                return max(1.0, recent[0] + self._start_window_s - now)
-            recent.append(now)
-            fh.seek(0)
-            fh.truncate()
-            fh.write(json.dumps(recent))
-            return 0.0
+        return claim_slot(self._starts_path, now, self._start_limit, self._start_window_s)
 
     # ---- views ------------------------------------------------------------------------
 
