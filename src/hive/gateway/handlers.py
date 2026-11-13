@@ -1,6 +1,6 @@
 """What ``POST /act/{name}`` runs for each action name, behind the owner gate and the CSRF
 check the route has already made. The Run, Sign-ins and Terminal actions are not here: they
-are still in ``app.py``."""
+are in ``runroutes.py``, ``signinroutes.py`` and ``terminalroutes.py``."""
 
 from __future__ import annotations
 
