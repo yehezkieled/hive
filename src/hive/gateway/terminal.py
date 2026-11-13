@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -40,6 +39,7 @@ from pathlib import Path
 
 from hive.gateway import actions
 from hive.gateway.actions import ActionError
+from hive.gateway.files import append_private, claim_slot
 from hive.gateway.settings import GatewaySettings
 
 SESSION_MAX_S = 30 * 60.0  # the hard limit on one attach before the page must confirm again
@@ -605,31 +605,13 @@ class TerminalService:
             f"{k}={v}" for k, v in fields.items()
         )
         try:
-            self.settings.data_dir.mkdir(parents=True, exist_ok=True)
-            fd = os.open(self.audit_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "a") as fh:
-                fh.write(line + "\n")
+            append_private(self.audit_path, line + "\n")
         except OSError:
             pass  # an unwritable log must not break the page; the journal line still went out
 
     def _claim_open(self, now: float) -> float:
         """Count one open, across restarts. 0 when allowed, else seconds to wait."""
-        self.settings.data_dir.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self._opens_path, os.O_RDWR | os.O_CREAT, 0o600)
-        with os.fdopen(fd, "r+") as fh:
-            fcntl.flock(fh, fcntl.LOCK_EX)
-            try:
-                seen = [float(t) for t in json.loads(fh.read() or "[]")]
-            except (ValueError, TypeError):
-                seen = []
-            recent = sorted(t for t in seen if now - OPEN_WINDOW_S < t <= now)
-            if len(recent) >= self._open_limit:
-                return max(1.0, recent[0] + OPEN_WINDOW_S - now)
-            recent.append(now)
-            fh.seek(0)
-            fh.truncate()
-            fh.write(json.dumps(recent))
-            return 0.0
+        return claim_slot(self._opens_path, now, self._open_limit, OPEN_WINDOW_S)
 
     # ---- finding the pane ---------------------------------------------------------------------
 
