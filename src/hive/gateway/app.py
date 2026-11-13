@@ -2,7 +2,8 @@
 
 The pages and the live stream are route groups in ``routes.py``, the static files in
 ``assets.py``; ``POST /act/{name}`` is here and runs the handlers in ``handlers.py``. The Run
-queue, Sign-ins and Terminal routes and handlers are in this file.
+page's route and handler are in ``runroutes.py``; the Sign-ins and Terminal ones are in this
+file.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from hive.gateway import actions, machine, pages, runqueue, signins, terminal
+from hive.gateway import actions, machine, pages, signins, terminal
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
 from hive.gateway.assets import FONTS_DIR as FONTS_DIR  # moved; tests import it from here
 from hive.gateway.assets import add_asset_routes
@@ -55,6 +56,8 @@ from hive.gateway.responses import (
 )
 from hive.gateway.routes import MAX_BODY, Services, add_live_routes, add_page_routes
 from hive.gateway.runqueue import RunQueue
+from hive.gateway.runroutes import RUN_PENDING as RUN_PENDING  # moved; tests import it here
+from hive.gateway.runroutes import _run, add_run_routes
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.snapshot import SnapshotProvider
 from hive.gateway.wake import WakeService
@@ -224,17 +227,11 @@ def create_app(
     add_asset_routes(app)
 
     # ---- Run queue, Sign-ins and Terminal ----------------------------------------------------
-    # The three remote-access pages are registered here, not in a route group; their /act
-    # handlers are further down this file.
+    # The three remote-access pages are registered here. The Run page's route and handler are
+    # in ``runroutes.py``; the Sign-ins and Terminal ones are in this file.
     ctx_for = services.ctx_for
 
-    @app.get("/run", response_class=HTMLResponse)
-    async def run_page() -> HTMLResponse:
-        """The fix buttons and the last runs. Rendering it runs nothing; a run the desk did
-        not see finish is settled from the logs."""
-        snap = await provider.get()
-        view = await runq.view()
-        return HTMLResponse(pages.render_run(view, await ctx_for(snap, "/run")))
+    add_run_routes(app, services, runq)
 
     @app.get("/signins", response_class=HTMLResponse)
     async def signins_page() -> HTMLResponse:
@@ -436,100 +433,6 @@ async def _terminal_session(ws: WebSocket, term: terminal.TerminalService, who: 
                 await ws.send_text(json.dumps(msg, separators=(",", ":"), ensure_ascii=False))
         with contextlib.suppress(Exception):
             await ws.close(code=code)
-
-
-RUN_PENDING = "Running. The result shows in the list of runs when it finishes."
-
-
-async def _run(
-    form: dict[str, str],
-    runq: RunQueue,
-    settings: GatewaySettings,
-    tokens: Tokens,
-    runs: RunOnce,
-    nxt: str,
-    wants_json: bool,
-) -> Response:
-    """One Run page action: a confirm step, a second one for the actions that take things
-    down, then one run. Each step-up is bound to exactly this action, number and request id,
-    so a link, a GET or another page cannot start one, and a confirmed tap runs only what
-    it confirmed."""
-    key = "-"  # the journal names only a listed action, never text from the request
-    try:
-        action, n = runqueue.parse(form)
-        key = action.key
-        rid = form.get("rid", "")
-        subject = f"{action.key}:{'-' if n is None else n}:{rid}"
-        step = form.get("step", "")
-        good_rid = actions.REQUEST_ID_RE.fullmatch(rid) is not None
-        hidden = {"do": action.key, **({"n": str(n)} if n is not None else {})}
-        if good_rid and action.down and tokens.check_step_up(step, "run-down", subject):
-            pass  # both confirms passed
-        elif good_rid and tokens.check_step_up(step, "run", subject):
-            if action.down:  # the extra confirm: what goes down and how it comes back
-                return confirm_response(
-                    Confirm(
-                        f"{action.label}: are you sure?",
-                        action.down,
-                        "run",
-                        {**hidden, "rid": rid, "step": tokens.step_up("run-down", subject)},
-                        f"Yes, {action.label[0].lower()}{action.label[1:]}",
-                        warn=True,
-                    ),
-                    nxt,
-                    tokens,
-                    wants_json,
-                )
-        else:
-            why, status = await runq.refusal(action)
-            if why:  # not offered now: say so at the first tap, not after the confirm
-                raise ActionError(why, status)
-            rid = actions.new_request_id()
-            subject = f"{action.key}:{'-' if n is None else n}:{rid}"
-            when = action.when(n)
-            detail = (
-                f"{action.plain}{' It runs ' + when + '.' if when else ''} "
-                f"Exactly: {action.command(n)}. Time-out {int(action.timeout_s)} s."
-            )
-            return confirm_response(
-                Confirm(
-                    action.label,
-                    detail,
-                    "run",
-                    {**hidden, "rid": rid, "step": tokens.step_up("run", subject)},
-                    "Tap again: next step" if action.down else "Tap again to run",
-                    warn=True,
-                ),
-                nxt,
-                tokens,
-                wants_json,
-            )
-
-        async def start() -> Outcome:
-            done = await runq.run(action, n, rid, settings.owner_login)
-            if done.result != runqueue.OK:
-                raise ActionError(done.message, runqueue.RESULT_STATUS.get(done.result, 502))
-            return Outcome("run", action.key, done.message)
-
-        result = await runs.run(
-            rid, start, actions.ACT_WAIT_S, ("run", action.key), summary=RUN_PENDING
-        )
-    except ActionError as exc:
-        actions.audit("run", key, "not-run-or-failed", status=exc.status)
-        if wants_json:
-            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
-        return pages_error("Run", str(exc), nxt, exc.status)
-    reload_s = action.reload_s if not result.pending else 0
-    if wants_json:
-        body: dict[str, object] = {
-            "ok": True,
-            "message": result.summary,
-            "pending": result.pending,
-        }
-        if reload_s:
-            body["reload"] = reload_s
-        return JSONResponse(body, status_code=202 if result.pending else 200)
-    return HTMLResponse(pages.render_outcome(result, nxt))
 
 
 async def _signin(

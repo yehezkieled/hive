@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hive.gateway.actions import ActionError, audit
+from hive.gateway.files import append_private
 from hive.gateway.machine import DESK_UNIT, FLEET_SERVICE, redact
 from hive.gateway.settings import GatewaySettings
 
@@ -400,10 +401,7 @@ class RunLog:
         written record is not a failed write."""
         line = json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "a") as fh:
-                fh.write(line)
+            append_private(self.path, line)
         except OSError:
             return False
         with contextlib.suppress(OSError):
