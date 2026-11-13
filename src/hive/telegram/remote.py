@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
-import json
 import logging
 import os
 import re
@@ -37,20 +36,20 @@ from telegram import Message, Update
 from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
+from hive import standalone
 from hive.gateway.settings import DEFAULT_PORT, GatewaySettings, tailscale_binary
 from hive.gateway.wake import WakeService, ago, desk_probe, last_activity
 from hive.gateway.watchdog import WatchdogStore
+from hive.standalone import EX_CONFIG, tailscale_state
 from hive.telegram.recovery import RecoveryControls
 
 logger = logging.getLogger("hive.telegram")
 
-EX_CONFIG = 78  # sysexits: the config is wrong; the unit does not restart on it
 TOKEN_RE = re.compile(r"^[0-9]{3,}:[A-Za-z0-9_-]{30,}$")
 USER_ID_RE = re.compile(r"^[0-9]{1,20}$")
 COMMAND_RE = re.compile(r"^/([A-Za-z_]+)(?:@[A-Za-z0-9_]+)?(?:\s+(\S.*))?$", re.DOTALL)
 DEFAULT_STATE_DIR = "~/.local/state/hive-telegram"
 REJECTED_MARK = "rejected-token.sha256"  # the wrapper skips a token Telegram refused
-TAILSCALE_TIMEOUT_S = 8.0
 UNLISTED_LOG_EVERY_S = 3600.0  # one log line per unlisted sender per hour
 RETRY_FIRST_S = 5.0
 RETRY_MAX_S = 300.0
@@ -102,74 +101,17 @@ def token_digest(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-class RedactingFormatter(logging.Formatter):
-    """Replaces each secret in a formatted record, tracebacks included."""
-
-    def __init__(self, fmt: str, secrets: tuple[str, ...]) -> None:
-        super().__init__(fmt, datefmt="%H:%M:%S")
-        self._secrets = tuple(s for s in secrets if s)
-
-    def format(self, record: logging.LogRecord) -> str:
-        text = super().format(record)
-        for secret in self._secrets:
-            text = text.replace(secret, "[bot token]")
-        return text
+class RedactingFormatter(standalone.RedactingFormatter):
+    label = "[bot token]"
 
 
 def setup_logging(token: str = "") -> None:
-    handler = logging.StreamHandler()
-    handler.setFormatter(
-        RedactingFormatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s", (token,))
-    )
-    root = logging.getLogger()
-    root.handlers[:] = [handler]
-    root.setLevel(logging.INFO)
-    # httpx logs every request URL at INFO, and Telegram's URLs carry the token.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    standalone.setup_logging(RedactingFormatter(standalone.LOG_FORMAT, (token,)))
 
 
 # ---- the chain /health reports ---------------------------------------------------------
 
 Probe = Callable[[], Awaitable[str]]
-
-
-async def tailscale_state(binary: Path | None, timeout_s: float = TAILSCALE_TIMEOUT_S) -> str:
-    """One plain phrase for the PC's Tailscale: read only, never changes anything."""
-    if binary is None:
-        return "unknown (Tailscale's command was not found)"
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            str(binary),
-            "status",
-            "--json",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError:
-        return "unknown (could not run Tailscale)"
-    try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout_s)
-    except TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        return "unknown (Tailscale did not answer)"
-    if proc.returncode != 0 and not out.strip():
-        return "not connected: Tailscale is not running"
-    try:
-        data = json.loads(out)
-        backend = str(data.get("BackendState", ""))
-        online = bool((data.get("Self") or {}).get("Online"))
-    except (ValueError, AttributeError, TypeError):
-        return "unknown (Tailscale's answer was unreadable)"
-    if backend == "Running" and online:
-        return "connected"
-    if backend == "Running":
-        return "running but offline (no route to Tailscale's servers)"
-    if backend == "NeedsLogin":
-        return "not connected: it needs a sign-in"
-    return f"not connected (state: {backend.lower() or 'unknown'})"
 
 
 def _clock(ts: float, tz: str) -> str:

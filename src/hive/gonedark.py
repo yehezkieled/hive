@@ -45,6 +45,7 @@ from typing import IO
 
 import httpx
 
+from hive import standalone
 from hive.gateway.settings import (
     DEFAULT_FM_HOME,
     DEFAULT_GONEDARK_STATE,
@@ -52,11 +53,10 @@ from hive.gateway.settings import (
     tailscale_binary,
 )
 from hive.gateway.wake import desk_probe, read_status
-from hive.telegram.remote import tailscale_state
+from hive.standalone import EX_CONFIG, tailscale_state
 
 logger = logging.getLogger("hive.gonedark")
 
-EX_CONFIG = 78  # sysexits: the config is wrong; the unit does not restart on it
 DEFAULT_INTERVAL_S = 300
 MIN_INTERVAL_S = 60
 MAX_INTERVAL_S = 3600
@@ -117,31 +117,12 @@ def load_config(env: Mapping[str, str]) -> GoneDarkConfig:
     return GoneDarkConfig(url, int(raw))
 
 
-class RedactingFormatter(logging.Formatter):
-    """Replaces each secret in a formatted record, tracebacks included."""
-
-    def __init__(self, fmt: str, secrets: tuple[str, ...]) -> None:
-        super().__init__(fmt, datefmt="%H:%M:%S")
-        self._secrets = tuple(s for s in secrets if s)
-
-    def format(self, record: logging.LogRecord) -> str:
-        text = super().format(record)
-        for secret in self._secrets:
-            text = text.replace(secret, "[ping address]")
-        return text
+class RedactingFormatter(standalone.RedactingFormatter):
+    label = "[ping address]"
 
 
 def setup_logging(url: str = "") -> None:
-    handler = logging.StreamHandler()
-    handler.setFormatter(
-        RedactingFormatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s", (url,))
-    )
-    root = logging.getLogger()
-    root.handlers[:] = [handler]
-    root.setLevel(logging.INFO)
-    # httpx logs every request URL at INFO, and the URL is the secret.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    standalone.setup_logging(RedactingFormatter(standalone.LOG_FORMAT, (url,)))
 
 
 # ---- the two halves of a tick ----------------------------------------------------------

@@ -45,10 +45,6 @@ class CommandRequest(BaseModel):
     text: str
 
 
-class DecisionReplyRequest(BaseModel):
-    reply: str
-
-
 class PushSubscriptionRequest(BaseModel):
     """A browser ``PushSubscription`` POSTed to ``/api/push-subscribe`` (Ticket 041)."""
 

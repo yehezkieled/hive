@@ -11,7 +11,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import re
 import threading
 from dataclasses import dataclass
@@ -21,6 +20,8 @@ from urllib.parse import urlsplit
 from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
+
+from hive.gateway.files import write_private
 
 log = logging.getLogger("hive.gateway.push")
 MAX_SUBSCRIPTIONS = 20
@@ -33,15 +34,6 @@ class Alert:
     title: str
     body: str
     url: str = "/"
-
-
-def _write_private(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
 
 
 def valid_subscription(sub: object) -> dict | None:
@@ -85,7 +77,7 @@ class PushService:
                     vapid = Vapid01()
                     vapid.generate_keys()
                     pem = vapid.private_pem().decode()
-                    _write_private(self._key_file, pem)
+                    write_private(self._key_file, pem)
                 self._vapid = Vapid01.from_file(str(self._key_file))
             return self._vapid
 
@@ -107,7 +99,7 @@ class PushService:
 
     def _save(self, subs: list[dict]) -> None:
         with self._lock:
-            _write_private(self._subs_file, json.dumps(subs))
+            write_private(self._subs_file, json.dumps(subs))
 
     def add(self, sub: dict) -> bool:
         subs = [s for s in self.subscriptions() if s["endpoint"] != sub["endpoint"]]

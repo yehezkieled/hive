@@ -51,7 +51,7 @@ def _kind(body: str) -> str:
 
 
 def parse_receipts(data: dict) -> tuple[list[Receipt], list[str]]:
-    if not _s(data.get("schema")).startswith("fm-inbox-receipts.v1"):
+    if not _s(data.get("schema")).startswith(RECEIPTS_SCHEMA):
         return [], []
     out: list[Receipt] = []
     for key in ("pending", "handled"):

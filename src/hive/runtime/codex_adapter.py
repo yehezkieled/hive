@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -15,6 +14,7 @@ from hive.runtime.base import Runtime
 from hive.runtime.harness import HarnessError, HarnessErrorKind, HarnessStatus, RunMode
 from hive.runtime.headless import (
     classify_failure_text,
+    env_without,
     parse_jsonl,
     run_process,
     tail,
@@ -24,13 +24,6 @@ from hive.runtime.headless import (
 HARNESS = "codex"
 _WORK_ITEMS = frozenset({"command_execution", "file_change", "mcp_tool_call", "collab_tool_call"})
 _API_BILLING_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY")
-
-
-def _subscription_env() -> dict[str, str]:
-    env = dict(os.environ)
-    for key in _API_BILLING_ENV:
-        env.pop(key, None)
-    return env
 
 
 def probe_codex() -> HarnessStatus:
@@ -44,7 +37,7 @@ def probe_codex() -> HarnessStatus:
             capture_output=True,
             text=True,
             timeout=15,
-            env=_subscription_env(),
+            env=env_without(_API_BILLING_ENV),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return HarnessStatus(HARNESS, True, None, f"`codex login status` failed: {exc}")
@@ -120,7 +113,7 @@ class CodexAdapter(Runtime):
             harness=HARNESS,
             stdin_text=prompt,
             cwd=self._cwd,
-            env=_subscription_env(),
+            env=env_without(_API_BILLING_ENV),
             timeout=config.HEADLESS_TIMEOUT_S,
         )
         events = parse_jsonl(proc.stdout)

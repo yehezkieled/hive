@@ -22,7 +22,7 @@ _WINDOW_LABEL: dict[str, str] = {
 }
 
 
-def _format_window_line(label: str, window: WindowReading) -> str:
+def format_window_line(label: str, window: WindowReading) -> str:
     reset_str = (
         window.resets_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
         if window.resets_at is not None
@@ -45,8 +45,8 @@ def format_band_alert(window_name: str, band: int, window: WindowReading) -> str
 def format_recovery_alert(reading: QuotaReading) -> str:
     return (
         "QuotaMonitor — back online\n"
-        f"{_format_window_line('5-hour', reading.five_hour)}\n"
-        f"{_format_window_line('7-day', reading.seven_day)}"
+        f"{format_window_line('5-hour', reading.five_hour)}\n"
+        f"{format_window_line('7-day', reading.seven_day)}"
     )
 
 
@@ -76,6 +76,6 @@ def format_digest(reading: QuotaReading, *, now: datetime, stale_after_seconds: 
         header += f" (reading {minutes} min old — endpoint may be down)"
     return (
         f"{header}\n"
-        f"{_format_window_line('5-hour', reading.five_hour)}\n"
-        f"{_format_window_line('7-day', reading.seven_day)}"
+        f"{format_window_line('5-hour', reading.five_hour)}\n"
+        f"{format_window_line('7-day', reading.seven_day)}"
     )

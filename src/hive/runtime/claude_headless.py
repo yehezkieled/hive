@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -31,6 +30,7 @@ from hive.runtime.harness import (
 )
 from hive.runtime.headless import (
     classify_failure_text,
+    env_without,
     parse_jsonl,
     run_process,
     tail,
@@ -77,13 +77,6 @@ def probe_claude() -> HarnessStatus:
         return HarnessStatus(HARNESS, True, False, "Claude Code is logged out")
     # Unrecognised output: trust the exit code (0 = signed in) over silence.
     return HarnessStatus(HARNESS, True, proc.returncode == 0, tail(proc.stderr or proc.stdout, 120))
-
-
-def _headless_env() -> dict[str, str]:
-    env = dict(os.environ)
-    for key in _API_BILLING_ENV:
-        env.pop(key, None)
-    return env
 
 
 class ClaudeHeadlessAdapter(Runtime):
@@ -158,7 +151,7 @@ class ClaudeHeadlessAdapter(Runtime):
             harness=HARNESS,
             stdin_text=prompt,
             cwd=self._cwd,
-            env=_headless_env(),
+            env=env_without(_API_BILLING_ENV),
             timeout=config.HEADLESS_TIMEOUT_S,
         )
         events = parse_jsonl(proc.stdout)
