@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 import pytest
 from fastapi.testclient import TestClient
 
-from hive.gateway import machine, pages, signins
+from hive.gateway import machine, pages, reach, signins
 from hive.gateway.actions import ActionError
 from hive.gateway.app import _safe_next, create_app
 from hive.gateway.live import LiveHub
@@ -1176,7 +1176,10 @@ var b=x.getBoundingClientRect();return Math.round(b.top+b.height/2);});
 function mid(x){var b=x.getBoundingClientRect();return b.top+b.height/2;}
 R.chips=all('.sgrow').map(function(x){
 return Math.round(Math.abs(mid(x.querySelector('.sgrow__top b'))-mid(x.querySelector('.sc'))));});
-R.taps=all('main button,main a.sgf__link,main input[type=text]').map(tall);
+R.taps=all('main button,main a.sgf__link,main input[type=text],main summary').map(tall);
+R.reach=all('.sgreach').length;
+R.reachFont=Math.min.apply(null,all('.sgreach__w,.sgreach .sc').map(function(x){
+return parseFloat(w.getComputedStyle(x).fontSize);}));
 var l=d.querySelector('.sgf__link');R.link=l?tall(l):0;
 R.dark=w.getComputedStyle(d.body).backgroundColor;
 """
@@ -1193,8 +1196,19 @@ def _framed(tmp_path: Path, page: str, size: tuple[int, int], *flags: str) -> di
     return _in_chrome(tmp_path, host, LAYOUT_DRIVER, (1400, 1400), *flags)
 
 
-def _panel(flow: signins.FlowView, tmp_path: Path, **states: object) -> signins.Panel:
-    rows = signins.build_rows(_states(**states), NOW, _plain(tmp_path))
+# The longest words the Claude card's service light can carry.
+RED_LIGHT = signins.Service(
+    reach.Reach(reach.RED, "Claude's service refused the request (Cloudflare 403)", NOW), True
+)
+
+
+def _panel(
+    flow: signins.FlowView,
+    tmp_path: Path,
+    service: signins.Service | None = RED_LIGHT,
+    **states: object,
+) -> signins.Panel:
+    rows = signins.build_rows(_states(**states), NOW, _plain(tmp_path), service)
     return signins.Panel(rows, flow, NOW)
 
 
@@ -1209,17 +1223,21 @@ FLOWS = {
 }
 
 
+PAGE_SIZES = {**SIZES, "desktop": (1440, 900)}
+
+
 @needs_chrome
-@pytest.mark.parametrize("name", SIZES)
+@pytest.mark.parametrize("name", PAGE_SIZES)
 @pytest.mark.parametrize("flow", FLOWS)
 def test_the_page_fits_phone_and_ipad_without_sideways_scroll(
     tmp_path: Path, name: str, flow: str
 ) -> None:
-    size = SIZES[name]
+    size = PAGE_SIZES[name]
     page = pages.render_signins(_panel(FLOWS[flow], tmp_path, claude=NOW + 2 * DAY), _ctx())
     r = _framed(tmp_path, page, size)
     assert (r["iw"], r["ih"]) == size, r
-    assert r["rows"] == 3
+    assert r["rows"] == 3 and r["reach"] == 1, r  # the Claude card's service light
+    assert r["reachFont"] >= 13, r
     assert r["sw"] <= r["iw"] and r["cut"] == 0, r  # no sideways scroll, nothing cut off
     _assert_link_rows(r["navTops"], size[0])
     assert max(r["chips"]) <= 2, r  # each state chip sits beside its sign-in's name
@@ -1238,6 +1256,8 @@ R.box=cs('.sgf__paste input[type=text]','backgroundColor');
 R.boxText=cs('.sgf__paste input[type=text]','color');
 R.row=cs('.sgrow','backgroundColor');R.why=cs('.sgrow__why','color');
 R.host=cs('.sgf__host','color');
+R.reach=cs('.sgreach summary','color');R.reachChip=cs('.sgreach .sc','backgroundColor');
+R.reachWhy=cs('.sgreach__why','color');
 """
 
 

@@ -2,6 +2,8 @@
 
 The panel shows each sign-in's state and expiry date, read without touching a token: one
 date field for Claude, one state word for GitHub, the key expiry for this PC's Tailscale.
+The Claude card also carries a live light, whether Claude's service answers right now
+(``reach.py``: one unsigned request, cached, at most once a minute).
 
 Renew runs the vendor's own login command, from a fixed table, in a pseudo-terminal the
 desk owns, and hands the link it prints to the page that started it. Nothing from a request
@@ -43,7 +45,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from hive.gateway import actions, machine
+from hive.gateway import actions, machine, reach
 from hive.gateway.actions import ActionError
 from hive.gateway.machine import DOWN, OK, UNKNOWN, WARN, Reading, Unknown
 from hive.gateway.settings import GatewaySettings
@@ -328,6 +330,37 @@ class SignIn:
     why_not: str = ""  # plain words when it is not
     help_label: str = ""  # a fixed link out, and what it is for
     help_url: str = ""
+    reach: Light | None = None  # Claude only: can the service answer right now
+
+
+@dataclass(frozen=True)
+class Light:
+    """The live service light on the Claude card: its colour, a short chip word and why."""
+
+    light: str  # ok, down or unknown (green, red, grey)
+    chip: str
+    words: str
+
+
+REACH_HINT = (
+    "Asks Claude's public API address one unsigned question, at most once a minute while "
+    "this page is open, and reads only how it answers. It shows whether Claude's service "
+    "answers this PC; it cannot prove your own account's requests will succeed."
+)
+_REACH_CHIP = {reach.GREEN: "Answers", reach.RED: "Not answering", reach.GREY: "Unknown"}
+
+
+def reach_light(result: reach.Reach | None, enabled: bool, signin_state: str) -> Light:
+    """The Claude card's service light. A red light beside a sign-in that still reads as
+    valid says so: the sign-in is fine, the service is not answering."""
+    if not enabled:
+        return Light(reach.GREY, "Off", "Not checked: the live check is turned off")
+    if result is None:
+        return Light(reach.GREY, "Unknown", "Checking Claude's service…")
+    words = result.words
+    if result.light == reach.RED and signin_state in (OK, WARN):
+        words += " — your sign-in is fine"
+    return Light(result.light, _REACH_CHIP.get(result.light, "Unknown"), words)
 
 
 def _sentence(why: str) -> str:
@@ -378,11 +411,30 @@ def _offer(provider: Provider, settings: GatewaySettings) -> tuple[bool, str]:
 
 
 def claude_signin(
-    reading: Reading[float | Unknown], now: float, settings: GatewaySettings
+    reading: Reading[float | Unknown],
+    now: float,
+    settings: GatewaySettings,
+    service: Service | None = None,
 ) -> SignIn:
     row = machine.claude_row(reading, now)
     row = replace(row, label="Claude", detail=_CLAUDE_DETAIL.get(row.state, row.detail))
-    return _from_row(row, *_offer(CLAUDE, settings))
+    signin = _from_row(row, *_offer(CLAUDE, settings))
+    return _with_reach(signin, service)
+
+
+@dataclass(frozen=True)
+class Service:
+    """What the panel knows of Claude's service: the last fresh result, and whether the
+    check is on at all."""
+
+    result: reach.Reach | None
+    enabled: bool
+
+
+def _with_reach(row: SignIn, service: Service | None) -> SignIn:
+    if service is None:
+        return row
+    return replace(row, reach=reach_light(service.result, service.enabled, row.state))
 
 
 def github_signin(reading: Reading[GitHub | Unknown], settings: GatewaySettings) -> SignIn:
@@ -410,14 +462,21 @@ def tailscale_signin(reading: Reading[machine.Tailscale | Unknown], now: float) 
 ROWS = (("claude", "Claude"), ("github", "GitHub"), ("tailscale", "Tailscale, this PC"))
 
 
-def build_rows(states: States | None, now: float, settings: GatewaySettings) -> tuple[SignIn, ...]:
+def build_rows(
+    states: States | None,
+    now: float,
+    settings: GatewaySettings,
+    service: Service | None = None,
+) -> tuple[SignIn, ...]:
     """The panel's rows. Missing or old readings show as unknown, never as fine."""
     if states is None or now - states.at > machine.STALE_S:
         at = states.at if states is not None else None
         words = ("Checking", "Reading it again now") if at else ("Unknown", "Not checked yet")
-        return tuple(SignIn(key, label, UNKNOWN, *words, checked_at=at) for key, label in ROWS)
+        rows = [SignIn(key, label, UNKNOWN, *words, checked_at=at) for key, label in ROWS]
+        rows[0] = _with_reach(rows[0], service)
+        return tuple(rows)
     return (
-        claude_signin(states.claude, now, settings),
+        claude_signin(states.claude, now, settings, service),
         github_signin(states.github, settings),
         tailscale_signin(states.tailscale, now),
     )
@@ -505,8 +564,11 @@ class SignInService:
         read_window_s: float = READ_WINDOW_S,
         start_limit: int = START_LIMIT,
         start_window_s: float = START_WINDOW_S,
+        reach_check: reach.ReachCheck | None = None,
     ) -> None:
         self.settings = settings
+        url = settings.claude_reach
+        self.reach = reach_check or reach.ReachCheck(reach.http_probe(url) if url else None)
         self.providers = PROVIDERS
         self._timeout_s = timeout_s
         self._read_window_s = read_window_s
@@ -576,10 +638,16 @@ class SignInService:
         """The page's rows and the flow as any owner page may see it. Waits only for the
         very first readings, and then only ``wait_s``."""
         states = self.peek()
-        if states is None and self._round is not None and wait_s > 0:
-            with contextlib.suppress(TimeoutError):
-                states = await asyncio.wait_for(asyncio.shield(self._round), wait_s)
-        rows = build_rows(states, time.time(), self.settings)
+
+        async def first_states() -> States | None:
+            if states is None and self._round is not None and wait_s > 0:
+                with contextlib.suppress(TimeoutError):
+                    return await asyncio.wait_for(asyncio.shield(self._round), wait_s)
+            return states
+
+        states, light = await asyncio.gather(first_states(), self.reach.light(wait_s))
+        service = Service(light, self.reach.enabled)
+        rows = build_rows(states, time.time(), self.settings, service)
         return Panel(rows, self.view(), states.at if states else None)
 
     async def _reread(self, key: str) -> SignIn | None:
@@ -956,6 +1024,7 @@ class SignInService:
             self._round.cancel()
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await self._round
+        await self.reach.stop()
 
 
 def _echo_off(fd: int) -> None:

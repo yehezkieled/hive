@@ -17,6 +17,47 @@ It is for the owner only, on the tailnet only, like every desk page.
 
 The Codex (OpenAI) sign-in is not on the page.
 
+## Can Claude answer right now?
+
+A valid sign-in does not mean Claude's service is answering. Claude can turn every
+request away (a Cloudflare "Attention Required!" page, a `503`) while the sign-in
+still has weeks left. The Claude card therefore carries a second, live light under
+its expiry date: a chip and a few words. Tap it (or hover on a desktop) for a
+one-line reminder of what it checks.
+
+| Light | The card says | What it means | What to do |
+|---|---|---|---|
+| Green, **Answers** | Claude's service answers | Claude's servers answered this PC. | Nothing. |
+| Red, **Not answering** | Claude's service refused the request (Cloudflare 403), or (403) | Cloudflare, in front of Claude, blocked the request from this PC (a plain 403: something refused it without Cloudflare's block page). | Nothing on the PC fixes it; wait and look again. Do not renew the sign-in for it. |
+| Red, **Not answering** | Claude's service is down (503), or (500), (502) … | Claude's servers are failing. | Wait; Claude's status page says more. |
+| Red, **Not answering** | Claude's service is overloaded (529), or is turning requests away (429) | Claude is answering but turning work away. | Wait. |
+| Grey, **Unknown** | Could not check (timed out), (no network or DNS), (the request failed) or: an answer not known here (code) | The desk got no answer it can read. Never shown as green. | Check the PC's network on the Machine page. |
+| Grey, **Unknown** | Checking Claude's service… | No answer from the last two minutes yet. | Wait a moment: the page refreshes itself. |
+| Grey, **Off** | Not checked: the live check is turned off | `HIVE_GATEWAY_CLAUDE_REACH=off`. | Nothing, or unset it. |
+
+A red light beside a sign-in that still reads as valid adds "— your sign-in is
+fine": the problem is on Claude's side and renewing will not help. A signed-out or
+expired sign-in keeps its own red state and its **Renew**, whatever the light says.
+
+**What the check is.** One HTTPS `GET` of `https://api.anthropic.com/v1/models`,
+the host Claude Code itself talks to, carrying no key, token or cookie. Unsigned,
+the API answers `401`; that answer came from Claude's own servers, past Cloudflare,
+so it counts as "answers". Nothing is billed. The desk reads only the status code,
+Cloudflare's `cf-mitigated` header and, for a `403` only, the first 8 KiB of the
+answer, searched for Cloudflare's block-page words and then dropped. Nothing of the
+answer is kept, logged or shown, and the sign-in file is never read for it.
+
+**What it does not prove.** That your own signed-in requests will work. A green
+light says Claude's front door answers this PC; your account could still be turned
+away (a used-up plan, a revoked sign-in).
+
+**How often.** Only while a Sign-ins page is open: a page view, or the page's own
+30-second refresh, starts a check when the last one started at least 60 seconds
+ago, however many pages are open. One check at a time, cut off after 2.5 seconds,
+never inside the page load: the page shows the last answer at once. An answer older
+than about two minutes shows grey, not its old colour. Nothing runs when no page is
+open. `HIVE_GATEWAY_CLAUDE_REACH` sets another https address, or `off`.
+
 ## Renewing
 
 1. Tap **Renew**, then **Tap again to renew** within 15 seconds. This is the
@@ -109,7 +150,8 @@ are from <https://tailscale.com/docs/features/access-control/key-expiry>.
   not in the journal, the audit log, firstmate's status files, the event
   stream, Web Push or Telegram.
 - **Credential files.** Never copied, moved or shown. The only read is the one
-  date field, the same read the Machine page makes.
+  date field, the same read the Machine page makes. The live Claude light reads
+  nothing from them and sends no credential.
 - **Audit.** `signin-audit.log` under `HIVE_GATEWAY_DATA_DIR` (mode 0600) gets
   one line per event:
   `<time> who=<owner> via=desk provider=<claude|github> event=<started|ok|failed|cancelled|refused> [reason=<word>]`.
