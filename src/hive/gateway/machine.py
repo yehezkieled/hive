@@ -639,8 +639,18 @@ class Moment:
         object.__setattr__(self, "label", redact(self.label))
 
 
+class _Redacted:
+    """A frozen view row: every text field is redacted before it can be shown."""
+
+    def __post_init__(self) -> None:
+        for f in fields(self):  # type: ignore[arg-type]
+            value = getattr(self, f.name)
+            if isinstance(value, str):
+                object.__setattr__(self, f.name, redact(value))
+
+
 @dataclass(frozen=True)
-class Row:
+class Row(_Redacted):
     key: str
     label: str
     state: str  # ok, warn, down or unknown
@@ -650,15 +660,9 @@ class Row:
     moment: Moment | None = None
     urgent: bool = False  # the red band: an expiry inside URGENT_DAYS
 
-    def __post_init__(self) -> None:
-        for f in fields(self):
-            value = getattr(self, f.name)
-            if isinstance(value, str):
-                object.__setattr__(self, f.name, redact(value))
-
 
 @dataclass(frozen=True)
-class Risk:
+class Risk(_Redacted):
     label: str
     state: str
     due: str  # "now", "in 10 days", "no date"
@@ -666,12 +670,6 @@ class Risk:
     moment: Moment | None = None
     urgent: bool = False
     order: float = float("inf")  # nearest first; undated last
-
-    def __post_init__(self) -> None:
-        for f in fields(self):
-            value = getattr(self, f.name)
-            if isinstance(value, str):
-                object.__setattr__(self, f.name, redact(value))
 
 
 @dataclass(frozen=True)

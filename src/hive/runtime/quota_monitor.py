@@ -1,7 +1,7 @@
 """QuotaMonitor — polls Anthropic plan-quota and dispatches threshold alerts.
 
 See `docs/adr/0002-quota-from-undocumented-oauth-endpoint.md` for the data
-source decision, and `docs/plans/2026-05-20-quota-monitor.md` for the design.
+source decision, and `docs/archive/plans/2026-05-20-quota-monitor.md` for the design.
 """
 
 from __future__ import annotations
@@ -251,18 +251,12 @@ def format_quota_text(
         minutes = int(age_seconds / 60)
         stale_note = f" (reading {minutes} min old — endpoint may be down)"
 
-    def _line(label: str, window: WindowReading) -> str:
-        reset_str = (
-            window.resets_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
-            if window.resets_at is not None
-            else "not started"
-        )
-        return f"{label}: {window.utilization:.0f}%, resets {reset_str}"
+    from hive.runtime.quota_alerts import format_window_line
 
     return (
         f"Hive quota{stale_note}\n"
-        f"{_line('5-hour', reading.five_hour)}\n"
-        f"{_line('7-day', reading.seven_day)}"
+        f"{format_window_line('5-hour', reading.five_hour)}\n"
+        f"{format_window_line('7-day', reading.seven_day)}"
     )
 
 

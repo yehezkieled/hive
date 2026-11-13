@@ -36,6 +36,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from hive.gateway.files import append_private, write_private
 from hive.gateway.settings import GatewaySettings
 
 logger = logging.getLogger(__name__)
@@ -348,25 +349,14 @@ class WakeService:
             f"{stamp} action={action} who={_clean(who, 80) or '-'} via={via} "
             f"outcome={outcome} {_clean(detail)}\n"
         )
-        try:
-            self.settings.data_dir.mkdir(parents=True, exist_ok=True)
-            fd = os.open(self.audit_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "a") as fh:
-                fh.write(line)
-        except OSError:
-            pass  # an unwritable log must not turn a wake into a failure
+        with contextlib.suppress(OSError):  # an unwritable log must not turn a wake into a failure
+            append_private(self.audit_path, line)
 
     def _mark_manual(self) -> None:
         """Tell the watchdog a person acted: its ladder resets on its next look (any process)."""
-        try:
-            self.settings.data_dir.mkdir(parents=True, exist_ok=True)
-            tmp = self.settings.data_dir / (MANUAL_MARK + ".tmp")
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as fh:
-                fh.write(str(time.time()))
-            os.replace(tmp, self.settings.data_dir / MANUAL_MARK)
-        except OSError:
-            pass  # a failed mark only means the ladder resets when firstmate beats again
+        # a failed mark only means the ladder resets when firstmate beats again
+        with contextlib.suppress(OSError):
+            write_private(self.settings.data_dir / MANUAL_MARK, str(time.time()))
 
     def _claim(self, now: float) -> float:
         """Take the cooldown slot across processes. Returns 0 when taken, else seconds to wait."""

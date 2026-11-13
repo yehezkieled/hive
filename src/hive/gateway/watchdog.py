@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hive.gateway import fmconfig
+from hive.gateway.files import write_private
 from hive.gateway.wake import HELD_BACK, MANUAL_MARK, FirstmateStatus, WakeResult, WakeService
 
 log = logging.getLogger("hive.gateway.watchdog")
@@ -138,15 +139,6 @@ class View:
         return "halted" if self.halted else "on"
 
 
-def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
-
-
 def parse_config(text: str) -> WatchdogConfig:
     """The config from JSON text; ``ConfigError`` for anything not understood."""
     try:
@@ -212,7 +204,7 @@ class WatchdogStore:
             raise ConfigError(err)
         body = {"enabled": on}
         body.update({n: getattr(cfg, n) for n, _, _ in _FIELDS})
-        _atomic_write(self.config_path, json.dumps(body, indent=2) + "\n")
+        write_private(self.config_path, json.dumps(body, indent=2) + "\n")
         text = f"Automatic recovery switched {'ON' if on else 'OFF'} by {who} ({via})."
         with self._locked() as (ladder, events, seq):
             ladder.stage, ladder.halted, ladder.halted_reason = 0, False, ""
@@ -274,7 +266,7 @@ class WatchdogStore:
             "events": events[-MAX_EVENTS:],
             "seq": seq,
         }
-        _atomic_write(self.state_path, json.dumps(body))
+        write_private(self.state_path, json.dumps(body))
 
     def _add(self, events: list[dict], seq: list[int], level: str, kind: str, text: str) -> dict:
         seq[0] += 1

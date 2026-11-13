@@ -5,11 +5,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from hive.runtime.harness import HarnessError, HarnessErrorKind, RunMode
+
+
+def env_without(keys: tuple[str, ...]) -> dict[str, str]:
+    """This process's environment minus ``keys``: a harness given no API key bills the plan."""
+    env = dict(os.environ)
+    for key in keys:
+        env.pop(key, None)
+    return env
 
 
 @dataclass
