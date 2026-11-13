@@ -1,6 +1,7 @@
 """The desk's read routes, in groups: the pages, and the live stream with its Web Push
 endpoints. ``create_app`` builds the services once and hands them to each group. The Run
-page's route is in ``runroutes.py``; the Sign-ins and Terminal routes are still in ``app.py``."""
+page's route is in ``runroutes.py`` and the Sign-ins page's in ``signinroutes.py``; the
+Terminal routes are still in ``app.py``."""
 
 from __future__ import annotations
 

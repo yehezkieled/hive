@@ -2,8 +2,8 @@
 
 The pages and the live stream are route groups in ``routes.py``, the static files in
 ``assets.py``; ``POST /act/{name}`` is here and runs the handlers in ``handlers.py``. The Run
-page's route and handler are in ``runroutes.py``; the Sign-ins and Terminal ones are in this
-file.
+page's route and handler are in ``runroutes.py`` and the Sign-ins page's in
+``signinroutes.py``; the Terminal ones are in this file.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ from hive.gateway.runqueue import RunQueue
 from hive.gateway.runroutes import RUN_PENDING as RUN_PENDING  # moved; tests import it here
 from hive.gateway.runroutes import _run, add_run_routes
 from hive.gateway.settings import GatewaySettings
+from hive.gateway.signinroutes import SIGNIN_ACTIONS, _signin, add_signin_routes
 from hive.gateway.snapshot import SnapshotProvider
 from hive.gateway.wake import WakeService
 from hive.gateway.watchdog import Watchdog, WatchdogStore
@@ -90,9 +91,6 @@ ACT_NAMES = (
     "terminal",
     *REVIEW_ACTIONS,
 )
-# The Sign-ins page's actions: start (behind the step-up), ask how it is going, hand over a
-# pasted code, stop. Timed against a slow login command in tests/gateway/test_signins.py.
-SIGNIN_ACTIONS = ("signin", "signin-flow", "signin-code", "signin-cancel")
 PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
 NEXT_RE = re.compile(
     r"^/(chat|config|machine|run|signins|terminal|p/[A-Za-z0-9%._~-]{1,200}|\?focus=[A-Za-z0-9%._~-]{1,200})?$"
@@ -228,18 +226,13 @@ def create_app(
 
     # ---- Run queue, Sign-ins and Terminal ----------------------------------------------------
     # The three remote-access pages are registered here. The Run page's route and handler are
-    # in ``runroutes.py``; the Sign-ins and Terminal ones are in this file.
+    # in ``runroutes.py`` and the Sign-ins page's in ``signinroutes.py``; the Terminal ones
+    # are in this file.
     ctx_for = services.ctx_for
 
     add_run_routes(app, services, runq)
 
-    @app.get("/signins", response_class=HTMLResponse)
-    async def signins_page() -> HTMLResponse:
-        """Each sign-in's state, and Renew. What it renders is safe for any owner page: a
-        running flow's link and code only ever answer the page that started it (``/act``)."""
-        snap = await provider.get()
-        panel = await signin.panel()
-        return HTMLResponse(pages.render_signins(panel, await ctx_for(snap, "/signins")))
+    add_signin_routes(app, services, signin)
 
     @app.get("/terminal", response_class=HTMLResponse)
     async def terminal_page() -> HTMLResponse:
@@ -433,68 +426,3 @@ async def _terminal_session(ws: WebSocket, term: terminal.TerminalService, who: 
                 await ws.send_text(json.dumps(msg, separators=(",", ":"), ensure_ascii=False))
         with contextlib.suppress(Exception):
             await ws.close(code=code)
-
-
-async def _signin(
-    name: str,
-    form: dict[str, str],
-    service: signins.SignInService,
-    settings: GatewaySettings,
-    tokens: Tokens,
-    wants_json: bool,
-) -> Response:
-    """One Sign-ins action. The owner gate and the CSRF check already ran.
-
-    Starting needs the step-up; the other three act on the running flow and need the token
-    only the starting page was given (stopping it is open to any owner page). The answer
-    carries the flow as this caller may see it: JSON for the page script, else a page.
-    """
-    nxt, token = "/signins", form.get("flow", "")
-    ctx = pages.Ctx(tokens.csrf(), True, nxt, "", settings.default_tz)
-    try:
-        if name == "signin":
-            provider = service.providers.get(form.get("provider", ""))
-            if provider is None:
-                raise ActionError("Unknown sign-in.", 404)
-            rid = form.get("rid", "")
-            if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
-                form.get("step", ""), "signin", f"{provider.key}:{rid}"
-            ):
-                rid = actions.new_request_id()
-                step = tokens.step_up("signin", f"{provider.key}:{rid}")
-                confirm = Confirm(
-                    f"Renew the {provider.label} sign-in",
-                    service.confirm_text(provider),
-                    "signin",
-                    {"provider": provider.key, "rid": rid, "step": step},
-                    "Tap again to renew",
-                    warn=True,
-                )
-                return confirm_response(confirm, nxt, tokens, wants_json)
-            view = await service.start(provider.key, rid, settings.owner_login)
-            message = f"The {provider.label} sign-in has started."
-        elif name == "signin-code":
-            view = await service.send_code(token, form.get("code", ""))
-            message = "The code was handed to the login command."
-        elif name == "signin-cancel":
-            view = await service.cancel(token, settings.owner_login)
-            message = "The sign-in was stopped." if not view.active else "Stopping the sign-in."
-        else:
-            view = service.view(token)
-            message = "A sign-in is running." if view.active else "No sign-in is running."
-    except ActionError as exc:
-        actions.audit(name, "-", "refused", status=exc.status)
-        if wants_json:
-            return JSONResponse({"ok": False, "message": str(exc)}, status_code=exc.status)
-        return pages_error("Sign-ins", str(exc), nxt, exc.status)
-    if not wants_json:
-        return HTMLResponse(pages.render_signin_flow(view, ctx))
-    body: dict[str, object] = {
-        "ok": True,
-        "message": message,
-        "active": view.active,
-        "html": pages.signin_flow(view, ctx),
-    }
-    if name == "signin":
-        body["flow"] = view.token
-    return JSONResponse(body)
