@@ -1465,7 +1465,7 @@ no cross-site `Sec-Fetch-Site`.
 | `HIVE_GATEWAY_OWNER` | `yehezkieled1502@gmail.com` |
 | `HIVE_GATEWAY_HOSTS` | `desktop-lfme032.tailfb3900.ts.net,localhost,127.0.0.1` |
 | `HIVE_GATEWAY_FM_HOME` | `/home/hezki/firstmate` |
-| `HIVE_GATEWAY_PORT` | `8480` |
+| `HIVE_GATEWAY_PORT` | `8480` (also when blank or not a number) |
 | `HIVE_GATEWAY_BOARD_URL` | `https://desktop-lfme032.tailfb3900.ts.net:8445` (loopback Lavish `127.0.0.1:4387/session/<id>` links are rewritten to it) |
 | `HIVE_GATEWAY_TZ` | `Australia/Sydney` (server-side fallback; the page script shows the viewer's zone) |
 | `HIVE_GATEWAY_ORIGIN` | `https://desktop-lfme032.tailfb3900.ts.net:8446` (the public tailnet origin; its hostname seeds the Host/Origin allowlist when `HIVE_GATEWAY_HOSTS` is unset. The port here must match the `tailscale serve --https=` port.) |

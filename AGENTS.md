@@ -39,16 +39,18 @@ commit) skips locally without `HIVE_FIRSTMATE_ROOT`; see
 
 ## Environment
 
-This Claude Code session runs directly on the VPS
-(`ubuntu-s-4vcpu-8gb-sgp1-01`). There is no separate remote machine
-to deploy to — everything runs here.
+This Claude Code session runs under WSL2 on the PC `DESKTOP-LFME032`
+(Tailscale hostname `desktop-lfme032.tailfb3900.ts.net`). There is no
+separate remote machine to deploy to — everything runs here.
 
-- **VPS**: DigitalOcean droplet, Tailscale hostname
-  `tailfb3900.ts.net`, SSH on port 7777
-- **Tailscale IP**: 100.79.194.84
-- **n8n**: running in Docker
-- **OpenClaw**: service stopped and disabled
-- **Hive service**: systemd user service (`hive.service`)
+- **Desk**: systemd user service `hive-gateway.service`, the live desk.
+  Never signal it (no `kill`, `pkill`, restart) from tests or checks; the
+  only restart is the post-merge Deployment step below. A
+  throwaway desk uses its own port, and cleanup kills only the process id
+  it started, never by name (no `pkill -f hive.gateway`).
+- **Telegram bot**: `hive-telegram.service` (optional; enabled but
+  currently inactive)
+- **Other units**: `hive-fleet-up.timer` / `hive-fleet-up.service`
 
 Avoid "local" language — say "not pushed to origin yet" or "on this
 host" instead.
@@ -58,12 +60,14 @@ host" instead.
 After merging a Ticket to `main`, run autonomously without asking:
 
 1. `git push`
-2. `systemctl --user restart hive.service`
-3. Verify with `journalctl --user -u hive.service -n 20`
+2. `systemctl --user restart hive-gateway.service` (the owner-approved
+   deploy restart of the live desk)
+3. Verify with `journalctl --user -u hive-gateway.service -n 20`
 
-Smoke-test from the Tailscale IP (`http://100.79.194.84:<port>/`),
-not just loopback. Loopback bypasses bind address, firewall, and
-routing — all of which can fail silently.
+Smoke-test from the desk's tailnet address
+(`https://desktop-lfme032.tailfb3900.ts.net:8446/`), not just loopback.
+Loopback bypasses bind address, firewall, and routing — all of which can
+fail silently.
 
 JS-rendered features (React, htmx, Babel-in-browser) require an
 actual browser check. A `curl` returning 200 with the right HTML
