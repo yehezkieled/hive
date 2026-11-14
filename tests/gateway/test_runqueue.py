@@ -1056,3 +1056,37 @@ def test_the_docs_table_has_one_row_per_button_with_its_time_out() -> None:
         assert rows[a.label] == want, a.key
     assert "Cancel a scheduled restart" in doc and "shutdown /a" in doc
     assert "Restart the PC at a set hour" in doc and "follow-up" in doc
+
+
+def test_run_log_append_during_trim_is_not_dropped(tmp_path: Path, monkeypatch) -> None:
+    """A trim reads, then replaces the log: a line appended in between used to be lost."""
+    import threading
+
+    log = runqueue.RunLog(tmp_path / "run-audit.log")
+    monkeypatch.setattr(runqueue, "MAX_LOG_BYTES", 200)
+    monkeypatch.setattr(runqueue, "KEEP_LINES", 5)
+    for i in range(10):
+        assert log.append({"id": f"old-{i}", "pad": "x" * 40})
+    reading, proceed = threading.Event(), threading.Event()
+    real_read = Path.read_text
+
+    def slow_read(self: Path, *args, **kwargs) -> str:
+        text = real_read(self, *args, **kwargs)
+        if self == log.path and not reading.is_set():
+            reading.set()
+            proceed.wait(2)
+        return text
+
+    monkeypatch.setattr(Path, "read_text", slow_read)
+    first = threading.Thread(target=log.append, args=({"id": "first", "pad": "x" * 40},))
+    first.start()
+    assert reading.wait(2)  # the first append is mid-trim, holding what it read
+    second = threading.Thread(target=log.append, args=({"id": "second"},))
+    second.start()
+    second.join(0.5)  # unlocked it finishes now; locked it waits for the first to finish
+    proceed.set()
+    first.join()
+    second.join()
+    monkeypatch.setattr(Path, "read_text", real_read)
+    ids = {json.loads(line)["id"] for line in log.path.read_text().splitlines()}
+    assert {"first", "second"} <= ids

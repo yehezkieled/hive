@@ -39,16 +39,15 @@ commit) skips locally without `HIVE_FIRSTMATE_ROOT`; see
 
 ## Environment
 
-This Claude Code session runs directly on the VPS
-(`ubuntu-s-4vcpu-8gb-sgp1-01`). There is no separate remote machine
-to deploy to — everything runs here.
+This Claude Code session runs under WSL2 on the PC `DESKTOP-LFME032`
+(Tailscale hostname `desktop-lfme032.tailfb3900.ts.net`). There is no
+separate remote machine to deploy to — everything runs here.
 
-- **VPS**: DigitalOcean droplet, Tailscale hostname
-  `tailfb3900.ts.net`, SSH on port 7777
-- **Tailscale IP**: 100.79.194.84
-- **n8n**: running in Docker
-- **OpenClaw**: service stopped and disabled
-- **Hive service**: systemd user service (`hive.service`)
+- **Desk**: systemd user service `hive-gateway.service`, the live desk.
+  Never signal it (no `kill`, `pkill`, restart) from tests or checks. A
+  throwaway desk uses its own port, and cleanup kills only the process id
+  it started, never by name (no `pkill -f hive.gateway`).
+- **Other units**: `hive-fleet-up.timer` / `hive-fleet-up.service`
 
 Avoid "local" language — say "not pushed to origin yet" or "on this
 host" instead.

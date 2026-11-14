@@ -349,7 +349,7 @@ async def _dispatch(
         task = actions.check_id(form.get("task", ""), "task id")
         need = _need(desk, "merge", task)
         if not tokens.check_step_up(form.get("step", ""), "merge", f"{task}:{rid}"):
-            rid = rid or actions.new_request_id()
+            rid = rid if actions.REQUEST_ID_RE.fullmatch(rid) else actions.new_request_id()
             return Confirm(
                 "Give merge word",
                 f"This records your word to merge {task}"

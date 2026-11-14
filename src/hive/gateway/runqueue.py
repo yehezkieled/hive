@@ -35,6 +35,7 @@ import re
 import secrets
 import signal
 import tempfile
+import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -395,18 +396,20 @@ class RunLog:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._lock = threading.Lock()  # append-and-trim is one step; a trim must not drop a line
 
     def append(self, record: dict) -> bool:
         """Write one record; False when it could not be written. A failed trim after a
         written record is not a failed write."""
         line = json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
-        try:
-            append_private(self.path, line)
-        except OSError:
-            return False
-        with contextlib.suppress(OSError):
-            if self.path.stat().st_size > MAX_LOG_BYTES:
-                self._trim()
+        with self._lock:
+            try:
+                append_private(self.path, line)
+            except OSError:
+                return False
+            with contextlib.suppress(OSError):
+                if self.path.stat().st_size > MAX_LOG_BYTES:
+                    self._trim()
         return True
 
     def _trim(self) -> None:
