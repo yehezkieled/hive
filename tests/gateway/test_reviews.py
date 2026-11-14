@@ -342,7 +342,7 @@ def test_a_state_rewrite_that_changes_nothing_shown_is_silent(
 def test_the_close_action_publishes_a_desk_event(tmp_path: Path, lavish: Lavish) -> None:
     """Closing from the desk reaches every open desk at once, without waiting for the watcher."""
     from hive.gateway.actions import RunOnce
-    from hive.gateway.app import _review_action
+    from hive.gateway.handlers import _review_action
 
     lavish.write({"a": 60})
     settings, runs, published = _settings(tmp_path, lavish), RunOnce(), []
@@ -369,7 +369,7 @@ def test_the_close_action_publishes_a_desk_event(tmp_path: Path, lavish: Lavish)
 
 
 def _subject(name: str, keys: list[str]) -> str:
-    from hive.gateway.app import _step_subject
+    from hive.gateway.handlers import _step_subject
 
     return _step_subject(name, keys)
 

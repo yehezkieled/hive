@@ -8,6 +8,25 @@ so the old entry stays as history.
 Architecture decisions keep living in `docs/adr/` (append-only, numbered).
 This file holds the smaller process and tooling decisions.
 
+## 2026-11-14: Desk code refactor: where things moved, and what was left alone on purpose
+Context: Seven PRs (#333, #334, #335, #337, #338, #339 and the closing one that adds this entry) reorganised Hive's code without changing what it does for the user. Each was proven by the full suite, the desk timing test, a byte comparison of the rendered pages, real-browser screenshots of every desk page, and a fixed set of HTTP requests answered identically by the old and the new desk on a throwaway home. The structural problems were in two files of the desk (`src/hive/gateway`): `pages.py` (3,210 lines, every page's HTML, CSS and script) and `app.py` (1,329 lines, with one 406-line `create_app`).
+Decision: The desk's layout is now:
+- `gateway/pages/` is a package: one module per page, plus `style.py`, `script.py` and `shell.py`.
+- `gateway/app.py` (260 lines) builds the services, the owner-only middleware and the `POST /act/{name}` dispatcher. The page and live-stream routes are in `routes.py`, the static files in `assets.py`, the `/act` handlers in `handlers.py`, and the "refused" and "outcome" answers they all give in `responses.py`.
+- Each remote-access page has its HTTP layer in a module of its own, next to its service module: `runroutes.py` (Run queue), `signinroutes.py` (Sign-ins), `terminalroutes.py` (Terminal).
+- Owner-only file writing shared across the desk is in `files.py` (`write_private`, `append_private`, `claim_slot`).
+- A test imports a name from the module that owns it; `app.py` re-exports nothing.
+
+Left alone on purpose:
+- The Windows admin helper and the installers (`deploy/windows/*.ps1`). They are PowerShell and the helper runs with administrator rights. The refactor ran on a Linux host with no PowerShell, so neither the scripts nor their tests (`deploy/windows/tests/`) could be run there, and an unproven change to them was not worth the risk.
+- The payment approval rail and the legacy web app: `main` in `hive/__main__.py`, `create_app` in `web/app.py`, `approve_vault_action` and `send_to_entity` under `process/`. These are long functions, but they sit on the Vault's approval path or in code the roadmap already retires (M4 status), and their tests need Postgres. Only proven-dead names and exact duplicates were removed in Hive core (#333).
+- The Docker-only tests. 325 database tests need Postgres in Docker. On a host where Docker cannot start they error instead of being skipped, so for every PR they were proven by CI only. Neither the tests nor that behaviour was changed.
+- The long desk service modules (`machine.py`, `runqueue.py`, `signins.py` and `terminal.py`, about 1,000 lines each). They are already built from small functions, and splitting them would move security-sensitive code for little gain.
+- `RunLog._trim` in `runqueue.py` keeps its own temp-file rewrite. It differs from `files.write_private` in the temp file's name and in the encoding it opens with, so adopting the helper would not have been a pure move.
+- `RunInfo.fell_back_from` in `runtime/harness_runtime.py`: nothing else in `src/` or `tests/` mentions it. It is a dataclass field on the Vault's runtime, and a field can be read without being named, so a search alone does not prove it unused.
+- The `.inp` CSS class in `pages/style.py`: no page uses it. Removing it would change the bytes of every page, which the proof compared.
+Consequences: no behaviour change in any of the seven PRs. Suspected bugs found along the way were not fixed inside them; they were handed to firstmate as a list, to be fixed in PRs of their own (the first, a merge confirmation bound to the task rather than to one request, is #336).
+
 ## 2026-10-05: Design mockups live in `docs/design/`; the brainstorm scratch is gone (T005)
 Context: T005 asked to remove `src/hive/web/static/brainstorm/` and `.superpowers/`, record where the redesign mockups live, and prune merged `ticket-*` branches.
 Decision: Approved mockups live in `docs/design/` (reviewed in Lavish Editor, Tailscale link only). Neither scratch directory is tracked or present in the tree, so nothing was left to delete; `.superpowers/` stays in `.gitignore`. No `ticket-*` branches exist: the remaining local branches are `fm/hive-*` crew branches, several still checked out in other worktrees, so none were pruned. The brief named `docs/pm/decisions.md`; that file moved to this one on 2026-10-01.
