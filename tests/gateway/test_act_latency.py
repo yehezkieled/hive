@@ -26,7 +26,8 @@ from fastapi.testclient import TestClient
 
 from hive.gateway import actions
 from hive.gateway.actions import Tokens
-from hive.gateway.app import ACT_NAMES, _step_subject, create_app
+from hive.gateway.app import ACT_NAMES, create_app
+from hive.gateway.handlers import _step_subject
 from hive.gateway.settings import GatewaySettings
 from tests.gateway.fmcfg import write_config
 

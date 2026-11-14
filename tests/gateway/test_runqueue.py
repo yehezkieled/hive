@@ -28,8 +28,9 @@ from fastapi.testclient import TestClient
 
 from hive.gateway import runqueue
 from hive.gateway.actions import ActionError, Tokens
-from hive.gateway.app import RUN_PENDING, create_app
+from hive.gateway.app import create_app
 from hive.gateway.runqueue import ACTIONS, Done, RunQueue
+from hive.gateway.runroutes import RUN_PENDING
 from hive.gateway.settings import GatewaySettings
 from tests.gateway.fmcfg import write_config
 from tests.gateway.test_stack_home import FAKE_LIVE, _in_chrome, needs_chrome

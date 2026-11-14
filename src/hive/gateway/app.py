@@ -18,7 +18,6 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 
 from hive.gateway import actions, machine, pages, signins, terminal
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
-from hive.gateway.assets import FONTS_DIR as FONTS_DIR  # moved; tests import it from here
 from hive.gateway.assets import add_asset_routes
 from hive.gateway.auth import (
     forbidden,
@@ -37,7 +36,6 @@ from hive.gateway.handlers import (
     _snapshot_action,
     _watchdog,
 )
-from hive.gateway.handlers import _step_subject as _step_subject  # moved; tests import it here
 from hive.gateway.live import LiveHub
 from hive.gateway.push import Alert, PushService
 from hive.gateway.quota import QuotaProvider
@@ -51,7 +49,6 @@ from hive.gateway.responses import (
 )
 from hive.gateway.routes import MAX_BODY, Services, add_live_routes, add_page_routes
 from hive.gateway.runqueue import RunQueue
-from hive.gateway.runroutes import RUN_PENDING as RUN_PENDING  # moved; tests import it here
 from hive.gateway.runroutes import _run, add_run_routes
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.signinroutes import SIGNIN_ACTIONS, _signin, add_signin_routes

@@ -24,9 +24,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from hive.gateway import pages, terminal
 from hive.gateway.actions import Tokens
-from hive.gateway.app import FONTS_DIR, create_app, terminal_csp
+from hive.gateway.app import create_app
+from hive.gateway.assets import FONTS_DIR
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.terminal import Op
+from hive.gateway.terminalroutes import terminal_csp
 from tests.gateway.test_stack_home import _in_chrome, needs_chrome
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
