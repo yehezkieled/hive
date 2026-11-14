@@ -35,6 +35,14 @@ DEFAULT_GONEDARK_STATE = "~/.local/state/hive-gonedark"
 _NET_CHECK_RE = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?):([0-9]{1,5})$")
 
 
+def port_from_env(env: Mapping[str, str]) -> int:
+    """``HIVE_GATEWAY_PORT``, or the default when it is unset, blank or not a number."""
+    try:
+        return int(env.get("HIVE_GATEWAY_PORT", "").strip() or DEFAULT_PORT)
+    except ValueError:
+        return DEFAULT_PORT
+
+
 def _csv(value: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
     if not value:
         return default

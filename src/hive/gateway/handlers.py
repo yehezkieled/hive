@@ -357,7 +357,9 @@ async def _dispatch(
                 "merge",
                 {
                     "task": task,
-                    "rid": rid or actions.new_request_id(),
+                    "rid": rid
+                    if actions.REQUEST_ID_RE.fullmatch(rid)
+                    else actions.new_request_id(),
                     "step": tokens.step_up("merge", task),
                 },
                 "Tap again to give the merge word",

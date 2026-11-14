@@ -8,7 +8,7 @@ import os
 import uvicorn
 
 from hive.gateway.app import create_app
-from hive.gateway.settings import DEFAULT_PORT
+from hive.gateway.settings import port_from_env
 
 
 def main() -> None:
@@ -18,7 +18,7 @@ def main() -> None:
     audit = logging.getLogger("hive.gateway.audit")
     audit.addHandler(handler)
     audit.setLevel(logging.INFO)
-    port = int(os.environ.get("HIVE_GATEWAY_PORT", DEFAULT_PORT))
+    port = port_from_env(os.environ)
     # Hard-coded loopback bind: never 0.0.0.0, never configurable.
     uvicorn.run(
         create_app(),
