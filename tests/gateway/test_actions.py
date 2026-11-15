@@ -588,6 +588,14 @@ def test_merge_confirm_works_for_one_request_only(client: TestClient, home: Path
     assert len(_calls(home)) == 1
 
 
+def test_merge_first_tap_replaces_a_malformed_request_id(client: TestClient, home: Path) -> None:
+    res = post(client, "merge", task="alpha-build", rid="not a valid id!")
+    rid = _hidden(res.text, "rid")
+    assert rid != "not a valid id!" and rid.startswith("web-")
+    done = post(client, "merge", task="alpha-build", rid=rid, step=_hidden(res.text, "step"))
+    assert done.status_code == 200 and "Sent to the first mate." in done.text
+
+
 def test_merge_requires_a_listed_merge_approval(client: TestClient, home: Path) -> None:
     step = CSRF.step_up("merge", "beta-hold")
     res = post(client, "merge", task="beta-hold", step=step)

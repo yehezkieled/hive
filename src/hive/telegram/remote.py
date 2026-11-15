@@ -37,7 +37,12 @@ from telegram.error import InvalidToken, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 from hive import standalone
-from hive.gateway.settings import DEFAULT_PORT, GatewaySettings, tailscale_binary
+from hive.gateway.settings import (
+    DEFAULT_PORT,
+    GatewaySettings,
+    port_from_env,
+    tailscale_binary,
+)
 from hive.gateway.wake import WakeService, ago, desk_probe, last_activity
 from hive.gateway.watchdog import WatchdogStore
 from hive.standalone import EX_CONFIG, tailscale_state
@@ -341,7 +346,7 @@ def main() -> int:
         logger.error("not starting: %s (see docs/telegram.md)", exc)
         return EX_CONFIG
     setup_logging(config.token)
-    port = int(os.environ.get("HIVE_GATEWAY_PORT", DEFAULT_PORT))
+    port = port_from_env(os.environ)
     state_dir = Path(os.environ.get("HIVE_TELEGRAM_STATE_DIR", DEFAULT_STATE_DIR)).expanduser()
     bot = RemoteBot(
         config, desk_port=port, tailscale=tailscale_binary(os.environ), state_dir=state_dir
