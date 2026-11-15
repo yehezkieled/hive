@@ -23,7 +23,7 @@ def test_port_from_env(env: dict[str, str], port: int) -> None:
 
 
 @pytest.mark.parametrize("value", ["", "abc"])
-def test_desk_and_bot_start_on_the_default_port(monkeypatch, value: str) -> None:
+def test_desk_starts_on_the_default_port(monkeypatch, value: str) -> None:
     import uvicorn
 
     from hive.gateway import __main__ as desk
