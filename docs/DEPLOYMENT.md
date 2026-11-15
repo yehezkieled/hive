@@ -1305,7 +1305,8 @@ The page's own CSP adds its script hash and `connect-src` for the websocket; xte
 The website never merges: the Merge button only records the owner's merge
 word as a note, after a confirm page. Each write needs the form's CSRF token
 on top of the checks below; control, merge and a sign-in Renew also need a
-short-lived step-up token minted by the confirm page. A hold answer and a control confirm
+short-lived step-up token minted by the confirm page and bound to that one
+request id, so one confirm works for exactly one request. A hold answer and a control confirm
 carry a one-time request id kept in memory for the step-up lifetime (180 s):
 a repeat POST, even after a failed run, shows the first result and never
 re-runs the script. Every write logs one

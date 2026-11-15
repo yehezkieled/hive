@@ -348,7 +348,8 @@ async def _dispatch(
     if name == "merge":
         task = actions.check_id(form.get("task", ""), "task id")
         need = _need(desk, "merge", task)
-        if not tokens.check_step_up(form.get("step", ""), "merge", task):
+        if not tokens.check_step_up(form.get("step", ""), "merge", f"{task}:{rid}"):
+            rid = rid or actions.new_request_id()
             return Confirm(
                 "Give merge word",
                 f"This records your word to merge {task}"
@@ -357,8 +358,8 @@ async def _dispatch(
                 "merge",
                 {
                     "task": task,
-                    "rid": rid or actions.new_request_id(),
-                    "step": tokens.step_up("merge", task),
+                    "rid": rid,
+                    "step": tokens.step_up("merge", f"{task}:{rid}"),
                 },
                 "Tap again to give the merge word",
             )
