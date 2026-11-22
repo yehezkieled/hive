@@ -10,7 +10,7 @@ Files (all shipped in this repo, none installed by it):
 | File | Purpose |
 | --- | --- |
 | `scripts/fleet-up.sh` | The idempotent "fleet up" script. `--dry-run` prints and changes nothing. |
-| `deploy/fleet-up/fleet-up.conf` | Paths and ports (the captain's current values). Override in `~/.config/hive/fleet-up.conf` or the environment. |
+| `deploy/fleet-up/fleet-up.conf` | Paths and ports (the captain's current values). A copy at `~/.config/hive/fleet-up.conf` replaces it whole; the environment wins over either (see "Settings" below). |
 | `deploy/systemd/hive-gateway.service` | Gateway, `Restart=always`. |
 | `deploy/systemd/clip-desk.service` | Clip desk (`~/apps/clip-desk`, loopback :8492, tailnet https 8448), `Restart=always`. Never port 8490: it is stuck in Windows' WSL relay. |
 | `deploy/systemd/hive-fleet-up.{service,timer}` | Runs fleet-up at boot and every 5 minutes. |
