@@ -275,32 +275,56 @@ def _wait_for(path):
     return False
 
 
-def test_a_config_from_before_a_step_existed_still_brings_firstmate_up(env, tmp_path):
+def test_a_config_without_an_optional_step_skips_it_and_brings_firstmate_up(env, tmp_path):
     # 22 Nov: the installed config was a copy made before the gone-dark step existed. Under
     # `set -u` the run ended at that step, every five minutes, and never reached firstmate.
     e, stub = env
-    for name in ("GONEDARK_STATUS_CMD", "RUNTIME_STATUS_CMD"):
-        del e[name]
+    del e["GONEDARK_STATUS_CMD"]
     e["FLEET_UP_FAKE_PORTS"] = ALL_PORTS
-    r = run(e, "--conf", str(_older_conf(tmp_path, "GONEDARK_", "RUNTIME_")))
+    conf = _older_conf(tmp_path, "GONEDARK_")
+    r = run(e, "--conf", str(conf))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "unbound variable" not in r.stdout + r.stderr
-    assert "runtime: not starting" in r.stdout and "gonedark: not starting" in r.stdout
+    gonedark = [ln for ln in r.stdout.splitlines() if ln.startswith("fleet-up: gonedark")]
+    assert gonedark == [f"fleet-up: gonedark: skipped; GONEDARK_STATUS_CMD is not set in {conf}"]
+    assert "broke-no-more: already listening on :3001" in r.stdout
     assert "firstmate: started in pane w1:p1" in r.stdout
     assert "pane run w1:p1 claude" in calls(stub)
 
 
-def test_a_step_that_dies_never_stops_the_steps_after_it(env, tmp_path):
-    # a setting no default can supply: that step fails alone and says so, the run goes on
+@pytest.mark.parametrize(
+    ("step", "gone", "setting"),
+    [
+        ("clipdesk", "CLIP_DESK_", "CLIP_DESK_PORT"),
+        ("runtime", "RUNTIME_", "RUNTIME_STATUS_CMD"),
+        ("bnm", "BNM_", "BNM_PORT"),
+        ("lavish", "LAVISH_START_CMD", "LAVISH_START_CMD"),
+        ("preview", "PREVIEW_", "PREVIEW_PORT"),
+        ("serve", "SERVE_MAP", "SERVE_MAP"),
+    ],
+)
+def test_every_optional_step_is_skipped_when_its_setting_is_missing(
+    env, tmp_path, step, gone, setting
+):
     e, stub = env
-    del e["GONEDARK_STATUS_CMD"]
-    e["FLEET_UP_FAKE_PORTS"] = ALL_PORTS
-    conf = _older_conf(tmp_path)
-    conf.write_text(conf.read_text() + "unset GONEDARK_STATUS_CMD\n")
-    r = run(e, "--conf", str(conf))
+    e.pop(setting, None)
+    conf = _older_conf(tmp_path, gone)
+    r = run(e, "--conf", str(conf), "--only", f"{step},firstmate")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"fleet-up: {step}: skipped; {setting} is not set in {conf}" in r.stdout
+    assert "failed" not in r.stdout
+    assert "pane run w1:p1 claude" in calls(stub)
+
+
+def test_a_step_that_dies_never_stops_the_steps_after_it(env, tmp_path):
+    # a step that is not optional, missing its setting: it ends alone, the run goes on
+    e, stub = env
+    e["FLEET_UP_FAKE_PORTS"] = "3001"
+    r = run(e, "--conf", str(_older_conf(tmp_path, "GATEWAY_")), "--only", "gateway,bnm,firstmate")
     assert r.returncode == 1
-    assert "GONEDARK_STATUS_CMD: unbound variable" in r.stderr
-    assert "fleet-up: step gonedark failed; the run goes on" in r.stdout
+    assert "GATEWAY_PORT: unbound variable" in r.stderr
+    assert "fleet-up: step gateway failed; the run goes on" in r.stdout
+    assert "broke-no-more: already listening on :3001" in r.stdout
     assert "firstmate: started in pane w1:p1" in r.stdout
     assert "pane run w1:p1 claude" in calls(stub)
 
@@ -371,7 +395,16 @@ def test_the_herdr_server_is_started_in_a_scope_of_its_own(env, tmp_path):
     assert log.read_text().splitlines() == [f"{scope} true", f"{scope} {tmp_path / 'herdr'} server"]
 
 
-def test_a_started_service_gets_a_scope_too_and_plain_setsid_without_systemd(env, tmp_path):
+def test_the_herdr_server_starts_without_a_scope_when_no_user_manager_answers(env, tmp_path):
+    e, stub = env  # the fixture's systemd-run fails, as where no user manager runs
+    (stub / "server-down").touch()
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "server" in calls(stub)
+    assert "firstmate: started in pane w1:p1" in r.stdout
+
+
+def test_a_started_service_gets_no_scope(env, tmp_path):
     e, stub = env
     log = _scope_recorder(tmp_path)
     e["PORT_WAIT"] = "1"
@@ -379,14 +412,7 @@ def test_a_started_service_gets_a_scope_too_and_plain_setsid_without_systemd(env
     e["BNM_START_CMD"] = f"touch {stub}/bnm-started"
     run(e, "--only", "bnm")
     assert _wait_for(stub / "bnm-started")
-    assert f"--user --scope --quiet --collect -- bash -c touch {stub}/bnm-started" in (
-        log.read_text().splitlines()
-    )
-    # no user manager answers (the fixture's default): started all the same, without a scope
-    _fake(tmp_path, "systemd-run", "exit 1")
-    e["BNM_START_CMD"] = f"touch {stub}/bnm-started-plainly"
-    run(e, "--only", "bnm")
-    assert _wait_for(stub / "bnm-started-plainly")
+    assert not log.exists()
 
 
 def test_a_herdr_server_that_does_not_come_up_is_said_with_where_to_look(env, tmp_path):

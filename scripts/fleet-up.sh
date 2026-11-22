@@ -40,14 +40,6 @@ if [ -z "$CONF" ]; then
   fi
 fi
 [ -f "$CONF" ] || { echo "fleet-up: config not found: $CONF" >&2; exit 2; }
-# The shipped file first, then the chosen one over it: a config written before a setting
-# existed (a copy made before a step was added) still gets that setting's shipped value.
-# Left unset, it would end the whole run at its first use under `set -u`.
-DEFAULTS="$HERE/../deploy/fleet-up/fleet-up.conf"
-if [ -f "$DEFAULTS" ] && [ ! "$CONF" -ef "$DEFAULTS" ]; then
-  # shellcheck disable=SC1090
-  . "$DEFAULTS"
-fi
 # shellcheck disable=SC1090
 . "$CONF"
 eval "$SAVED"
@@ -84,18 +76,27 @@ scope_ok() {
     && systemd-run --user --scope --quiet --collect -- true >/dev/null 2>&1
 }
 
-# detach <cmd...>: run in the background, surviving this script's exit and the stop of
-# the service that ran it. Under systemd the command gets a transient scope of its own:
-# a plain child stays in its caller's control group, and the desk's service would take a
-# herdr server it had started (firstmate and every crew pane with it) down on its next
-# restart. setsid where it exists (Linux); macOS has none, and launchd's
+# detach <cmd...>: run in the background, surviving this script's exit.
+# setsid where it exists (Linux); macOS has none, and launchd's
 # AbandonProcessGroup keeps the child alive there.
 detach() {
-  scope_ok && set -- systemd-run --user --scope --quiet --collect -- "$@"
   if command -v setsid >/dev/null 2>&1; then
     nohup setsid "$@" &
   else
     nohup "$@" &
+  fi
+}
+
+# detach_scoped <cmd...>: detach, surviving the stop of the service that ran this script
+# too. Under systemd the command gets a transient scope of its own: a plain child stays in
+# its caller's control group, and the desk's service would take a herdr server it had
+# started (firstmate and every crew pane with it) down on its next restart. Without a
+# systemd user manager it is a plain detach.
+detach_scoped() {
+  if scope_ok; then
+    detach systemd-run --user --scope --quiet --collect -- "$@"
+  else
+    detach "$@"
   fi
 }
 
@@ -297,7 +298,7 @@ step_firstmate() {
   if ! herdr_server_up; then
     log "firstmate: starting the herdr server"
     mkdir -p "$LOG_DIR"
-    detach "$HERDR_BIN" server >>"$LOG_DIR/herdr-server.log" 2>&1 </dev/null
+    detach_scoped "$HERDR_BIN" server >>"$LOG_DIR/herdr-server.log" 2>&1 </dev/null
     local n=0
     while [ "$n" -lt "$HERDR_SERVER_WAIT" ] && ! herdr_server_up; do
       sleep 1
@@ -323,21 +324,43 @@ step_firstmate() {
   log "firstmate: started in pane $pane"
 }
 
-# run_step <step>: each step runs in a subshell of its own, so nothing that goes wrong
-# inside one (a setting left unset under `set -u`, a command that fails) can end the run
-# before the steps after it: the firstmate step is always reached. A step that fails says
-# so in one more line and makes the run exit 1.
+# step_settings <step>: the settings an optional step cannot run without. The gateway and
+# firstmate steps are not optional and list none.
+step_settings() {
+  case "$1" in
+    clipdesk) echo "CLIP_DESK_PORT CLIP_DESK_START_CMD" ;;
+    runtime) echo "RUNTIME_STATUS_CMD RUNTIME_START_CMD" ;;
+    gonedark) echo "GONEDARK_STATUS_CMD GONEDARK_START_CMD" ;;
+    bnm) echo "BNM_PORT BNM_START_CMD" ;;
+    lavish) echo "LAVISH_PORT LAVISH_START_CMD" ;;
+    preview) echo "PREVIEW_PORT PREVIEW_START_CMD" ;;
+    serve) echo "TAILSCALE_BIN SERVE_MAP" ;;
+  esac
+}
+
+# run_step <step>: an optional step with a setting left out is not set up on this host: it
+# is skipped with one line and is no failure. Each step runs in a subshell of its own, so
+# nothing that goes wrong inside one (a command that fails, a setting left unset under
+# `set -u`) can end the run before the steps after it: the firstmate step is always
+# reached. A step that fails says so in one more line and makes the run exit 1.
 run_step() {
   want "$1" || return 0
+  local v
+  for v in $(step_settings "$1"); do
+    if [ -z "${!v:-}" ]; then
+      log "$1: skipped; $v is not set in $CONF"
+      return 0
+    fi
+  done
   (
     case "$1" in
       gateway) step_gateway ;;
       clipdesk) step_clipdesk ;;
       runtime) step_runtime ;;
       gonedark) step_gonedark ;;
-      bnm) ensure_service broke-no-more "$BNM_PORT" "$BNM_DIR" "$BNM_START_CMD" ;;
-      lavish) ensure_service lavish "$LAVISH_PORT" "$LAVISH_DIR" "$LAVISH_START_CMD" ;;
-      preview) ensure_service preview "$PREVIEW_PORT" "$PREVIEW_DIR" "$PREVIEW_START_CMD" ;;
+      bnm) ensure_service broke-no-more "$BNM_PORT" "${BNM_DIR:-}" "$BNM_START_CMD" ;;
+      lavish) ensure_service lavish "$LAVISH_PORT" "${LAVISH_DIR:-}" "$LAVISH_START_CMD" ;;
+      preview) ensure_service preview "$PREVIEW_PORT" "${PREVIEW_DIR:-}" "$PREVIEW_START_CMD" ;;
       serve) step_serve ;;
       firstmate) step_firstmate ;;
     esac

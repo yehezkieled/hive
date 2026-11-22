@@ -52,25 +52,33 @@ README, "Install and launch"). [UNSURE] Starting the herdr server with `herdr se
 down was not exercised here; if it needs a different command, set it by
 bringing herdr up first and the step skips the start.
 
-**Settings.** The script reads `deploy/fleet-up/fleet-up.conf` first and then the
-chosen config over it (`~/.config/hive/fleet-up.conf`, `FLEET_UP_CONF` or
-`--conf`), so a setting the installed copy does not have (a copy made before a
-step was added) takes its shipped value. The environment still wins over both.
+**Settings.** The script reads one config: `--conf`, else `FLEET_UP_CONF`, else
+`~/.config/hive/fleet-up.conf`, else the shipped `deploy/fleet-up/fleet-up.conf`.
+The environment wins over it. Nothing is filled in from the shipped file, so a
+step added later stays off on a host until its lines are copied into that host's
+config. Every step but `gateway` and `firstmate` is optional: when one of its
+settings is missing or empty (`*_PORT` or `*_START_CMD` for clipdesk, bnm, lavish
+and preview; `*_STATUS_CMD` or `*_START_CMD` for runtime and gonedark;
+`TAILSCALE_BIN` or `SERVE_MAP` for serve) the step is skipped with one line,
+`fleet-up: <step>: skipped; <SETTING> is not set in <config>`, and that is no
+failure.
 
 **One step never stops the next.** Each step runs on its own. A step that fails
-(a service that does not open its port, a command that is missing, a setting left
-unset) logs `fleet-up: step <name> failed; the run goes on`; the steps after it
-still run, firstmate last, and the run exits 1.
+(a service that does not open its port, a command that is missing, a setting the
+gateway or firstmate step needs left unset) logs
+`fleet-up: step <name> failed; the run goes on`; the steps after it still run,
+firstmate last, and the run exits 1.
 
 **Any caller.** The timer (`hive-fleet-up.service`) runs the whole script and the
 desk's Wake runs `--only firstmate` from inside `hive-gateway.service`, so the
 script does not rely on what its caller provides. It puts `~/.local/bin` (where
 `herdr`, `claude` and `node` are installed) on `PATH` itself; a service manager's
-`PATH` does not list it. Under systemd it starts each detached process (the herdr
-server, a service) in a transient scope of its own (`systemd-run --user --scope`):
-a herdr server started from the desk would otherwise belong to the desk's service
-and be stopped, with firstmate and every crew pane in it, the next time that
-service restarts. Without a systemd user manager (macOS) it detaches as before.
+`PATH` does not list it. Under systemd it starts the herdr server in a transient
+scope of its own (`systemd-run --user --scope`): a herdr server started from the
+desk would otherwise belong to the desk's service and be stopped, with firstmate
+and every crew pane in it, the next time that service restarts. Without a systemd
+user manager (macOS) the server is detached plainly (`nohup setsid`, or `nohup`
+where there is no `setsid`), the way bnm, lavish and preview always are.
 The firstmate step says which tool is missing (`herdr not found: ...`, `jq not
 found`) instead of waiting for a server that cannot start.
 
