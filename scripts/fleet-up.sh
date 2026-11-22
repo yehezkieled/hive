@@ -40,9 +40,26 @@ if [ -z "$CONF" ]; then
   fi
 fi
 [ -f "$CONF" ] || { echo "fleet-up: config not found: $CONF" >&2; exit 2; }
+# The shipped file first, then the chosen one over it: a config written before a setting
+# existed (a copy made before a step was added) still gets that setting's shipped value.
+# Left unset, it would end the whole run at its first use under `set -u`.
+DEFAULTS="$HERE/../deploy/fleet-up/fleet-up.conf"
+if [ -f "$DEFAULTS" ] && [ ! "$CONF" -ef "$DEFAULTS" ]; then
+  # shellcheck disable=SC1090
+  . "$DEFAULTS"
+fi
 # shellcheck disable=SC1090
 . "$CONF"
 eval "$SAVED"
+
+# Tools installed for the user (herdr, claude, node) live in ~/.local/bin. A service
+# manager's PATH does not list it, and the desk's Wake runs this script with the desk
+# service's environment, so every caller gets it here. Started services inherit it.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) PATH="$HOME/.local/bin:$PATH" ;;
+esac
+export PATH
 
 want() {
   [ -z "$ONLY" ] && return 0
@@ -61,10 +78,20 @@ port_open() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }
 
-# detach <cmd...>: run in the background, surviving this script's exit.
-# setsid where it exists (Linux); macOS has none, and launchd's
+# scope_ok: a systemd user manager answers, so a command can get a scope of its own.
+scope_ok() {
+  command -v systemd-run >/dev/null 2>&1 \
+    && systemd-run --user --scope --quiet --collect -- true >/dev/null 2>&1
+}
+
+# detach <cmd...>: run in the background, surviving this script's exit and the stop of
+# the service that ran it. Under systemd the command gets a transient scope of its own:
+# a plain child stays in its caller's control group, and the desk's service would take a
+# herdr server it had started (firstmate and every crew pane with it) down on its next
+# restart. setsid where it exists (Linux); macOS has none, and launchd's
 # AbandonProcessGroup keeps the child alive there.
 detach() {
+  scope_ok && set -- systemd-run --user --scope --quiet --collect -- "$@"
   if command -v setsid >/dev/null 2>&1; then
     nohup setsid "$@" &
   else
@@ -261,6 +288,12 @@ step_firstmate() {
     log "  $HERDR_BIN pane run <pane> $FM_LAUNCH_CMD"
     return 0
   fi
+  # Say which tool is missing instead of waiting for a server that cannot start.
+  command -v "$HERDR_BIN" >/dev/null 2>&1 || {
+    log "firstmate: herdr not found: '$HERDR_BIN' is not a command here; set HERDR_BIN to its full path in $CONF"
+    return 1
+  }
+  command -v jq >/dev/null 2>&1 || { log "firstmate: jq not found; install jq"; return 1; }
   if ! herdr_server_up; then
     log "firstmate: starting the herdr server"
     mkdir -p "$LOG_DIR"
@@ -270,7 +303,10 @@ step_firstmate() {
       sleep 1
       n=$((n + 1))
     done
-    herdr_server_up || { log "firstmate: herdr server did not come up"; return 1; }
+    herdr_server_up || {
+      log "firstmate: herdr server did not come up within ${HERDR_SERVER_WAIT}s (see $LOG_DIR/herdr-server.log)"
+      return 1
+    }
   fi
   local ws pane
   pane="$(fm_idle_pane)"
@@ -282,18 +318,37 @@ step_firstmate() {
     pane="$(printf '%s' "$ws" | jq -r '[.. | objects | .pane_id? // empty][0] // empty')"
     [ -n "$pane" ] || { log "firstmate: could not find the new pane id"; return 1; }
   fi
-  "$HERDR_BIN" pane run "$pane" "$FM_LAUNCH_CMD" && log "firstmate: started in pane $pane"
+  "$HERDR_BIN" pane run "$pane" "$FM_LAUNCH_CMD" \
+    || { log "firstmate: could not run '$FM_LAUNCH_CMD' in pane $pane"; return 1; }
+  log "firstmate: started in pane $pane"
+}
+
+# run_step <step>: each step runs in a subshell of its own, so nothing that goes wrong
+# inside one (a setting left unset under `set -u`, a command that fails) can end the run
+# before the steps after it: the firstmate step is always reached. A step that fails says
+# so in one more line and makes the run exit 1.
+run_step() {
+  want "$1" || return 0
+  (
+    case "$1" in
+      gateway) step_gateway ;;
+      clipdesk) step_clipdesk ;;
+      runtime) step_runtime ;;
+      gonedark) step_gonedark ;;
+      bnm) ensure_service broke-no-more "$BNM_PORT" "$BNM_DIR" "$BNM_START_CMD" ;;
+      lavish) ensure_service lavish "$LAVISH_PORT" "$LAVISH_DIR" "$LAVISH_START_CMD" ;;
+      preview) ensure_service preview "$PREVIEW_PORT" "$PREVIEW_DIR" "$PREVIEW_START_CMD" ;;
+      serve) step_serve ;;
+      firstmate) step_firstmate ;;
+    esac
+  ) && return 0
+  log "step $1 failed; the run goes on"
+  rc=1
 }
 
 rc=0
 log "config: $CONF$([ "$DRY_RUN" = 1 ] && echo ' (dry run)')"
-want gateway && { step_gateway || rc=1; }
-want clipdesk && { step_clipdesk || rc=1; }
-want runtime && step_runtime
-want gonedark && step_gonedark
-want bnm && { ensure_service broke-no-more "$BNM_PORT" "$BNM_DIR" "$BNM_START_CMD" || rc=1; }
-want lavish && { ensure_service lavish "$LAVISH_PORT" "$LAVISH_DIR" "$LAVISH_START_CMD" || rc=1; }
-want preview && { ensure_service preview "$PREVIEW_PORT" "$PREVIEW_DIR" "$PREVIEW_START_CMD" || rc=1; }
-want serve && { step_serve || rc=1; }
-want firstmate && { step_firstmate || rc=1; }
+for step in gateway clipdesk runtime gonedark bnm lavish preview serve firstmate; do
+  run_step "$step"
+done
 exit "$rc"

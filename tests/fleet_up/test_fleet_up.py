@@ -2,7 +2,9 @@
 
 Nothing here starts a real service: herdr is a stub, ports and the claude
 process are faked through FLEET_UP_FAKE_* variables, and every real-start path
-runs only with --only firstmate against the stub.
+runs only with --only firstmate against the stub. The service manager is a stub
+too: ``systemctl`` and ``systemd-run`` are fakes first on PATH that fail, so no
+real unit is asked and no real scope is made.
 """
 
 import configparser
@@ -49,12 +51,30 @@ case "$1 $2" in
     touch "$STUB_DIR/created"
     printf '{"result":{"workspace":{"pane_id":"w1:p1"}}}' ;;
   "pane run") touch "$STUB_DIR/running" ;;
-  "status --json") printf '{"server":{"running":true}}' ;;
+  # The server is up unless a test took it down; `herdr server` brings it up again.
+  "server ") touch "$STUB_DIR/server-started" ;;
+  "status --json")
+    if [ -f "$STUB_DIR/server-down" ] && [ ! -f "$STUB_DIR/server-started" ]; then
+      printf '{"server":{"running":false}}'
+    else
+      printf '{"server":{"running":true}}'
+    fi ;;
 esac
 """
 
 # Matches nothing on the host, so a real Hive runtime here never leaks in.
 NO_RUNTIME = "fleet-up-test-no-such-runtime-xyz$"
+ALL_PORTS = "8480 8492 3001 4388 8765"  # every service already listening
+
+
+def _fake(tmp_path, name, body):
+    """A fake command in the directory that is first on the tests' PATH."""
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir(exist_ok=True)
+    cmd = bindir / name
+    cmd.write_text(f"#!/usr/bin/env bash\n{body}\n")
+    cmd.chmod(0o755)
+    return cmd
 
 
 @pytest.fixture
@@ -66,8 +86,11 @@ def env(tmp_path):
     herdr.chmod(herdr.stat().st_mode | stat.S_IEXEC)
     fm_dir = tmp_path / "firstmate"
     fm_dir.mkdir()
+    for tool in ("systemctl", "systemd-run"):
+        _fake(tmp_path, tool, "exit 1")
     e = {
         **{k: v for k, v in os.environ.items() if not k.startswith(("TELEGRAM_", "HIVE_"))},
+        "PATH": f"{tmp_path / 'fakebin'}:{os.environ['PATH']}",
         "HOME": str(tmp_path),
         "STUB_DIR": str(stub_dir),
         "HERDR_BIN": str(herdr),
@@ -218,13 +241,165 @@ def test_firstmate_workspace_without_an_idle_fm_pane_gets_a_new_one(env):
     assert not any(x.startswith("pane run w1:p9") for x in c)
 
 
-def _bin_without_setsid(tmp_path):
-    """A PATH holding only what ensure_service needs, minus setsid (as on macOS)."""
+def _bin(tmp_path, *tools):
+    """A PATH holding only the named tools, so nothing else on the host can be reached."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    for tool in ("bash", "dirname", "mkdir", "nohup", "sleep", "touch"):
+    for tool in tools:
         (bindir / tool).symlink_to(shutil.which(tool))
     return str(bindir)
+
+
+# What the firstmate step and the herdr stub need; no herdr, as on a service manager's PATH.
+SERVICE_TOOLS = ("bash", "cat", "dirname", "jq", "touch")
+
+
+def _bin_without_setsid(tmp_path):
+    """A PATH holding only what ensure_service needs, minus setsid (as on macOS)."""
+    return _bin(tmp_path, "bash", "dirname", "mkdir", "nohup", "sleep", "touch")
+
+
+def _older_conf(tmp_path, *gone):
+    """The shipped config as a copy made before some settings existed: without those lines."""
+    conf = tmp_path / "fleet-up.conf"
+    shipped = (DEPLOY / "fleet-up" / "fleet-up.conf").read_text().splitlines()
+    conf.write_text("\n".join(ln for ln in shipped if not ln.startswith(gone)) + "\n")
+    return conf
+
+
+def _wait_for(path):
+    for _ in range(50):
+        if path.exists():
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def test_a_config_from_before_a_step_existed_still_brings_firstmate_up(env, tmp_path):
+    # 22 Nov: the installed config was a copy made before the gone-dark step existed. Under
+    # `set -u` the run ended at that step, every five minutes, and never reached firstmate.
+    e, stub = env
+    for name in ("GONEDARK_STATUS_CMD", "RUNTIME_STATUS_CMD"):
+        del e[name]
+    e["FLEET_UP_FAKE_PORTS"] = ALL_PORTS
+    r = run(e, "--conf", str(_older_conf(tmp_path, "GONEDARK_", "RUNTIME_")))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "unbound variable" not in r.stdout + r.stderr
+    assert "runtime: not starting" in r.stdout and "gonedark: not starting" in r.stdout
+    assert "firstmate: started in pane w1:p1" in r.stdout
+    assert "pane run w1:p1 claude" in calls(stub)
+
+
+def test_a_step_that_dies_never_stops_the_steps_after_it(env, tmp_path):
+    # a setting no default can supply: that step fails alone and says so, the run goes on
+    e, stub = env
+    del e["GONEDARK_STATUS_CMD"]
+    e["FLEET_UP_FAKE_PORTS"] = ALL_PORTS
+    conf = _older_conf(tmp_path)
+    conf.write_text(conf.read_text() + "unset GONEDARK_STATUS_CMD\n")
+    r = run(e, "--conf", str(conf))
+    assert r.returncode == 1
+    assert "GONEDARK_STATUS_CMD: unbound variable" in r.stderr
+    assert "fleet-up: step gonedark failed; the run goes on" in r.stdout
+    assert "firstmate: started in pane w1:p1" in r.stdout
+    assert "pane run w1:p1 claude" in calls(stub)
+
+
+def test_a_service_that_does_not_come_up_never_stops_firstmate(env, tmp_path):
+    e, stub = env
+    e["PORT_WAIT"] = "1"
+    e["BNM_DIR"] = str(tmp_path)
+    e["BNM_START_CMD"] = "true"  # starts, and never listens
+    r = run(e, "--only", "bnm,firstmate")
+    assert r.returncode == 1
+    assert "broke-no-more: still not listening on :3001 after 1s" in r.stdout
+    assert "fleet-up: step bnm failed; the run goes on" in r.stdout
+    assert "pane run w1:p1 claude" in calls(stub)
+
+
+def test_firstmate_step_finds_herdr_in_the_users_own_bin_directory(env, tmp_path):
+    # 22 Nov: the desk's Wake runs this script with the desk service's PATH, which has no
+    # ~/.local/bin; herdr and claude are installed only there, so the start could not work.
+    e, stub = env
+    local = tmp_path / ".local" / "bin"
+    local.mkdir(parents=True)
+    shutil.copy(tmp_path / "herdr", local / "herdr")
+    e["HERDR_BIN"] = "herdr"  # as the shipped config has it
+    e["PATH"] = _bin(tmp_path, *SERVICE_TOOLS)
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "firstmate: started in pane w1:p1" in r.stdout
+    assert "pane run w1:p1 claude" in calls(stub)
+
+
+def test_firstmate_step_says_at_once_when_herdr_is_not_installed(env, tmp_path):
+    e, stub = env
+    e["HERDR_BIN"] = "herdr"
+    e["PATH"] = _bin(tmp_path, *SERVICE_TOOLS)
+    start = time.monotonic()
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 1
+    assert "fleet-up: firstmate: herdr not found: 'herdr' is not a command here" in r.stdout
+    assert "set HERDR_BIN to its full path in" in r.stdout
+    assert time.monotonic() - start < 10  # no 20 s wait for a server that cannot start
+    assert calls(stub) == []
+
+
+def _scope_recorder(tmp_path):
+    """A systemd-run that notes how it was called, then runs the command it was given."""
+    log = tmp_path / "systemd-run.calls"
+    _fake(
+        tmp_path,
+        "systemd-run",
+        f'echo "$*" >> "{log}"\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"',
+    )
+    return log
+
+
+def test_the_herdr_server_is_started_in_a_scope_of_its_own(env, tmp_path):
+    # The desk's Wake runs this script inside the desk's service. A plain child would stay
+    # in that service's control group and be stopped (firstmate and every crew pane with
+    # it) the next time the desk restarts; a scope of its own outlives it.
+    e, stub = env
+    log = _scope_recorder(tmp_path)
+    (stub / "server-down").touch()
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "firstmate: starting the herdr server" in r.stdout
+    assert "firstmate: started in pane w1:p1" in r.stdout
+    scope = "--user --scope --quiet --collect --"
+    assert log.read_text().splitlines() == [f"{scope} true", f"{scope} {tmp_path / 'herdr'} server"]
+
+
+def test_a_started_service_gets_a_scope_too_and_plain_setsid_without_systemd(env, tmp_path):
+    e, stub = env
+    log = _scope_recorder(tmp_path)
+    e["PORT_WAIT"] = "1"
+    e["BNM_DIR"] = str(tmp_path)
+    e["BNM_START_CMD"] = f"touch {stub}/bnm-started"
+    run(e, "--only", "bnm")
+    assert _wait_for(stub / "bnm-started")
+    assert f"--user --scope --quiet --collect -- bash -c touch {stub}/bnm-started" in (
+        log.read_text().splitlines()
+    )
+    # no user manager answers (the fixture's default): started all the same, without a scope
+    _fake(tmp_path, "systemd-run", "exit 1")
+    e["BNM_START_CMD"] = f"touch {stub}/bnm-started-plainly"
+    run(e, "--only", "bnm")
+    assert _wait_for(stub / "bnm-started-plainly")
+
+
+def test_a_herdr_server_that_does_not_come_up_is_said_with_where_to_look(env, tmp_path):
+    e, stub = env
+    (stub / "server-down").touch()
+    e["HERDR_SERVER_WAIT"] = "1"
+    herdr = tmp_path / "herdr"
+    herdr.write_text(herdr.read_text().replace('touch "$STUB_DIR/server-started"', "exit 1"))
+    r = run(e, "--only", "firstmate")
+    assert r.returncode == 1
+    assert "firstmate: herdr server did not come up within 1s (see " in r.stdout
+    assert f"{tmp_path}/.local/state/hive-fleet-up/herdr-server.log)" in r.stdout
+    assert not any(c.startswith(("workspace create", "pane run")) for c in calls(stub))
 
 
 def test_service_starts_without_setsid(env, tmp_path):
@@ -235,11 +410,7 @@ def test_service_starts_without_setsid(env, tmp_path):
     e["BNM_START_CMD"] = f"touch {stub}/bnm-started"
     r = run(e, "--only", "bnm")
     assert "broke-no-more: starting on :3001" in r.stdout, r.stdout + r.stderr
-    for _ in range(50):
-        if (stub / "bnm-started").exists():
-            break
-        time.sleep(0.1)
-    assert (stub / "bnm-started").exists()
+    assert _wait_for(stub / "bnm-started")
 
 
 def test_env_overrides_config_file(env):

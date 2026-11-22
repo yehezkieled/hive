@@ -33,7 +33,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from hive.gateway.files import append_private, write_private
@@ -54,6 +54,7 @@ HERDR_TIMEOUT_S = 10.0
 HERDR_SOURCE = "hive-wake"  # the source id Hive's stale-pane release reports to herdr
 _MAX_OUTPUT = 64 * 1024
 MANUAL_MARK = "watchdog-manual"  # touched by every manual wake or restart, for the watchdog
+STEP_SAYS = "fleet-up: firstmate: "  # how the fleet-up firstmate step starts each of its lines
 # Outcomes that stopped and started nothing; the watchdog announces these itself, once.
 HELD_BACK = ("refused", "rate-limited", "unavailable")
 CLAUDE_HOME = Path.home() / ".claude"
@@ -245,9 +246,43 @@ class WakeResult:
         return self.outcome in ("noop", "started", "restarted")
 
 
+@dataclass(frozen=True)
+class Attempt:
+    """A wake or restart that got past every check and began to stop or start something."""
+
+    action: str  # "wake" or "restart"
+    started_at: float
+    result: WakeResult | None = None  # None: still running
+
+    @property
+    def running(self) -> bool:
+        return self.result is None
+
+
 def _clean(text: str, limit: int = 400) -> str:
     text = "".join(c if c.isprintable() or c in "\n\t" else " " for c in text).strip()
     return " | ".join(ln.strip() for ln in text.splitlines() if ln.strip())[-limit:]
+
+
+def _said(out: str) -> str:
+    """The firstmate step's own last line, without the script's name: why a start failed,
+    or where it started. Empty when the step said nothing (the script died before it)."""
+    lines = [ln[len(STEP_SAYS) :] for ln in out.splitlines() if ln.startswith(STEP_SAYS)]
+    return _clean(lines[-1], 300) if lines else ""
+
+
+def _where(out: str) -> str:
+    """ "started in pane w1:p1" when the step said so, else just "started"."""
+    said = _said(out)
+    return said if said.startswith("started") else "started"
+
+
+def _no_session(out: str) -> str:
+    """The start step ended well, yet no firstmate session is running: say so, not "started"."""
+    return (
+        f'The start step ran ("{_said(out) or "it said nothing"}") but no firstmate session '
+        "started. Run scripts/fleet-up.sh --only firstmate from a terminal to see why."
+    )
 
 
 def default_runner(script: Path) -> Runner:
@@ -270,7 +305,7 @@ def default_runner(script: Path) -> Runner:
                 with contextlib.suppress(ProcessLookupError):
                     proc.kill()
                 await proc.wait()
-                return 124, "fleet-up timed out"
+                return 124, f"{STEP_SAYS}the start step did not finish in {int(WAKE_TIMEOUT_S)}s"
             out.seek(0)
             return proc.returncode or 0, out.read(_MAX_OUTPUT).decode("utf-8", "replace")
 
@@ -326,6 +361,11 @@ class WakeService:
         self._activity = activity or (lambda pid: last_activity(settings.fm_home, pid))
         self._herdr = herdr or Herdr(settings.herdr)
         self._lock = asyncio.Lock()
+        self._action = ""  # the action holding the lock
+        # The attempt now running, or how the last one ended; this process's only (the desk
+        # shows it on every page). Asked-for actions that began nothing are not attempts.
+        self.attempt: Attempt | None = None
+        self.on_change: Callable[[], None] | None = None  # an attempt began or ended
 
     @property
     def audit_path(self) -> Path:
@@ -399,7 +439,15 @@ class WakeService:
             if runner is None:
                 result = WakeResult("unavailable", "fleet-up script not found")
             else:
-                result = await step(runner)
+                self._action = action
+                try:
+                    result = await step(runner)
+                except BaseException:
+                    self._ended(
+                        WakeResult("failed", "Firstmate did not start: the desk hit an error.")
+                    )
+                    raise
+                self._ended(result)
         if via != "watchdog":
             self.audit(action, who, via, result.outcome, result.message)
             self._mark_manual()
@@ -407,23 +455,48 @@ class WakeService:
             self.audit(action, who, via, result.outcome, result.message)
         return result
 
+    def _ended(self, result: WakeResult) -> None:
+        """Close the running attempt, if this action got far enough to open one."""
+        if self.attempt is not None and self.attempt.running:
+            self.attempt = replace(self.attempt, result=result)
+            self._changed()
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
+
     async def _cooldown(self) -> WakeResult | None:
-        """Take the shared slot; a result only when the action must stop here."""
+        """Take the shared slot; a result only when the action must stop here.
+
+        Taking it is the point where an action stops being a question and becomes an
+        attempt: every check has passed and the next thing it does stops or starts a process.
+        """
         try:
             wait = await asyncio.to_thread(self._claim, time.time())
         except OSError:
             return WakeResult("unavailable", "could not record the wake cooldown")
         if wait > 0:
-            return WakeResult("rate-limited", f"Woken a moment ago; try again in {int(wait) + 1}s.")
+            # The slot is taken by the last attempt, whether or not it started anything.
+            tried = ago(self._cooldown_s - wait)
+            return WakeResult(
+                "rate-limited",
+                f"A wake or restart was tried {tried} ago. Wait {int(wait) + 1}s, then try again.",
+            )
+        self.attempt = Attempt(self._action, time.time())
+        self._changed()
         return None
 
     async def _start(self, runner: Runner) -> tuple[int, str] | WakeResult:
         try:
             code, out = await runner()
         except OSError as exc:
-            return WakeResult("failed", f"could not run fleet-up: {exc.strerror or exc}")
+            why = f"the desk could not run fleet-up ({exc.strerror or exc})"
+            return WakeResult("failed", f"Firstmate did not start: {why}.")
         if code != 0:
-            return WakeResult("failed", f"fleet-up exited {code}: {_clean(out) or 'no output'}")
+            # The whole output goes to the desk's log; the captain gets the step's own reason.
+            logger.warning("wake: fleet-up exited %s: %s", code, _clean(out) or "no output")
+            why = _said(out) or f"fleet-up exited {code}: {_clean(out, 200) or 'no output'}"
+            return WakeResult("failed", f"Firstmate did not start: {why}.")
         await self.status.fresh()  # so the next page shows the result, not the old state
         return code, out
 
@@ -440,14 +513,9 @@ class WakeService:
         ran = await self._start(runner)
         if isinstance(ran, WakeResult):
             return WakeResult(ran.outcome, f"{note}{ran.message}")
-        detail = _clean(ran[1]) or "no output"
         if not await self._session_seen():
-            return WakeResult(
-                "failed",
-                "fleet-up ran but no firstmate session started; run scripts/fleet-up.sh "
-                f"--only firstmate from a terminal. {note}fleet-up: {detail}",
-            )
-        return WakeResult("started", f"{note}{detail}")
+            return WakeResult("failed", f"Firstmate did not start. {note}{_no_session(ran[1])}")
+        return WakeResult("started", f"{note}Firstmate {_where(ran[1])}.")
 
     async def _restart(self, runner: Runner) -> WakeResult:
         status = await self.status.fresh()
@@ -486,15 +554,14 @@ class WakeService:
         note = await asyncio.to_thread(self._release_stale_pane)
         ran = await self._start(runner)
         if isinstance(ran, WakeResult):
-            return WakeResult(ran.outcome, f"Stopped pid {pid}, then {ran.message}")
-        detail = _clean(ran[1]) or "no output"
+            return WakeResult(ran.outcome, f"Stopped pid {pid}. {ran.message}")
         if not await self._session_seen():
             return WakeResult(
                 "failed",
-                f"Stopped the old session (pid {pid}) but a new one did not start; run "
-                f"scripts/fleet-up.sh --only firstmate from a terminal. {note}fleet-up: {detail}",
+                f"Stopped the old session (pid {pid}) but a new one did not start. "
+                f"{note}{_no_session(ran[1])}",
             )
-        return WakeResult("restarted", f"Stopped pid {pid}; {note}{detail}")
+        return WakeResult("restarted", f"Stopped pid {pid}; {note}firstmate {_where(ran[1])}.")
 
     def _release_stale_pane(self) -> str:
         """Release herdr's ``claude`` report on the one pane at the firstmate home, if any.
