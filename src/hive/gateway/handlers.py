@@ -178,6 +178,14 @@ FIRSTMATE_ACTIONS = {
 }
 
 
+# What a confirmed wake or restart answers while its start step is still running after
+# ``ACT_WAIT_S``. Never "done": the same request asked again says how it ended.
+FIRSTMATE_PENDING = {
+    "wake": "Starting firstmate. This can take a minute or two.",
+    "restart": "Restarting firstmate's session. This can take a minute or two.",
+}
+
+
 async def _firstmate(
     name: str,
     form: dict[str, str],
@@ -186,7 +194,12 @@ async def _firstmate(
     tokens: Tokens,
     runs: RunOnce,
 ) -> Outcome | Confirm:
-    """Confirm step, then one wake or restart. The owner gate already ran in the middleware."""
+    """Confirm step, then one wake or restart. The owner gate already ran in the middleware.
+
+    The start step takes seconds to minutes, so the answer does not wait for it: a run still
+    going answers a pending outcome, and the same request id asked again gets the result
+    (firstmate's session was seen running) or the failure and its reason.
+    """
     rid = form.get("rid", "")
     if not actions.REQUEST_ID_RE.fullmatch(rid) or not tokens.check_step_up(
         form.get("step", ""), name, f"firstmate:{rid}"
@@ -203,7 +216,9 @@ async def _firstmate(
             raise ActionError(result.message, WAKE_STATUS.get(result.outcome, 502))
         return Outcome(name, "firstmate", result.message)
 
-    return await runs.run(rid, run)
+    return await runs.run(
+        rid, run, actions.ACT_WAIT_S, (name, "firstmate"), summary=FIRSTMATE_PENDING[name]
+    )
 
 
 async def _watchdog(
@@ -242,7 +257,7 @@ async def _watchdog(
             raise ActionError(f"Not turned on: {exc}. Fix the watchdog config first.", 409) from exc
         return Outcome("watchdog", "firstmate", text)
 
-    return await runs.run(rid, run)
+    return await runs.run(rid, run, actions.ACT_WAIT_S, ("watchdog", "firstmate"))
 
 
 async def _snapshot_action(

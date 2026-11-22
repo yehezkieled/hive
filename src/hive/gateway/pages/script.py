@@ -79,7 +79,7 @@ var l=nd.querySelector('.sheet__list');if(l)l.scrollTop=st;var x=nd.querySelecto
 else sheetOpener=null;}}
 function refreshMain(){if(document.hidden){want=true;return;}
 if(reviewSheetOnly()){want=true;load(swapReviews);return;}
-if(busy()){want=true;return;}
+if(busy()){want=true;chipLive();return;}
 want=false;load(function(doc){
 ['qchip','fmchip'].forEach(function(id){var q=doc.getElementById(id),oq=document.getElementById(id);
 if(q){var qt=q.getElementsByTagName('time');for(var i=0;i<qt.length;i++)stamp(qt[i]);}
@@ -163,8 +163,13 @@ for(var i=0;i<8;i++)s+=('0'+a[i].toString(16)).slice(-2);return s;}
 function actFetch(fm,p,cb){fetch(fm.action,{method:'POST',credentials:'same-origin',headers:{'accept':'application/json'},body:p})
 .then(function(r){return r.json().catch(function(){return {ok:false,message:'The desk answered '+r.status};});})
 .catch(function(){return {ok:false,net:true,message:'No connection. Reload the desk.'};}).then(cb);}
-function actSettle(fm,p,cb,n){actFetch(fm,p,function(j){
-if(j.ok&&j.pending&&n<20){setTimeout(function(){actSettle(fm,p,cb,n+1);},1500);return;}cb(j);});}
+var LONG={wake:'Starting…',restart:'Restarting…'};
+function chipSwap(){load(function(doc){var q=doc.getElementById('fmchip'),o=document.getElementById('fmchip');
+if(!q||!o)return;if(o.open)q.setAttribute('open','');o.outerHTML=q.outerHTML;stamps();});}
+function chipLive(){var o=document.getElementById('fmchip');
+if(o&&o.open&&o.hasAttribute('data-trying')&&!o.querySelector('.is-armed,.is-sending'))chipSwap();}
+function actSettle(fm,p,cb,n){var lg=LONG[actName(fm)];actFetch(fm,p,function(j){
+if(j.ok&&j.pending&&n<(lg?90:20)){if(lg)actWarn(fm,j.message);setTimeout(function(){actSettle(fm,p,cb,n+1);},1500);return;}cb(j);});}
 function freshRid(fm){var r=fm.elements.rid;if(r)r.value=newRid();}
 document.addEventListener('submit',function(e){var fm=e.target;
 if(!fm.classList||!fm.classList.contains('dbar')||!window.fetch||!window.URLSearchParams)return;
@@ -237,7 +242,7 @@ for(var k in x){if(Object.prototype.hasOwnProperty.call(x,k))p.set(k,x[k]);}
 p.set('rid',fm.getAttribute('data-rid')||p.get('rid'));}
 var two=CONFIRMED[act]&&!step;
 fm.classList.add('is-sending');
-if(!two){b.textContent=act==='run'?'Running…':'Sent ✓';b.classList.add('is-sent');}
+if(!two){b.textContent=act==='run'?'Running…':LONG[act]||'Sent ✓';b.classList.add('is-sent');}
 actSettle(fm,p,function(j){fm.classList.remove('is-sending');
 if(j.ok&&j.confirm){b.classList.remove('is-sent');fm.setAttribute('data-step',j.step);fm.setAttribute('data-rid',j.rid);
 fm.setAttribute('data-extra',JSON.stringify(j.extra||{}));fm.acBtn=sig;fm.acEl=b;b.classList.add('is-armed');b.textContent=j.label||'Tap again';actWarn(fm,j.detail);
@@ -245,13 +250,15 @@ fm.acT=setTimeout(function(){actDisarm(fm,b);},j.detail?(j.detail.length>200?300
 if(act==='run'){runShow(fm,b,j);return;}
 if(j.ok&&act.indexOf('signin')===0){actDisarm(fm,b);b.classList.remove('is-sent');
 var sc=fm.querySelector('input[type=text]');if(sc)sc.value='';sgGot(j,false);return;}
+if(j.ok&&LONG[act]){fm.classList.add('is-sent');b.textContent=j.pending?LONG[act]:'Done ✓';actWarn(fm,j.message);chipSwap();return;}
 if(j.ok){fm.classList.add('is-sent');b.textContent=j.pending?'Sent ✓ saving…':'Sent ✓';
 b.classList.remove('is-armed');b.classList.add('is-sent');
 var t=fm.querySelector('textarea,input[type=text]');if(t)t.value='';
 if(act==='ticket')setTimeout(function(){fm.classList.remove('is-sent');b.classList.remove('is-sent');b.textContent=b.getAttribute('data-was');freshRid(fm);},2500);return;}
-b.classList.remove('is-sent','is-armed');b.textContent='Failed ✗';b.title=j.message||'';
+b.classList.remove('is-sent','is-armed');b.textContent='Failed ✗';b.title=j.message||'';actWarn(fm,'');
 var m=fm.querySelector('.act-err');if(!m){m=document.createElement('p');m.className='act-err';m.setAttribute('role','alert');fm.appendChild(m);}
 m.textContent=j.message||'Could not send.';
+if(LONG[act]){var ty=document.querySelector('#fmchip .fmpop__try');if(ty)ty.parentNode.removeChild(ty);}
 fm.removeAttribute('data-step');fm.removeAttribute('data-extra');if(!j.net)freshRid(fm);
 setTimeout(function(){b.textContent=b.getAttribute('data-was');},3000);},0);});
 function runShow(fm,b,j){fm.classList.add('is-shown');b.classList.remove('is-armed','is-sent');

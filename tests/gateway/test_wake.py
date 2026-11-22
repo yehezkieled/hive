@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -22,11 +23,15 @@ from urllib.parse import urlencode
 import pytest
 from fastapi.testclient import TestClient
 
+from hive.gateway import actions
 from hive.gateway.app import create_app
+from hive.gateway.handlers import FIRSTMATE_PENDING
+from hive.gateway.pages.script import SCRIPT
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.wake import (
     ACTIVE_RECENT_S,
     BEAT_FRESH_S,
+    Attempt,
     FirstmateStatus,
     Herdr,
     StatusCache,
@@ -101,15 +106,20 @@ class Fake:
     """
 
     def __init__(
-        self, code: int = 0, out: str = "fleet-up: firstmate: started in pane w1:p1"
+        self,
+        code: int = 0,
+        out: str = "fleet-up: firstmate: started in pane w1:p1",
+        delay_s: float = 0.0,
     ) -> None:
         self.calls = 0
         self.code = code
         self.out = out
+        self.delay_s = delay_s  # how long the start step takes
         self.world: World | None = None
 
     async def __call__(self) -> tuple[int, str]:
         self.calls += 1
+        await asyncio.sleep(self.delay_s)
         w = self.world
         if w is not None and w.stale_pane:
             return 0, "fleet-up: firstmate: already running in a herdr pane at /x; nothing to do"
@@ -423,6 +433,75 @@ async def test_failure_is_reported_and_audited(tmp_path: Path) -> None:
     assert "outcome=failed" in svc.audit_path.read_text()
 
 
+# What fleet-up prints when the desk's service cannot find herdr (22 Nov: the desk's Wake).
+NO_HERDR = (
+    "fleet-up: config: /home/x/.config/hive/fleet-up.conf\n"
+    "fleet-up: firstmate: herdr not found: 'herdr' is not a command here; set HERDR_BIN to "
+    "its full path in /home/x/.config/hive/fleet-up.conf\n"
+    "fleet-up: step firstmate failed; the run goes on\n"
+)
+
+
+async def test_a_failed_start_gives_the_steps_own_reason_not_the_whole_output(
+    tmp_path: Path,
+) -> None:
+    result = await _service(tmp_path, "down", Fake(code=1, out=NO_HERDR)).wake("a", "desk")
+    assert result.outcome == "failed"
+    assert result.message == (
+        "Firstmate did not start: herdr not found: 'herdr' is not a command here; set "
+        "HERDR_BIN to its full path in /home/x/.config/hive/fleet-up.conf."
+    )
+
+
+async def test_a_start_that_died_before_its_step_spoke_still_says_what_is_known(
+    tmp_path: Path,
+) -> None:
+    out = "fleet-up.sh: line 167: GONEDARK_STATUS_CMD: unbound variable"
+    result = await _service(tmp_path, "down", Fake(code=1, out=out)).wake("a", "desk")
+    assert result.outcome == "failed"
+    assert result.message.startswith("Firstmate did not start: fleet-up exited 1: ")
+    assert "GONEDARK_STATUS_CMD: unbound variable" in result.message
+
+
+async def test_the_rate_limit_says_how_long_to_wait_and_claims_no_wake(tmp_path: Path) -> None:
+    # the slot is taken by a start that failed: "Woken a moment ago" would be untrue
+    runner = Fake(code=1, out=NO_HERDR)
+    svc = _service(tmp_path, "down", runner)
+    assert (await svc.wake("a", "desk")).outcome == "failed"
+    again = await svc.wake("a", "desk")
+    assert (again.outcome, runner.calls) == ("rate-limited", 1)
+    said = re.fullmatch(
+        r"A wake or restart was tried (\d+)s ago\. Wait (\d+)s, then try again\.", again.message
+    )
+    assert said, again.message
+    assert 0 <= int(said[1]) <= 2 and 58 <= int(said[2]) <= 60
+    assert "Woken" not in again.message
+
+
+async def test_an_attempt_is_running_while_the_step_runs_then_holds_how_it_ended(
+    tmp_path: Path,
+) -> None:
+    svc = _service(tmp_path, "down", Fake(code=1, out=NO_HERDR, delay_s=0.2))
+    seen: list[Attempt | None] = []
+    svc.on_change = lambda: seen.append(svc.attempt)
+    assert svc.attempt is None
+    task = asyncio.ensure_future(svc.wake("a", "desk"))
+    await asyncio.sleep(0.1)
+    assert svc.attempt is not None and svc.attempt.running and svc.attempt.action == "wake"
+    result = await task
+    assert svc.attempt.result == result and not svc.attempt.running
+    assert [a.running for a in seen if a] == [True, False]  # told when it began and when it ended
+
+
+async def test_an_action_that_starts_nothing_is_not_an_attempt(tmp_path: Path) -> None:
+    alive = _service(tmp_path / "a", "alive", Fake())
+    assert (await alive.wake("a", "desk")).outcome == "noop" and alive.attempt is None
+    svc = _service(tmp_path / "b", "down", Fake(code=1, out=NO_HERDR))
+    failed = await svc.wake("a", "desk")
+    assert (await svc.wake("a", "desk")).outcome == "rate-limited"
+    assert svc.attempt is not None and svc.attempt.result == failed  # still the real attempt
+
+
 async def test_wake_leaves_a_running_session_alone(tmp_path: Path) -> None:
     runner, killer = Fake(), Killer()
     result = await _service(tmp_path, "no-beat", runner, killer=killer).wake("a", "desk")
@@ -515,6 +594,7 @@ async def test_restart_without_a_new_session_is_a_failure_not_a_success(
     result = await svc.restart("a", "desk")
     assert (result.outcome, result.ok) == ("failed", False)
     assert "a new one did not start" in result.message and "from a terminal" in result.message
+    assert "no firstmate session started" in result.message
     assert "action=restart" in svc.audit_path.read_text()
     assert "outcome=failed" in svc.audit_path.read_text()
 
@@ -762,6 +842,115 @@ def test_second_wake_within_the_minute_is_429(tmp_path: Path) -> None:
     _dies(runner)
     again = _post(c, _confirm(c))
     assert again.status_code == 429 and runner.calls == 1
+
+
+JSON = {**GOOD, "accept": "application/json"}
+
+
+@pytest.fixture
+def short_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The desk's answer deadline, shortened so a slow start step is a matter of tenths."""
+    monkeypatch.setattr(actions, "ACT_WAIT_S", 0.05)
+
+
+def _chip(client: TestClient) -> str:
+    page = client.get("/", headers=GOOD).text
+    return page[page.index("<details class=qwrap id=fmchip") : page.index("id=qchip")]
+
+
+def test_desk_wake_while_firstmate_is_down_never_reports_a_start_that_did_not_happen(
+    tmp_path: Path, short_wait: None
+) -> None:
+    # 22 Nov: every accepted press answered OK while firstmate stayed down. The start step
+    # here fails the same way (herdr not found), slower than the desk's answer deadline.
+    runner = Fake(code=1, out=NO_HERDR, delay_s=0.4)
+    with _client(tmp_path, "down", runner) as c:
+        first = _post(c, _form(c), JSON).json()
+        assert first["confirm"] is True and runner.calls == 0  # the first 200 only asks
+        fields = _form(c, step=first["step"], rid=first["rid"])
+        res = _post(c, fields, JSON)
+        # still starting: said as that, with 202, never as done
+        assert res.status_code == 202
+        assert res.json() == {"ok": True, "pending": True, "message": FIRSTMATE_PENDING["wake"]}
+        chip = _chip(c)  # any page opened meanwhile shows it, and offers no second start
+        assert "firstmate · </span>starting</span>" in chip and "data-trying" in chip
+        assert "Starting firstmate, since" in chip and "/act/wake" not in chip
+        time.sleep(0.6)
+        late = _post(c, fields, JSON)  # the page asks again with the same request
+        assert late.status_code == 502
+        assert late.json() == {
+            "ok": False,
+            "message": "Firstmate did not start: herdr not found: 'herdr' is not a command "
+            "here; set HERDR_BIN to its full path in /home/x/.config/hive/fleet-up.conf.",
+        }
+        assert runner.calls == 1  # asked twice, run once
+        chip = _chip(c)  # and every page keeps the reason until firstmate is alive
+        assert "firstmate · </span>down</span>" in chip and "data-trying" not in chip
+        assert "fmpop__try--bad" in chip and "Last try, <time" in chip
+        assert "Firstmate did not start: herdr not found" in chip
+        assert "action='/act/wake'" in chip  # and Wake is offered again
+
+
+def test_desk_wake_that_takes_a_while_is_pending_then_started(
+    tmp_path: Path, short_wait: None
+) -> None:
+    runner = Fake(delay_s=0.4)
+    with _client(tmp_path, "down", runner) as c:
+        first = _post(c, _form(c), JSON).json()
+        fields = _form(c, step=first["step"], rid=first["rid"])
+        res = _post(c, fields, JSON)
+        assert res.status_code == 202 and res.json()["pending"] is True
+        time.sleep(0.6)
+        done = _post(c, fields, JSON)
+        assert done.status_code == 200
+        assert done.json() == {
+            "ok": True,
+            "pending": False,
+            "message": "Firstmate started in pane w1:p1.",
+        }
+        chip = _chip(c)  # its session runs; the watcher has not reported yet
+        assert "session up, watcher silent" in chip
+        assert "Last try, <time" in chip and "Firstmate started in pane w1:p1." in chip
+        assert "fmpop__try--bad" not in chip
+
+
+def test_desk_wake_pending_without_the_page_script_is_a_page_that_says_so(
+    tmp_path: Path, short_wait: None
+) -> None:
+    with _client(tmp_path, "down", Fake(delay_s=0.4)) as c:
+        res = _post(c, _confirm(c))
+        assert res.status_code == 200 and FIRSTMATE_PENDING["wake"] in res.text
+        assert "started in pane" not in res.text
+
+
+def test_desk_429_says_how_long_to_wait(tmp_path: Path) -> None:
+    runner = Fake(code=1, out=NO_HERDR)
+    c = _client(tmp_path, "down", runner)
+    assert _post(c, _confirm(c)).status_code == 502
+    first = _post(c, _form(c), JSON).json()
+    again = _post(c, _form(c, step=first["step"], rid=first["rid"]), JSON)
+    assert again.status_code == 429 and again.json()["ok"] is False
+    assert re.fullmatch(
+        r"A wake or restart was tried \d+s ago\. Wait \d+s, then try again\.",
+        again.json()["message"],
+    )
+    assert runner.calls == 1
+
+
+def test_the_chip_forgets_a_failed_try_once_firstmate_is_alive(tmp_path: Path) -> None:
+    runner = Fake(code=1, out=NO_HERDR)
+    svc = _service(tmp_path, "down", runner)
+    world = runner.world
+    assert world is not None
+    svc.status = StatusCache(svc.settings, reader=world.status, ttl_s=0)  # every page re-reads
+    c = TestClient(create_app(_settings(tmp_path), wake=svc), client=("127.0.0.1", 5000))
+    assert _post(c, _confirm(c)).status_code == 502
+    assert "Last try" in _chip(c)
+    world.state, world.pids = "alive", (NEW_PID,)  # started by hand since
+    c.get("/", headers=GOOD)  # the cache refreshes behind this page
+    time.sleep(0.1)
+    chip = _chip(c)
+    assert "Last try" not in chip and "firstmate · </span>alive</span>" in chip
 
 
 def test_alive_confirmed_post_is_a_noop_200(tmp_path: Path) -> None:
@@ -1124,3 +1313,23 @@ def test_runner_returns_when_the_script_exits_though_a_detached_child_lives_on(
         os.kill(int(pids.read_text()), signal.SIGKILL)
     assert (code, out.strip()) == (0, "started firstmate --only firstmate")
     assert time.monotonic() - start < 5
+
+
+WAKE_DOM = Path(__file__).parent / "wake_dom.js"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_failed_wake_drops_the_earlier_tries_note_from_the_open_popup(tmp_path: Path) -> None:
+    """The open popup still held "Last try: Firstmate started" above the new failure."""
+    js = tmp_path / "page.js"
+    js.write_text(SCRIPT)
+    answer = {"ok": False, "message": "Firstmate did not start."}
+    out = subprocess.run(
+        ["node", str(WAKE_DOM), str(js), json.dumps(answer)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    shown = json.loads(out.stdout)
+    assert shown["errors"] == ["Firstmate did not start."]
+    assert shown["tries"] == []

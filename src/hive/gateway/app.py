@@ -14,7 +14,7 @@ from urllib.parse import parse_qs
 
 from fastapi import FastAPI
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import Response
 
 from hive.gateway import actions, machine, pages, signins, terminal
 from hive.gateway.actions import ActionError, Outcome, RunOnce, Tokens
@@ -79,6 +79,8 @@ ACT_NAMES = (
     "control",
     "run",
     "terminal",
+    "watchdog",
+    *FIRSTMATE_ACTIONS,
     *REVIEW_ACTIONS,
 )
 PUSH_POSTS = ("/push/subscribe", "/push/unsubscribe")
@@ -113,6 +115,8 @@ def create_app(
     wake = wake or WakeService(settings)
     push = PushService(settings.data_dir, f"mailto:{settings.owner_login}")
     hub = LiveHub(settings, provider, push.notify)
+    # A wake or restart beginning or ending changes the firstmate chip on every open page.
+    wake.on_change = lambda: hub.publish("desk")
 
     async def work_underway() -> bool | None:
         """Loops running or tickets in flight, from the cached snapshot; None if unreadable."""
@@ -242,9 +246,7 @@ def create_app(
                     result = await _firstmate(name, form, wake, settings, tokens, runs)
                 if isinstance(result, Confirm):
                     return confirm_response(result, nxt, tokens, wants_json)
-                if wants_json:
-                    return JSONResponse({"ok": True, "message": result.summary})
-                return HTMLResponse(pages.render_outcome(result, nxt))
+                return outcome_response(result, nxt, wants_json)
             result = await _snapshot_action(
                 name, form, provider, settings, tokens, runs, nxt, lambda: hub.publish("desk")
             )

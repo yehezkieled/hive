@@ -10,7 +10,7 @@ Files (all shipped in this repo, none installed by it):
 | File | Purpose |
 | --- | --- |
 | `scripts/fleet-up.sh` | The idempotent "fleet up" script. `--dry-run` prints and changes nothing. |
-| `deploy/fleet-up/fleet-up.conf` | Paths and ports (the captain's current values). Override in `~/.config/hive/fleet-up.conf` or the environment. |
+| `deploy/fleet-up/fleet-up.conf` | Paths and ports (the captain's current values). A copy at `~/.config/hive/fleet-up.conf` replaces it whole; the environment wins over either (see "Settings" below). |
 | `deploy/systemd/hive-gateway.service` | Gateway, `Restart=always`. |
 | `deploy/systemd/clip-desk.service` | Clip desk (`~/apps/clip-desk`, loopback :8492, tailnet https 8448), `Restart=always`. Never port 8490: it is stuck in Windows' WSL relay. |
 | `deploy/systemd/hive-fleet-up.{service,timer}` | Runs fleet-up at boot and every 5 minutes. |
@@ -52,6 +52,36 @@ README, "Install and launch"). [UNSURE] Starting the herdr server with `herdr se
 down was not exercised here; if it needs a different command, set it by
 bringing herdr up first and the step skips the start.
 
+**Settings.** The script reads one config: `--conf`, else `FLEET_UP_CONF`, else
+`~/.config/hive/fleet-up.conf`, else the shipped `deploy/fleet-up/fleet-up.conf`.
+The environment wins over it. Nothing is filled in from the shipped file, so a
+step added later stays off on a host until its lines are copied into that host's
+config. Every step but `gateway` and `firstmate` is optional: when one of its
+settings is missing or empty (`*_PORT` or `*_START_CMD` for clipdesk, bnm, lavish
+and preview; `*_STATUS_CMD` or `*_START_CMD` for runtime and gonedark;
+`TAILSCALE_BIN` or `SERVE_MAP` for serve) the step is skipped with one line,
+`fleet-up: <step>: skipped; <SETTING> is not set in <config>`, and that is no
+failure.
+
+**One step never stops the next.** Each step runs on its own. A step that fails
+(a service that does not open its port, a command that is missing, a setting the
+gateway or firstmate step needs left unset) logs
+`fleet-up: step <name> failed; the run goes on`; the steps after it still run,
+firstmate last, and the run exits 1.
+
+**Any caller.** The timer (`hive-fleet-up.service`) runs the whole script and the
+desk's Wake runs `--only firstmate` from inside `hive-gateway.service`, so the
+script does not rely on what its caller provides. It puts `~/.local/bin` (where
+`herdr`, `claude` and `node` are installed) on `PATH` itself; a service manager's
+`PATH` does not list it. Under systemd it starts the herdr server in a transient
+scope of its own (`systemd-run --user --scope`): a herdr server started from the
+desk would otherwise belong to the desk's service and be stopped, with firstmate
+and every crew pane in it, the next time that service restarts. Without a systemd
+user manager (macOS) the server is detached plainly (`nohup setsid`, or `nohup`
+where there is no `setsid`), the way bnm, lavish and preview always are.
+The firstmate step says which tool is missing (`herdr not found: ...`, `jq not
+found`) instead of waiting for a server that cannot start.
+
 Check without changing anything:
 
 ```sh
@@ -72,7 +102,9 @@ without a terminal. Two separate actions, each offered only in its own state:
   the process table shows firstmate down, it first releases a stale herdr
   `claude` report on firstmate's own pane, the same way Restart does (below). It
   reports success only once a new firstmate process is seen (up to 10 s), else a
-  failure saying to run the step from a terminal.
+  failure saying to run the step from a terminal. A start step that fails is
+  reported as `Firstmate did not start: <the step's own last line>` (for example
+  `herdr not found: ...`); the script's whole output goes to the desk's log.
 - **Restart session** (state `session up, watcher silent`, a connected but wedged
   session): stops that one firstmate session and then runs the same fleet-up
   step to start a fresh one. It signals only the single `claude` process whose
@@ -105,7 +137,16 @@ re-reads it fresh first.
 holds **Wake firstmate** when firstmate is down and **Restart session** when its
 watcher is silent; each needs a second tap, with the confirm text shown beside
 the armed button (a confirm page without JavaScript; the restart's says plainly
-that it stops the running session), and the result shows inline. `POST /act/wake` and
+that it stops the running session). The first `200` only asks for that second
+tap; nothing has run yet. The confirmed tap is answered within a second like
+every other `/act/*`: a start step still running answers `202 pending`, the
+button reads "Starting…" (never "Sent") and the page asks again with the same
+request id until it ends, then shows the chip as it now is, or "Failed ✗" with
+the reason. While a wake or restart runs, the chip on every page reads `starting`
+(or `restarting`) and offers no second button, so leaving the page loses nothing;
+until firstmate is alive again the chip keeps the last try's time and how it
+ended (kept in the desk's memory, so only tries made through this desk process
+since it started). `POST /act/wake` and
 `POST /act/restart` go through the gateway's owner gate (tailnet login, loopback
 peer, Host/Origin, CSRF) plus a step-up token, and work while firstmate's snapshot
 is unreadable.
@@ -120,7 +161,9 @@ serves nobody, and anyone else gets no reply and no effect. The bot's full
 command list is in [telegram.md](telegram.md).
 
 **Guards**: one wake or restart per 60 s across both actions, the desk and the
-bot (a shared lock file), and one audit line per attempt (action, who, when,
+bot (a shared lock file); a press inside that minute is refused (`429` on the
+desk) with how long ago the last try was and how many seconds to wait, whether
+or not that try started anything. One audit line per attempt (action, who, when,
 outcome) in `<HIVE_GATEWAY_DATA_DIR>/wake-audit.log` (default
 `~/.local/state/hive-gateway/`), a Hive-owned file. The bot needs the same
 `HIVE_GATEWAY_*` environment as the gateway so both read the same data dir and

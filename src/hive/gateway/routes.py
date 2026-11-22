@@ -79,6 +79,7 @@ class Services:
             project_notes=project_notes(snap),
             postures=postures,
             firstmate=self.wake.status.peek(),
+            attempt=self.wake.attempt,
             wake_enabled=self.wake.available,
             watchdog=self.watchdog.store.view(),
             terminal=self.terminal,

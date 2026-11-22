@@ -18,7 +18,7 @@ from hive.gateway.pages.style import CSS
 from hive.gateway.quota import STALE_AFTER_S, Quota
 from hive.gateway.settings import DEFAULT_BOARD_URL, DEFAULT_TZ
 from hive.gateway.snapshot import Snapshot
-from hive.gateway.wake import FirstmateStatus
+from hive.gateway.wake import Attempt, FirstmateStatus
 from hive.gateway.watchdog import View
 
 BOARD_RE = re.compile(r"https?://(?:127\.0\.0\.1|localhost|\[::1\]):4387/(session/[A-Za-z0-9_-]+)")
@@ -46,6 +46,7 @@ class Ctx:
         can_close_reviews: bool = False,
         project_notes: dict[str, str] | None = None,
         firstmate: FirstmateStatus | None = None,
+        attempt: Attempt | None = None,
         wake_enabled: bool = False,
         watchdog: View | None = None,
         postures: fmconfig.Projects | None = None,
@@ -64,6 +65,7 @@ class Ctx:
         self.project_notes = project_notes or {}  # registry name -> one-line project description
         self.repos = repos or {}  # registry name -> GitHub repo name (when it differs)
         self.firstmate = firstmate  # cached liveness; None: not read yet
+        self.attempt = attempt  # the wake or restart now running, or how the last one ended
         self.watchdog = watchdog  # automatic recovery: switch, ladder, latest events
         self.wake_enabled = wake_enabled  # the wake form is shown (the action may still refuse)
 
@@ -265,6 +267,11 @@ def _clock_hm(value: object, tz: str) -> str:
         return ""
 
 
+def _at(epoch: float, tz: str) -> str:
+    """A clock time the page script rewrites to "just now" or "5 min ago" in the viewer's zone."""
+    return f"<time datetime='{esc(_iso(epoch))}'>{esc(_clock_hm(epoch, tz))}</time>"
+
+
 _FM_DOT = {"alive": "ok", "no-beat": "warn", "down": "hot"}
 
 
@@ -274,19 +281,41 @@ def _fm_chip(ctx: Ctx) -> str:
 
     The forms are shown even while the snapshot is unreadable (``always``): that is exactly
     when firstmate may be down. The action still re-checks and confirms before it runs.
+
+    A wake or restart that is running shows on every page, in place of the forms: the chip
+    says "starting", never the old state with a button that looks untouched. Until firstmate
+    is alive again the last one's end stays shown, with its reason when it failed.
     """
     fm = ctx.firstmate
     state = fm.state if fm else "unknown"
     label = fm.label if fm else "checking"
+    cls = _FM_DOT.get(state, "unknown")
     detail = esc(fm.describe()) if fm else "Firstmate status has not been read yet."
-    wake = ""
-    if ctx.wake_enabled and fm is not None and fm.can_wake:
+    tried = ctx.attempt
+    trying = tried is not None and tried.running
+    note = wake = ""
+    if tried is None:
+        pass
+    elif tried.result is None:
+        label, cls = "restarting" if tried.action == "restart" else "starting", "warn"
+        note = (
+            f"<p class=fmpop__try role=status>{label.capitalize()} firstmate, since "
+            f"{_at(tried.started_at, ctx.tz)}. This can take a minute or two.</p>"
+        )
+    elif state != "alive":
+        bad = "" if tried.result.ok else " fmpop__try--bad"
+        note = (
+            f"<p class='fmpop__try{bad}' role=status>Last try, {_at(tried.started_at, ctx.tz)}: "
+            f"{esc(tried.result.message)}</p>"
+        )
+    offer = ctx.wake_enabled and not trying  # one is running: no button to start a second
+    if offer and fm is not None and fm.can_wake:
         wake = ctx.form(
             "wake",
             "<button class='btn btn--p' type=submit>Wake firstmate</button>",
             always=True,
         )
-    elif ctx.wake_enabled and fm is not None and fm.can_restart:
+    elif offer and fm is not None and fm.can_restart:
         wake = ctx.form(
             "restart",
             "<button class='btn btn--p' type=submit>Restart session</button>",
@@ -297,14 +326,13 @@ def _fm_chip(ctx: Ctx) -> str:
             "<p class=fmpop__term><a class=lnk href='/terminal'>Open firstmate’s terminal</a></p>"
         )
     wake += _watchdog_panel(ctx)
-    cls = _FM_DOT.get(state, "unknown")
     return (
-        "<details class=qwrap id=fmchip>"
+        f"<details class=qwrap id=fmchip{' data-trying' if trying else ''}>"
         f"<summary class='qchip qchip--{cls}' "
         f"aria-label='Firstmate {esc(label)}'>"
         f"<span class=dot></span><span><span class=tchip__l>firstmate · </span>{esc(label)}</span></summary>"
         f"<div class='qpop fmpop'><h3><span class='dot dot--{cls}'></span>Firstmate · {esc(label)}</h3>"
-        f"<p>{detail}</p>{wake}</div></details>"
+        f"<p>{detail}</p>{note}{wake}</div></details>"
     )
 
 

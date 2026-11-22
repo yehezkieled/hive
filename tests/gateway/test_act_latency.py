@@ -7,6 +7,10 @@ work keeps going; the same request id asked again returns its result, or its fai
 
 The Machine page is held to the same second: its probes (PowerShell, Tailscale, systemctl)
 hang on the same switch, and the page answers from what it has instead of waiting for them.
+
+Wake and Restart run a fake fleet-up script on the same switch. Firstmate shows as down, or,
+while ``session`` exists, as a session whose watcher is silent (what Restart is for); the fake
+killer only removes that file. No real session is read, started or signalled.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from hive.gateway.actions import Tokens
 from hive.gateway.app import ACT_NAMES, create_app
 from hive.gateway.handlers import _step_subject
 from hive.gateway.settings import GatewaySettings
+from hive.gateway.wake import FirstmateStatus, StatusCache, WakeService
 from tests.gateway.fmcfg import write_config
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "gateway" / "fleet-snapshot.v1.json"
@@ -94,7 +99,41 @@ def home(tmp_path: Path) -> Path:
         tmp_path / "probe",
         f"echo x >> '{tmp_path}/probed'\n[ -e '{tmp_path}/slow' ] && sleep {SLOW_S}\nexit 1",
     )
+    # the fleet-up firstmate step: slow like the rest, then it fails to start anything
+    _write(
+        tmp_path / "fleet-up",
+        f"[ -e '{tmp_path}/slow' ] && sleep {SLOW_S}\n"
+        'echo "fleet-up: firstmate: herdr server did not come up within 20s"\nexit 1',
+    )
     return write_config(tmp_path)
+
+
+FM_PID = 4242  # the fake firstmate session; never a real process
+
+
+def _wake_service(settings: GatewaySettings, home: Path) -> WakeService:
+    """The real service and its real runner (the fake fleet-up script), over a fake process
+    table: ``session`` exists while firstmate's session does."""
+    session = home / "session"
+
+    def status(_home: Path) -> FirstmateStatus:
+        if session.exists():
+            return FirstmateStatus("no-beat", (FM_PID,), 4000.0, time.time())
+        return FirstmateStatus("down", (), 4000.0, time.time())
+
+    def kill(pid: int, sig: int) -> None:
+        assert pid == FM_PID
+        if sig != 0:
+            session.unlink(missing_ok=True)
+        elif not session.exists():
+            raise ProcessLookupError
+
+    return WakeService(
+        settings,
+        status=StatusCache(settings, reader=status),
+        killer=kill,
+        activity=lambda _pid: None,
+    )
 
 
 @pytest.fixture
@@ -113,8 +152,9 @@ def client(home: Path) -> Iterator[TestClient]:
         tailscale=home / "probe",
         systemctl=home / "probe",
         herdr=home / "herdr",
+        fleet_up=home / "fleet-up",
     )
-    app = create_app(settings, tokens=CSRF)
+    app = create_app(settings, tokens=CSRF, wake=_wake_service(settings, home))
     before = _descendants()
     # One event loop for the whole test (as in production), so a run left going survives.
     with TestClient(app, client=("127.0.0.1", 5000), follow_redirects=False) as c:
@@ -210,6 +250,14 @@ CASES: dict[str, Callable[[str], dict]] = {
         "step": CSRF.step_up("run", f"restart-clipdesk:-:{rid}"),
     },
     "terminal": lambda rid: {"rid": rid, "step": CSRF.step_up("terminal", f"open:{rid}")},
+    # firstmate is down and the fleet-up step hangs while the switch is on
+    "wake": lambda rid: {"rid": rid, "step": CSRF.step_up("wake", f"firstmate:{rid}")},
+    "restart": lambda rid: {"rid": rid, "step": CSRF.step_up("restart", f"firstmate:{rid}")},
+    "watchdog": lambda rid: {
+        "rid": rid,
+        "to": "on",
+        "step": CSRF.step_up("watchdog", f"firstmate:{rid}"),
+    },
     "review-close": lambda rid: {
         "rid": rid,
         "key": "page-a",
@@ -228,7 +276,11 @@ def test_every_act_route_has_a_timing_case() -> None:
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-def test_act_answers_within_a_second_when_firstmate_is_slow(client: TestClient, name: str) -> None:
+def test_act_answers_within_a_second_when_firstmate_is_slow(
+    client: TestClient, home: Path, name: str
+) -> None:
+    if name == "restart":  # Restart is only for a session that runs with a silent watcher
+        (home / "session").write_text("")
     start = time.monotonic()
     res = act(client, name, **CASES[name](_rid(1)))
     took = time.monotonic() - start
@@ -300,6 +352,23 @@ def test_a_replay_after_the_card_is_gone_still_reads_as_success(
     assert gone.status_code == 200 and gone.json()["ok"] is True
     other = act(client, "decision", **{**fields, "rid": _rid(7), "key": "no-longer-open"})
     assert other.status_code == 409  # a different request is still refused
+
+
+@pytest.mark.parametrize("name", ["wake", "restart"])
+def test_a_slow_start_is_pending_then_the_same_request_says_how_it_ended(
+    client: TestClient, home: Path, name: str
+) -> None:
+    # 22 Nov: the desk held this request for the whole start step and the page said "Sent"
+    if name == "restart":
+        (home / "session").write_text("")
+    fields = CASES[name](_rid(8))
+    first = act(client, name, **fields)
+    assert first.status_code == 202
+    assert first.json()["pending"] is True and "firstmate" in first.json()["message"]
+    time.sleep(SLOW_S + 0.7)
+    late = act(client, name, **fields)
+    assert late.status_code == 502 and late.json()["ok"] is False
+    assert "herdr server did not come up within 20s" in late.json()["message"]
 
 
 def test_the_machine_page_answers_within_a_second_when_every_probe_is_slow(

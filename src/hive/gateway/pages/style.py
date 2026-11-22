@@ -116,6 +116,9 @@ box-shadow:0 16px 40px var(--shadow);font:15px/1.45 var(--ft);white-space:normal
 .fmpop p{margin:0 0 8px;color:var(--muted)}.fmpop form{margin:0}
 .fmpop>form{margin-top:12px}
 .fmpop__term{margin-top:12px!important}
+.fmpop .fmpop__try{margin:12px 0 0;font:600 14px/1.4 var(--ft);color:var(--ink);overflow-wrap:anywhere}
+.fmpop .fmpop__try--bad,.fmpop .act-err{color:var(--down);overflow-wrap:anywhere}
+.fmpop form.is-sending .btn{opacity:.75}.fmpop form.is-sending .btn::after{display:none}
 .wdpanel{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .wdpanel>p{flex:1 1 160px;margin:0;color:var(--ink)}
 .wdlog{flex-basis:100%;list-style:none;margin:0;padding:0;font-size:14px;color:var(--muted)}.wdlog li{padding:2px 0}
