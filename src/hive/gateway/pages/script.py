@@ -258,6 +258,7 @@ if(act==='ticket')setTimeout(function(){fm.classList.remove('is-sent');b.classLi
 b.classList.remove('is-sent','is-armed');b.textContent='Failed ✗';b.title=j.message||'';actWarn(fm,'');
 var m=fm.querySelector('.act-err');if(!m){m=document.createElement('p');m.className='act-err';m.setAttribute('role','alert');fm.appendChild(m);}
 m.textContent=j.message||'Could not send.';
+if(LONG[act]){var ty=document.querySelector('#fmchip .fmpop__try');if(ty)ty.parentNode.removeChild(ty);}
 fm.removeAttribute('data-step');fm.removeAttribute('data-extra');if(!j.net)freshRid(fm);
 setTimeout(function(){b.textContent=b.getAttribute('data-was');},3000);},0);});
 function runShow(fm,b,j){fm.classList.add('is-shown');b.classList.remove('is-armed','is-sent');

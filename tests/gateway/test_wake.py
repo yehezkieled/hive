@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -25,6 +26,7 @@ from fastapi.testclient import TestClient
 from hive.gateway import actions
 from hive.gateway.app import create_app
 from hive.gateway.handlers import FIRSTMATE_PENDING
+from hive.gateway.pages.script import SCRIPT
 from hive.gateway.settings import GatewaySettings
 from hive.gateway.wake import (
     ACTIVE_RECENT_S,
@@ -1311,3 +1313,23 @@ def test_runner_returns_when_the_script_exits_though_a_detached_child_lives_on(
         os.kill(int(pids.read_text()), signal.SIGKILL)
     assert (code, out.strip()) == (0, "started firstmate --only firstmate")
     assert time.monotonic() - start < 5
+
+
+WAKE_DOM = Path(__file__).parent / "wake_dom.js"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_a_failed_wake_drops_the_earlier_tries_note_from_the_open_popup(tmp_path: Path) -> None:
+    """The open popup still held "Last try: Firstmate started" above the new failure."""
+    js = tmp_path / "page.js"
+    js.write_text(SCRIPT)
+    answer = {"ok": False, "message": "Firstmate did not start."}
+    out = subprocess.run(
+        ["node", str(WAKE_DOM), str(js), json.dumps(answer)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    shown = json.loads(out.stdout)
+    assert shown["errors"] == ["Firstmate did not start."]
+    assert shown["tries"] == []
